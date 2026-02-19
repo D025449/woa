@@ -3,7 +3,7 @@ const app = express();
 const request = require('request');
 const wikip = require('wiki-infobox-parser');
 const multer = require('multer');
-const fitParser = require('fit-file-parser');
+const fitParser = require('fit-file-parser').default;
 
 const upload = multer();
 
