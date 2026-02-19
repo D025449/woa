@@ -20,6 +20,8 @@
   "dependencies": {
     "ejs": "^3.1.10",
     "express": "^4.17.3",
+    "fit-file-parser": "^2.3.3",
+    "multer": "^2.0.2",
     "node-fetch": "^2.6.7",
     "nodemon": "^2.0.20",
     "request": "^2.88.2",

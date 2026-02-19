@@ -2,6 +2,12 @@ const express = require('express');
 const app = express();
 const request = require('request');
 const wikip = require('wiki-infobox-parser');
+const multer = require('multer');
+const fitParser = require('fit-file-parser');
+
+const upload = multer();
+
+
 
 //ejs
 app.set("view engine", 'ejs');
@@ -9,6 +15,26 @@ app.set("view engine", 'ejs');
 //routes
 app.get('/', (req,res) =>{
     res.render('index');
+});
+
+app.post('/upload', upload.single('file'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).send('No file uploaded.');
+    }
+
+    const buffer = req.file.buffer;
+
+    const fitParserInstance = new fitParser();
+    fitParserInstance.parse(
+        buffer,
+        (error, data) => {
+            if (error) {
+                return res.status(500).send('Error parsing FIT file.');
+            }
+            // Hier kannst du die Daten weiterverarbeiten, z.B. zurücksenden
+            res.json(data);
+        }
+    );
 });
 
 app.get('/index', (req,response) =>{
