@@ -35,7 +35,7 @@
             })
             .then(response => response.json())
             .then(data => {
-                document.getElementById('response').innerHTML = '<div class="alert alert-success">' + data + '</div>';
+                document.getElementById('response').innerHTML = '<div class="alert alert-success">' + JSON.stringify(data) + '</div>';
             })
             .catch(error => {
                 document.getElementById('response').innerHTML = '<div class="alert alert-danger">Fehler beim Upload.</div>';
