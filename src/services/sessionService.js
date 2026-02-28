@@ -16,7 +16,7 @@ const sessionMiddleware = session({
     cookie: {
         httpOnly: true,
         maxAge: 60 * 60 * 1000, // one hour
-        secure: process.env.NODE_ENV === "production",   // ❗ bei localhost muss false sein
+        secure: false,//process.env.NODE_ENV === "production",   // ❗ bei localhost muss false sein
         sameSite: 'lax'
 
     }
