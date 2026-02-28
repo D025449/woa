@@ -7,7 +7,7 @@ const multer = require('multer');
 const fitParser = require('fit-file-parser').default;
 const { randomUUID } = require('crypto');
 
-
+app.set('trust proxy', 1);
 
 app.use(express.static(path.join(__dirname, "public")));
 
