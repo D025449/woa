@@ -14,6 +14,12 @@ exports.uploadFile = async (req, res) => {
     //parseFit(file.buffer);
 
     const fitJsonObject = await fitService.parseFit(file.buffer);
+
+    const gpsTrack = fitService.extractCleanGpsTrack(fitJsonObject);
+
+    const session = fitService.aggregateSessions(fitJsonObject);
+
+
     const fitJsonBuffer = Buffer.from(JSON.stringify(fitJsonObject));
 
     const newFilename = path.basename(file.originalname, path.extname(file.originalname)) + ".json";
@@ -27,8 +33,11 @@ exports.uploadFile = async (req, res) => {
          file_size: fitJsonBuffer.length
     }
 
-    await insertFile(fitFile);
-    await s3Service.uploadFile(s3Key,fitJsonBuffer, "application/json");
+    const fileRow = fitService.mapToFileRow(fitJsonObject,fitFile);
+
+
+    await insertFile(fileRow);
+    await s3Service.putObject(s3Key, fitJsonBuffer, "application/json");
 
 
     /*await db.query(
@@ -42,6 +51,6 @@ exports.uploadFile = async (req, res) => {
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Upload fehlgeschlagen" });
+    res.status(500).json({ error: "Upload fehlgeschlagen: " + err.message });
   }
 };
