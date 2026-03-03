@@ -7,9 +7,35 @@ document.addEventListener("DOMContentLoaded", function () {
 
   const baseOption = {
 
-    tooltip: {
+    /*tooltip: {
       trigger: "axis"
+    },*/
+
+    tooltip: {
+      trigger: "item",
+      formatter: function (params) {
+
+        // Falls markArea Hover
+    // markArea
+    if (params.componentType === "markArea") {
+      const d = params.data;
+      return `
+        <b>Segment</b><br/>
+        Type: ${d.segmentType}<br/>
+        AvgPwr: ${d.avgPower}
+      `;
+    }
+
+        // Normale Linienanzeige
+        let result = params[0].axisValueLabel + "<br/>";
+        params.forEach(p => {
+          result += `${p.marker} ${p.seriesName}: ${p.value[1]}<br/>`;
+        });
+
+        return result;
+      }
     },
+
 
     legend: {
       data: ["Power", "Heart Rate", "Cadence"]
@@ -20,6 +46,8 @@ document.addEventListener("DOMContentLoaded", function () {
     },
     xAxis: {
       type: "value",
+      boundaryGap: false,
+      scale: true,
       axisLabel: {
         formatter: function (value) {
           const h = Math.floor(value / 3600);
@@ -45,7 +73,12 @@ document.addEventListener("DOMContentLoaded", function () {
         type: "line",
         yAxisIndex: 0,
         encode: { x: 0, y: 1 },
-        showSymbol: false
+        showSymbol: false,
+        markArea: {
+          silent: false,
+          label: { show: false },
+          data: []
+        }
       },
       {
         name: "Heart Rate",
@@ -157,20 +190,66 @@ document.addEventListener("DOMContentLoaded", function () {
 
     try {
       const response = await fetch(`/files/workouts/${workoutId}/data`);
-      const { t, p, h, c } = await response.json();
+      //const { t, p, h, c } = await response.json();
+      const { data, segments } = await response.json();
 
-      // Dataset aufbauen
-      const source = t.map((time, i) => [
-        time,
-        p[i],
-        h[i],
-        c[i]
+      //segments.push( { start : 200, end : 560 });
+
+      const maxX = data[data.length - 1][0];
+      console.log(data[data.length - 1][0]);
+
+      const segmentAreas = segments.map(seg => [
+        {
+          xAxis: seg.start,
+          segmentType: seg.type,
+          name: seg.type,
+          segmentDuration: seg.segmentDuration,
+          avgPower: seg.avgPower,
+          itemStyle: { color: "rgba(255,0,0,0.15)" }
+        },
+        { xAxis: seg.end }
       ]);
 
       chart.setOption({
         dataset: {
-          source: source
-        }
+          source: data
+        },
+
+        xAxis: {
+          max: maxX
+        },
+
+        series: [{
+          name: "Power",
+          markArea: {
+            silent: false,
+            label: { show: false },
+            tooltip: {
+              formatter: function (params) {
+                const data = params.data;
+
+                return `
+          <b>Segment</b><br/>
+          Type: ${data.segmentType}<br/>
+          AgvPwr: ${data.avgPower}<br/>
+        `;
+              }
+            },
+            data: segmentAreas
+          }
+        }],
+        dataZoom: [
+          {
+            type: "inside",
+            start: 0,
+            end: 100
+          },
+          {
+            type: "slider",
+            start: 0,
+            end: 100
+          }
+        ]
       });
 
     } catch (err) {

@@ -54,20 +54,49 @@ class FileDBService {
       return [];
     }
 
+    /*const data = [];
+    for (let i = 0; i < payload.records.length; i++) {
+      data.push([
+        i, // oder payload.records[i].timestamp, je nachdem was du als x-Achse willst
+        payload.records[i].power ?? null,
+        payload.records[i].heart_rate ?? null,
+        payload.records[i].cadence ?? null
+      ]);
+    }*/
 
-  const t = [];
-  const p = [];
-  const h = [];
-  const c = [];
-  let i = 0;
-  for (const r of payload.records) {
-    t.push(i++);
-    p.push(r.power ?? null);
-    h.push(r.heart_rate ?? null);
-    c.push(r.cadence ?? null);
-  }
+    /*
+      const t = [];
+      const p = [];
+      const h = [];
+      const c = [];
+      let i = 0;
+      for (const r of payload.records) {
+        t.push(i++);
+        p.push(r.power ?? null);
+        h.push(r.heart_rate ?? null);
+        c.push(r.cadence ?? null);
+      }
+      data = { t, p, h, c };*/
+    const data = [];
 
-  return { t, p, h, c };
+    for (let i = 0; i < payload.records.length; i++) {
+      data.push([
+        i,
+        payload.records[i].power ?? null,
+        payload.records[i].heart_rate ?? null,
+        payload.records[i].cadence ?? null
+      ]);
+    }
+
+
+    const segments = [];
+    segments.push({ start: 100, end: 160, type: 'CP1', segmentDuration: 60, avgPower: 500 });
+    segments.push({ start: 200, end: 320, type: 'CP2', segmentDuration: 120, avgPower: 400 });
+    segments.push({ start: 400, end: 640, type: 'CP4', segmentDuration: 240, avgPower: 300 });
+    segments.push({ start: 700, end: 1180, type: 'CP8', segmentDuration: 480, avgPower: 270 });
+
+    return { data, segments };
+    //return  { t, p, h, c };
 
     // 4️⃣ Transformieren für Chart
     /*const transformed = payload.records

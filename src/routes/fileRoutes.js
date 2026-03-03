@@ -67,14 +67,14 @@ router.get("/workouts/:id/data", async (req, res, next) => {
     const workoutId = req.params.id;
     const authSub = req.session?.userInfo?.sub;
 
-    const records = await FileDBService.getWorkoutRecords(
+    const data = await FileDBService.getWorkoutRecords(
       workoutId,
       authSub
     );
 
     
     //res.json({} );
-    res.json(records);
+    res.json(data);
 
   } catch (err) {
     next(err);
