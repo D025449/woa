@@ -32,6 +32,7 @@
     "node-fetch": "^2.6.7",
     "nodemon": "^2.0.20",
     "openid-client": "^5.7.0",
+    "p-limit": "^7.3.0",
     "pg": "^8.18.0",
     "request": "^2.88.2",
     "tabulator-tables": "^6.3.1",

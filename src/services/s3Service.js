@@ -1,6 +1,7 @@
 const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const zlib = require("zlib");
+const { Readable } = require("stream");
 
 const s3 = new S3Client({
   region: process.env.AWS_REGION
@@ -8,6 +9,47 @@ const s3 = new S3Client({
 
 
 class S3Service {
+
+
+static jsonToGzipStream(obj) {
+
+  const jsonStream = new Readable({
+    read() {}
+  });
+
+  process.nextTick(() => {
+    try {
+      jsonStream.push("{");
+
+      const keys = Object.keys(obj);
+
+      keys.forEach((key, index) => {
+        const value = obj[key];
+
+        const chunk =
+          JSON.stringify(key) +
+          ":" +
+          JSON.stringify(value) +
+          (index < keys.length - 1 ? "," : "");
+
+        jsonStream.push(chunk);
+      });
+
+      jsonStream.push("}");
+      jsonStream.push(null);
+
+    } catch (err) {
+      jsonStream.destroy(err);
+    }
+  });
+
+  const gzip = zlib.createGzip({
+    level: zlib.constants.Z_BEST_SPEED
+  });
+
+  return jsonStream.pipe(gzip);
+}
+
 
   static async getJsonObject(bucket, key) {
 

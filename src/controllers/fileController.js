@@ -7,6 +7,80 @@ const path = require("path");
 const unzipper = require("unzipper");
 
 
+const pLimit = require("p-limit").default;
+
+
+async function processZipBuffer_par(zipBuffer, userSub) {
+
+  const directory = await unzipper.Open.buffer(zipBuffer);
+
+  const results = {
+    processed: 0,
+    success: 0,
+    failed: 0,
+    errors: []
+  };
+
+  const limit = pLimit(4); // ← Parallelität (4–6 ist meist optimal)
+
+  const tasks = [];
+
+  for (const entry of directory.files) {
+
+    if (entry.type !== "File") continue;
+
+    const ext = path.extname(entry.path).toLowerCase();
+
+    if (ext !== ".fit") continue;
+    if (entry.path.includes("__MACOSX")) continue;
+    if (path.basename(entry.path).startsWith("._")) continue;
+
+    const name = entry.path;
+    const filename = path.basename(name);
+
+    results.processed++;
+
+    tasks.push(
+
+      limit(async () => {
+
+        try {
+
+          console.log("ZIP entry:", entry.path);
+
+          const buffer = await entry.buffer();
+
+          await processFitBuffer(buffer, filename, userSub);
+
+          results.success++;
+
+        } catch (err) {
+
+          const message = getErrorMessage(err);
+
+          console.error(`Fehler bei FIT: ${name}`, message);
+
+          results.failed++;
+
+          results.errors.push({
+            file: entry.path,
+            error: message
+          });
+
+        }
+
+      })
+
+    );
+
+  }
+
+  await Promise.all(tasks);
+
+  return results;
+}
+
+
 async function processZipBuffer(zipBuffer, userSub) {
 
   const directory = await unzipper.Open.buffer(zipBuffer);
@@ -76,7 +150,7 @@ async function processFitBuffer(buffer, originalName, userSub) {
   const fitJsonBuffer = Buffer.from(proceessed_fit_records_str);
 
   //console.log(fitJsonObjectStr.length);
-  console.log(proceessed_fit_records_str.length);
+  //console.log(proceessed_fit_records_str.length);
 
   const newFilename = path.basename(originalName, path.extname(originalName)) + ".json";
 
@@ -134,7 +208,7 @@ exports.uploadFile = async (req, res) => {
     }
     else if (ext === ".zip") {
 
-      result = await processZipBuffer(file.buffer, userSub);
+      result = await processZipBuffer_par(file.buffer, userSub);
 
     }
     else {
