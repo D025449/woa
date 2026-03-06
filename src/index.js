@@ -164,9 +164,10 @@ app.get('/landing', async (req, res) => {
 
 
 app.get('/dashboard', checkAuth, async (req, res) => {
-
-    //const result = await db.query("SELECT NOW()");
-    //console.log(result.rows[0]);
+    if (!req.session.userInfo) {
+        res.redirect('/');
+        //return res.render('home'); // NICHT automatisch redirecten
+    }
     console.log(req.session.userInfo);
     res.render('dashboard', {
         userInfo: req.session.userInfo,

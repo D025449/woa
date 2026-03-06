@@ -22,6 +22,144 @@ const S3Service = require("./s3Service");
 
 class FileDBService {
 
+  static allowedColumns = [
+    "start_time",
+    "total_distance",
+    "avg_speed",
+    "avg_power",
+    "avg_normalized_power",
+    "total_timer_time",
+    "auth_sub"
+  ];
+
+  static numericFields = [
+    "total_distance",
+    "avg_speed",
+    "avg_power",
+    "avg_normalized_power",
+    "total_timer_time"
+  ];
+
+
+  static buildQueryParts(sort = [], filter = []) {
+
+    let whereParts = [];
+    let orderParts = [];
+    let params = [];
+
+    // --------------------
+    // FILTER
+    // --------------------
+    (filter || []).forEach(f => {
+
+      if (!FileDBService.allowedColumns.includes(f.field)) return;
+
+      const paramIndex = params.length + 1;
+
+      let value = f.value;
+      // 🔥 Cast numbers
+      if (FileDBService.numericFields.includes(f.field)) {
+        value = parseFloat(value);
+      }
+      switch (f.type) {
+
+        case "=":
+          whereParts.push(`${f.field} = $${paramIndex}`);
+          params.push(value);
+          break;
+
+        case ">":
+          whereParts.push(`${f.field} > $${paramIndex}`);
+          params.push(value);
+          break;
+
+        case "<":
+          whereParts.push(`${f.field} < $${paramIndex}`);
+          params.push(value);
+          break;
+
+        case ">=":
+          whereParts.push(`${f.field} >= $${paramIndex}`);
+          params.push(value);
+          break;
+
+        case "<=":
+          whereParts.push(`${f.field} <= $${paramIndex}`);
+          params.push(value);
+          break;
+
+        case "like":
+          whereParts.push(`${f.field} ILIKE $${paramIndex}`);
+          params.push(`%${value}%`);
+          break;
+
+        default:
+          whereParts.push(`${f.field} = $${paramIndex}`);
+          params.push(value);
+
+      }
+
+    });
+
+
+    // --------------------
+    // SORT
+    // --------------------
+    (sort || []).forEach(s => {
+
+      if (!FileDBService.allowedColumns.includes(s.field)) return;
+
+      const dir = s.dir === "desc" ? "DESC" : "ASC";
+
+      orderParts.push(`${s.field} ${dir}`);
+
+    });
+
+
+    const whereSQL = whereParts.length
+      ? `WHERE ${whereParts.join(" AND ")}`
+      : "";
+
+    const orderSQL = orderParts.length
+      ? `ORDER BY ${orderParts.join(", ")}`
+      : "ORDER BY start_time DESC";
+
+
+    return {
+      whereSQL,
+      orderSQL,
+      params
+    };
+  }
+
+static async getWorkoutRecordsPreSignedUrl(workoutId, authSub) {
+    if (!authSub) {
+      throw new Error("Unauthorized");
+    }
+
+    // 1️⃣ File prüfen + s3_key holen
+    const { rows } = await pool.query(
+      `
+      SELECT s3_key
+      FROM files
+      WHERE id = $1
+      AND auth_sub = $2
+      `,
+      [workoutId, authSub]
+    );
+
+    if (rows.length === 0) {
+      throw new Error("Workout not found");
+    }
+
+    const s3Key = rows[0].s3_key;
+    const bucket = process.env.S3_BUCKET;
+    const payload = await S3Service.getPresignedUrl(bucket, s3Key);
+    return payload;
+}
+
+
+
   static async getWorkoutRecords(workoutId, authSub) {
 
     if (!authSub) {
@@ -50,7 +188,7 @@ class FileDBService {
     const payload = await S3Service.getJsonObject(bucket, s3Key);
 
     // 3️⃣ Records extrahieren
-    if (!payload.records || !Array.isArray(payload.records)) {
+    if (!payload.data|| !Array.isArray(payload.data)) {
       return [];
     }
 
@@ -77,16 +215,16 @@ class FileDBService {
         c.push(r.cadence ?? null);
       }
       data = { t, p, h, c };*/
-    const data = [];
+    const data = payload.data;
 
-    for (let i = 0; i < payload.records.length; i++) {
+    /*for (let i = 0; i < payload.records.length; i++) {
       data.push([
         i,
         payload.records[i].power ?? null,
         payload.records[i].heart_rate ?? null,
         payload.records[i].cadence ?? null
       ]);
-    }
+    }*/
 
 
     const segments = [];
@@ -96,63 +234,77 @@ class FileDBService {
     segments.push({ start: 700, end: 1180, type: 'CP8', segmentDuration: 480, avgPower: 270 });
 
     return { data, segments };
-    //return  { t, p, h, c };
 
-    // 4️⃣ Transformieren für Chart
-    /*const transformed = payload.records
-      .filter(r => r.timestamp) // Sicherheitsfilter
-      .map(r => ({
-        timestamp: r.timestamp,
-        power: r.power ?? null,
-        heart_rate: r.heart_rate ?? null,
-        cadence: r.cadence ?? null
-      }));
-
-    return transformed;*/
   }
 
 
-  static async getWorkoutsByUser(authSub, page = 1, size = 20) {
+
+  static async getWorkoutsByUser(authSub, page, size, sort, filter) {
 
     const offset = (page - 1) * size;
 
-    // Hauptquery
+    const filter_all = [];
+    filter_all.push( { field : 'auth_sub', type : '=', value : authSub } );
+    filter_all.push(...filter);
+
+
+
+    const { whereSQL, orderSQL, params } =
+      FileDBService.buildQueryParts(sort, filter_all);
+
+    // -----------------------------------
+    // BASE WHERE (User Filter + Tabulator Filter)
+    // -----------------------------------
+
+    let baseWhere = "WHERE ";//auth_sub = $1";
+    let sqlParams = params;
+    if (whereSQL) {
+      baseWhere += whereSQL.replace("WHERE ", "");
+     // sqlParams = [params];
+    }
+
+    // -----------------------------------
+    // DATA QUERY
+    // -----------------------------------
+
     const dataQuery = `
-      SELECT *
-      FROM files
-      WHERE auth_sub = $1
-      ORDER BY start_time DESC
-      LIMIT $2 OFFSET $3
-    `;
+    SELECT *
+    FROM files
+    ${baseWhere}
+    ${orderSQL}
+    LIMIT $${sqlParams.length + 1}
+    OFFSET $${sqlParams.length + 2}
+  `;
+
+    const dataParams = [
+      ...sqlParams,
+      size,
+      offset
+    ];
+
+    const dataResult = await pool.query(dataQuery, dataParams);
+
+    // -----------------------------------
+    // COUNT QUERY
+    // -----------------------------------
 
     const countQuery = `
-      SELECT COUNT(*) AS cnt
-      FROM files
-      WHERE auth_sub = $1
-    `;
+    SELECT COUNT(*) AS total
+    FROM files
+    ${baseWhere}
+  `;
 
-    const { rows: data } = await pool.query(
-      dataQuery,
-      [authSub, size, offset]
-    );
+    const countResult = await pool.query(countQuery, sqlParams);
 
-    const { rows: countRows } = await pool.query(
-      countQuery,
-      [authSub]
-    );
-
-    const total = parseInt(countRows[0].cnt);
+    const totalRecords = parseInt(countResult.rows[0].total);
 
     return {
-      data,
-      last_page: Math.ceil(total / size),
-      total_records: total
+      data: dataResult.rows,
+      last_page: Math.ceil(totalRecords / size),
+      total_records: totalRecords
     };
   }
-
 }
-
-
 
 
 async function insertFile(fileRow) {
@@ -180,6 +332,7 @@ async function insertFile(fileRow) {
     max_speed,
     avg_power,
     max_power,
+    avg_normalized_power,
     avg_heart_rate,
     max_heart_rate,
     avg_cadence,
@@ -216,6 +369,7 @@ async function insertFile(fileRow) {
       max_speed,
       avg_power,
       max_power,
+      avg_normalized_power,
       avg_heart_rate,
       max_heart_rate,
       avg_cadence,
@@ -231,7 +385,7 @@ async function insertFile(fileRow) {
       $6,$7,
       $8,$9,$10,$11,$12,$13,$14,$15,
       $16,$17,$18,$19,$20,$21,$22,$23,
-      $24,$25,$26,$27
+      $24,$25,$26,$27,$28
     )
     ON CONFLICT (auth_sub, original_filename)
     DO NOTHING
@@ -260,6 +414,7 @@ async function insertFile(fileRow) {
       max_speed,
       avg_power,
       max_power,
+      avg_normalized_power,
       avg_heart_rate,
       max_heart_rate,
       avg_cadence,

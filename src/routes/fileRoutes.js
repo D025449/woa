@@ -8,6 +8,7 @@ const fileController = require('../controllers/fileController');
 const FileDBService = require("../services/fileDBService").FileDBService;
 
 
+
 // POST /files/upload
 router.post(
   '/upload',
@@ -17,23 +18,23 @@ router.post(
 );
 
 const checkAuth = (req, res, next) => {
-    if (!req.session.userInfo) {
-        req.isAuthenticated = false;
-    } else {
-        req.isAuthenticated = true;
-    }
-    next();
+  if (!req.session.userInfo) {
+    req.isAuthenticated = false;
+  } else {
+    req.isAuthenticated = true;
+  }
+  next();
 };
 
 
 router.get('/uploadUI', checkAuth, async (req, res) => {
-    console.log(req.session.userInfo);    
-    console.log(req.isAuthenticated);
+  console.log(req.session.userInfo);
+  console.log(req.isAuthenticated);
 
-    res.render('fileUpload', {
-        userInfo: req.session.userInfo,
-        isAuthenticated: req.isAuthenticated
-    });
+  res.render('fileUpload', {
+    userInfo: req.session.userInfo,
+    isAuthenticated: req.isAuthenticated
+  });
 });
 
 // -------------------------------------
@@ -42,15 +43,24 @@ router.get('/uploadUI', checkAuth, async (req, res) => {
 router.get("/workouts", async (req, res, next) => {
   try {
 
-    const page = parseInt(req.query.page) || 1;
-    const size = parseInt(req.query.size) || 20;
-
+    if (!req.session.userInfo) {
+      return res.status(401).json({
+        error: "Session expired"
+      });
+    }
+    console.log("QUERY:", req.query);
+    const page = parseInt(req.query.page || req.body.page) || 1;
+    const size = parseInt(req.query.size || req.body.size) || 20;
+    const sort = req.query.sort || [];
+    const filters = req.query.filter || [];
     const authSub = req.session?.userInfo?.sub;
 
     const result = await FileDBService.getWorkoutsByUser(
       authSub,
       page,
-      size
+      size,
+      sort,
+      filters
     );
 
     res.json(result);
@@ -63,18 +73,27 @@ router.get("/workouts", async (req, res, next) => {
 // GET /files/workouts/:id/data
 router.get("/workouts/:id/data", async (req, res, next) => {
   try {
-
+    if (!req.session.userInfo) {
+      return res.status(401).json({
+        error: "Session expired"
+      });
+    }
     const workoutId = req.params.id;
     const authSub = req.session?.userInfo?.sub;
 
-    const data = await FileDBService.getWorkoutRecords(
+    const url = await FileDBService.getWorkoutRecordsPreSignedUrl(
       workoutId,
       authSub
     );
 
-    
-    //res.json({} );
-    res.json(data);
+    res.json({ url });
+
+    /*const data = await FileDBService.getWorkoutRecords(
+      workoutId,
+      authSub
+    );
+
+    res.json(data);*/
 
   } catch (err) {
     next(err);

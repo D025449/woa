@@ -27,6 +27,7 @@ CREATE TABLE files (
 
     avg_speed            DOUBLE PRECISION,
     max_speed            DOUBLE PRECISION,
+    avg_normalized_power DOUBLE PRECISION,
 
     avg_power            DOUBLE PRECISION,
     max_power            DOUBLE PRECISION,

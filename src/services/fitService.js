@@ -44,6 +44,8 @@ function mapToFileRow(payload, fileMeta) {
     max_speed: aggregated.max_speed,
 
     avg_power: aggregated.avg_power,
+    avg_normalized_power: Math.round(aggregated.avg_normalized_power),
+
     max_power: aggregated.max_power,
 
     avg_heart_rate: aggregated.avg_heart_rate,
@@ -121,6 +123,7 @@ function aggregateSessions(payload) {
     avg_power: weightedAvg("avg_power"),
     avg_heart_rate: weightedAvg("avg_heart_rate"),
     avg_cadence: weightedAvg("avg_cadence"),
+    avg_normalized_power: weightedAvg("normalized_power"),
 
     // Maxima
     max_speed: max("max_speed"),
@@ -239,15 +242,209 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/*
+FIT Records
+     ↓
+Detect Gap
+     ↓
+Smart Resample
+     ↓
+Pause Detection
+     ↓
+Power Smoothing
+     ↓
+30s Rolling Average
+     ↓
+Normalized Power
+     ↓
+Dataset für Chart
+*/
 
+function processFitRecords(records) {
 
+  if (!records || records.length === 0) {
+    return { data: [], normalizedPower: 0 };
+  }
 
+  // ----------------------------------
+  // Sortieren (FIT kann out-of-order sein)
+  // ----------------------------------
 
+  records.sort((a, b) => a.timestamp - b.timestamp);
+
+  const result = [];
+
+  const startTime = records[0].timestamp;
+
+  const maxSmartGap = 5;
+  const smoothingAlpha = 0.25;
+
+  let prevT = null;
+
+  let lastPower = 0;
+  let lastHeartRate = 0;
+  let lastCadence = 0;
+  let lastSpeed = 0;
+
+  let ema = 0;
+
+  // rolling 30s power
+  const roll30 = new Array(30).fill(0);
+  let rollIndex = 0;
+  let rollSum = 0;
+  let rollCount = 0;
+
+  let npSum = 0;
+  let npCount = 0;
+
+  for (const r of records) {
+
+    // -------------------------------
+    // Zeit → Sekunden
+    // -------------------------------
+
+    const t = Math.round((r.timestamp - startTime) / 1000);
+
+    if (prevT !== null && t === prevT) {
+      continue;
+    }
+
+    // -------------------------------
+    // Forward Fill Sensoren
+    // -------------------------------
+
+    const power = r.power ?? lastPower ?? 0;
+    const heartRate = r.heart_rate ?? lastHeartRate ?? 0;
+    const cadence = r.cadence ?? lastCadence ?? 0;
+    const speed = r.speed ?? lastSpeed ?? 0;
+
+    // -------------------------------
+    // Gap Behandlung
+    // -------------------------------
+
+    if (prevT !== null) {
+
+      const gap = t - prevT;
+
+      if (gap > 1 && gap <= maxSmartGap) {
+
+        for (let s = 1; s < gap; s++) {
+
+          const tt = prevT + s;
+
+          // smoothing
+          ema = power === 0 ? ema : smoothingAlpha * power + (1 - smoothingAlpha) * ema;
+
+          // rolling30
+          rollSum -= roll30[rollIndex];
+          roll30[rollIndex] = power;
+          rollSum += power;
+
+          rollIndex = (rollIndex + 1) % 30;
+
+          if (rollCount < 30) rollCount++;
+
+          const avg30 = rollSum / rollCount;
+
+          const p4 = avg30 * avg30 * avg30 * avg30;
+
+          npSum += p4;
+          npCount++;
+
+          result.push([
+            //tt,
+            power,
+            heartRate,
+            cadence,
+            Math.round(speed * 10) / 10,
+            Math.round(ema)
+          ]);
+        }
+      }
+
+      else if (gap > maxSmartGap) {
+
+        result.push([
+          //prevT + 1,
+          NaN,
+          NaN,
+          NaN,
+          NaN,
+          NaN
+        ]);
+      }
+    }
+
+    // -------------------------------
+    // Zero-Aware Smoothing
+    // -------------------------------
+
+    ema = power === 0
+      ? ema
+      : smoothingAlpha * power + (1 - smoothingAlpha) * ema;
+
+    // -------------------------------
+    // Rolling 30s
+    // -------------------------------
+
+    rollSum -= roll30[rollIndex];
+    roll30[rollIndex] = power;
+    rollSum += power;
+
+    rollIndex = (rollIndex + 1) % 30;
+
+    if (rollCount < 30) rollCount++;
+
+    const avg30 = rollSum / rollCount;
+
+    const p4 = avg30 * avg30 * avg30 * avg30;
+
+    npSum += p4;
+    npCount++;
+
+    // -------------------------------
+    // Chart Record
+    // -------------------------------
+
+    result.push([
+      //  t,
+      power,
+      heartRate,
+      cadence,
+      Math.round(speed * 10) / 10,
+      Math.round(ema)
+    ]);
+
+    // -------------------------------
+
+    lastPower = power;
+    lastHeartRate = heartRate;
+    lastCadence = cadence;
+    lastSpeed = speed;
+
+    prevT = t;
+  }
+
+  // ----------------------------------
+  // Normalized Power
+  // ----------------------------------
+
+  const normalizedPower =
+    npCount === 0
+      ? 0
+      : Math.round(Math.pow(npSum / npCount, 0.25));
+
+  return {
+    data: result,
+    normalizedPower
+  };
+}
 module.exports = {
   parseFit,
   extractGpsTrack,
   extractCleanGpsTrack,
   toGoogleMapsPath,
   aggregateSessions,
-  mapToFileRow
+  mapToFileRow,
+  processFitRecords
 };
