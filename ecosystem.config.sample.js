@@ -24,7 +24,7 @@ module.exports = {
 
   
                 AWS_REGION: "eu-central-1",
-                S3_BUCKET: "cwa24bucketdev"                
+                S3_BUCKET: "cwa24bucketprod"                
             }
         },
         {
