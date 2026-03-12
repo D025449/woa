@@ -1,12 +1,24 @@
-const { CognitoJwtVerifier } = require("aws-jwt-verify");
+import { CognitoJwtVerifier } from "aws-jwt-verify";
 
-const verifier = CognitoJwtVerifier.create({
+let verifier;/* = CognitoJwtVerifier.create({
   userPoolId: process.env.COGNITO_USER_POOL_ID,
   tokenUse: "access", // oder "access oder id"
   clientId: process.env.COGNITO_CLIENT_ID,
-});
+});*/
 
-module.exports = async function authMiddleware(req, res, next) {
+function getVerifier() {
+  if (!verifier) {
+    verifier = CognitoJwtVerifier.create({
+      userPoolId: process.env.COGNITO_USER_POOL_ID,
+      tokenUse: "access",
+      clientId: process.env.COGNITO_CLIENT_ID,
+    });
+  }
+  return verifier;
+}
+
+
+export default async function authMiddleware(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
 

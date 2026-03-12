@@ -2,76 +2,161 @@
 <html lang="de">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FIT-Datei hochladen</title>
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>FIT Upload</title>
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
 </head>
 
-<body>
+<body class="bg-light">
 
-    <div>
-        <% if (isAuthenticated) { %>
-            <div class="container mt-5">
-                <h2>Welcome, <%= userInfo.name || userInfo.email %>
-                </h2>
-                <p>Here are some attributes you can use as a developer:</p>
-            </div>
+<% if (isAuthenticated) { %>
 
+<!-- Navbar -->
 
-            <div class="container mt-5">
-                <h2 class="mb-4">FIT-Datei hochladen</h2>
-                <form id="uploadForm">
-                    <div class="form-group">
-                        <label for="file">Wähle eine FIT-Datei:</label>
-                        <input type="file" class="form-control" id="file" name="file" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Hochladen</button>
-                </form>
-                <div id="response" class="mt-3"></div>
-                <a href="/logout">Logout</a>
-                <a href="/dashboard">Dashboard</a>
-            </div>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+<div class="container">
 
-            <% } else { %>
-                <div class="container mt-5"></div>
-                <p>Please log in to continue</p>
-                <a href="/login">Login</a>
-    </div>
-    <% } %>
-        </div>
+<span class="navbar-brand">Workout Dashboard</span>
+
+<div class="ms-auto d-flex align-items-center gap-3">
+
+<span class="text-white">
+<%= userInfo.name || userInfo.email %>
+</span>
+
+<a class="btn btn-outline-light btn-sm" href="/dashboard">
+Dashboard
+</a>
+
+<a class="btn btn-outline-danger btn-sm" href="/logout">
+Logout
+</a>
+
+</div>
+
+</div>
+</nav>
 
 
+<!-- Content -->
 
-        <script>
-         //   const jwtToken = "<%= userInfo.access_token %>"; // jetzt enthält er den Access Token
+<div class="container py-5">
 
-            document.getElementById('uploadForm').addEventListener('submit', function (e) {
-                e.preventDefault();
-                const fileInput = document.getElementById('file');
-                const file = fileInput.files[0];
-                if (!file) return;
+<div class="row justify-content-center">
 
-                const formData = new FormData();
-                formData.append('file', file);
+<div class="col-lg-6">
 
-                fetch('/files/upload', {
-                    method: 'POST',
-/*                   headers: {
-                        'Authorization': `Bearer ${jwtToken}`
-                    },*/
-                    credentials: 'include',  // <-- WICHTIG
-                    body: formData
-                })
-                    .then(response => response.json())
-                    .then(data => {
-                        document.getElementById('response').innerHTML = '<div class="alert alert-success">' + JSON.stringify(data) + '</div>';
-                    })
-                    .catch(error => {
-                        document.getElementById('response').innerHTML = '<div class="alert alert-danger">Fehler beim Upload.</div>';
-                    });
-            });
-        </script>
+<div class="card shadow-sm">
+
+<div class="card-header">
+<h5 class="mb-0">FIT-Datei hochladen</h5>
+</div>
+
+<div class="card-body">
+
+<form id="uploadForm">
+
+<div class="mb-3">
+
+<label for="file" class="form-label">
+FIT oder ZIP Datei auswählen
+</label>
+
+<input
+type="file"
+class="form-control"
+id="file"
+name="file"
+required
+>
+
+</div>
+
+<div class="d-grid">
+
+<button type="submit" class="btn btn-primary">
+Upload starten
+</button>
+
+</div>
+
+</form>
+
+<div id="response" class="mt-3"></div>
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+</div>
+
+<% } else { %>
+
+<div class="container py-5 text-center">
+
+<h3 class="mb-4">Please log in</h3>
+
+<a class="btn btn-primary" href="/login">
+Login
+</a>
+
+</div>
+
+<% } %>
+
+
+<script>
+
+document.getElementById("uploadForm").addEventListener("submit", async function(e){
+
+e.preventDefault();
+
+const fileInput = document.getElementById("file");
+const file = fileInput.files[0];
+
+if (!file) return;
+
+const responseDiv = document.getElementById("response");
+
+responseDiv.innerHTML =
+'<div class="alert alert-info">Upload läuft...</div>';
+
+const formData = new FormData();
+formData.append("file", file);
+
+try {
+
+const res = await fetch("/files/upload",{
+method:"POST",
+credentials:"include",
+body:formData
+});
+
+const data = await res.json();
+
+responseDiv.innerHTML =
+'<div class="alert alert-success">Upload erfolgreich</div>';
+
+console.log(data);
+
+} catch(err) {
+
+responseDiv.innerHTML =
+'<div class="alert alert-danger">Fehler beim Upload</div>';
+
+}
+
+});
+
+</script>
+
 </body>
-
 </html>

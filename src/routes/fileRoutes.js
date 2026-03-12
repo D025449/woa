@@ -1,12 +1,14 @@
-const express = require('express');
+import express from "express";
+
+import authMiddleware from "../middleware/authMiddleware.js";
+import checkSessionMiddleware from "../middleware/checkSessionMiddleware.js";
+import uploadMiddleware from "../middleware/uploadMiddleware.js";
+
+import * as fileController from "../controllers/fileController.js";
+
+import { FileDBService } from "../services/fileDBService.js";
+
 const router = express.Router();
-
-const authMiddleware = require('../middleware/authMiddleware');
-const checkSessionMiddleware = require('../middleware/checkSessionMiddleware');
-const uploadMiddleware = require('../middleware/uploadMiddleware.js');
-const fileController = require('../controllers/fileController');
-const FileDBService = require("../services/fileDBService").FileDBService;
-
 
 
 // POST /files/upload
@@ -25,7 +27,6 @@ const checkAuth = (req, res, next) => {
   }
   next();
 };
-
 
 router.get('/uploadUI', checkAuth, async (req, res) => {
   console.log(req.session.userInfo);
@@ -101,4 +102,4 @@ router.get("/workouts/:id/data", async (req, res, next) => {
 });
 
 
-module.exports = router;
+export default router;

@@ -1,25 +1,59 @@
-const session = require('express-session');
-const pgSession = require('connect-pg-simple')(session);
-const pool = require('./database'); // dein Postgres-Pool
+/*import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
+import pool from "./database.js";
+
+const PgSession = connectPgSimple(session);
 
 const sessionMiddleware = session({
-    store: new pgSession({
-        pool: pool,
-        tableName: 'user_sessions',
-        pruneSessionInterval: 60 * 60, // alle 60 Minuten alte Sessions löschen
-        createTableIfMissing: true  // ← erzeugt die Tabelle automatisch
+  store: new PgSession({
+    pool: pool,
+    tableName: "user_sessions",
+    pruneSessionInterval: 60 * 60,
+    createTableIfMissing: true
+  }),
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  rolling: true,
+  cookie: {
+    httpOnly: true,
+    maxAge: 60 * 60 * 1000,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax"
+  }
+});
+
+export default sessionMiddleware;*/
+
+import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
+import pool from "./database.js";
+
+const PgSession = connectPgSimple(session);
+
+export function createSessionMiddleware() {
+
+  if (!process.env.SESSION_SECRET) {
+    throw new Error("SESSION_SECRET is not defined");
+  }
+
+  return session({
+    store: new PgSession({
+      pool: pool,
+      tableName: "user_sessions",
+      pruneSessionInterval: 60 * 60,
+      createTableIfMissing: true
     }),
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    rolling: true,               // verlängert Session bei Aktivität
+    rolling: true,
     cookie: {
-        httpOnly: true,
-        maxAge: 60 * 60 * 1000, // one hour
-        secure: process.env.NODE_ENV === "production",   // ❗ bei localhost muss false sein
-        sameSite: 'lax'
-
+      httpOnly: true,
+      maxAge: 60 * 60 * 1000,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax"
     }
-});
+  });
 
-module.exports = sessionMiddleware;
+}

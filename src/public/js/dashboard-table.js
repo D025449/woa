@@ -1,6 +1,9 @@
+let map;
+let trackLayer;
+
 
 document.addEventListener("DOMContentLoaded", function () {
-
+  map = initMap();
   const chart = initChart();
   const table = initTable(chart);
 
@@ -9,16 +12,55 @@ document.addEventListener("DOMContentLoaded", function () {
 });
 
 
+
+function renderTrack(track) {
+  const SEMI_TO_DEG = 18000 / 2147483648;
+  trackLayer.clearLayers();
+
+  /*function semicirclesToDegrees(sc) {
+    return sc * SEMI_TO_DEG;
+  }*/
+  //for (let i, )
+  let data = [];
+  data.push([track.baselat * SEMI_TO_DEG, track.baselong * SEMI_TO_DEG]);
+
+  let last = [track.baselat, track.baselong];
+  for (let i = 0; i < track.recCount; ++i) {
+    const d = [track.deltalat[i] + last[0], track.deltalong[i] + last[1]];
+    data.push([d[0] * SEMI_TO_DEG, d[1] * SEMI_TO_DEG]);
+    last = d;
+  }
+
+
+  const polyline = L.polyline(data, {
+    color: '#ff4d4f',
+    weight: 4
+  }).addTo(trackLayer);
+
+
+  map.fitBounds(polyline.getBounds());
+
+}
+
+function initMap() {
+  const map = L.map('workout-map');
+
+  trackLayer = L.layerGroup().addTo(map);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18
+  }).addTo(map);
+  return map;
+}
+
 // ---------------------------------------------------
 // CHART INITIALISIERUNG
 // ---------------------------------------------------
-
 function initChart() {
 
   const chartDom = document.getElementById("workout-chart");
   const chart = echarts.init(chartDom);
 
-  const option = {
+  /*const option = {
 
     tooltip: {
       trigger: "item",
@@ -71,7 +113,7 @@ function initChart() {
         name: "Power",
         type: "line",
         yAxisIndex: 0,
-        encode: {x: 0, y: 1 },
+        encode: { x: 0, y: 1 },
         showSymbol: false,
         markArea: { data: [] }
       },
@@ -79,21 +121,21 @@ function initChart() {
         name: "Heart Rate",
         type: "line",
         yAxisIndex: 1,
-        encode: {x: 0, y: 2 },
+        encode: { x: 0, y: 2 },
         showSymbol: false
       },
       {
         name: "Cadence",
         type: "line",
         yAxisIndex: 2,
-        encode: {x: 0, y: 3 },
+        encode: { x: 0, y: 3 },
         showSymbol: false
       },
       {
         name: "NormPW",
         type: "line",
         yAxisIndex: 3,
-        encode: {x: 0, y: 5 },
+        encode: { x: 0, y: 5 },
         showSymbol: false
       }
     ],
@@ -103,7 +145,86 @@ function initChart() {
       { type: "slider", xAxisIndex: 0 }
     ],
     animation: false
-  };
+  };*/
+
+  const option = {
+    title: { text: '...' },
+    tooltip: { trigger: 'axis' },
+    animation: false,
+    legend: {}, // Legende wird automatisch aus den series-Namen generiert
+    xAxis: {
+      type: 'value',
+      scale: true,
+      axisLabel: {
+        formatter: formatSeconds
+      }
+    },
+    //yAxis: { type: 'value' },
+    yAxis: [
+      { type: "value", name: "Power (W)", position: "left" },
+      { type: "value", name: "HR/Cad", position: "right" },
+      { type: "value", name: "Speed", position: "left", offset: 60 },
+      { type: "value", name: "Altitude", position: "right", offset: 60 }
+      //{ type: "value", name: "Smooth PW (W)", position: "right", offset: 120 },
+      //{ type: "value", name: "Smooth PW Adp", position: "left", offset: 180 }     
+    ],
+
+    // 2. Das Dataset definiert das 4er-Muster
+    dataset: {
+      dimensions: ['x', 'Power', 'Heartrate', 'Cadence', 'Speed', 'Altitude'],
+      source: new Float32Array()
+    },
+    dataZoom: [
+      { type: "inside", xAxisIndex: 0, filterMode: "none" },
+      { type: "slider", xAxisIndex: 0 }
+    ],
+    series: [
+      {
+        name: 'Power',
+        type: 'line',
+        showSymbol: false,
+        sampling: 'lttb',
+        yAxisIndex: 0,
+        encode: { x: 'x', y: 'Power' } // Nimmt den 2. Wert aus dem 4er-Block
+      },
+      {
+        name: 'Heartrate',
+        type: 'line',
+        showSymbol: false,
+        sampling: 'lttb',
+        yAxisIndex: 1,
+        encode: { x: 'x', y: 'Heartrate' } // Nimmt den 3. Wert aus dem 4er-Block
+      },
+      {
+        name: 'Cadence',
+        type: 'line',
+        showSymbol: false,
+        sampling: 'lttb',
+        yAxisIndex: 1,
+
+        encode: { x: 'x', y: 'Cadence' } // Nimmt den 4. Wert aus dem 4er-Block
+      },
+      {
+        name: 'Speed',
+        type: 'line',
+        showSymbol: false,
+        sampling: 'lttb',
+        yAxisIndex: 2,
+
+        encode: { x: 'x', y: 'Speed' } // Nimmt den 4. Wert aus dem 4er-Block
+      },
+      {
+        name: 'Altitude',
+        type: 'line',
+        showSymbol: false,
+        sampling: 'lttb',
+        yAxisIndex: 3,
+
+        encode: { x: 'x', y: 'Altitude' } // Nimmt den 4. Wert aus dem 4er-Block
+      }
+    ]
+
+  }
 
   chart.setOption(option);
 
@@ -151,7 +272,7 @@ function initTable(chart) {
 
 
     layout: "fitColumns",
-    height: "600px",
+    height: "300px",
 
     sortMode: "remote",
     filterMode: "remote",
@@ -204,13 +325,17 @@ function initTable(chart) {
         title: "Distance (km)",
         field: "total_distance",
         sorter: "number",
-        formatter: cell => (cell.getValue() / 1000).toFixed(2)
+        headerFilter: "input",
+        headerFilterFunc: ">=",
+        formatter: cell => (cell.getValue()).toFixed(2)
       },
       {
         title: "Avg Speed (km/h)",
         field: "avg_speed",
         sorter: "number",
-        formatter: cell => (cell.getValue() * 3.6).toFixed(1)
+        headerFilter: "input",
+        headerFilterFunc: ">=",
+        formatter: cell => (cell.getValue()).toFixed(1)
       },
       {
         title: "Avg Power",
@@ -220,6 +345,15 @@ function initTable(chart) {
         headerFilterFunc: ">=",
         formatter: cell => cell.getValue().toFixed(0)
       },
+      {
+        title: "Avg Hr",
+        field: "avg_heart_rate",
+        sorter: "number",
+        headerFilter: "input",
+        headerFilterFunc: ">=",
+        formatter: cell => cell.getValue().toFixed(0)
+      },
+
       {
         title: "Norm Power",
         field: "avg_normalized_power",
@@ -271,6 +405,12 @@ function formatDuration(seconds) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+function buildIndex(n) {
+  const arr = new Array(n)
+  for (let i = 0; i < n; i++) arr[i] = i
+  return arr
+}
+
 // ---------------------------------------------------
 // WORKOUT LADEN
 // ---------------------------------------------------
@@ -278,6 +418,7 @@ function formatDuration(seconds) {
 async function loadWorkout(chart, row) {
 
   const workoutId = row.getData().id;
+  const filename = row.getData().original_filename;
 
   chart.showLoading();
 
@@ -289,31 +430,72 @@ async function loadWorkout(chart, row) {
       return;
     }*/
 
-const { url } = await fetch(`/files/workouts/${workoutId}/data`).then(r => r.json());
-const { data } = await fetch(url).then(r => r.json());
+    const { url } = await fetch(`/files/workouts/${workoutId}/data`).then(r => r.json());
+    //const { data } = await fetch(url).then(r => r.json());
+    const response = await fetch(url);
+    const buffer = await response.arrayBuffer();
+
+    const view = new DataView(buffer)
+
+    const magic = view.getUint32(0);
+    const version = view.getUint16(4, true);
+    const recCount = view.getUint32(6, true);
+    const delta_mode = view.getUint16(10, true);
+
+    const headerSize = 12; // Uint32 record count
+
+    console.log({ recCount });
 
 
-    //const { data, segments } = await response.json();
-    for( let i = 0; i < data.length; ++i)
-    {
-        data[i].unshift(i);
+    let offset = headerSize;
+
+    const baseValues = new Int32Array(buffer, offset, 7);
+    offset += baseValues.byteLength;
+
+
+
+    const powers = new Int16Array(buffer, offset, recCount);
+    offset += powers.byteLength;
+
+    const heartRates = new Int8Array(buffer, offset, recCount);
+    offset += heartRates.byteLength;
+
+    const cadences = new Int8Array(buffer, offset, recCount);
+    offset += cadences.byteLength;
+
+    const speeds = new Int8Array(buffer, offset, recCount);
+    offset += speeds.byteLength;
+
+    const altitudes = new Int8Array(buffer, offset, recCount);
+    offset += altitudes.byteLength;
+
+    const latitudes = new Int32Array(buffer, offset, recCount);
+    offset += latitudes.byteLength;
+
+    const longitudes = new Int32Array(buffer, offset, recCount);
+
+
+    const data = new Float32Array((recCount + 1) * 6);
+    let idx = 0;
+    data[idx] = 0;
+    data[idx + 1] = baseValues[0];
+    data[idx + 2] = baseValues[1];
+    data[idx + 3] = baseValues[2];
+    data[idx + 4] = baseValues[3] / 10;
+    data[idx + 5] = baseValues[4];
+    for (let i = 0; i < recCount; i++) {
+      idx = (i + 1) * 6;
+      const prev_idx = i * 6;
+      data[idx] = i + 1;
+      data[idx + 1] = data[prev_idx + 1] + powers[i];
+      data[idx + 2] = data[prev_idx + 2] + heartRates[i];
+      data[idx + 3] = data[prev_idx + 3] + cadences[i];
+      data[idx + 4] = data[prev_idx + 4] + speeds[i] / 10;
+      data[idx + 5] = data[prev_idx + 5] + altitudes[i];
     }
 
-    const segments = [];
-
-    //computeNormalizedPowerSeries(data);
-    //smoothPowerZeroAware(data);
-    //smoothPowerAdaptive(data);
-
-    /*for (let i = 0; i < data.length; i++) {
-      data[i].push(npSeries[i]);
-    }*/
-
-    const maxX = data.length - 1;//data[data.length - 1][0];
-
-    const segmentAreas = buildSegmentAreas(segments);
-
-    updateChart(chart, data, maxX, segmentAreas);
+    updateChart(chart, data, recCount + 1, filename);
+    renderTrack({ baselat: baseValues[5], baselong: baseValues[6], deltalat: latitudes, deltalong: longitudes, recCount: recCount });
 
   }
   catch (err) {
@@ -329,9 +511,61 @@ const { data } = await fetch(url).then(r => r.json());
 // CHART UPDATE
 // ---------------------------------------------------
 
-function updateChart(chart, data, maxX, segmentAreas) {
-
+function updateChart(chart, track, recCount, filename) {
+  const index = buildIndex(track.count);
   chart.setOption({
+    title: { text: filename },
+    //tooltip: { trigger: 'axis' },
+    //legend: {}, // Legende wird automatisch aus den series-Namen generiert
+    //xAxis: { type: 'value' },
+    //yAxis: { type: 'value' },
+    // 2. Das Dataset definiert das 4er-Muster
+    dataset: {
+      //dimensions: ['x', 'Power', 'Heartrate', 'Cadence', 'Speed', 'Altitude'],
+      source: track
+    }
+
+
+    // 3. Für jede Linie eine eigene Series definieren
+    /*series: [
+      {
+        name: 'Power',
+        type: 'line',
+        showSymbol: false,
+        sampling: 'lttb',
+        encode: { x: 'x', y: 'Power' } // Nimmt den 2. Wert aus dem 4er-Block
+      },
+      {
+        name: 'Heartrate',
+        type: 'line',
+        showSymbol: false,
+        sampling: 'lttb',
+        encode: { x: 'x', y: 'Heartrate' } // Nimmt den 3. Wert aus dem 4er-Block
+      },
+      {
+        name: 'Cadence',
+        type: 'line',
+        showSymbol: false,
+        sampling: 'lttb',
+        encode: { x: 'x', y: 'Cadence' } // Nimmt den 4. Wert aus dem 4er-Block
+      },
+      {
+        name: 'Speed',
+        type: 'line',
+        showSymbol: false,
+        sampling: 'lttb',
+        encode: { x: 'x', y: 'Speed' } // Nimmt den 4. Wert aus dem 4er-Block
+      },
+      {
+        name: 'Altitude',
+        type: 'line',
+        showSymbol: false,
+        sampling: 'lttb',
+        encode: { x: 'x', y: 'Altitude' } // Nimmt den 4. Wert aus dem 4er-Block
+      }
+    ]*/
+  });//, { replaceMerge: ["series", "xAxis"] });
+  /*chart.setOption({
 
     dataset: { source: data },
 
@@ -351,7 +585,7 @@ function updateChart(chart, data, maxX, segmentAreas) {
       { type: "slider", start: 0, end: 100 }
     ]
 
-  });
+  });*/
 }
 
 

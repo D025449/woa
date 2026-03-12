@@ -1,13 +1,17 @@
-const { randomUUID } = require('crypto');
-const s3Service = require('../services/s3Service');
-const fitService = require('../services/fitService');
-const pool = require('../services/database');
-const { insertFile } = require('../services/fileDBService');
-const path = require("path");
-const unzipper = require("unzipper");
+import { randomUUID } from "crypto";
+import path from "path";
 
+import unzipper from "unzipper";
+import pLimit from "p-limit";
 
-const pLimit = require("p-limit").default;
+import s3Service from "../services/s3Service.js";
+import {
+  parseFit,
+  processFitRecords_v2,
+  mapToFileRow
+} from "../services/fitService.js";
+//import pool from "../services/database.js";
+import { insertFile } from "../services/fileDBService.js";
 
 
 async function processZipBuffer_par(zipBuffer, userSub) {
@@ -141,35 +145,45 @@ async function processZipBuffer(zipBuffer, userSub) {
 
 async function processFitBuffer(buffer, originalName, userSub) {
 
-  const fitJsonObject = await fitService.parseFit(buffer);
+  const fitJsonObject = await parseFit(buffer);
   //const fitJsonObjectStr = JSON.stringify(fitJsonObject);
   //const fitJsonBuffer = Buffer.from(fitJsonObjectStr);
 
-  const proceessed_fit_records = fitService.processFitRecords(fitJsonObject.records);
-  const proceessed_fit_records_str = JSON.stringify(proceessed_fit_records);
-  const fitJsonBuffer = Buffer.from(proceessed_fit_records_str);
+  //const proceessed_fit_records = fitService.processFitRecords(fitJsonObject.records);
+
+  const binBuffer = processFitRecords_v2(fitJsonObject.records);
+
+
+  //const proceessed_fit_records_str = JSON.stringify(proceessed_fit_records);
+  //const fitJsonBuffer = Buffer.from(proceessed_fit_records_str);
 
   //console.log(fitJsonObjectStr.length);
   //console.log(proceessed_fit_records_str.length);
 
-  const newFilename = path.basename(originalName, path.extname(originalName)) + ".json";
+  //const newFilename = path.basename(originalName, path.extname(originalName)) + ".json";
 
-  const s3Key = `users/${userSub}/${randomUUID()}-${newFilename}`;
+  //const s3Key = `users/${userSub}/${randomUUID()}-${newFilename}`;
 
+
+  const newFilenamebin = path.basename(originalName, path.extname(originalName)) + ".bin";
+  const s3KeyBin = `users/${userSub}/${randomUUID()}-${newFilenamebin}`;
   const fitFile = {
     auth_sub: userSub,
     original_filename: originalName,
-    s3_key: s3Key,
-    mime_type: "application/json",
-    file_size: fitJsonBuffer.length
+    s3_key: s3KeyBin,
+    mime_type: "application/octet-stream",
+    file_size: binBuffer.byteLength
   };
 
-  const fileRow = fitService.mapToFileRow(fitJsonObject, fitFile);
+
+  const fileRow = mapToFileRow(fitJsonObject, fitFile);
 
 
 
   await insertFile(fileRow);
-  await s3Service.putObject(s3Key, fitJsonBuffer, "application/json");
+  //await s3Service.putObject(s3Key, fitJsonBuffer, "application/json");
+  await s3Service.putObjectBinary(s3KeyBin, binBuffer, "application/octet-stream");
+  
 
 }
 
@@ -183,7 +197,7 @@ function getErrorMessage(err) {
   return JSON.stringify(err);
 }
 
-exports.uploadFile = async (req, res) => {
+export async function uploadFile(req, res) {
 
   try {
 
@@ -236,42 +250,3 @@ exports.uploadFile = async (req, res) => {
 
 };
 
-/*
-exports.uploadFile = async (req, res) => {
-  try {
-    const userSub = req.session.userInfo.sub; // kommt vom authMiddleware
-
-    const file = req.file;
-
-
-
-    const fitJsonObject = await fitService.parseFit(file.buffer);
-
-
-    const fitJsonBuffer = Buffer.from(JSON.stringify(fitJsonObject));
-
-    const newFilename = path.basename(file.originalname, path.extname(file.originalname)) + ".json";
-
-    const s3Key = `users/${userSub}/${randomUUID()}-${newFilename}`;
-    const fitFile = {
-      auth_sub: userSub,
-      original_filename: file.originalname,
-      s3_key: s3Key,
-      mime_type: "application/json",
-      file_size: fitJsonBuffer.length
-    }
-
-    const fileRow = fitService.mapToFileRow(fitJsonObject, fitFile);
-
-
-    await insertFile(fileRow);
-    await s3Service.putObject(s3Key, fitJsonBuffer, "application/json");
-
-
-    res.json({ message: "Upload erfolgreich" });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Upload fehlgeschlagen: " + err.message });
-  }
-};*/

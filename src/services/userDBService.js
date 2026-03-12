@@ -1,7 +1,7 @@
 
-const pool = require('./database'); // dein Postgres-Pool
+import pool from "./database.js"; // dein Postgres-Pool
 
-async function ensureUserExists(userInfo) {
+export async function ensureUserExists(userInfo) {
   const { sub, email, email_verified, name } = userInfo;
 
   await pool.query(`
@@ -14,6 +14,4 @@ async function ensureUserExists(userInfo) {
       display_name = EXCLUDED.display_name
   `, [sub, email, email_verified, name]);
 }
-module.exports = {
-  ensureUserExists
-};
+

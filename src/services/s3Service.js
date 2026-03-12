@@ -1,7 +1,7 @@
-const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
-const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
-const zlib = require("zlib");
-const { Readable } = require("stream");
+import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import zlib from "zlib";
+import { Readable } from "stream";
 
 const s3 = new S3Client({
   region: process.env.AWS_REGION
@@ -11,44 +11,44 @@ const s3 = new S3Client({
 class S3Service {
 
 
-static jsonToGzipStream(obj) {
+  static jsonToGzipStream(obj) {
 
-  const jsonStream = new Readable({
-    read() {}
-  });
+    const jsonStream = new Readable({
+      read() { }
+    });
 
-  process.nextTick(() => {
-    try {
-      jsonStream.push("{");
+    process.nextTick(() => {
+      try {
+        jsonStream.push("{");
 
-      const keys = Object.keys(obj);
+        const keys = Object.keys(obj);
 
-      keys.forEach((key, index) => {
-        const value = obj[key];
+        keys.forEach((key, index) => {
+          const value = obj[key];
 
-        const chunk =
-          JSON.stringify(key) +
-          ":" +
-          JSON.stringify(value) +
-          (index < keys.length - 1 ? "," : "");
+          const chunk =
+            JSON.stringify(key) +
+            ":" +
+            JSON.stringify(value) +
+            (index < keys.length - 1 ? "," : "");
 
-        jsonStream.push(chunk);
-      });
+          jsonStream.push(chunk);
+        });
 
-      jsonStream.push("}");
-      jsonStream.push(null);
+        jsonStream.push("}");
+        jsonStream.push(null);
 
-    } catch (err) {
-      jsonStream.destroy(err);
-    }
-  });
+      } catch (err) {
+        jsonStream.destroy(err);
+      }
+    });
 
-  const gzip = zlib.createGzip({
-    level: zlib.constants.Z_BEST_SPEED
-  });
+    const gzip = zlib.createGzip({
+      level: zlib.constants.Z_BEST_SPEED
+    });
 
-  return jsonStream.pipe(gzip);
-}
+    return jsonStream.pipe(gzip);
+  }
 
 
   static async getJsonObject(bucket, key) {
@@ -76,7 +76,14 @@ static jsonToGzipStream(obj) {
   }
 
   static async putObject(key, buffer, contentType) {
-    const compressed = zlib.gzipSync(buffer);
+    //const compressed = zlib.gzipSync(buffer);
+    const compressed = zlib.brotliCompressSync(buffer,
+      {
+        params: {
+          [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
+          [zlib.constants.BROTLI_PARAM_LGWIN]: 22
+        }
+      });
 
 
     const command = new PutObjectCommand({
@@ -84,12 +91,41 @@ static jsonToGzipStream(obj) {
       Key: key,
       Body: compressed,
       ContentType: contentType,
-      ContentEncoding: "gzip"
+      ContentEncoding: "br"
     });
 
     await s3.send(command);
 
   }
+
+
+  static async putObjectBinary(key, buffer, contentType) {
+
+    const compressed = zlib.brotliCompressSync(Buffer.from(buffer),
+      {
+        params: {
+          [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
+          [zlib.constants.BROTLI_PARAM_LGWIN]: 22
+        }
+      });
+
+      console.log( { uncompressed: buffer.byteLength, compressed: compressed.byteLength, ratio: Math.round(compressed.byteLength * 100 / buffer.byteLength) } );
+
+
+
+    const command = new PutObjectCommand({
+      Bucket: process.env.S3_BUCKET,
+      Key: key,
+      Body: compressed,
+      ContentType: contentType,
+      ContentEncoding: "br"
+    });
+
+    await s3.send(command);
+
+  }
+
+
   static async getPresignedUrl(bucket, key) {
 
 
@@ -108,20 +144,6 @@ static jsonToGzipStream(obj) {
 
 }
 
-module.exports = S3Service;
+export default S3Service;
 
 
-/*
-
-exports.uploadFile = async (key, buffer, contentType) => {
-  const command = new PutObjectCommand({
-    Bucket: process.env.S3_BUCKET,
-    Key: key,
-    Body: buffer,
-    ContentType: contentType
-  });
-
-  await s3.send(command);
-};
-
-*/

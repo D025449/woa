@@ -1,23 +1,5 @@
-
-const pool = require('./database'); // dein Postgres-Pool
-const S3Service = require("./s3Service");
-
-/*async function insertFile(fitFile) {
-
-  const { auth_sub, original_filename, s3_key, mime_type, file_size } = fitFile;
-  const result = await pool.query(`
-  INSERT INTO files (auth_sub, original_filename, s3_key, mime_type, file_size)
-  VALUES ($1, $2, $3, $4, $5)
-  ON CONFLICT (auth_sub, original_filename)
-  DO NOTHING
-  RETURNING *;
-`, [auth_sub, original_filename, s3_key, mime_type, file_size]);
-
-  if (result.rows.length === 0) {
-    throw new Error(`Upload fehlgeschlagen: Datei '${originalFilename}' existiert bereits für diesen User.`);
-  }
-};
-*/
+import pool from "./database.js";
+import S3Service from "./s3Service.js";
 
 
 class FileDBService {
@@ -435,7 +417,4 @@ async function insertFile(fileRow) {
 
   return result.rows[0];
 }
-module.exports = {
-  insertFile,
-  FileDBService
-};
+export { insertFile, FileDBService };

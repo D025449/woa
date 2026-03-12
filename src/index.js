@@ -1,43 +1,53 @@
-const express = require('express');
-const path = require("path");
-const app = express();
-const request = require('request');
-const wikip = require('wiki-infobox-parser');
-const multer = require('multer');
-const fitParser = require('fit-file-parser').default;
-const { randomUUID } = require('crypto');
+import "./config/env.js";
+
+import { createApp } from "./app.js";
+
+async function start() {
+
+  const app = await createApp();
+
+  const PORT = process.env.PORT || 3000;
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+
+}
+
+start();
+
+
+/*import dotenv from "dotenv";
+dotenv.config({ path: `.env.${process.env.NODE_ENV || "development"}`});
+import express from 'express';
+import path from "path";
+import url from "url";
+import { Issuer, generators } from "openid-client"
+
+
+//import sessionMiddleware from "./services/sessionService.js";
+import { createSessionMiddleware } from "./services/sessionService.js";
+//import db from "./services/database.js";
+import fileRoutes from "./routes/fileRoutes.js";
+import { ensureUserExists } from "./services/userDBService.js";
+
+const app = express();//.default;
+
+const __filename = url.fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 
 app.set('trust proxy', 1);
 
 app.use(express.static(path.join(__dirname, "public")));
 
-const session = require('express-session');
-const { Issuer, generators } = require('openid-client');
-
-require("dotenv").config({
-    path: `.env.${process.env.NODE_ENV || "development"}`
-});
-const {ensureUserExists} = require("./services/userDBService" );
 
 
-/*
-🏗️ Denkmodell, das dir ab jetzt hilft
-Merksatz:
-Alles, was req erweitert, muss VOR allem stehen, was es benutzt.
-Beispiele:
-Middleware	Muss vor…
-session()	allen Routen
-bodyParser()	POST-Handlern
-passport.initialize()	auth routes
-cors()	allen APIs
-express.json()	JSON-Handlern
-*/
 
-const sessionMiddleware = require('./services/sessionService');
 
-app.use(sessionMiddleware);
+app.use(createSessionMiddleware());
 
-const db = require("./services/database");
+
 
 console.log(process.env.NODE_ENV);
 
@@ -62,14 +72,12 @@ async function initializeClient() {
 };
 
 
-const fileRoutes = require('./routes/fileRoutes');
+
 
 app.use(express.json());
 
 app.use('/files', fileRoutes);
 
-
-const upload = multer();
 
 console.log(process.env.SESSION_SECRET);
 
@@ -178,3 +186,6 @@ app.get('/dashboard', checkAuth, async (req, res) => {
 
 //port
 initializeClient().then(() => { app.listen(3000, "0.0.0.0", () => { console.log("Listening at port 3000...") }) });
+
+
+*/
