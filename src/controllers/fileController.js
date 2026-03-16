@@ -283,7 +283,7 @@ async function processFitPath(sourcePath, originalName, userSub) {
   }
   finally {
     // Datei immer löschen
-    await fs.unlink(sourcePath);
+    await fsp.unlink(sourcePath);
   }
 }
 
