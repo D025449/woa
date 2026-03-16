@@ -1,35 +1,40 @@
-const fs = require('fs');
-const path = require('path');
+import fs from "fs";
+import path from "path";
+import dotenv from "dotenv";
+import { fileURLToPath } from "url";
+import pool from "./services/database.js";
 
-require("dotenv").config({
+// __dirname Ersatz in ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({
   path: `.env.${process.env.NODE_ENV || "development"}`
 });
-
-const pool = require('./services/database'); // dein Pool export
 
 async function runMigrations() {
   try {
     const migrationFiles = fs
-      .readdirSync(path.join(__dirname, 'migrations'))
+      .readdirSync(path.join(__dirname, "migrations"))
       .sort();
 
     for (const file of migrationFiles) {
       const sql = fs.readFileSync(
-        path.join(__dirname, 'migrations', file),
-        'utf8'
+        path.join(__dirname, "migrations", file),
+        "utf8"
       );
+
       console.log(`Running migration: ${file}`);
-      await pool.query(sql); // Hier wird der Pool verwendet
+      await pool.query(sql);
     }
 
-    console.log('Migrations complete.');
+    console.log("Migrations complete.");
   } catch (err) {
-    console.error('Migration failed:', err);
+    console.error("Migration failed:", err);
     process.exit(1);
   } finally {
-    await pool.end(); // Pool sauber schließen
+    await pool.end();
   }
 }
 
-// Script starten
 runMigrations();

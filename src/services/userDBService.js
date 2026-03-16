@@ -1,8 +1,15 @@
 
 import pool from "./database.js"; // dein Postgres-Pool
 
-export async function ensureUserExists(userInfo) {
-  const { sub, email, email_verified, name } = userInfo;
+export default async function ensureUserExists(userInfo) {
+
+  const sub = userInfo.sub;
+  const email = userInfo.username;
+  const email_verified = true;
+  const name = userInfo.username;
+  
+
+
 
   await pool.query(`
     INSERT INTO users (auth_sub, email, email_verified, display_name)

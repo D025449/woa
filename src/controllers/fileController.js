@@ -1,8 +1,13 @@
 import { randomUUID } from "crypto";
+
+
 import path from "path";
 
 import unzipper from "unzipper";
 import pLimit from "p-limit";
+import fs from "fs";
+import fsp from "fs/promises";
+import { PassThrough } from "stream";
 
 import s3Service from "../services/s3Service.js";
 import {
@@ -12,11 +17,91 @@ import {
 } from "../services/fitService.js";
 //import pool from "../services/database.js";
 import { insertFile } from "../services/fileDBService.js";
+import { progressEmitter } from "../services/progressEmitter.js";
 
 
-async function processZipBuffer_par(zipBuffer, userSub) {
+/*async function processZipBuffer_par(sourcePath, userSub, jobId) {
+  try {
+    const directory = await unzipper.Open.buffer(zipBuffer);
 
-  const directory = await unzipper.Open.buffer(zipBuffer);
+    const results = {
+      processed: 0,
+      success: 0,
+      failed: 0,
+      errors: []
+    };
+
+    const limit = pLimit(4); // ← Parallelität (4–6 ist meist optimal)
+
+    const tasks = [];
+
+    for (const entry of directory.files) {
+
+      if (entry.type !== "File") continue;
+
+      const ext = path.extname(entry.path).toLowerCase();
+
+      if (ext !== ".fit") continue;
+      if (entry.path.includes("__MACOSX")) continue;
+      if (path.basename(entry.path).startsWith("._")) continue;
+
+      const name = entry.path;
+      const filename = path.basename(name);
+
+      results.processed++;
+
+      tasks.push(
+
+        limit(async () => {
+
+          try {
+
+            console.log("ZIP entry:", entry.path);
+
+            const buffer = await entry.buffer();
+
+            await processFitBuffer(buffer, filename, userSub);
+
+            results.success++;
+
+          } catch (err) {
+
+            const message = getErrorMessage(err);
+
+            console.error(`Fehler bei FIT: ${name}`, message);
+
+            results.failed++;
+
+            results.errors.push({
+              file: entry.path,
+              error: message
+            });
+          }
+
+          progressEmitter.emit(jobId, { file: filename });
+
+        })
+
+      );
+
+    }
+
+    await Promise.all(tasks);
+    progressEmitter.emit(jobId, {
+      progress: 100,
+      status: "done"
+    })
+    return results;
+
+  }
+  finally {
+    fsp.unlink(sourcePath);
+
+  }
+
+}*/
+
+async function processZipStreamParallel(sourcePath, userSub, jobId) {
 
   const results = {
     processed: 0,
@@ -25,63 +110,99 @@ async function processZipBuffer_par(zipBuffer, userSub) {
     errors: []
   };
 
-  const limit = pLimit(4); // ← Parallelität (4–6 ist meist optimal)
+  const limit = pLimit(4); // Parallelität
 
   const tasks = [];
 
-  for (const entry of directory.files) {
+  try {
 
-    if (entry.type !== "File") continue;
+    const zipStream = fs
+      .createReadStream(sourcePath)
+      .pipe(unzipper.Parse({ forceStream: true }));
 
-    const ext = path.extname(entry.path).toLowerCase();
+    for await (const entry of zipStream) {
 
-    if (ext !== ".fit") continue;
-    if (entry.path.includes("__MACOSX")) continue;
-    if (path.basename(entry.path).startsWith("._")) continue;
+      if (entry.type !== "File") {
+        entry.autodrain();
+        continue;
+      }
 
-    const name = entry.path;
-    const filename = path.basename(name);
+      const ext = path.extname(entry.path).toLowerCase();
 
-    results.processed++;
+      if (ext !== ".fit") {
+        entry.autodrain();
+        continue;
+      }
 
-    tasks.push(
+      if (entry.path.includes("__MACOSX")) {
+        entry.autodrain();
+        continue;
+      }
 
-      limit(async () => {
+      const filename = path.basename(entry.path);
 
-        try {
+      results.processed++;
 
-          console.log("ZIP entry:", entry.path);
+      // wichtig: Stream entkoppeln
+      const pass = new PassThrough();
+      entry.pipe(pass);
 
-          const buffer = await entry.buffer();
+      tasks.push(
 
-          await processFitBuffer(buffer, filename, userSub);
+        limit(async () => {
 
-          results.success++;
+          try {
 
-        } catch (err) {
+            const chunks = [];
 
-          const message = getErrorMessage(err);
+            for await (const chunk of pass) {
+              chunks.push(chunk);
+            }
 
-          console.error(`Fehler bei FIT: ${name}`, message);
+            const buffer = Buffer.concat(chunks);
 
-          results.failed++;
+            await processFitBuffer(buffer, filename, userSub);
 
-          results.errors.push({
-            file: entry.path,
-            error: message
-          });
+            results.success++;
 
-        }
+          } catch (err) {
 
-      })
+            const message = getErrorMessage(err);
 
-    );
+            results.failed++;
+
+            results.errors.push({
+              file: entry.path,
+              error: message
+            });
+
+            console.error(`Fehler bei FIT: ${entry.path}`, message);
+
+          }
+
+          progressEmitter.emit(jobId, { file: filename });
+
+        })
+
+      );
+
+    }
+
+    await Promise.all(tasks);
+
+    progressEmitter.emit(jobId, {
+      progress: 100,
+      status: "done"
+    });
+
+    return results;
+
+  } finally {
+
+    await fsp.unlink(sourcePath);
 
   }
 
-  await Promise.all(tasks);
-
-  return results;
 }
 
 
@@ -142,29 +263,35 @@ async function processZipBuffer(zipBuffer, userSub) {
 
 }
 
+async function processFitPath(sourcePath, originalName, userSub) {
+  try {
+    const buffer = await fsp.readFile(sourcePath);
+    const fitJsonObject = await parseFit(buffer);
+    const binBuffer = processFitRecords_v2(fitJsonObject.records);
+    const newFilenamebin = path.basename(originalName, path.extname(originalName)) + ".bin";
+    const s3KeyBin = `users/${userSub}/${randomUUID()}-${newFilenamebin}`;
+    const fitFile = {
+      auth_sub: userSub,
+      original_filename: originalName,
+      s3_key: s3KeyBin,
+      mime_type: "application/octet-stream",
+      file_size: binBuffer.byteLength
+    };
+    const fileRow = mapToFileRow(fitJsonObject, fitFile);
+    await insertFile(fileRow);
+    await s3Service.putObjectBinary(s3KeyBin, binBuffer, "application/octet-stream");
+  }
+  finally {
+    // Datei immer löschen
+    await fs.unlink(sourcePath);
+  }
+}
+
 
 async function processFitBuffer(buffer, originalName, userSub) {
 
   const fitJsonObject = await parseFit(buffer);
-  //const fitJsonObjectStr = JSON.stringify(fitJsonObject);
-  //const fitJsonBuffer = Buffer.from(fitJsonObjectStr);
-
-  //const proceessed_fit_records = fitService.processFitRecords(fitJsonObject.records);
-
   const binBuffer = processFitRecords_v2(fitJsonObject.records);
-
-
-  //const proceessed_fit_records_str = JSON.stringify(proceessed_fit_records);
-  //const fitJsonBuffer = Buffer.from(proceessed_fit_records_str);
-
-  //console.log(fitJsonObjectStr.length);
-  //console.log(proceessed_fit_records_str.length);
-
-  //const newFilename = path.basename(originalName, path.extname(originalName)) + ".json";
-
-  //const s3Key = `users/${userSub}/${randomUUID()}-${newFilename}`;
-
-
   const newFilenamebin = path.basename(originalName, path.extname(originalName)) + ".bin";
   const s3KeyBin = `users/${userSub}/${randomUUID()}-${newFilenamebin}`;
   const fitFile = {
@@ -174,17 +301,9 @@ async function processFitBuffer(buffer, originalName, userSub) {
     mime_type: "application/octet-stream",
     file_size: binBuffer.byteLength
   };
-
-
   const fileRow = mapToFileRow(fitJsonObject, fitFile);
-
-
-
   await insertFile(fileRow);
-  //await s3Service.putObject(s3Key, fitJsonBuffer, "application/json");
   await s3Service.putObjectBinary(s3KeyBin, binBuffer, "application/octet-stream");
-  
-
 }
 
 function getErrorMessage(err) {
@@ -201,32 +320,42 @@ export async function uploadFile(req, res) {
 
   try {
 
-    const userSub = req.session.userInfo.sub;
+    const userSub = req.user.sub;
     const file = req.file;
 
     const ext = path.extname(file.originalname).toLowerCase();
 
     let result;
-
+    const jobId = randomUUID();
     if (ext === ".fit") {
 
-      await processFitBuffer(file.buffer, file.originalname, userSub);
+      processFitPath(file.path, file.originalname, userSub)
+        .then(() => {
+          progressEmitter.emit(jobId, {
+            progress: 100,
+            status: "done",
+            file: file.originalname,
 
-      result = {
-        processed: 1,
-        success: 1,
-        failed: 0,
-        errors: []
-      };
+          })
+        })
+        .catch(err => {
+          console.error("Async Fehler:", err);
+          progressEmitter.emit(jobId, {
+            progress: 100,
+            status: "done",
+            file: file.originalname,
+            error: err
 
+          })
+
+        });
     }
     else if (ext === ".zip") {
 
-      result = await processZipBuffer_par(file.buffer, userSub);
+      processZipStreamParallel(file.path, userSub, jobId);
 
     }
     else {
-
       return res.status(400).json({
         error: "Nur .fit oder .zip Dateien erlaubt"
       });
@@ -234,8 +363,8 @@ export async function uploadFile(req, res) {
     }
 
     res.json({
-      message: "Upload abgeschlossen",
-      summary: result
+      message: "Upload started",
+      jobId
     });
 
   } catch (err) {

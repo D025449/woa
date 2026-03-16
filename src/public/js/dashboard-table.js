@@ -1,3 +1,6 @@
+import { TypedArrayHelpers } from "/shared/TypedArrayHelpers.js";
+
+
 let map;
 let trackLayer;
 
@@ -361,13 +364,47 @@ function initTable(chart) {
         headerFilter: "input",
         headerFilterFunc: ">=",
         formatter: cell => cell.getValue().toFixed(0)
+      },
+      {
+        title: "Actions",
+        formatter: function () {
+
+          return `
+      <button class="btn btn-sm btn-danger delete-btn">Delete</button>
+      <button class="btn btn-sm btn-primary open-btn">Open</button>
+    `;
+
+        },
+
+        width: 160,
+
+        cellClick: function (e, cell) {
+
+          const row = cell.getRow().getData();
+
+          if (e.target.classList.contains("delete-btn")) {
+
+            //deleteWorkout(row.id);
+            e.stopPropagation();
+
+          }
+
+          if (e.target.classList.contains("open-btn")) {
+
+            //loadWorkout(row.id);
+            e.stopPropagation();
+
+          }
+
+        }
+
       }
 
 
     ]
   });
 
-  table.on("rowClick", (e, row) => loadWorkout(chart, row));
+  table.on("rowClick", (e, row) => loadWorkout(e, chart, row));
 
   // 🔥 Trick: erstes Workout automatisch laden
   /*table.on("dataLoaded", function(data){
@@ -415,8 +452,8 @@ function buildIndex(n) {
 // WORKOUT LADEN
 // ---------------------------------------------------
 
-async function loadWorkout(chart, row) {
-
+async function loadWorkout(e, chart, row) {
+  if (e.target.closest("button")) return;
   const workoutId = row.getData().id;
   const filename = row.getData().original_filename;
 
@@ -444,37 +481,13 @@ async function loadWorkout(chart, row) {
 
     const headerSize = 12; // Uint32 record count
 
+    const bytes = TypedArrayHelpers.computeSizeForFitRecords(recCount, headerSize);
+    const [baseValues, powers, heartRates, cadences, speeds, altitudes, latitudes, longitudes] = TypedArrayHelpers.allocateViews(buffer, recCount, headerSize);
+
     console.log({ recCount });
 
 
     let offset = headerSize;
-
-    const baseValues = new Int32Array(buffer, offset, 7);
-    offset += baseValues.byteLength;
-
-
-
-    const powers = new Int16Array(buffer, offset, recCount);
-    offset += powers.byteLength;
-
-    const heartRates = new Int8Array(buffer, offset, recCount);
-    offset += heartRates.byteLength;
-
-    const cadences = new Int8Array(buffer, offset, recCount);
-    offset += cadences.byteLength;
-
-    const speeds = new Int8Array(buffer, offset, recCount);
-    offset += speeds.byteLength;
-
-    const altitudes = new Int8Array(buffer, offset, recCount);
-    offset += altitudes.byteLength;
-
-    const latitudes = new Int32Array(buffer, offset, recCount);
-    offset += latitudes.byteLength;
-
-    const longitudes = new Int32Array(buffer, offset, recCount);
-
-
     const data = new Float32Array((recCount + 1) * 6);
     let idx = 0;
     data[idx] = 0;

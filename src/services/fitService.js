@@ -1,6 +1,7 @@
 
 
 import FitParser from "fit-file-parser";
+import { TypedArrayHelpers } from "../shared/TypedArrayHelpers.js";
 
 function parseFit(buffer) {
   return new Promise((resolve, reject) => {
@@ -502,7 +503,11 @@ function processFitRecords_v2(records) {
 
   const headerSize = 12; // Uint32 record count
 
-  const bytes = 
+  const bytes = TypedArrayHelpers.computeSizeForFitRecords(recCount, headerSize);
+
+
+
+  /*const bytes = 
     headerSize +
     7 * Int32Array.BYTES_PER_ELEMENT + // Base
     recCount * Int16Array.BYTES_PER_ELEMENT + // power
@@ -511,7 +516,7 @@ function processFitRecords_v2(records) {
     recCount * Int8Array.BYTES_PER_ELEMENT + // speed
     recCount * Int8Array.BYTES_PER_ELEMENT + // altitude
     recCount * Int32Array.BYTES_PER_ELEMENT + // lat
-    recCount * Int32Array.BYTES_PER_ELEMENT;  // lon
+    recCount * Int32Array.BYTES_PER_ELEMENT;  // lon*/
 
 
   const buffer = new ArrayBuffer(bytes);
@@ -522,7 +527,11 @@ function processFitRecords_v2(records) {
   view.setUint32(6, recCount, true);
   view.setUint16(10, 1, true); // 0: with out delta 1: with delta
 
-  let offset = headerSize;
+
+  const [baseValues, powers, heartRates, cadences, speeds, altitudes, latitudes, longitudes] = TypedArrayHelpers.allocateViews(buffer, recCount, headerSize);
+
+
+  /*let offset = headerSize;
 
 
   const baseValues = new Int32Array(buffer, offset, 7);
@@ -549,7 +558,9 @@ function processFitRecords_v2(records) {
   const latitudes = new Int32Array(buffer, offset, recCount);
   offset += latitudes.byteLength;
 
-  const longitudes = new Int32Array(buffer, offset, recCount);
+  const longitudes = new Int32Array(buffer, offset, recCount);*/
+
+
 
 
   const startTime = records[0].timestamp;

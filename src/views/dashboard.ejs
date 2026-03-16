@@ -31,7 +31,7 @@
                 <div class="ms-auto d-flex align-items-center gap-3">
 
                     <span class="text-white">
-                        <%= userInfo.name || userInfo.email %>
+                        <%= userInfo.name || userInfo.email || userInfo.username %>
                     </span>
 
                     <a class="btn btn-outline-light btn-sm" href="/files/uploadUI">
@@ -61,6 +61,15 @@
 
                         <div class="card-header">
                             <h5 class="mb-0">Workouts</h5>
+                                <!--div>
+      <button id="btn-delete" class="btn btn-danger btn-sm">
+        Delete
+      </button>
+
+      <button id="btn-refresh" class="btn btn-secondary btn-sm">
+        Refresh
+      </button>
+    </div-->
                         </div>
 
                         <div class="card-body">
@@ -126,7 +135,7 @@
 
                 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 
-                <script src="/js/dashboard-table.js"></script>
+                <script type="module" src="/js/dashboard-table.js"></script>
 
 </body>
 

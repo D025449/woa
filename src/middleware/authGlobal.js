@@ -1,4 +1,5 @@
 import { CognitoJwtVerifier } from "aws-jwt-verify";
+import ensureUserExists from "../services/userDBService.js"
 
 let verifier;/* = CognitoJwtVerifier.create({
   userPoolId: process.env.COGNITO_USER_POOL_ID,
@@ -18,37 +19,38 @@ function getVerifier() {
 }
 
 
-export default async function authMiddleware(req, res, next) {
-  try {
-    /*const authHeader = req.headers.authorization;
+export default async function authGlobal(req, res, next) {
 
-    if (!authHeader) {
-      return res.status(401).json({ error: "No token provided" });
-    }*/
+  try {
 
     const token = req.cookies.accessToken;
 
     if (!token) {
-      res.locals.user = null;
       return next();
     }
-
-    //const token = authHeader.split(" ")[1];
     verifier = getVerifier();
-
     const payload = await verifier.verify(token);
 
-    // WICHTIG:
-    req.user = {
+    const user = {
       sub: payload.sub,
       email: payload.email,
       username: payload.username
     };
 
+    req.user = user;
+    res.locals.user = user;
+
+    // 👇 User automatisch synchronisieren
+    await ensureUserExists(user);
+
     next();
 
   } catch (err) {
-    console.error("JWT verification failed:", err);
-    return res.status(401).json({ error: "Invalid token" });
+
+    console.warn("JWT verify failed:", err.message);
+
+    next();
+
   }
-};
+
+}
