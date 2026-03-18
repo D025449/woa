@@ -114,7 +114,7 @@ class FileDBService {
     };
   }
 
-static async getWorkoutRecordsPreSignedUrl(workoutId, authSub) {
+  static async getWorkoutRecordsPreSignedUrl(workoutId, authSub) {
     if (!authSub) {
       throw new Error("Unauthorized");
     }
@@ -138,9 +138,44 @@ static async getWorkoutRecordsPreSignedUrl(workoutId, authSub) {
     const bucket = process.env.S3_BUCKET;
     const payload = await S3Service.getPresignedUrl(bucket, s3Key);
     return payload;
-}
+  }
+
+  static async deleteWorkout(sub, workoutId) {
+
+    const { rows } = await pool.query(
+      `
+      SELECT s3_key
+      FROM files
+      WHERE id = $1
+      AND auth_sub = $2
+      `,
+      [workoutId, sub]
+    );
+
+    if (rows.length === 0) {
+      throw new Error("Workout not found");
+    }
+
+    const s3Key = rows[0].s3_key;
+    const bucket = process.env.S3_BUCKET;
+
+    const payload = await S3Service.deleteObject(bucket, s3Key);
+
+    // 2. DB-Eintrag löschen
+    const result = await pool.query(
+      `
+      DELETE FROM files
+      WHERE id = $1
+      AND auth_sub = $2
+  `,
+      [workoutId, sub]
+    );
 
 
+    return result;
+    
+
+  }
 
   static async getWorkoutRecords(workoutId, authSub) {
 
@@ -170,7 +205,7 @@ static async getWorkoutRecordsPreSignedUrl(workoutId, authSub) {
     const payload = await S3Service.getJsonObject(bucket, s3Key);
 
     // 3️⃣ Records extrahieren
-    if (!payload.data|| !Array.isArray(payload.data)) {
+    if (!payload.data || !Array.isArray(payload.data)) {
       return [];
     }
 
@@ -226,7 +261,7 @@ static async getWorkoutRecordsPreSignedUrl(workoutId, authSub) {
     const offset = (page - 1) * size;
 
     const filter_all = [];
-    filter_all.push( { field : 'auth_sub', type : '=', value : authSub } );
+    filter_all.push({ field: 'auth_sub', type: '=', value: authSub });
     filter_all.push(...filter);
 
 
@@ -242,7 +277,7 @@ static async getWorkoutRecordsPreSignedUrl(workoutId, authSub) {
     let sqlParams = params;
     if (whereSQL) {
       baseWhere += whereSQL.replace("WHERE ", "");
-     // sqlParams = [params];
+      // sqlParams = [params];
     }
 
     // -----------------------------------

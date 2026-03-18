@@ -29,6 +29,34 @@ router.post(
   next();
 };*/
 
+router.delete("/workouts/:id", authMiddleware, async (req, res) => {
+  const workoutId = req.params.id;
+  const sub = req.user.sub;
+
+
+
+
+  /*if (!Number.isInteger(workoutId) || workoutId <= 0) {
+    return res.status(400).json({ error: "Invalid workout id" });
+  }*/
+
+  try {
+    const result = await FileDBService.deleteWorkout(sub, workoutId);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Workout not found" });
+    }
+    return res.json({
+      ok: true,
+      id: workoutId
+    });
+  } catch (err) {
+    console.error("DELETE /files/workouts/:id failed:", err);
+    return res.status(500).json({ error: "Failed to delete workout" });
+  }
+});
+
+
 router.get('/uploadUI', authMiddleware, async (req, res) => {
   console.log(req.user);
   //console.log(req.isAuthenticated);
@@ -38,11 +66,11 @@ router.get('/uploadUI', authMiddleware, async (req, res) => {
     isAuthenticated: req.isAuthenticated
   });
 });
- 
+
 // -------------------------------------
 // GET /files/workouts  (Tabulator JSON)
 // -------------------------------------
-router.get("/workouts",authMiddleware, async (req, res, next) => {
+router.get("/workouts", authMiddleware, async (req, res, next) => {
   try {
 
     /*if (!req.session.userInfo) {
@@ -75,11 +103,11 @@ router.get("/workouts",authMiddleware, async (req, res, next) => {
 // GET /files/workouts/:id/data
 router.get("/workouts/:id/data", authMiddleware, async (req, res, next) => {
   try {
-   /* if (!req.session.userInfo) {
-      return res.status(401).json({
-        error: "Session expired"
-      });
-    }*/
+    /* if (!req.session.userInfo) {
+       return res.status(401).json({
+         error: "Session expired"
+       });
+     }*/
     const workoutId = req.params.id;
     const authSub = req.user?.sub;
 

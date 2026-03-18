@@ -12,7 +12,7 @@ import { PassThrough } from "stream";
 import s3Service from "../services/s3Service.js";
 import {
   parseFit,
-  processFitRecords_v2,
+  processFitRecords,
   mapToFileRow
 } from "../services/fitService.js";
 //import pool from "../services/database.js";
@@ -165,6 +165,8 @@ async function processZipStreamParallel(sourcePath, userSub, jobId) {
 
             results.success++;
 
+            progressEmitter.emit(jobId, { file: filename, err: 'uploaded' });
+
           } catch (err) {
 
             const message = getErrorMessage(err);
@@ -178,9 +180,11 @@ async function processZipStreamParallel(sourcePath, userSub, jobId) {
 
             console.error(`Fehler bei FIT: ${entry.path}`, message);
 
+            progressEmitter.emit(jobId, { file: filename, err: err.message});
+
           }
 
-          progressEmitter.emit(jobId, { file: filename });
+          
 
         })
 
@@ -263,11 +267,12 @@ async function processZipBuffer(zipBuffer, userSub) {
 
 }
 
-async function processFitPath(sourcePath, originalName, userSub) {
+async function processFitPath(sourcePath, originalName, userSub, jobId) {
   try {
+    await new Promise(r => setTimeout(r, 200));
     const buffer = await fsp.readFile(sourcePath);
     const fitJsonObject = await parseFit(buffer);
-    const binBuffer = processFitRecords_v2(fitJsonObject.records);
+    const binBuffer = processFitRecords(fitJsonObject.records);
     const newFilenamebin = path.basename(originalName, path.extname(originalName)) + ".bin";
     const s3KeyBin = `users/${userSub}/${randomUUID()}-${newFilenamebin}`;
     const fitFile = {
@@ -280,18 +285,48 @@ async function processFitPath(sourcePath, originalName, userSub) {
     const fileRow = mapToFileRow(fitJsonObject, fitFile);
     await insertFile(fileRow);
     await s3Service.putObjectBinary(s3KeyBin, binBuffer, "application/octet-stream");
+    progressEmitter.emit(jobId, { file: originalName, status: 'done' });
   }
+  catch (errr) {
+      progressEmitter.emit(jobId, { file: originalName, err: errr.message, status: 'err' });
+  }
+
   finally {
     // Datei immer löschen
     await fsp.unlink(sourcePath);
+
+
+
   }
+
+  /* .then(() => {
+     progressEmitter.emit(jobId, {
+       progress: 100,
+       status: "done",
+       file: file.originalname,
+
+     })
+   })
+   .catch(err => {
+     console.error("Async Fehler:", err);
+     progressEmitter.emit(jobId, {
+       progress: 100,
+       status: "err",
+       file: file.originalname,
+       error: err
+
+     })
+
+   });*/
+
+
 }
 
 
 async function processFitBuffer(buffer, originalName, userSub) {
 
   const fitJsonObject = await parseFit(buffer);
-  const binBuffer = processFitRecords_v2(fitJsonObject.records);
+  const binBuffer = processFitRecords(fitJsonObject.records);
   const newFilenamebin = path.basename(originalName, path.extname(originalName)) + ".bin";
   const s3KeyBin = `users/${userSub}/${randomUUID()}-${newFilenamebin}`;
   const fitFile = {
@@ -329,26 +364,8 @@ export async function uploadFile(req, res) {
     const jobId = randomUUID();
     if (ext === ".fit") {
 
-      processFitPath(file.path, file.originalname, userSub)
-        .then(() => {
-          progressEmitter.emit(jobId, {
-            progress: 100,
-            status: "done",
-            file: file.originalname,
+      processFitPath(file.path, file.originalname, userSub, jobId);
 
-          })
-        })
-        .catch(err => {
-          console.error("Async Fehler:", err);
-          progressEmitter.emit(jobId, {
-            progress: 100,
-            status: "done",
-            file: file.originalname,
-            error: err
-
-          })
-
-        });
     }
     else if (ext === ".zip") {
 
@@ -362,7 +379,8 @@ export async function uploadFile(req, res) {
 
     }
 
-    res.json({
+    return res.json({
+      status: 'trig',
       message: "Upload started",
       jobId
     });

@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import zlib from "zlib";
 import { Readable } from "stream";
@@ -50,6 +50,14 @@ class S3Service {
     return jsonStream.pipe(gzip);
   }
 
+  static async deleteObject(bucket, key) {
+    await s3.send(new DeleteObjectCommand({
+      Bucket: bucket,
+      Key: key
+    }));
+
+  }
+
 
   static async getJsonObject(bucket, key) {
 
@@ -99,6 +107,8 @@ class S3Service {
   }
 
 
+
+
   static async putObjectBinary(key, buffer, contentType) {
 
     const compressed = zlib.brotliCompressSync(Buffer.from(buffer),
@@ -109,7 +119,7 @@ class S3Service {
         }
       });
 
-      console.log( { uncompressed: buffer.byteLength, compressed: compressed.byteLength, ratio: Math.round(compressed.byteLength * 100 / buffer.byteLength) } );
+    // console.log( { uncompressed: buffer.byteLength, compressed: compressed.byteLength, ratio: Math.round(compressed.byteLength * 100 / buffer.byteLength) } );
 
 
 

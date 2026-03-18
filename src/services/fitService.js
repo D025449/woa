@@ -2,6 +2,8 @@
 
 import FitParser from "fit-file-parser";
 import { TypedArrayHelpers } from "../shared/TypedArrayHelpers.js";
+import { IntervalDetector } from "../shared/IntervalDetector.js";
+import { RecordGapFiller } from "../shared/RecordGapFiller.js";
 
 function parseFit(buffer) {
   return new Promise((resolve, reject) => {
@@ -273,194 +275,6 @@ Normalized Power
 Dataset für Chart
 */
 
-function processFitRecords(records) {
-
-  if (!records || records.length === 0) {
-    return { data: [], normalizedPower: 0 };
-  }
-
-  // ----------------------------------
-  // Sortieren (FIT kann out-of-order sein)
-  // ----------------------------------
-
-  records.sort((a, b) => a.timestamp - b.timestamp);
-
-  const result = [];
-
-  const startTime = records[0].timestamp;
-
-  const maxSmartGap = 5;
-  const smoothingAlpha = 0.25;
-
-  let prevT = null;
-
-  let lastPower = 0;
-  let lastHeartRate = 0;
-  let lastCadence = 0;
-  let lastSpeed = 0;
-  let lastAltitude = 0;
-  let lastLat = 0;
-  let lastLong = 0;
-
-  let ema = 0;
-
-  // rolling 30s power
-  const roll30 = new Array(30).fill(0);
-  let rollIndex = 0;
-  let rollSum = 0;
-  let rollCount = 0;
-
-  let npSum = 0;
-  let npCount = 0;
-
-  for (const r of records) {
-
-    // -------------------------------
-    // Zeit → Sekunden
-    // -------------------------------
-
-    const t = Math.round((r.timestamp - startTime) / 1000);
-
-    if (prevT !== null && t === prevT) {
-      continue;
-    }
-
-    // -------------------------------
-    // Forward Fill Sensoren
-    // -------------------------------
-
-    const power = r.power ?? lastPower ?? 0;
-    const heartRate = r.heart_rate ?? lastHeartRate ?? 0;
-    const cadence = r.cadence ?? lastCadence ?? 0;
-    const speed = r.speed ?? lastSpeed ?? 0;
-    const altitude = r.altitude ?? lastAltitude ?? 0;
-    const lat = r.position_lat ?? lastLat ?? 0;
-    const long = r.position_long ?? lastLong ?? 0;
-    // -------------------------------
-    // Gap Behandlung
-    // -------------------------------
-
-    if (prevT !== null) {
-
-      const gap = t - prevT;
-
-      if (gap > 1 && gap <= maxSmartGap) {
-
-        for (let s = 1; s < gap; s++) {
-
-          const tt = prevT + s;
-
-          // smoothing
-          ema = power === 0 ? ema : smoothingAlpha * power + (1 - smoothingAlpha) * ema;
-
-          // rolling30
-          rollSum -= roll30[rollIndex];
-          roll30[rollIndex] = power;
-          rollSum += power;
-
-          rollIndex = (rollIndex + 1) % 30;
-
-          if (rollCount < 30) rollCount++;
-
-          const avg30 = rollSum / rollCount;
-
-          const p4 = avg30 * avg30 * avg30 * avg30;
-
-          npSum += p4;
-          npCount++;
-
-          result.push([
-            //tt,
-            power,
-            heartRate,
-            cadence,
-            Math.round(speed * 10) / 10,
-            Math.round(ema)
-          ]);
-        }
-      }
-
-      else if (gap > maxSmartGap) {
-
-        /*result.push([
-          //prevT + 1,
-          NaN,
-          NaN,
-          NaN,
-          NaN,
-          NaN
-        ]);*/
-      }
-    }
-
-    // -------------------------------
-    // Zero-Aware Smoothing
-    // -------------------------------
-
-    ema = power === 0
-      ? ema
-      : smoothingAlpha * power + (1 - smoothingAlpha) * ema;
-
-    // -------------------------------
-    // Rolling 30s
-    // -------------------------------
-
-    rollSum -= roll30[rollIndex];
-    roll30[rollIndex] = power;
-    rollSum += power;
-
-    rollIndex = (rollIndex + 1) % 30;
-
-    if (rollCount < 30) rollCount++;
-
-    const avg30 = rollSum / rollCount;
-
-    const p4 = avg30 * avg30 * avg30 * avg30;
-
-    npSum += p4;
-    npCount++;
-
-    // -------------------------------
-    // Chart Record
-    // -------------------------------
-
-    result.push([
-      //  t,
-      power,
-      heartRate,
-      cadence,
-      Math.round(speed * 10) / 10,
-      Math.round(ema)
-    ]);
-
-    // -------------------------------
-
-    lastPower = power;
-    lastHeartRate = heartRate;
-    lastCadence = cadence;
-    lastSpeed = speed;
-    lastAltitude = altitude;
-    lastLat = lat;
-    lastLong = long;
-
-    prevT = t;
-  }
-
-  // ----------------------------------
-  // Normalized Power
-  // ----------------------------------
-
-  const normalizedPower =
-    npCount === 0
-      ? 0
-      : Math.round(Math.pow(npSum / npCount, 0.25));
-
-  return {
-    data: result,
-    normalizedPower
-  };
-}
-
 function getRecordCount(records, maxSmartGap = 5) {
 
   let prevT = null;
@@ -489,82 +303,57 @@ function getRecordCount(records, maxSmartGap = 5) {
 }
 
 
-function processFitRecords_v2(records) {
+function processFitRecords(recs) {
 
   // ----------------------------------
   // Sortieren (FIT kann out-of-order sein)
   // ----------------------------------
+  recs.sort((a, b) => a.timestamp - b.timestamp);
+  // -------------------------
+  // smap gaps füllen:
+  // -------------------------
+  const records = RecordGapFiller.fillGaps(recs);
 
-  records.sort((a, b) => a.timestamp - b.timestamp);
+  const intervals = IntervalDetector.detect(records);
+
+
+  //const intervals = IntervalDetector.detect(powers, heartRates);
+  if (intervals.length > 32) {
+    //console.log(intervals);
+    console.log({ intlen: intervals.length });
+  }
+
+
 
   const maxSmartGap = 5;
-  const recCount = getRecordCount(records, maxSmartGap) - 1;
+  const recCount = records.length - 1;// getRecordCount(records, maxSmartGap) - 1;
 
+  const headerSize = 16; // Uint32 record count
 
-  const headerSize = 12; // Uint32 record count
-
-  const bytes = TypedArrayHelpers.computeSizeForFitRecords(recCount, headerSize);
-
-
-
-  /*const bytes = 
-    headerSize +
-    7 * Int32Array.BYTES_PER_ELEMENT + // Base
-    recCount * Int16Array.BYTES_PER_ELEMENT + // power
-    recCount * Int8Array.BYTES_PER_ELEMENT + // cadence
-    recCount * Int8Array.BYTES_PER_ELEMENT + // hr
-    recCount * Int8Array.BYTES_PER_ELEMENT + // speed
-    recCount * Int8Array.BYTES_PER_ELEMENT + // altitude
-    recCount * Int32Array.BYTES_PER_ELEMENT + // lat
-    recCount * Int32Array.BYTES_PER_ELEMENT;  // lon*/
-
-
+  const bytes = TypedArrayHelpers.computeSizeForFitRecords(recCount, intervals.length, headerSize);
   const buffer = new ArrayBuffer(bytes);
   const view = new DataView(buffer);
 
   view.setUint32(0, 0x46544b31); // "FTK1"
-  view.setUint16(4, 1, true); // Version 
-  view.setUint32(6, recCount, true);
-  view.setUint16(10, 1, true); // 0: with out delta 1: with delta
+  view.setUint32(4, 1, true); // Version 
+  view.setUint32(8, recCount, true);
+  view.setUint32(12,intervals.length, true); // 0: with out delta 1: with delta
 
 
-  const [baseValues, powers, heartRates, cadences, speeds, altitudes, latitudes, longitudes] = TypedArrayHelpers.allocateViews(buffer, recCount, headerSize);
+  const [baseValues, powers, heartRates, cadences, speeds, altitudes, latitudes, longitudes, starts, ends, durations, intpowers, intHeartRates, intSpeeds] = TypedArrayHelpers.allocateViews(buffer, recCount, intervals.length, headerSize);
+
+  IntervalDetector.writeIntervalsToArrays(
+    intervals,
+    starts,
+    ends,
+    durations,
+    intpowers,
+    intHeartRates,
+    intSpeeds,
+    10
+  );
 
 
-  /*let offset = headerSize;
-
-
-  const baseValues = new Int32Array(buffer, offset, 7);
-  offset += baseValues.byteLength;
-
-
-
-
-  const powers = new Int16Array(buffer, offset, recCount);
-  offset += powers.byteLength;
-
-  const heartRates = new Int8Array(buffer, offset, recCount);
-  offset += heartRates.byteLength;
-
-  const cadences = new Int8Array(buffer, offset, recCount);
-  offset += cadences.byteLength;
-
-  const speeds = new Int8Array(buffer, offset, recCount);
-  offset += speeds.byteLength;
-
-  const altitudes = new Int8Array(buffer, offset, recCount);
-  offset += altitudes.byteLength;
-
-  const latitudes = new Int32Array(buffer, offset, recCount);
-  offset += latitudes.byteLength;
-
-  const longitudes = new Int32Array(buffer, offset, recCount);*/
-
-
-
-
-  const startTime = records[0].timestamp;
-  let prevT = null;
   let lastPower = 0;
   let lastHeartRate = 0;
   let lastCadence = 0;
@@ -572,75 +361,25 @@ function processFitRecords_v2(records) {
   let lastAltitude = 0;
   let lastLat = 0;
   let lastLong = 0;
-  let nn = 0;
 
   const factor = Math.pow(2, 31) / 180;
-  let idx = 0;
+
+  let nn = 0;
+  let first = true;
 
   for (const r of records) {
-
-    // -------------------------------
-    // Zeit → Sekunden
-    // -------------------------------
-
-    const t = Math.round((r.timestamp - startTime) / 1000);
-
-    if (prevT !== null && t === prevT) {
-      continue;
-    }
-
-
-
-    // -------------------------------
-    // Forward Fill Sensoren
-    // -------------------------------
-
+    // ===== Normalisierung + Fallback =====
     const power = Math.round(r.power ?? lastPower ?? 0);
     const heartRate = Math.round(r.heart_rate ?? lastHeartRate ?? 0);
     const cadence = Math.round(r.cadence ?? lastCadence ?? 0);
     const speed = Math.round((r.speed ?? lastSpeed ?? 0) * 10);
-    const altitude = Math.round(r.altitude * 1000 ?? lastAltitude ?? 0);
-    const lat = Math.round((r.position_lat ?? lastLat ?? 0) * factor / 100); // 0.9m exactness
-    const long = Math.round((r.position_long ?? lastLong ?? 0) * factor / 100);
+    const altitude = Math.round((r.altitude ?? lastAltitude ?? 0) * 1000);
 
+    const lat = Math.round(((r.position_lat ?? lastLat ?? 0) * factor) / 100);
+    const long = Math.round(((r.position_long ?? lastLong ?? 0) * factor) / 100);
 
-
-
-
-    // -------------------------------
-    // Gap Behandlung
-    // -------------------------------
-
-    if (prevT !== null) {
-
-      const gap = t - prevT;
-
-      if (gap > 1 && gap <= maxSmartGap) {
-
-        for (let s = 1; s < gap; s++) {
-          powers[nn] = 0;
-          heartRates[nn] = 0;
-          cadences[nn] = 0;
-          speeds[nn] = 0;
-          altitudes[nn] = 0;
-          latitudes[nn] = 0;
-          longitudes[nn++] = 0;
-          ++idx;
-
-        }
-      }
-    }
-    if (idx > 0) {
-      powers[nn] = power - lastPower;
-      heartRates[nn] = heartRate - lastHeartRate;
-      cadences[nn] = cadence - lastCadence;
-      speeds[nn] = speed - lastSpeed;
-      altitudes[nn] = altitude - lastAltitude;
-      latitudes[nn] = lat - lastLat;
-      longitudes[nn++] = long - lastLong;
-      ++idx;
-    }
-    else {
+    // ===== First Record → Base Values =====
+    if (first) {
       baseValues[0] = power;
       baseValues[1] = heartRate;
       baseValues[2] = cadence;
@@ -648,11 +387,22 @@ function processFitRecords_v2(records) {
       baseValues[4] = altitude;
       baseValues[5] = lat;
       baseValues[6] = long;
-      ++idx;
+
+      first = false;
+    } else {
+      // ===== Deltas schreiben =====
+      powers[nn] = power - lastPower;
+      heartRates[nn] = heartRate - lastHeartRate;
+      cadences[nn] = cadence - lastCadence;
+      speeds[nn] = speed - lastSpeed;
+      altitudes[nn] = altitude - lastAltitude;
+      latitudes[nn] = lat - lastLat;
+      longitudes[nn] = long - lastLong;
+
+      nn++;
     }
 
-    // -------------------------------
-
+    // ===== State updaten =====
     lastPower = power;
     lastHeartRate = heartRate;
     lastCadence = cadence;
@@ -660,8 +410,6 @@ function processFitRecords_v2(records) {
     lastAltitude = altitude;
     lastLat = lat;
     lastLong = long;
-
-    prevT = t;
   }
 
 
@@ -678,6 +426,5 @@ export {
   toGoogleMapsPath,
   aggregateSessions,
   mapToFileRow,
-  processFitRecords,
-  processFitRecords_v2
+  processFitRecords
 };

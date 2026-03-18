@@ -18,35 +18,42 @@ export class TypedArrayHelpers {
         return offset;
     }
 
-    static getFitLayout(recCount) {
+    static getFitLayout(recCount, intervalCount) {
         return [
-            { type: Int32Array, length: 7 },
-            { type: Int16Array, length: recCount },
-            { type: Int8Array, length: recCount },
-            { type: Int8Array, length: recCount },
-            { type: Int8Array, length: recCount },
-            { type: Int8Array, length: recCount },
-            { type: Int32Array, length: recCount },
-            { type: Int32Array, length: recCount }
+            { type: Int32Array, length: 7 },  //bases for delta
+            { type: Int16Array, length: recCount }, //dxPw
+            { type: Int8Array, length: recCount }, // hr
+            { type: Int8Array, length: recCount },// cad
+            { type: Int8Array, length: recCount }, //sp
+            { type: Int8Array, length: recCount }, // alt
+            { type: Int32Array, length: recCount }, // lat
+            { type: Int32Array, length: recCount }, //long
+            { type: Uint16Array, length: intervalCount },//start
+            { type: Uint16Array, length: intervalCount },//end
+            { type: Uint16Array, length: intervalCount },//duration
+            { type: Uint16Array, length: intervalCount },//avgPW
+            { type: Uint8Array, length: intervalCount },//avgHR
+            { type: Uint16Array, length: intervalCount }//avgSpeed * 10
+
         ];
     }
 
 
 
-    static computeSizeForFitRecords(recCount, offSetAfterHeader = 12) {
+    static computeSizeForFitRecords(recCount,intervalCount, offSetAfterHeader = 12) {
 
-        const layout = TypedArrayHelpers.getFitLayout(recCount); 
+        const layout = TypedArrayHelpers.getFitLayout(recCount,intervalCount); 
 
         const size = TypedArrayHelpers.computeSize(layout, offSetAfterHeader);
 
-        console.log(size);
+        //console.log(size);
 
         return size;
 
     }
 
-    static allocateViews(buffer, recCount, offSetAfterHeader = 12) {
-        const layout = TypedArrayHelpers.getFitLayout(recCount);
+    static allocateViews(buffer, recCount,intervallCount, offSetAfterHeader = 12) {
+        const layout = TypedArrayHelpers.getFitLayout(recCount,intervallCount);
         let offset = offSetAfterHeader;
         const views = [];
 

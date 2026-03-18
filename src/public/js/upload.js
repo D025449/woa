@@ -29,24 +29,30 @@ uploadForm.addEventListener("submit", async function (e) {
         const jobId = data.jobId;
 
         const source = new EventSource(`/progress/${jobId}`);
-        responseDiv.innerHTML = 'Transfering';
+        responseDiv.innerHTML = 'Transfering ' + file.name;
         source.onmessage = (event) => {
 
             const datax = JSON.parse(event.data);
 
-            responseDiv.innerHTML = datax.file;
+            responseDiv.innerHTML = datax.file + " " + datax.err;
 
             console.log(datax);
 
             if (datax.status === "done") {
                 source.close();
-                responseDiv.innerHTML = "done";
+                responseDiv.innerHTML = file.name + " done";
+            }
+            else if ( datax.status === "err") {
+                source.close();
+                responseDiv.innerHTML = datax.file + " " + "err: " + datax.err ;
+            } else if ( datax.status === 'trig'){
+                responseDiv.innerHTML = datax.file + " " + "err: " + datax.err  ;
             }
 
         };
 
-        responseDiv.innerHTML =
-            '<div class="alert alert-success">Upload erfolgreich</div>';
+        //responseDiv.innerHTML =
+        //    '<div class="alert alert-success">Upload erfolgreich</div>';
 
         console.log(data);
 
