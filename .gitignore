@@ -27,6 +27,9 @@ build/
 # Ignore real PM2 config
 ecosystem.config.js
 
+# Ignore ssh_login.txt
+ssh_login.txt
+
 # VS Code
 .vscode/
 

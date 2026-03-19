@@ -16,7 +16,8 @@ import authGlobal from "./middleware/authGlobal.js";
 import { progressEmitter } from "./services/progressEmitter.js";
 import fs from "fs";
 
-
+import uploadsRouter from './routes/uploads.js';
+import importsRouter from './routes/imports.js';
 
 let client;
 
@@ -32,14 +33,25 @@ export async function createApp() {
 
     app.use(express.static(path.join(__dirname, "public")));
     app.use("/shared", express.static("src/shared"));
-
-    app.use(createSessionMiddleware());
+    const sessionMiddleware = await createSessionMiddleware();
+    app.use(sessionMiddleware);
+    //app.use(createSessionMiddleware());
     app.use(express.urlencoded({ extended: true }));
     app.use(express.json());
     app.use(cookieParser());
     app.use(authGlobal);
 
     app.use("/files", fileRoutes);
+
+    app.use('/api/uploads', uploadsRouter);
+    app.use('/api/imports', importsRouter);
+
+    app.use((err, req, res, next) => {
+        console.error(err);
+        res.status(500).json({
+            error: err.message || 'Interner Serverfehler'
+        });
+    });
 
     app.set("views", path.join(__dirname, "views"));
     app.set("view engine", "ejs");

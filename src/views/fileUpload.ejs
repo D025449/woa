@@ -4,26 +4,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
     <title>FIT Upload</title>
-
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-
 </head>
 
 <body class="bg-light">
 
-
-
-    <!-- Navbar -->
-
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
-
             <span class="navbar-brand">Workout Dashboard</span>
 
             <div class="ms-auto d-flex align-items-center gap-3">
-
                 <span class="text-white">
                     <%= userInfo.username || userInfo.email %>
                 </span>
@@ -35,65 +26,79 @@
                 <a class="btn btn-outline-danger btn-sm" href="/logout">
                     Logout
                 </a>
-
             </div>
-
         </div>
     </nav>
 
-
-    <!-- Content -->
-
     <div class="container py-5">
-
         <div class="row justify-content-center">
-
             <div class="col-lg-6">
 
                 <div class="card shadow-sm">
-
                     <div class="card-header">
-                        <h5 class="mb-0">FIT-Datei hochladen</h5>
+                        <h5 class="mb-0">FIT- oder ZIP-Datei hochladen</h5>
                     </div>
 
                     <div class="card-body">
 
                         <form id="uploadForm">
-
                             <div class="mb-3">
-
                                 <label for="file" class="form-label">
                                     FIT oder ZIP Datei auswählen
                                 </label>
-
                                 <input type="file" class="form-control" id="file" name="file" required>
-
                             </div>
 
                             <div class="d-grid">
-
-                                <button type="submit" class="btn btn-primary">
+                                <button type="submit" id="submitButton" class="btn btn-primary">
                                     Upload starten
                                 </button>
+                            </div>
+                        </form>
 
+                        <div id="statusArea" class="mt-4 d-none">
+                            <div class="mb-3">
+                                <div class="small text-muted mb-1">Aktuelle Phase</div>
+                                <div id="phaseText" class="fw-semibold">Bereit</div>
                             </div>
 
-                        </form>
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between">
+                                    <span>Upload</span>
+                                    <span id="uploadPercentText">0%</span>
+                                </div>
+                                <div class="progress">
+                                    <div id="uploadProgressBar" class="progress-bar" role="progressbar"
+                                        style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                    </div>
+                                </div>
+                                <div id="uploadDetailText" class="small text-muted mt-1"></div>
+                            </div>
+
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between">
+                                    <span>Verarbeitung</span>
+                                    <span id="processingPercentText">0%</span>
+                                </div>
+                                <div class="progress">
+                                    <div id="processingProgressBar" class="progress-bar bg-success" role="progressbar"
+                                        style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                    </div>
+                                </div>
+                                <div id="processingDetailText" class="small text-muted mt-1"></div>
+                            </div>
+                        </div>
 
                         <div id="response" class="mt-3"></div>
 
                     </div>
-
                 </div>
 
             </div>
-
         </div>
-
     </div>
-        <!-- externes JS -->
-    <script type="module" src="/js/upload.js"></script>
 
+    <script type="module" src="/js/upload.js"></script>
 </body>
 
 </html>

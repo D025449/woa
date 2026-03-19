@@ -272,19 +272,7 @@ async function processFitPath(sourcePath, originalName, userSub, jobId) {
     await new Promise(r => setTimeout(r, 200));
     const buffer = await fsp.readFile(sourcePath);
     const fitJsonObject = await parseFit(buffer);
-    const binBuffer = processFitRecords(fitJsonObject.records);
-    const newFilenamebin = path.basename(originalName, path.extname(originalName)) + ".bin";
-    const s3KeyBin = `users/${userSub}/${randomUUID()}-${newFilenamebin}`;
-    const fitFile = {
-      auth_sub: userSub,
-      original_filename: originalName,
-      s3_key: s3KeyBin,
-      mime_type: "application/octet-stream",
-      file_size: binBuffer.byteLength
-    };
-    const fileRow = mapToFileRow(fitJsonObject, fitFile);
-    await insertFile(fileRow);
-    await s3Service.putObjectBinary(s3KeyBin, binBuffer, "application/octet-stream");
+    await processFitJson( fitJsonObject, originalName, userSub );
     progressEmitter.emit(jobId, { file: originalName, status: 'done' });
   }
   catch (errr) {
@@ -326,6 +314,11 @@ async function processFitPath(sourcePath, originalName, userSub, jobId) {
 async function processFitBuffer(buffer, originalName, userSub) {
 
   const fitJsonObject = await parseFit(buffer);
+  await processFitJson( fitJsonObject, originalName, userSub );
+}
+
+async function processFitJson( fitJsonObject, originalName, userSub )
+{
   const binBuffer = processFitRecords(fitJsonObject.records);
   const newFilenamebin = path.basename(originalName, path.extname(originalName)) + ".bin";
   const s3KeyBin = `users/${userSub}/${randomUUID()}-${newFilenamebin}`;
@@ -341,6 +334,8 @@ async function processFitBuffer(buffer, originalName, userSub) {
   await s3Service.putObjectBinary(s3KeyBin, binBuffer, "application/octet-stream");
 }
 
+
+
 function getErrorMessage(err) {
   if (!err) return "Unknown error";
 
@@ -351,7 +346,7 @@ function getErrorMessage(err) {
   return JSON.stringify(err);
 }
 
-export async function uploadFile(req, res) {
+async function uploadFile(req, res) {
 
   try {
 
@@ -397,3 +392,5 @@ export async function uploadFile(req, res) {
 
 };
 
+
+export { uploadFile, processFitJson };
