@@ -12,8 +12,15 @@ CREATE TABLE files (
     file_size        INTEGER        NOT NULL,
     uploaded_at      TIMESTAMP      NOT NULL DEFAULT NOW(),
 
-    start_time           TIMESTAMPTZ,
-    end_time             TIMESTAMPTZ,
+    start_time          TIMESTAMPTZ,
+    end_time            TIMESTAMPTZ,
+
+    year                INTEGER,
+    month               INTEGER,
+    week                INTEGER,
+    year_quarter        INTEGER,
+    year_month          INTEGER,
+    year_week           INTEGER,
 
     total_elapsed_time   DOUBLE PRECISION,
     total_timer_time     DOUBLE PRECISION,
@@ -44,7 +51,7 @@ CREATE TABLE files (
     swc_long             DOUBLE PRECISION,
 
 
-    CONSTRAINT uq_user_file UNIQUE (auth_sub, original_filename),
+    CONSTRAINT uq_user_start_time UNIQUE (auth_sub, start_time),
     CONSTRAINT fk_user FOREIGN KEY (auth_sub)
         REFERENCES users(auth_sub)
         ON DELETE CASCADE

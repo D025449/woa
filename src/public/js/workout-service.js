@@ -37,6 +37,54 @@ export async function loadWorkoutByRow(row) {
   return parseWorkoutBuffer(buffer, filename);
 }
 
+function movingAverageCentered(values, windowSize = 10) {
+  const out = new Array(values.length);
+  const halfLeft = Math.floor((windowSize - 1) / 2);
+  const halfRight = windowSize - 1 - halfLeft;
+
+  for (let i = 0; i < values.length; i++) {
+    const start = Math.max(0, i - halfLeft);
+    const end = Math.min(values.length - 1, i + halfRight);
+
+    let sum = 0;
+    for (let j = start; j <= end; j++) {
+      sum += values[j];
+    }
+
+    out[i] = Math.round(sum / (end - start + 1));
+  }
+
+  return out;
+}
+
+function smoothTypedArrayInPlace(arr, windowSize = 10) {
+  const n = arr.length;
+  if (n === 0) return arr;
+  if (windowSize <= 1) return arr;
+
+  const tmp = new Float64Array(n);
+  let sum = 0;
+
+  for (let i = 0; i < n; i++) {
+    sum += arr[i];
+
+    if (i >= windowSize) {
+      sum -= arr[i - windowSize];
+    }
+
+    const divisor = Math.min(i + 1, windowSize);
+    tmp[i] = sum / divisor;
+  }
+
+  // zurück ins Originalarray schreiben
+  for (let i = 0; i < n; i++) {
+    arr[i] = Math.round(tmp[i]);
+  }
+
+  return arr;
+}
+
+
 function parseWorkoutBuffer(buffer, filename) {
   const view = new DataView(buffer);
 
@@ -47,7 +95,6 @@ function parseWorkoutBuffer(buffer, filename) {
   const headerSize = 16;
 
   const [
-    baseValues,
     powers,
     heartRates,
     cadences,
@@ -63,13 +110,14 @@ function parseWorkoutBuffer(buffer, filename) {
     intSpeeds
   ] = TypedArrayHelpers.allocateViews(buffer, recCount, intervalCount, headerSize);
 
+  
+
   const series = buildWorkoutSeries(
     recCount,
-    baseValues,
-    powers,
-    heartRates,
-    cadences,
-    speeds,
+    movingAverageCentered(powers,50),
+    movingAverageCentered(heartRates,50),
+    movingAverageCentered(cadences,50 ),
+    movingAverageCentered(speeds,50),
     altitudes
   );
 
@@ -87,8 +135,6 @@ function parseWorkoutBuffer(buffer, filename) {
       speeds: intSpeeds
     },
     track: {
-      baselat: baseValues[5],
-      baselong: baseValues[6],
       deltalat: latitudes,
       deltalong: longitudes,
       recCount
@@ -98,7 +144,6 @@ function parseWorkoutBuffer(buffer, filename) {
 
 function buildWorkoutSeries(
   recCount,
-  baseValues,
   powers,
   heartRates,
   cadences,
@@ -116,16 +161,16 @@ function buildWorkoutSeries(
   let sumSpeed5 = 0;
   let sumAltitude7 = 0;
 
-  const data = new Float32Array((recCount + 1) * STRIDE);
+  const data = new Float32Array((recCount) * STRIDE);
 
   let idx = 0;
-  const basePower = baseValues[0];
+  /*const basePower = baseValues[0];
   const baseHeartRate = baseValues[1];
   const baseCadence = baseValues[2];
   const baseSpeed = baseValues[3] / 10;
-  const baseAltitude = baseValues[4];
+  const baseAltitude = baseValues[4];*/
 
-  data[idx] = 0;
+  /*data[idx] = 0;
   data[idx + 1] = basePower;
   data[idx + 2] = baseHeartRate;
   data[idx + 3] = baseCadence;
@@ -140,19 +185,19 @@ function buildWorkoutSeries(
   data[idx + 6] = basePower;
   data[idx + 7] = basePower;
   data[idx + 8] = baseSpeed;
-  data[idx + 9] = baseAltitude;
+  data[idx + 9] = baseAltitude;*/
 
   for (let i = 0; i < recCount; i++) {
-    idx = (i + 1) * STRIDE;
-    const prev = i * STRIDE;
+    idx = (i + 0) * STRIDE;
+  //  const prev = i * STRIDE;
 
-    const power = data[prev + 1] + powers[i];
-    const heartRate = data[prev + 2] + heartRates[i];
-    const cadence = data[prev + 3] + cadences[i];
-    const speed = data[prev + 4] + speeds[i] / 10;
-    const altitude = data[prev + 5] + altitudes[i];
+    const power = powers[i];
+    const heartRate = heartRates[i];
+    const cadence = cadences[i];
+    const speed = speeds[i] / 10;
+    const altitude = altitudes[i];
 
-    data[idx] = i + 1;
+    data[idx] = i;  // xaxis
     data[idx + 1] = power;
     data[idx + 2] = heartRate;
     data[idx + 3] = cadence;

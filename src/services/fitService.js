@@ -4,6 +4,16 @@ import FitParser from "fit-file-parser";
 import { TypedArrayHelpers } from "../shared/TypedArrayHelpers.js";
 import { IntervalDetector } from "../shared/IntervalDetector.js";
 import { RecordGapFiller } from "../shared/RecordGapFiller.js";
+import { BestEffortDetector } from "../shared/BestEffortDetector.js";
+
+const LIMITS = {
+  Uint8: { min: 0, max: 0xFF },
+  Int8: { min: -0x80, max: 0x7F },
+  Uint16: { min: 0, max: 0xFFFF },
+  Int16: { min: -0x8000, max: 0x7FFF },
+  Uint32: { min: 0, max: 0xFFFFFFFF },
+  Int32: { min: -0x80000000, max: 0x7FFFFFFF },
+};
 
 function parseFit(buffer) {
   return new Promise((resolve, reject) => {
@@ -26,12 +36,64 @@ function parseFit(buffer) {
   });
 }
 
-function mapToFileRow(payload, fileMeta) {
+function getISOWeekUTC(timestamp) {
+  const d = new Date(timestamp);
+  const date = new Date(Date.UTC(
+    d.getUTCFullYear(),
+    d.getUTCMonth(),
+    d.getUTCDate()
+  ));
+
+  // ISO: Montag = 1, Sonntag = 7
+  let day = date.getUTCDay();
+  if (day === 0) day = 7;
+
+  // auf Donnerstag der aktuellen Woche schieben
+  date.setUTCDate(date.getUTCDate() + 4 - day);
+
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+
+  return {
+    isoYear: date.getUTCFullYear(),
+    isoWeek: weekNo
+  };
+}
+
+
+
+function mapToFileRow(payload, fileMeta, normalized_power) {
   const aggregated = aggregateSessions(payload);
 
   if (!aggregated) {
     throw new Error("No sessions found in payload");
   }
+
+  const d = new Date(aggregated.start_time);
+
+  const year = d.getUTCFullYear();
+  const month = d.getUTCMonth() + 1;
+  const quarter = Math.ceil(month / 3);
+  const year_Month = new Number(`${year}${String(month).padStart(2, '0')}`);
+
+  const { isoYear, isoWeek } = getISOWeekUTC(aggregated.start_time);
+  const yearWeek = new Number(`${isoYear}${String(isoWeek).padStart(2, '0')}`);
+  const yearQuarter = year * 10 + quarter;
+
+  /*
+    year                INTEGER,
+    month               INTEGER,
+    week                INTEGER,
+    year_quarter        INTEGER,
+    year_month          INTEGER,
+    year_week           INTEGER,
+
+  */
+
+
+
+
+  //console.log({ yearMonth, yearWeek, iso_Year, iso_Week });
 
   return {
     // --- File Metadaten
@@ -59,7 +121,7 @@ function mapToFileRow(payload, fileMeta) {
     max_speed: aggregated.max_speed,
 
     avg_power: aggregated.avg_power,
-    avg_normalized_power: Math.round(aggregated.avg_normalized_power),
+    avg_normalized_power: Math.round(normalized_power),
 
     max_power: aggregated.max_power,
 
@@ -72,7 +134,17 @@ function mapToFileRow(payload, fileMeta) {
     nec_lat: aggregated.nec_lat,
     nec_long: aggregated.nec_long,
     swc_lat: aggregated.swc_lat,
-    swc_long: aggregated.swc_long
+    swc_long: aggregated.swc_long,
+
+    year: year,
+    month: month,
+    week: isoWeek,
+    year_quarter: yearQuarter,
+    year_month: year_Month,
+    year_week: yearWeek
+
+
+
   };
 }
 
@@ -301,7 +373,46 @@ function getRecordCount(records, maxSmartGap = 5) {
   }
   return nn;
 }
+function calculateNormalizedPower(records) {
+  if (!records || records.length === 0) return 0;
 
+  const powers = records.map(r => Math.max(0, Number(r.power) || 0));
+
+  // Für echte NP braucht man mindestens 30 Sekunden
+  if (powers.length < 30) {
+    return Math.round(
+      Math.pow(
+        powers.reduce((sum, p) => sum + Math.pow(p, 4), 0) / powers.length,
+        1 / 4
+      )
+    );
+  }
+
+  const rollingAverages = [];
+  let windowSum = 0;
+
+  for (let i = 0; i < powers.length; i++) {
+    windowSum += powers[i];
+
+    if (i >= 30) {
+      windowSum -= powers[i - 30];
+    }
+
+    if (i >= 29) {
+      rollingAverages.push(windowSum / 30);
+    }
+  }
+
+  let fourthPowerSum = 0;
+  for (const avg of rollingAverages) {
+    fourthPowerSum += Math.pow(avg, 4);
+  }
+
+  const meanFourthPower = fourthPowerSum / rollingAverages.length;
+  const normalizedPower = Math.pow(meanFourthPower, 1 / 4);
+
+  return Math.round(normalizedPower);
+}
 
 function processFitRecords(recs) {
 
@@ -314,7 +425,15 @@ function processFitRecords(recs) {
   // -------------------------
   const records = RecordGapFiller.fillGaps(recs);
 
+  const normalized_power = calculateNormalizedPower(records);
+
+
+
+
   const intervals = IntervalDetector.detect(records);
+
+
+  const bestEfforts = BestEffortDetector.detect(records);
 
 
   //const intervals = IntervalDetector.detect(powers, heartRates);
@@ -326,7 +445,7 @@ function processFitRecords(recs) {
 
 
   const maxSmartGap = 5;
-  const recCount = records.length - 1;// getRecordCount(records, maxSmartGap) - 1;
+  const recCount = records.length;// - 1;// getRecordCount(records, maxSmartGap) - 1;
 
   const headerSize = 16; // Uint32 record count
 
@@ -337,10 +456,10 @@ function processFitRecords(recs) {
   view.setUint32(0, 0x46544b31); // "FTK1"
   view.setUint32(4, 1, true); // Version 
   view.setUint32(8, recCount, true);
-  view.setUint32(12,intervals.length, true); // 0: with out delta 1: with delta
+  view.setUint32(12, intervals.length, true); // 0: with out delta 1: with delta
 
 
-  const [baseValues, powers, heartRates, cadences, speeds, altitudes, latitudes, longitudes, starts, ends, durations, intpowers, intHeartRates, intSpeeds] = TypedArrayHelpers.allocateViews(buffer, recCount, intervals.length, headerSize);
+  const [powers, heartRates, cadences, speeds, altitudes, latitudes, longitudes, starts, ends, durations, intpowers, intHeartRates, intSpeeds] = TypedArrayHelpers.allocateViews(buffer, recCount, intervals.length, headerSize);
 
   IntervalDetector.writeIntervalsToArrays(
     intervals,
@@ -354,32 +473,40 @@ function processFitRecords(recs) {
   );
 
 
-  let lastPower = 0;
+  /*let lastPower = 0;
   let lastHeartRate = 0;
   let lastCadence = 0;
   let lastSpeed = 0;
   let lastAltitude = 0;
   let lastLat = 0;
-  let lastLong = 0;
+  let lastLong = 0;*/
 
   const factor = Math.pow(2, 31) / 180;
 
   let nn = 0;
-  let first = true;
+  // let first = true;
+  /*
+  //            { type: Int32Array, length: 7 },  //bases for delta
+              { type: Uint16Array, length: recCount }, //dxPw
+              { type: Uint8Array, length: recCount }, // hr
+              { type: Uint8Array, length: recCount },// cad
+              { type: Uint16Array, length: recCount }, //sp
+              { type: Int16Array, length: recCount }, // alt
+  */
 
   for (const r of records) {
     // ===== Normalisierung + Fallback =====
-    const power = Math.round(r.power ?? lastPower ?? 0);
-    const heartRate = Math.round(r.heart_rate ?? lastHeartRate ?? 0);
-    const cadence = Math.round(r.cadence ?? lastCadence ?? 0);
-    const speed = Math.round((r.speed ?? lastSpeed ?? 0) * 10);
-    const altitude = Math.round((r.altitude ?? lastAltitude ?? 0) * 1000);
+    const power = Math.max(Math.min(Math.round(r.power ?? 0), LIMITS.Uint16.max), LIMITS.Uint16.min);
+    const heartRate = Math.max(Math.min(Math.round(r.heart_rate ?? 0), LIMITS.Uint8.max), LIMITS.Uint8.min);
+    const cadence = Math.max(Math.min(Math.round(r.cadence ?? 0), LIMITS.Uint8.max), LIMITS.Uint8.min);
+    const speed = Math.max(Math.min(Math.round((r.speed ?? 0) * 10), LIMITS.Uint16.max), LIMITS.Uint16.min);   // kmh*10
+    const altitude = Math.max(Math.min(Math.round((r.altitude ?? 0) * 1000), LIMITS.Uint16.max), LIMITS.Uint16.min);  // meters
 
-    const lat = Math.round(((r.position_lat ?? lastLat ?? 0) * factor) / 100);
-    const long = Math.round(((r.position_long ?? lastLong ?? 0) * factor) / 100);
+    const lat = Math.max(Math.min(Math.round(((r.position_lat ?? 0) * factor) / 100), LIMITS.Int32.max), LIMITS.Int32.min);
+    const long = Math.max(Math.min(Math.round(((r.position_long ?? 0) * factor) / 100), LIMITS.Int32.max), LIMITS.Int32.min);
 
     // ===== First Record → Base Values =====
-    if (first) {
+    /*if (first) {
       baseValues[0] = power;
       baseValues[1] = heartRate;
       baseValues[2] = cadence;
@@ -389,31 +516,32 @@ function processFitRecords(recs) {
       baseValues[6] = long;
 
       first = false;
-    } else {
-      // ===== Deltas schreiben =====
-      powers[nn] = power - lastPower;
-      heartRates[nn] = heartRate - lastHeartRate;
-      cadences[nn] = cadence - lastCadence;
-      speeds[nn] = speed - lastSpeed;
-      altitudes[nn] = altitude - lastAltitude;
-      latitudes[nn] = lat - lastLat;
-      longitudes[nn] = long - lastLong;
+    } else {*/
 
-      nn++;
-    }
+    // ===== Deltas schreiben =====
+    powers[nn] = power;
+    heartRates[nn] = heartRate;
+    cadences[nn] = cadence;
+    speeds[nn] = speed;
+    altitudes[nn] = altitude;
+    latitudes[nn] = lat;
+    longitudes[nn] = long;
 
-    // ===== State updaten =====
-    lastPower = power;
-    lastHeartRate = heartRate;
-    lastCadence = cadence;
-    lastSpeed = speed;
-    lastAltitude = altitude;
-    lastLat = lat;
-    lastLong = long;
+    nn++;
   }
 
+  // ===== State updaten =====
+  /*lastPower = power;
+  lastHeartRate = heartRate;
+  lastCadence = cadence;
+  lastSpeed = speed;
+  lastAltitude = altitude;
+  lastLat = lat;
+  lastLong = long;*/
+  //}
 
-  return buffer;
+
+  return {buffer, normalized_power, bestEfforts};
 }
 
 

@@ -56,12 +56,14 @@ export async function createApp() {
     // - User zuordnen
     // - Samples / Records speichern
     // - Duplikate prüfen
-    await processFitJson(parsedData, context.entryName, context.auth_sub);
+    const filename = path.basename(context.entryName);
+
+    await processFitJson(parsedData, filename, context.auth_sub);
 
     console.log("Persist workout", {
       importJobId: context.importJobId,
       auth_sub: context.auth_sub,
-      entryName: context.entryName || null,
+      entryName: filename || null,
       hasData: !!parsedData
     });
 

@@ -173,7 +173,7 @@ class FileDBService {
 
 
     return result;
-    
+
 
   }
 
@@ -324,7 +324,13 @@ class FileDBService {
 }
 
 
-async function insertFile(fileRow) {
+
+
+async function insertFile(fileRow, bestEfforts) {
+  const d = new Date(fileRow.start_time);
+
+
+
 
   const {
     auth_sub,
@@ -358,11 +364,21 @@ async function insertFile(fileRow) {
     nec_lat,
     nec_long,
     swc_lat,
-    swc_long
-  } = fileRow;
+    swc_long,
+    year,
+    month,
+    week,
+    year_quarter,
+    year_month,
+    year_week
 
-  const result = await pool.query(
-    `
+  } = fileRow;
+  try {
+
+    await pool.query('BEGIN');
+
+    const result = await pool.query(
+      `
     INSERT INTO files (
       auth_sub,
       original_filename,
@@ -395,61 +411,213 @@ async function insertFile(fileRow) {
       nec_lat,
       nec_long,
       swc_lat,
-      swc_long
+      swc_long,
+
+      year,
+      month,
+      week,
+      year_quarter,
+      year_month,
+      year_week      
     )
     VALUES (
       $1,$2,$3,$4,$5,
       $6,$7,
       $8,$9,$10,$11,$12,$13,$14,$15,
       $16,$17,$18,$19,$20,$21,$22,$23,
-      $24,$25,$26,$27,$28
+      $24,$25,$26,$27,$28,
+      $29,$30,$31,$32,$33,$34
     )
-    ON CONFLICT (auth_sub, original_filename)
+    ON CONFLICT (auth_sub, start_time)
     DO NOTHING
     RETURNING *;
     `,
-    [
-      auth_sub,
-      original_filename,
-      s3_key,
-      mime_type,
-      file_size,
+      [
+        auth_sub,
+        original_filename,
+        s3_key,
+        mime_type,
+        file_size,
 
-      start_time,
-      end_time,
+        start_time,
+        end_time,
 
-      total_elapsed_time,
-      total_timer_time,
-      total_distance,
-      total_cycles,
-      total_work,
-      total_calories,
-      total_ascent,
-      total_descent,
+        total_elapsed_time,
+        total_timer_time,
+        total_distance,
+        total_cycles,
+        total_work,
+        total_calories,
+        total_ascent,
+        total_descent,
 
-      avg_speed,
-      max_speed,
-      avg_power,
-      max_power,
-      avg_normalized_power,
-      avg_heart_rate,
-      max_heart_rate,
-      avg_cadence,
-      max_cadence,
+        avg_speed,
+        max_speed,
+        avg_power,
+        max_power,
+        avg_normalized_power,
+        avg_heart_rate,
+        max_heart_rate,
+        avg_cadence,
+        max_cadence,
 
-      nec_lat,
-      nec_long,
-      swc_lat,
-      swc_long
-    ]
-  );
+        nec_lat,
+        nec_long,
+        swc_lat,
+        swc_long,
 
-  if (result.rows.length === 0) {
-    throw new Error(
-      `Upload fehlgeschlagen: Datei '${original_filename}' existiert bereits für diesen User.`
+        year,
+        month,
+        week,
+        year_quarter,
+        year_month,
+        year_week,
+
+      ]
+    );
+
+    if (result.rows.length === 0) {
+
+      const str = d.toLocaleDateString();
+      throw new Error(
+        `Upload failed: At '${str}' there's already a workout for this user`
+      );
+    }
+
+    await insertBestEfforts(result.rows[0].id, bestEfforts);
+    await pool.query('COMMIT');
+
+    return result.rows[0];
+
+  } catch (err) {
+    await pool.query('ROLLBACK');
+    throw err;
+  }
+
+}
+
+
+async function insertBestEfforts(fileId, bestEfforts) {
+  if (!fileId) {
+    throw new Error('insertBestEfforts: fileId is required');
+  }
+
+  if (!Array.isArray(bestEfforts)) {
+    throw new Error('insertBestEfforts: bestEfforts must be an array');
+  }
+
+  if (bestEfforts.length === 0) {
+    return;
+  }
+  try
+  {
+
+  const values = [];
+  const params = [];
+
+  let paramIndex = 1;
+
+  for (const effort of bestEfforts) {
+    values.push(`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`);
+
+    params.push(
+      fileId,
+      effort.start_offset,
+      effort.duration,
+      effort.endOffset ?? effort.end_offset,
+      effort.avgPower,
+      effort.avgHeartRate ?? null,
+      effort.avgCadence ?? null,
+      effort.avgSpeed ?? null
     );
   }
 
-  return result.rows[0];
+  const sql = `
+    INSERT INTO file_best_efforts (
+      file_id,
+      start_offset,
+      duration,
+      end_offset,
+      avg_power,
+      avg_heart_rate,
+      avg_cadence,
+      avg_speed
+    )
+    VALUES ${values.join(', ')}
+  `;
+
+  await pool.query(sql, params);
+
+  /*const sql = `
+    INSERT INTO file_best_efforts (
+      file_id,
+      start_offset,
+      duration,
+      end_offset,
+      avg_power,
+      avg_heart_rate,
+      avg_cadence,
+      avg_speed
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    ON CONFLICT (file_id, duration)
+    DO UPDATE SET
+      start_offset   = EXCLUDED.start_offset,
+      end_offset     = EXCLUDED.end_offset,
+      avg_power      = EXCLUDED.avg_power,
+      avg_heart_rate = EXCLUDED.avg_heart_rate,
+      avg_cadence    = EXCLUDED.avg_cadence,
+      avg_speed      = EXCLUDED.avg_speed
+  `;
+
+
+
+  try {
+    for (const effort of bestEfforts) {
+      const startOffset = effort.start_offset;
+      const duration = effort.duration;
+      const endOffset = effort.endOffset ?? effort.end_offset;
+      const avgPower = effort.avgPower;
+      const avgHeartRate = effort.avgHeartRate ?? null;
+      const avgCadence = effort.avgCadence ?? null;
+      const avgSpeed = effort.avgSpeed ?? null;
+
+      if (!Number.isInteger(startOffset) || startOffset < 0) {
+        throw new Error(`Invalid startOffset: ${startOffset}`);
+      }
+
+      if (!Number.isInteger(duration) || duration <= 0) {
+        throw new Error(`Invalid duration: ${duration}`);
+      }
+
+      if (!Number.isInteger(endOffset) || endOffset !== startOffset + duration - 1) {
+        throw new Error(
+          `Invalid endOffset: ${endOffset} for startOffset=${startOffset}, duration=${duration}`
+        );
+      }
+
+      if (typeof avgPower !== 'number' || Number.isNaN(avgPower)) {
+        throw new Error(`Invalid avgPower: ${avgPower}`);
+      }
+
+      await pool.query(sql, [
+        fileId,
+        startOffset,
+        duration,
+        endOffset,
+        avgPower,
+        avgHeartRate,
+        avgCadence,
+        avgSpeed,
+      ]);
+    }*/
+
+
+  } catch (err) {
+
+    throw err;
+  }
 }
-export { insertFile, FileDBService };
+
+
+export { insertFile, FileDBService, insertBestEfforts };

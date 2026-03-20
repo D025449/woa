@@ -180,11 +180,11 @@ async function processZipStreamParallel(sourcePath, userSub, jobId) {
 
             console.error(`Fehler bei FIT: ${entry.path}`, message);
 
-            progressEmitter.emit(jobId, { file: filename, err: err.message});
+            progressEmitter.emit(jobId, { file: filename, err: err.message });
 
           }
 
-          
+
 
         })
 
@@ -272,11 +272,11 @@ async function processFitPath(sourcePath, originalName, userSub, jobId) {
     await new Promise(r => setTimeout(r, 200));
     const buffer = await fsp.readFile(sourcePath);
     const fitJsonObject = await parseFit(buffer);
-    await processFitJson( fitJsonObject, originalName, userSub );
+    await processFitJson(fitJsonObject, originalName, userSub);
     progressEmitter.emit(jobId, { file: originalName, status: 'done' });
   }
   catch (errr) {
-      progressEmitter.emit(jobId, { file: originalName, err: errr.message, status: 'err' });
+    progressEmitter.emit(jobId, { file: originalName, err: errr.message, status: 'err' });
   }
 
   finally {
@@ -314,12 +314,11 @@ async function processFitPath(sourcePath, originalName, userSub, jobId) {
 async function processFitBuffer(buffer, originalName, userSub) {
 
   const fitJsonObject = await parseFit(buffer);
-  await processFitJson( fitJsonObject, originalName, userSub );
+  await processFitJson(fitJsonObject, originalName, userSub);
 }
 
-async function processFitJson( fitJsonObject, originalName, userSub )
-{
-  const binBuffer = processFitRecords(fitJsonObject.records);
+async function processFitJson(fitJsonObject, originalName, userSub) {
+  const { buffer, normalized_power, bestEfforts } = processFitRecords(fitJsonObject.records);
   const newFilenamebin = path.basename(originalName, path.extname(originalName)) + ".bin";
   const s3KeyBin = `users/${userSub}/${randomUUID()}-${newFilenamebin}`;
   const fitFile = {
@@ -327,11 +326,11 @@ async function processFitJson( fitJsonObject, originalName, userSub )
     original_filename: originalName,
     s3_key: s3KeyBin,
     mime_type: "application/octet-stream",
-    file_size: binBuffer.byteLength
+    file_size: buffer.byteLength
   };
-  const fileRow = mapToFileRow(fitJsonObject, fitFile);
-  await insertFile(fileRow);
-  await s3Service.putObjectBinary(s3KeyBin, binBuffer, "application/octet-stream");
+  const fileRow = mapToFileRow(fitJsonObject, fitFile, normalized_power);
+  await insertFile(fileRow, bestEfforts);
+  await s3Service.putObjectBinary(s3KeyBin, buffer, "application/octet-stream");
 }
 
 

@@ -18,18 +18,18 @@ export function createMapView(containerId) {
     hoverMarker = null;
     currentTrackPoints = [];
 
-    let lat = track.baselat;
+    /*let lat = track.baselat;
     let lng = track.baselong;
 
     currentTrackPoints.push({
       lat: lat * SEMI_TO_DEG,
       lng: lng * SEMI_TO_DEG,
       idx: 0
-    });
+    });*/
 
     for (let i = 0; i < track.recCount; i++) {
-      lat += track.deltalat[i];
-      lng += track.deltalong[i];
+      let lat = track.deltalat[i];
+      let lng = track.deltalong[i];
 
       currentTrackPoints.push({
         lat: lat * SEMI_TO_DEG,

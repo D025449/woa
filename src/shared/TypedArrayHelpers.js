@@ -20,12 +20,12 @@ export class TypedArrayHelpers {
 
     static getFitLayout(recCount, intervalCount) {
         return [
-            { type: Int32Array, length: 7 },  //bases for delta
-            { type: Int16Array, length: recCount }, //dxPw
-            { type: Int8Array, length: recCount }, // hr
-            { type: Int8Array, length: recCount },// cad
-            { type: Int8Array, length: recCount }, //sp
-            { type: Int8Array, length: recCount }, // alt
+//            { type: Int32Array, length: 7 },  //bases for delta
+            { type: Uint16Array, length: recCount }, //dxPw
+            { type: Uint8Array, length: recCount }, // hr
+            { type: Uint8Array, length: recCount },// cad
+            { type: Uint16Array, length: recCount }, //sp
+            { type: Int16Array, length: recCount }, // alt
             { type: Int32Array, length: recCount }, // lat
             { type: Int32Array, length: recCount }, //long
             { type: Uint16Array, length: intervalCount },//start
