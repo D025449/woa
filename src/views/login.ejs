@@ -41,7 +41,7 @@
                             <% } %>
 
                                 <form method="POST" action="/login">
-
+                                    <input type="hidden" name="redirect" value="<%= redirect || '' %>">
                                     <div class="mb-3">
                                         <label class="form-label">Email or Username</label>
                                         <input type="text" class="form-control" name="email" autocomplete="username" required>

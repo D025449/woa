@@ -93,6 +93,13 @@ router.get("/workouts", authMiddleware, async (req, res, next) => {
       filters
     );
 
+
+
+
+
+
+
+
     res.json(result);
 
   } catch (err) {
@@ -129,6 +136,22 @@ router.get("/workouts/:id/data", authMiddleware, async (req, res, next) => {
     next(err);
   }
 });
+
+
+router.get("/ctl-atl", authMiddleware, async (req, res, next) => {
+  try {
+    const authSub = req.user?.sub;
+
+    const data = await FileDBService.getCTLATL(authSub);
+
+    res.json({ data });
+
+  } catch (err) {
+    console.error("GET /files/ctl-atl failed:", err);
+    next(err);
+  }
+});
+
 
 /*
   usage: GET /files/ftp?period=month

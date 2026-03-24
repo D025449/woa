@@ -48,25 +48,14 @@
 
             </div>
         </nav>
-
         <!-- Content -->
-
         <div class="container py-4">
-
             <div class="row g-4">
-
                 <!-- Workout Table -->
-
                 <div class="col-12">
-
-
-
                     <div class="card shadow-sm">
-
                         <div class="card-header d-flex justify-content-between align-items-center">
-
                             <h5 class="mb-0">FTP Analytics</h5>
-
                             <!-- Grouping Toggle -->
                             <div class="btn-group" role="group">
 
@@ -79,11 +68,10 @@
                                 <input type="radio" class="btn-check" name="grouping0" id="g-quarter0" value="quarter">
                                 <label class="btn btn-outline-primary btn-sm" for="g-quarter0">Quarter</label>
 
-                                <input type="radio" class="btn-check" name="grouping0" id="g-year0" value="year" checked>
+                                <input type="radio" class="btn-check" name="grouping0" id="g-year0" value="year"
+                                    checked>
                                 <label class="btn btn-outline-primary btn-sm" for="g-year0">Year</label>
-
                             </div>
-
                         </div>
 
                         <div class="card-body">
@@ -94,19 +82,16 @@
 
 
                     </div>
-
-
-
+                </div>
+                <div class="col-12">
                     <div class="card shadow-sm">
 
                         <div class="card-header d-flex justify-content-between align-items-center">
-
                             <h5 class="mb-0">Critical Power Analytics</h5>
-
                             <!-- Grouping Toggle -->
                             <div class="btn-group" role="group">
 
-                                <input type="radio" class="btn-check" name="grouping" id="g-week" value="year_week" >
+                                <input type="radio" class="btn-check" name="grouping" id="g-week" value="year_week">
                                 <label class="btn btn-outline-primary btn-sm" for="g-week">Week</label>
 
                                 <input type="radio" class="btn-check" name="grouping" id="g-month" value="year_month">
@@ -118,54 +103,35 @@
 
                                 <input type="radio" class="btn-check" name="grouping" id="g-year" value="year" checked>
                                 <label class="btn btn-outline-primary btn-sm" for="g-year">Year</label>
-
                             </div>
-
                         </div>
-
                         <div class="card-body">
-
                             <div id="cp-chart" style="height:400px;"></div>
-
                         </div>
-
-
                     </div>
-
                 </div>
-
                 <!-- Chart -->
-
                 <div class="col-12">
-
                     <div class="card shadow-sm">
-
                         <div class="card-header">
                             <h5 class="mb-0">Workout Data</h5>
                         </div>
-
                         <div class="card-body">
-
                             <div id="workout-chart" style="height:500px;"></div>
-
                         </div>
-
                     </div>
+
                     <div class="card shadow-sm mt-4">
                         <div class="card-header">
                             <h5 class="mb-0">Route Map</h5>
                         </div>
-
                         <div class="card-body p-0">
                             <div id="workout-map" style="height:400px;"></div>
                         </div>
                     </div>
                 </div>
-
-
-
             </div>
-
+        </div>
         </div>
 
         <% } else { %>

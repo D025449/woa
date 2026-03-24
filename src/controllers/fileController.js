@@ -20,87 +20,6 @@ import { insertFile } from "../services/fileDBService.js";
 import { progressEmitter } from "../services/progressEmitter.js";
 
 
-/*async function processZipBuffer_par(sourcePath, userSub, jobId) {
-  try {
-    const directory = await unzipper.Open.buffer(zipBuffer);
-
-    const results = {
-      processed: 0,
-      success: 0,
-      failed: 0,
-      errors: []
-    };
-
-    const limit = pLimit(4); // ← Parallelität (4–6 ist meist optimal)
-
-    const tasks = [];
-
-    for (const entry of directory.files) {
-
-      if (entry.type !== "File") continue;
-
-      const ext = path.extname(entry.path).toLowerCase();
-
-      if (ext !== ".fit") continue;
-      if (entry.path.includes("__MACOSX")) continue;
-      if (path.basename(entry.path).startsWith("._")) continue;
-
-      const name = entry.path;
-      const filename = path.basename(name);
-
-      results.processed++;
-
-      tasks.push(
-
-        limit(async () => {
-
-          try {
-
-            console.log("ZIP entry:", entry.path);
-
-            const buffer = await entry.buffer();
-
-            await processFitBuffer(buffer, filename, userSub);
-
-            results.success++;
-
-          } catch (err) {
-
-            const message = getErrorMessage(err);
-
-            console.error(`Fehler bei FIT: ${name}`, message);
-
-            results.failed++;
-
-            results.errors.push({
-              file: entry.path,
-              error: message
-            });
-          }
-
-          progressEmitter.emit(jobId, { file: filename });
-
-        })
-
-      );
-
-    }
-
-    await Promise.all(tasks);
-    progressEmitter.emit(jobId, {
-      progress: 100,
-      status: "done"
-    })
-    return results;
-
-  }
-  finally {
-    fsp.unlink(sourcePath);
-
-  }
-
-}*/
-
 async function processZipStreamParallel(sourcePath, userSub, jobId) {
 
   const results = {
@@ -287,25 +206,6 @@ async function processFitPath(sourcePath, originalName, userSub, jobId) {
 
   }
 
-  /* .then(() => {
-     progressEmitter.emit(jobId, {
-       progress: 100,
-       status: "done",
-       file: file.originalname,
-
-     })
-   })
-   .catch(err => {
-     console.error("Async Fehler:", err);
-     progressEmitter.emit(jobId, {
-       progress: 100,
-       status: "err",
-       file: file.originalname,
-       error: err
-
-     })
-
-   });*/
 
 
 }

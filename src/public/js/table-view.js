@@ -3,6 +3,16 @@ import { formatDuration } from "./chart-helpers.js";
 export function createTableView(containerSelector, handlers = {}) {
   const table = new Tabulator(containerSelector, {
     ajaxURL: "/files/workouts",
+    ajaxResponse: function (url, params, response) {
+      // 🔥 hier hast du Zugriff auf deine API Response
+      console.log(response);
+
+      // Beispiel: total_records anzeigen
+      document.getElementById("files_header").innerText = response.total_records + " Workouts";
+
+      // 👉 WICHTIG: Daten zurückgeben!
+      return response;
+    },
     ajaxConfig: "GET",
     layout: "fitColumns",
     height: "300px",
@@ -73,6 +83,25 @@ export function createTableView(containerSelector, handlers = {}) {
         headerFilterFunc: ">=",
         formatter: (cell) => cell.getValue().toFixed(0)
       },
+      {
+        title: "FTP",
+        field: "ftp",
+        sorter: false,
+        headerSort: false,
+        headerFilter: false,
+        formatter: (cell) => cell.getValue().toFixed(0)
+      },
+      {
+        title: "TSS",
+        field: "TSS",
+        sorter: false,
+        headerSort: false,
+        headerFilter: false,
+        //headerFilter: "input",
+        //headerFilterFunc: ">=",
+        formatter: (cell) => cell.getValue().toFixed(0)
+      },
+
       {
         title: "Actions",
         width: 160,

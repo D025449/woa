@@ -63,7 +63,8 @@ document.addEventListener("DOMContentLoaded", () => {
   });*/
 
   window.addEventListener("resize", () => chartView.resize());
-  window.addEventListener("resize", () => CPchartView.resize());
+  window.addEventListener("resize", () => CPChartView.resize());
+  window.addEventListener("resize", () => FTPChartView.resize());  
 
 
 });

@@ -34,7 +34,7 @@ class FileDBService {
     return result.rows;
   }
 
-  
+
 
   static async getFTPValues(authSub, period = "quarter") {
     if (!authSub) {
@@ -346,13 +346,247 @@ class FileDBService {
 
     const totalRecords = parseInt(countResult.rows[0].total);
 
+    const enriched_recs = await FileDBService.post_calculations(authSub, dataResult.rows, "year");
+
     return {
-      data: dataResult.rows,
+      data: enriched_recs,
       last_page: Math.ceil(totalRecords / size),
       total_records: totalRecords
     };
   }
-}
+  static async post_calculations(userid, workouts, grouping) {
+    const ftpSeries = await FileDBService.getFTPValues(userid, grouping);
+    const enriched = workouts.map(w => {
+      const ftp = Math.round(FileDBService.interpolateFTP(ftpSeries, w.start_time, grouping));
+      const IF = w.avg_normalized_power / ftp;
+      const TSS =
+        Math.round((w.total_timer_time * w.avg_normalized_power * IF) / (ftp * 3600) * 100);
+      return {
+        ...w,
+        ftp,
+        IF,
+        TSS
+
+      };
+    });
+
+    return enriched;
+  }
+
+  static periodToDate(period, grouping) {
+    if (!period) return null;
+
+    switch (grouping) {
+
+      case "year": {
+        // z.B. 2024
+        return new Date(period, 0, 1);
+      }
+
+      case "month":
+      case "year_month": {
+        // z.B. 202401
+        const year = Math.floor(period / 100);
+        const month = (period % 100) - 1;
+        return new Date(year, month, 1);
+      }
+
+      case "week":
+      case "year_week": {
+        // z.B. 202401 (ISO Woche)
+        const year = Math.floor(period / 100);
+        const week = period % 100;
+
+        return FileDBService.getDateOfISOWeek(week, year);
+      }
+
+      case "quarter":
+      case "year_quarter": {
+        // z.B. 20241
+        const year = Math.floor(period / 10);
+        const quarter = period % 10;
+
+        return new Date(year, (quarter - 1) * 3, 1);
+      }
+
+      default:
+        throw new Error(`Unsupported grouping: ${grouping}`);
+    }
+  }
+
+  static getDateOfISOWeek(week, year) {
+    const simple = new Date(year, 0, 1 + (week - 1) * 7);
+    const dow = simple.getDay();
+    const ISOweekStart = new Date(simple);
+
+    if (dow <= 4) {
+      ISOweekStart.setDate(simple.getDate() - simple.getDay() + 1);
+    } else {
+      ISOweekStart.setDate(simple.getDate() + 8 - simple.getDay());
+    }
+
+    return ISOweekStart;
+  }
+
+
+  static interpolateFTP(series, date, grouping) {
+    const sorted = [...series].sort((a, b) => a.period - b.period);
+
+    const target = new Date(date);
+
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const left = sorted[i];
+      const right = sorted[i + 1];
+
+      const leftDate = FileDBService.periodToDate(left.period, grouping);
+      const rightDate = FileDBService.periodToDate(right.period, grouping);
+
+      if (target >= leftDate && target <= rightDate) {
+        const ratio =
+          (target - leftDate) / (rightDate - leftDate);
+
+        return left.ftp + ratio * (right.ftp - left.ftp);
+      }
+    }
+
+    return sorted[sorted.length - 1]?.ftp ?? null;
+  }
+
+  static aggregateDailyTSS(workouts) {
+    const map = new Map();
+
+    for (const w of workouts) {
+      const d = new Date(w.start_time);
+
+      const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+      const prev = map.get(day) || 0;
+      map.set(day, prev + (w.tss ?? 0));
+    }
+
+    return Array.from(map.entries())
+      .map(([day, tss]) => ({ day, tss }))
+      .sort((a, b) => new Date(a.day) - new Date(b.day));
+  }
+
+  static async getCTLATL(authSub) {
+    // 1. Alle Workouts laden
+    const { rows } = await pool.query(
+      `SELECT * FROM files WHERE auth_sub = $1 ORDER BY start_time`,
+      [authSub]
+    );
+
+    // 2. FTP-Serie laden
+    const ftpResult = await FileDBService.getFTPValues(authSub, "year");
+    const ftpSeries = ftpResult.raw || ftpResult;
+
+    // 3. Enrichment
+    const enriched = rows.map(w =>
+      FileDBService.computeWorkoutMetrics(w, ftpSeries, "year")
+    );
+
+    // 4. Daily TSS
+    const daily = FileDBService.aggregateDailyTSS(enriched);
+
+    // 5. Lücken füllen
+    const filled = FileDBService.fillMissingDays(daily);
+
+    // 6. CTL/ATL berechnen
+    const ctl = FileDBService.computeCTLATL(filled);
+
+    return ctl;
+  }
+
+  static fillMissingDays(daily) {
+    if (daily.length === 0) return [];
+
+    const result = [];
+    const start = new Date(daily[0].day);
+    const end = new Date(daily[daily.length - 1].day);
+
+    const map = new Map(daily.map(d => [d.day, d.tss]));
+
+    for (
+      let d = new Date(start);
+      d <= end;
+      d.setDate(d.getDate() + 1)
+    ) {
+      const key = d.toISOString().slice(0, 10);
+
+      result.push({
+        day: key,
+        tss: map.get(key) || 0
+      });
+    }
+
+    return result;
+  }
+
+  static computeCTLATL(daily) {
+    const CTL_TC = 42;
+    const ATL_TC = 7;
+
+    let ctl = 0;
+    let atl = 0;
+
+    return daily.map(d => {
+      const tss = d.tss;
+
+      ctl = Math.round(ctl + (tss - ctl) * (1 / CTL_TC));
+      atl = Math.round(atl + (tss - atl) * (1 / ATL_TC));
+
+      const tsb = Math.round(ctl - atl);
+
+      return {
+        date: d.day,
+        tss,
+        ctl,
+        atl,
+        tsb
+      };
+    });
+  }
+  static computeWorkoutMetrics(w, ftpSeries, grouping) {
+    const ftp = FileDBService.interpolateFTP(
+      ftpSeries,
+      w.start_time,
+      grouping
+    );
+
+    if (!ftp || !w.avg_normalized_power || !w.total_timer_time) {
+      return {
+        ...w,
+        ftp: null,
+        IF: null,
+        tss: 0
+      };
+    }
+
+    const IF = w.avg_normalized_power / ftp;
+
+    const TSS =
+      (w.total_timer_time * w.avg_normalized_power * IF) /
+      (ftp * 3600) * 100;
+
+    return {
+      ...w,
+      ftp,
+      IF,
+      tss: Math.round(TSS)
+    };
+  }
+
+
+
+
+
+
+
+
+
+} // class
+
+
 
 
 

@@ -114,14 +114,6 @@ export async function createApp() {
             res.redirect("/login");
 
         }
-        /* if (!req.session.userInfo) {
-             return res.render("home");
-         }
- 
-         res.render("dashboard", {
-             isAuthenticated: true,
-             userInfo: req.session.userInfo
-         });*/
 
     });
 
@@ -151,10 +143,6 @@ export async function createApp() {
             })
         }
 
-        /*res.json({
-            message: "User confirmed"
-        });*/
-
     });
 
     app.post("/signup", async (req, res) => {
@@ -177,10 +165,6 @@ export async function createApp() {
 
             res.redirect(`/confirm?username=${encodeURIComponent(username)}`);
 
-            /*res.json({
-                message: "User created. Check email for confirmation code."
-            });*/
-
         } catch (err) {
             res.render("signup", {
                 error: err.message
@@ -191,23 +175,11 @@ export async function createApp() {
 
 
     app.get("/login", (req, res) => {
-        res.render("login")
-        /*const nonce = generators.nonce();
-        const state = generators.state();
-
-        req.session.nonce = nonce;
-        req.session.state = state;
-
-        const authUrl = client.authorizationUrl({
-            scope: "email openid phone profile",
-            state,
-            nonce
+        const redirect = req.query.redirect || "";
+        res.render("login", {
+            redirect
         });
-
-        res.redirect(authUrl);*/
-
     });
-
 
 
     app.post("/login", async (req, res) => {
@@ -239,10 +211,12 @@ export async function createApp() {
                 secure: true
             });
 
+            const redirect = req.query.redirect || "/dashboard";
 
+            return res.redirect(redirect);
 
             // hier redirect
-            res.redirect("/");
+            //res.redirect("/");
             /*res.json({
                 success: true
             });*/
@@ -276,56 +250,15 @@ export async function createApp() {
         res.clearCookie("accessToken")
         res.clearCookie("refreshToken")
         res.redirect("/login")
-        /*req.session.destroy();
-
-        const logoutUrl =
-            `${process.env.COGNITO_DOMAIN}/logout?` +
-            `client_id=${process.env.COGNITO_CLIENT_ID}` +
-            `&logout_uri=${process.env.APP_BASE_URL}`;
-
-        res.redirect(logoutUrl);*/
-
     });
-
-
-    /* app.get("/landing", async (req, res) => {
- 
-         try {
- 
-             const params = client.callbackParams(req);
- 
-             const tokenSet = await client.callback(
-                 process.env.COGNITO_REDIRECT_URI,
-                 params,
-                 {
-                     nonce: req.session.nonce,
-                     state: req.session.state
-                 }
-             );
- 
-             const userInfo = await client.userinfo(tokenSet.access_token);
- 
-             req.session.userInfo = userInfo;
-             req.session.userInfo.access_token = tokenSet.access_token;
- 
-             //await ensureUserExists(req.session.userInfo);
- 
-             res.redirect("/dashboard");
- 
-         } catch (err) {
- 
-             console.error("Callback error:", err);
-             res.redirect("/");
- 
-         }
- 
-     });*/
 
 
     app.get("/dashboard", checkAuth, (req, res) => {
 
         if (!req?.user?.sub) {
-            return res.redirect("/");
+            //return res.redirect("/");
+            const redirectUrl = encodeURIComponent(req.originalUrl);
+            return res.redirect(`/login?redirect=${redirectUrl}`);
         }
 
         res.render("dashboard", {
@@ -338,7 +271,9 @@ export async function createApp() {
     app.get("/analytics", checkAuth, (req, res) => {
 
         if (!req?.user?.sub) {
-            return res.redirect("/");
+            const redirectUrl = encodeURIComponent(req.originalUrl);
+            return res.redirect(`/login?redirect=${redirectUrl}`);
+            //return res.redirect("/");
         }
 
         res.render("analytics", {
@@ -347,29 +282,6 @@ export async function createApp() {
         });
 
     });
-
-
-    app.get("/progress/:jobId", (req, res) => {
-
-        res.setHeader("Content-Type", "text/event-stream")
-        res.setHeader("Cache-Control", "no-cache")
-        res.setHeader("Connection", "keep-alive")
-
-        const jobId = req.params.jobId
-
-        /*const listener = (percent) => {
-          res.write(`data: ${percent}\n\n`)
-        }*/
-        const listener = (data) => {
-            res.write(`data: ${JSON.stringify(data)}\n\n`)
-        }
-
-        progressEmitter.on(jobId, listener)
-
-        req.on("close", () => {
-            progressEmitter.off(jobId, listener)
-        })
-    })
 
 
     return app;

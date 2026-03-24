@@ -18,6 +18,9 @@ export function createFTPChartView(containerId, handlers = {}) {
     // 🚀 initial load
     //loadData(chart, currentGrouping);
     loadFTPData(chart, currentGrouping);
+    loadCPLATLData(chart, currentGrouping);
+
+
 
     document.querySelectorAll('input[name="grouping0"]').forEach(async el => {
         el.addEventListener('change', async (e) => {
@@ -130,10 +133,28 @@ async function loadFTPData(chart, grouping) {
     }
     else {
         const json = await res.json();
-        console.log(json);
+        //console.log(json);
         renderChart(chart, json);
     }
 }
+
+
+async function loadCPLATLData(chart, grouping) {
+    const res = await fetch(`/files/ctl-atl`);
+    //const res = await fetch(`/files/ftp?period=${grouping}`);
+
+    if (res.status === 401) {
+        // Session abgelaufen → redirect
+        window.location.href = '/login';
+        return;
+    }
+    else {
+        const json = await res.json();
+        console.log(json);
+        //renderChart(chart, json);
+    }
+}
+
 
 
 // 🎨 Chart rendern
