@@ -31,11 +31,14 @@
                 <div class="ms-auto d-flex align-items-center gap-3">
 
                     <span class="text-white">
-                        <%= userInfo.name || userInfo.email || userInfo.username %>
+                        <%= userInfo.username %>
                     </span>
 
                     <a class="btn btn-outline-light btn-sm" href="/files/uploadUI">
                         Upload
+                    </a>
+                    <a class="btn btn-outline-light btn-sm" href="/analytics">
+                        Analytics
                     </a>
 
                     <a class="btn btn-outline-danger btn-sm" href="/logout">
@@ -61,7 +64,7 @@
 
                         <div class="card-header">
                             <h5 class="mb-0">Workouts</h5>
-                                <!--div>
+                            <!--div>
       <button id="btn-delete" class="btn btn-danger btn-sm">
         Delete
       </button>

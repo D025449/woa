@@ -22,6 +22,37 @@ class FileDBService {
     "total_timer_time"
   ];
 
+  static async getCPBestEfforts(grouping, durations, authSub) {
+    const query = `
+    SELECT *
+    FROM get_cp_best_efforts($1, $2, $3)
+  `;
+
+    const values = [grouping, durations, authSub];
+
+    const result = await pool.query(query, values);
+    return result.rows;
+  }
+
+  
+
+  static async getFTPValues(authSub, period = "quarter") {
+    if (!authSub) {
+      throw new Error("Unauthorized");
+    }
+
+    const query = `
+    SELECT *
+    FROM get_ftp_by_period2($1, $2)
+  `;
+
+    const values = [authSub, period];
+
+    const result = await pool.query(query, values);
+
+    return result.rows;
+  }
+
 
   static buildQueryParts(sort = [], filter = []) {
 
@@ -509,30 +540,29 @@ async function insertBestEfforts(fileId, bestEfforts) {
   if (bestEfforts.length === 0) {
     return;
   }
-  try
-  {
+  try {
 
-  const values = [];
-  const params = [];
+    const values = [];
+    const params = [];
 
-  let paramIndex = 1;
+    let paramIndex = 1;
 
-  for (const effort of bestEfforts) {
-    values.push(`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`);
+    for (const effort of bestEfforts) {
+      values.push(`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`);
 
-    params.push(
-      fileId,
-      effort.start_offset,
-      effort.duration,
-      effort.endOffset ?? effort.end_offset,
-      effort.avgPower,
-      effort.avgHeartRate ?? null,
-      effort.avgCadence ?? null,
-      effort.avgSpeed ?? null
-    );
-  }
+      params.push(
+        fileId,
+        effort.start_offset,
+        effort.duration,
+        effort.endOffset ?? effort.end_offset,
+        effort.avgPower,
+        effort.avgHeartRate ?? null,
+        effort.avgCadence ?? null,
+        effort.avgSpeed ?? null
+      );
+    }
 
-  const sql = `
+    const sql = `
     INSERT INTO file_best_efforts (
       file_id,
       start_offset,
@@ -546,71 +576,71 @@ async function insertBestEfforts(fileId, bestEfforts) {
     VALUES ${values.join(', ')}
   `;
 
-  await pool.query(sql, params);
+    await pool.query(sql, params);
 
-  /*const sql = `
-    INSERT INTO file_best_efforts (
-      file_id,
-      start_offset,
-      duration,
-      end_offset,
-      avg_power,
-      avg_heart_rate,
-      avg_cadence,
-      avg_speed
-    )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-    ON CONFLICT (file_id, duration)
-    DO UPDATE SET
-      start_offset   = EXCLUDED.start_offset,
-      end_offset     = EXCLUDED.end_offset,
-      avg_power      = EXCLUDED.avg_power,
-      avg_heart_rate = EXCLUDED.avg_heart_rate,
-      avg_cadence    = EXCLUDED.avg_cadence,
-      avg_speed      = EXCLUDED.avg_speed
-  `;
-
-
-
-  try {
-    for (const effort of bestEfforts) {
-      const startOffset = effort.start_offset;
-      const duration = effort.duration;
-      const endOffset = effort.endOffset ?? effort.end_offset;
-      const avgPower = effort.avgPower;
-      const avgHeartRate = effort.avgHeartRate ?? null;
-      const avgCadence = effort.avgCadence ?? null;
-      const avgSpeed = effort.avgSpeed ?? null;
-
-      if (!Number.isInteger(startOffset) || startOffset < 0) {
-        throw new Error(`Invalid startOffset: ${startOffset}`);
-      }
-
-      if (!Number.isInteger(duration) || duration <= 0) {
-        throw new Error(`Invalid duration: ${duration}`);
-      }
-
-      if (!Number.isInteger(endOffset) || endOffset !== startOffset + duration - 1) {
-        throw new Error(
-          `Invalid endOffset: ${endOffset} for startOffset=${startOffset}, duration=${duration}`
-        );
-      }
-
-      if (typeof avgPower !== 'number' || Number.isNaN(avgPower)) {
-        throw new Error(`Invalid avgPower: ${avgPower}`);
-      }
-
-      await pool.query(sql, [
-        fileId,
-        startOffset,
+    /*const sql = `
+      INSERT INTO file_best_efforts (
+        file_id,
+        start_offset,
         duration,
-        endOffset,
-        avgPower,
-        avgHeartRate,
-        avgCadence,
-        avgSpeed,
-      ]);
-    }*/
+        end_offset,
+        avg_power,
+        avg_heart_rate,
+        avg_cadence,
+        avg_speed
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (file_id, duration)
+      DO UPDATE SET
+        start_offset   = EXCLUDED.start_offset,
+        end_offset     = EXCLUDED.end_offset,
+        avg_power      = EXCLUDED.avg_power,
+        avg_heart_rate = EXCLUDED.avg_heart_rate,
+        avg_cadence    = EXCLUDED.avg_cadence,
+        avg_speed      = EXCLUDED.avg_speed
+    `;
+  
+  
+  
+    try {
+      for (const effort of bestEfforts) {
+        const startOffset = effort.start_offset;
+        const duration = effort.duration;
+        const endOffset = effort.endOffset ?? effort.end_offset;
+        const avgPower = effort.avgPower;
+        const avgHeartRate = effort.avgHeartRate ?? null;
+        const avgCadence = effort.avgCadence ?? null;
+        const avgSpeed = effort.avgSpeed ?? null;
+  
+        if (!Number.isInteger(startOffset) || startOffset < 0) {
+          throw new Error(`Invalid startOffset: ${startOffset}`);
+        }
+  
+        if (!Number.isInteger(duration) || duration <= 0) {
+          throw new Error(`Invalid duration: ${duration}`);
+        }
+  
+        if (!Number.isInteger(endOffset) || endOffset !== startOffset + duration - 1) {
+          throw new Error(
+            `Invalid endOffset: ${endOffset} for startOffset=${startOffset}, duration=${duration}`
+          );
+        }
+  
+        if (typeof avgPower !== 'number' || Number.isNaN(avgPower)) {
+          throw new Error(`Invalid avgPower: ${avgPower}`);
+        }
+  
+        await pool.query(sql, [
+          fileId,
+          startOffset,
+          duration,
+          endOffset,
+          avgPower,
+          avgHeartRate,
+          avgCadence,
+          avgSpeed,
+        ]);
+      }*/
 
 
   } catch (err) {

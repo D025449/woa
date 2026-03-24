@@ -45,3 +45,24 @@ export function buildMarkAreas(intervals) {
 
   return areas;
 }
+
+export function buildMarkAreasCP(interval) {
+  const areas = new Array(1);
+
+    areas[0] = [
+      {
+        xAxis: interval.startOffset,
+        label: {
+          show: true,
+          position: "insideTop",
+          distance: 8,
+          formatter: `${formatDuration(interval.endOffset + 1 - interval.startOffset)}\n${interval.power}W\n${interval.heartRate}bpm`
+        }
+      },
+      {
+        xAxis: interval.endOffset
+      }
+    ];
+
+  return areas;
+}

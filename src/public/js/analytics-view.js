@@ -1,10 +1,15 @@
 import { createMapView } from "./map-view.js";
+import { createCPChartView } from "./cp-chart-view.js";
+import { createFTPChartView } from "./ftp-chart-view.js";
 import { createChartView } from "./chart-view.js";
-import { createTableView } from "./table-view.js";
+//import { createTableView } from "./table-view.js";
+
 import { loadWorkoutByRow, deleteWorkoutByRow } from "./workout-service.js";
 
 document.addEventListener("DOMContentLoaded", () => {
   const mapView = createMapView("workout-map");
+
+
   const chartView = createChartView("workout-chart", {
     onChartHoverIndex: (idx) => {
       mapView.moveMarkerToIndex(idx);
@@ -13,19 +18,36 @@ document.addEventListener("DOMContentLoaded", () => {
       chartView.zoomToSegment(start, end);
     }
   });
+  const CPChartView = createCPChartView('cp-chart', {
+    onCPClick: async (row) => {
+      const workout = await loadWorkoutByRow(row);
+      chartView.updateWorkoutCP(workout, row);
+      mapView.renderTrack(workout.track);
 
-  const tableView = createTableView("#file-table", {
+
+    }
+  }
+  );
+
+  const FTPChartView = createFTPChartView('ftp-chart', {
+    onCPClick: async (row) => {
+      //const workout = await loadWorkoutByRow(row);
+      //chartView.updateWorkoutCP(workout, row);
+      //mapView.renderTrack(workout.track);
+
+
+    }
+  }
+  );
+
+  /*const tableView = createTableView("#file-table", {
     onRowOpen: async (e, row) => {
       if (e.target.closest("button")) return;
 
       chartView.showLoading();
 
       try {
-        let workout = await loadWorkoutByRow(row);
-        
-        const d = row.getData();
-        workout.startDate = d.start_time;
-
+        const workout = await loadWorkoutByRow(row);
         chartView.updateWorkout(workout);
         mapView.renderTrack(workout.track);
       } catch (err) {
@@ -38,7 +60,10 @@ document.addEventListener("DOMContentLoaded", () => {
     onRowDelete: async (row) => {
       await deleteWorkoutByRow(row);
     }
-  });
+  });*/
 
   window.addEventListener("resize", () => chartView.resize());
+  window.addEventListener("resize", () => CPchartView.resize());
+
+
 });

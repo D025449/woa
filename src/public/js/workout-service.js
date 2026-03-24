@@ -26,15 +26,40 @@ export async function deleteWorkoutByRow(row) {
 }
 
 export async function loadWorkoutByRow(row) {
-  const { id: workoutId, original_filename: filename } = row.getData();
+  const x = row;
+  console.log(x);
+  //return 'A';
+  const wid = getWorkoutId(row);
+  const metaResponse = await fetch(`/files/workouts/${wid}/data`);
+  if (metaResponse.status === 401) {
+    // Session abgelaufen → redirect
+    window.location.href = '/login';
+    return;
+  }
+  else {
+    const { url } = await metaResponse.json();
+    const response = await fetch(url);
+    const buffer = await response.arrayBuffer();
+    return parseWorkoutBuffer(buffer, '');// filename);    
+  }
 
-  const metaResponse = await fetch(`/files/workouts/${workoutId}/data`);
-  const { url } = await metaResponse.json();
 
-  const response = await fetch(url);
-  const buffer = await response.arrayBuffer();
+}
 
-  return parseWorkoutBuffer(buffer, filename);
+function getWorkoutId(rowOrData) {
+  // 🟢 Tabulator sicher erkennen
+  if (rowOrData && typeof rowOrData.getData === 'function') {
+    const d = rowOrData.getData();
+    return d.fileId ?? d.id;
+  }
+
+  // 🔵 Plain Object (ECharts)
+  if (rowOrData && typeof rowOrData === 'object') {
+    return rowOrData.fileId ?? rowOrData.id;
+  }
+
+  console.warn("Unknown type:", rowOrData);
+  return null;
 }
 
 function movingAverageCentered(values, windowSize = 10) {
@@ -110,14 +135,14 @@ function parseWorkoutBuffer(buffer, filename) {
     intSpeeds
   ] = TypedArrayHelpers.allocateViews(buffer, recCount, intervalCount, headerSize);
 
-  
+
 
   const series = buildWorkoutSeries(
     recCount,
-    movingAverageCentered(powers,50),
-    movingAverageCentered(heartRates,50),
-    movingAverageCentered(cadences,50 ),
-    movingAverageCentered(speeds,50),
+    movingAverageCentered(powers, 50),
+    movingAverageCentered(heartRates, 50),
+    movingAverageCentered(cadences, 50),
+    movingAverageCentered(speeds, 50),
     altitudes
   );
 
@@ -189,7 +214,7 @@ function buildWorkoutSeries(
 
   for (let i = 0; i < recCount; i++) {
     idx = (i + 0) * STRIDE;
-  //  const prev = i * STRIDE;
+    //  const prev = i * STRIDE;
 
     const power = powers[i];
     const heartRate = heartRates[i];

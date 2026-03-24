@@ -324,12 +324,25 @@ export async function createApp() {
 
     app.get("/dashboard", checkAuth, (req, res) => {
 
-        if (!req.session.userInfo) {
+        if (!req?.user?.sub) {
             return res.redirect("/");
         }
 
         res.render("dashboard", {
-            userInfo: req.session.userInfo,
+            userInfo: req.user,
+            isAuthenticated: true
+        });
+
+    });
+
+    app.get("/analytics", checkAuth, (req, res) => {
+
+        if (!req?.user?.sub) {
+            return res.redirect("/");
+        }
+
+        res.render("analytics", {
+            userInfo: req.user,
             isAuthenticated: true
         });
 

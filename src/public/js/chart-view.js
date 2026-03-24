@@ -1,4 +1,4 @@
-import { buildMarkAreas, formatSeconds } from "./chart-helpers.js";
+import { buildMarkAreas, buildMarkAreasCP, formatSeconds } from "./chart-helpers.js";
 
 export function createChartView(containerId, handlers = {}) {
   const chart = echarts.init(document.getElementById(containerId));
@@ -135,8 +135,9 @@ export function createChartView(containerId, handlers = {}) {
   registerChartInteractions(chart, handlers);
 
   function updateWorkout(workout) {
+    const dte = new Date(workout.startDate);
     chart.setOption({
-      title: { text: workout.filename },
+      title: { text: dte.toDateString( ) },
       xAxis: {
         min: 0,
         max: workout.recCount
@@ -149,6 +150,28 @@ export function createChartView(containerId, handlers = {}) {
           name: "Power",
           markArea: {
             data: buildMarkAreas(workout.intervals)
+          }
+        }
+      ]
+    });
+  }
+
+  function updateWorkoutCP(workout, cpview) {
+    const tem = new Date(cpview.startTime).toDateString();
+    chart.setOption({
+      title: { text: tem },
+      xAxis: {
+        min: 0,
+        max: workout.recCount
+      },
+      dataset: {
+        source: workout.series
+      },
+      series: [
+        {
+          name: "Power",
+          markArea: {
+            data: buildMarkAreasCP(cpview)
           }
         }
       ]
@@ -170,6 +193,7 @@ export function createChartView(containerId, handlers = {}) {
     showLoading: () => chart.showLoading(),
     hideLoading: () => chart.hideLoading(),
     updateWorkout,
+    updateWorkoutCP,
     zoomToSegment
   };
 }
