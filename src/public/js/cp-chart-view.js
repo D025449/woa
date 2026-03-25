@@ -131,6 +131,7 @@ function renderChart(chart, apiData) {
         name: `CP${d}`,
         type: 'line',
         smooth: true,
+        yAxisIndex: (d <= 60)?1:0,
         data: Object.entries(data).map(([grp, values]) => ({
             value: [
                 mapToDate(grouping, grp),
@@ -139,6 +140,8 @@ function renderChart(chart, apiData) {
             extra: values[`CP${d}`]
         }))
     }));
+
+
 
     const option = {
         tooltip: {
@@ -149,14 +152,19 @@ function renderChart(chart, apiData) {
             type: 'scroll'
         },
 
+        yAxis : [
+            { type: "value", name: "Low Power", position: "left" },
+            { type: "value", name: "High Power", position: "right" }
+        ],
+
         xAxis: {
             type: 'time'
         },
 
-        yAxis: {
+        /*yAxis: {
             type: 'value',
             name: 'Power (W)'
-        },
+        },*/
 
         dataZoom: [
             { type: 'inside' },

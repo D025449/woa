@@ -1,6 +1,7 @@
 import { createMapView } from "./map-view.js";
 import { createCPChartView } from "./cp-chart-view.js";
 import { createFTPChartView } from "./ftp-chart-view.js";
+import { createCTLChartView } from "./ctl-chart-view.js";
 import { createChartView } from "./chart-view.js";
 //import { createTableView } from "./table-view.js";
 
@@ -40,6 +41,17 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   );
 
+    const CTLChartView = createCTLChartView('ctl-chart', {
+    onCPClick: async (row) => {
+      //const workout = await loadWorkoutByRow(row);
+      //chartView.updateWorkoutCP(workout, row);
+      //mapView.renderTrack(workout.track);
+
+
+    }
+  }
+  );
+
   /*const tableView = createTableView("#file-table", {
     onRowOpen: async (e, row) => {
       if (e.target.closest("button")) return;
@@ -64,7 +76,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   window.addEventListener("resize", () => chartView.resize());
   window.addEventListener("resize", () => CPChartView.resize());
-  window.addEventListener("resize", () => FTPChartView.resize());  
-
+  window.addEventListener("resize", () => FTPChartView.resize());
+  window.addEventListener("resize", () => CTLChartView.resize());
 
 });

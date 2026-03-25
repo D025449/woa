@@ -142,9 +142,21 @@ router.get("/ctl-atl", authMiddleware, async (req, res, next) => {
   try {
     const authSub = req.user?.sub;
 
-    const data = await FileDBService.getCTLATL(authSub);
+    const { period } = req.query;
 
-    res.json({ data });
+    const ALLOWED_PERIODS = ["date", "week", "month"];
+
+    const selectedPeriod = ALLOWED_PERIODS.includes(period)
+      ? period
+      : "date";
+
+
+    const data = await FileDBService.getCTLATL(authSub, selectedPeriod);
+
+    res.json({
+      grouping: selectedPeriod,
+      data
+    });
 
   } catch (err) {
     console.error("GET /files/ctl-atl failed:", err);
@@ -191,7 +203,7 @@ router.get("/ftp", authMiddleware, async (req, res, next) => {
 
     res.json({
       grouping: selectedPeriod,
-      data: transformedResult 
+      data: transformedResult
     });
 
   } catch (err) {

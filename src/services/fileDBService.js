@@ -469,7 +469,7 @@ class FileDBService {
       .sort((a, b) => new Date(a.day) - new Date(b.day));
   }
 
-  static async getCTLATL(authSub) {
+  static async getCTLATL(authSub, period) {
     // 1. Alle Workouts laden
     const { rows } = await pool.query(
       `SELECT * FROM files WHERE auth_sub = $1 ORDER BY start_time`,
@@ -494,7 +494,16 @@ class FileDBService {
     // 6. CTL/ATL berechnen
     const ctl = FileDBService.computeCTLATL(filled);
 
-    return ctl;
+
+    if (period === 'date') {
+      return ctl;
+    }
+    else if (period === 'week') {
+      return FileDBService.groupByAny(ctl, period);
+    }
+    else {
+      return FileDBService.groupByAny(ctl, period);
+    }
   }
 
   static fillMissingDays(daily) {
@@ -578,6 +587,141 @@ class FileDBService {
 
 
 
+  // -----------------------------
+  // Helper: ISO-Kalenderwoche
+  // -----------------------------
+  static getISOWeek(dateStr) {
+    const d = new Date(dateStr);
+    d.setHours(0, 0, 0, 0);
+
+    d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+
+    const year = d.getFullYear();
+    const yearStart = new Date(year, 0, 1);
+    const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    const key = `${year}${String(week).padStart(2, '0')}`
+
+    return { year, week, key };
+  }
+  // -----------------------------
+  // Helper: ISO-Monat
+  // -----------------------------
+  static getISOMonth(dateStr) {
+
+    const year = dateStr.slice(0, 4);   // "2026"
+    const month = dateStr.slice(5, 7);  // "03"
+
+    const key = `${year}${month}`;
+
+
+    return { year, month, key };
+  }
+
+  static getGroupKey(dat_str, grouping) {
+
+    if (grouping === 'date') {
+      return dat_str;
+    }
+    else if (grouping === 'week') {
+      const { key } = FileDBService.getISOWeek(dat_str);
+      return key;
+    }
+    else if (grouping === 'month') {
+      const { key } = FileDBService.getISOMonth(dat_str);
+      return key;
+    }
+
+  }
+
+
+  // -----------------------------
+  // Wochen-Gruppierung
+  // -----------------------------
+  /*static groupByWeek(data) {
+    const groups = {};
+
+    data.forEach(entry => {
+      const { year, week } = FileDBService.getISOWeek(entry.date);
+      const key = `${year}-W${String(week).padStart(2, '0')}`
+
+      if (!groups[key]) {
+        groups[key] = {
+          year: year,
+          week: week,
+          date: `${year}${String(week).padStart(2, '0')}`,
+          entries: [],
+          tss_sum: 0,
+          ctl_start: entry.ctl,
+          ctl_end: entry.ctl,
+          atl_sum: 0,
+          tsb_min: entry.tsb,
+          tsb_max: entry.tsb
+        };
+      }
+
+      const g = groups[key];
+
+      g.entries.push(entry);
+      g.tss_sum += entry.tss;
+      g.ctl_end = entry.ctl;
+      g.atl_sum += entry.atl;
+
+      if (entry.tsb < g.tsb_min) g.tsb_min = entry.tsb;
+      if (entry.tsb > g.tsb_max) g.tsb_max = entry.tsb;
+    });
+
+    return Object.values(groups).map(g => ({
+      year: g.year,
+      week: g.week,
+      date: `${g.year}${String(g.week).padStart(2, '0')}`,
+      tss_sum: g.tss_sum,
+      ctl_start: g.ctl_start,
+      ctl_end: g.ctl_end,
+      atl_avg: g.atl_sum / g.entries.length,
+      tsb_min: g.tsb_min,
+      tsb_max: g.tsb_max
+    }));
+  }*/
+
+  // -----------------------------
+  // Variable-Gruppierung
+  // -----------------------------
+  static groupByAny(data, grouping) {
+    const groups = {};
+
+    data.forEach(entry => {
+      const key = FileDBService.getGroupKey(entry.date, grouping); // YYYYMM
+
+      if (!groups[key]) {
+        groups[key] = {
+          date: key,
+          entries: [],
+          tss_sum: 0,
+          ctl_start: entry.ctl,
+          ctl_end: entry.ctl,
+          tsb_sum: 0,
+          atl_sum: 0
+        };
+      }
+
+      const g = groups[key];
+
+      g.entries.push(entry);
+      g.tss_sum += entry.tss;
+      g.ctl_end = entry.ctl;
+      g.tsb_sum += entry.tsb;
+      g.atl_sum += entry.atl;
+    });
+
+    return Object.values(groups).map(g => ({
+      date: g.date,
+      tss_sum: Math.round(g.tss_sum),
+      ctl_start: Math.round(g.ctl_start),
+      ctl_end: Math.round(g.ctl_end),
+      tsb_avg: Math.round(g.tsb_sum / g.entries.length),
+      atl_avg: Math.round(g.atl_sum / g.entries.length)
+    }));
+  }
 
 
 

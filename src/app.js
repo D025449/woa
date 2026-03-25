@@ -186,7 +186,7 @@ export async function createApp() {
 
         try {
 
-            const { email, password } = req.body;
+            const { email, password, redirect } = req.body;
 
             const command = new InitiateAuthCommand({
                 AuthFlow: "USER_PASSWORD_AUTH",
@@ -211,9 +211,9 @@ export async function createApp() {
                 secure: true
             });
 
-            const redirect = req.query.redirect || "/dashboard";
+            const save_redirect = redirect || "/dashboard";
 
-            return res.redirect(redirect);
+            return res.redirect(save_redirect);
 
             // hier redirect
             //res.redirect("/");
