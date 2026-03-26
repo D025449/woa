@@ -40,10 +40,44 @@ export async function loadWorkoutByRow(row) {
     const { url } = await metaResponse.json();
     const response = await fetch(url);
     const buffer = await response.arrayBuffer();
-    return parseWorkoutBuffer(buffer, '');// filename);    
+
+    const segs = await fetchSegments(wid);
+
+    const manualIntervals = [];
+    for (let i = 0; i < segs.length; ++i) {
+      const seg = segs[i];
+      manualIntervals.push(
+        {
+          start: seg.start_index,
+          end: seg.end_index,
+          power: seg.power,
+          heartrate: seg.heartrate,
+          duration: seg.duration,
+          position: seg.position,
+          segmenttype: seg.segmenttype           
+        }
+
+      );
+
+    }
+
+
+    return {manualIntervals, id: wid, ...parseWorkoutBuffer(buffer, '') };// filename);    
   }
 
 
+}
+
+async function fetchSegments(workoutId) {
+  const res = await fetch(`/files/workouts/${workoutId}/segments`);
+
+  if (!res.ok) {
+    throw new Error("Failed to load segments");
+  }
+
+  const json = await res.json();
+
+  return json.data; // <- wichtig
 }
 
 function getWorkoutId(rowOrData) {
@@ -137,7 +171,7 @@ function parseWorkoutBuffer(buffer, filename) {
 
 
 
-  const series = buildWorkoutSeries(
+  const { series, STRIDE } = buildWorkoutSeries(
     recCount,
     movingAverageCentered(powers, 50),
     movingAverageCentered(heartRates, 50),
@@ -150,6 +184,7 @@ function parseWorkoutBuffer(buffer, filename) {
     filename,
     recCount,
     series,
+    STRIDE,
     intervals: {
       count: intervalCount,
       starts,
@@ -254,5 +289,5 @@ function buildWorkoutSeries(
     data[idx + 9] = sumAltitude7 / Math.min(i + 2, WIN_ALTITUDE);
   }
 
-  return data;
+  return { series: data, STRIDE, manualIntervals: [] };
 }

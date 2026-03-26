@@ -724,15 +724,82 @@ class FileDBService {
   }
 
 
+static async createSegmentsBulk(authSub, workoutId, segments) {
+  const values = [];
+  const placeholders = [];
+  let cnt = 0;
 
+  segments.forEach((seg, i) => {
+    const baseIndex = i * 9;
+
+    placeholders.push(
+      `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9})`
+    );
+
+    values.push(
+      workoutId,
+      authSub,
+      seg.start,
+      seg.end,
+      seg.segmentType || "manual",
+      seg.duration,
+      seg.power,
+      seg.heartrate,
+      ++cnt
+    );
+  });
+
+  const query = `
+    INSERT INTO file_segments (
+      file_id,
+      auth_sub,
+      start_index,
+      end_index,
+      segmenttype,
+      duration,
+      power,
+      heartrate,
+      position     
+    )
+    VALUES ${placeholders.join(", ")}
+    ON CONFLICT DO NOTHING
+    RETURNING *
+  `;
+
+  const result = await pool.query(query, values);
+  return result.rows;
+}
+
+static async getSegmentsByWorkout(authSub, workoutId) {
+  const query = `
+    SELECT
+      fs.id,
+      fs.file_id,
+      fs.start_index,
+      fs.end_index,
+      fs.segmenttype,
+      fs.duration,
+      fs.power,
+      fs.heartrate,
+      fs.position,
+      fs.created_at
+    FROM file_segments fs
+    JOIN files f ON f.id = fs.file_id
+    WHERE fs.file_id = $1
+      AND fs.auth_sub = $2
+    ORDER BY fs.start_index ASC
+  `;
+
+  const values = [workoutId, authSub];
+
+  const result = await pool.query(query, values);
+
+  return result.rows;
+}
 
 
 
 } // class
-
-
-
-
 
 
 async function insertFile(fileRow, bestEfforts) {

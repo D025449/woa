@@ -23,7 +23,7 @@ document.addEventListener("DOMContentLoaded", () => {
     onCPClick: async (row) => {
       const workout = await loadWorkoutByRow(row);
       chartView.updateWorkoutCP(workout, row);
-      mapView.renderTrack(workout.track);
+      mapView.renderTrack(workout);
 
 
     }

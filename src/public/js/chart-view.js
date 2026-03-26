@@ -1,8 +1,34 @@
-import { buildMarkAreas, buildMarkAreasCP, formatSeconds } from "./chart-helpers.js";
+import { buildMarkAreas, buildMarkAreasCP, formatSeconds, storeSegments } from "./chart-helpers.js";
+
+let selectionStart = null;
+let currentWorkout = null;
+let manualIntervals = [];
+let isSegmentMode = false;
 
 export function createChartView(containerId, handlers = {}) {
   const chart = echarts.init(document.getElementById(containerId));
+  document.getElementById('draw-segment-toggle')?.addEventListener('click', async (e) => {
+    isSegmentMode = !isSegmentMode;
 
+    e.target.classList.toggle('btn-primary', isSegmentMode);
+    e.target.classList.toggle('btn-outline-primary', !isSegmentMode);
+
+    setDrawingMode( isSegmentMode );
+
+  });
+  document.getElementById('save-segments')?.addEventListener('click', async (e) => {
+     const wid = currentWorkout.id;
+     storeSegments(wid, manualIntervals);
+
+    /*isSegmentMode = !isSegmentMode;
+
+    e.target.classList.toggle('btn-primary', isSegmentMode);
+    e.target.classList.toggle('btn-outline-primary', !isSegmentMode);
+
+    setDrawingMode( isSegmentMode );*/
+
+  });
+  
   const option = {
     title: { text: "..." },
     tooltip: {
@@ -135,9 +161,14 @@ export function createChartView(containerId, handlers = {}) {
   registerChartInteractions(chart, handlers);
 
   function updateWorkout(workout) {
+    if (currentWorkout !== null && currentWorkout.startDate != workout.startDate) {
+      currentWorkout = workout;
+      manualIntervals = workout.manualIntervals;
+    }
+    currentWorkout = workout;
     const dte = new Date(workout.startDate);
     chart.setOption({
-      title: { text: dte.toDateString( ) },
+      title: { text: dte.toDateString() },
       xAxis: {
         min: 0,
         max: workout.recCount
@@ -149,7 +180,7 @@ export function createChartView(containerId, handlers = {}) {
         {
           name: "Power",
           markArea: {
-            data: buildMarkAreas(workout.intervals)
+            data: buildMarkAreas(workout.intervals, manualIntervals)
           }
         }
       ]
@@ -157,6 +188,8 @@ export function createChartView(containerId, handlers = {}) {
   }
 
   function updateWorkoutCP(workout, cpview) {
+    currentWorkout = workout;
+    manualIntervals = [];
     const tem = new Date(cpview.startTime).toDateString();
     chart.setOption({
       title: { text: tem },
@@ -177,6 +210,19 @@ export function createChartView(containerId, handlers = {}) {
       ]
     });
   }
+function setDrawingMode(enabled) {
+chart.setOption({
+  dataZoom: [
+    {
+      type: 'inside',
+      zoomOnMouseWheel: true,   // ✅ Zoom bleibt
+      moveOnMouseMove: !enabled,   // ❌ kein Drag mehr
+      moveOnMouseWheel: true   // ❌ kein horizontales Scroll-Pan
+    }
+  ]
+});
+}
+
 
   function zoomToSegment(start, end) {
     chart.dispatchAction({
@@ -214,4 +260,85 @@ function registerChartInteractions(chart, handlers) {
 
     handlers.onChartHoverIndex?.(Math.round(xVal));
   });
+
+  chart.getZr().on('mousedown', (event) => {
+    if (isSegmentMode) {
+      event.event.preventDefault();
+      event.event.stopPropagation();
+
+      const point = [event.offsetX, event.offsetY];
+      const data = chart.convertFromPixel({ seriesIndex: 0 }, point);
+
+      selectionStart = data[0]; // x-Achse
+
+      console.log(selectionStart);
+    }
+
+  });
+
+
+  chart.getZr().on('mouseup', (event) => {
+    if (selectionStart === null) return;
+
+    const point = [event.offsetX, event.offsetY];
+    const data = chart.convertFromPixel({ seriesIndex: 0 }, point);
+
+    const selectionEnd = data[0];
+
+    createNewInterval({ startIndex: Math.round(selectionStart), endIndex: Math.round(selectionEnd) });
+
+    //handlers.createMarkArea(selectionStart, selectionEnd);
+
+
+    console.log(selectionEnd);
+    selectionStart = null;
+  });
+
+
+
+  function createNewInterval(startEnd) {
+    let startIndex = startEnd.startIndex;
+    let endIndex = startEnd.endIndex;
+    if (endIndex < startIndex) {
+      const aaa = endIndex;
+      endIndex = startIndex;
+      startIndex = aaa;
+    }
+    if ((endIndex - startIndex) < 2) {
+      return null;
+    }
+
+    const { series, STRIDE } = currentWorkout;
+
+    let power = 0;
+    let heartrate = 0;
+    let cnt = 0;
+    for (let i = startIndex * STRIDE; i < endIndex * STRIDE; i += STRIDE) {
+      power += series[i];
+      heartrate += series[i];
+      ++cnt;
+    }
+    power = Math.round(power / cnt);
+    heartrate = Math.round(heartrate / cnt);
+
+
+
+
+    manualIntervals.push({
+      start: startIndex,
+      end: endIndex,
+      duration: endIndex - startIndex,
+      power: power,
+      heartrate: heartrate
+    });
+
+    currentWorkout.manualIntervals = manualIntervals;
+
+    handlers.onUpdateWorkout?.(currentWorkout);
+
+
+
+  }
+
+
 }

@@ -11,6 +11,15 @@ document.addEventListener("DOMContentLoaded", () => {
     },
     onZoomSegment: (start, end) => {
       chartView.zoomToSegment(start, end);
+      mapView.highlightSegment({start,end});
+    },
+    createMarkArea: (start, end) => {
+      //chartView.zoomToSegment(start, end);
+      //mapView.highlightSegment({start,end});
+    },
+    onUpdateWorkout: (workout) => {
+        chartView.updateWorkout(workout);
+        mapView.renderTrack(workout);
     }
   });
 
@@ -27,7 +36,7 @@ document.addEventListener("DOMContentLoaded", () => {
         workout.startDate = d.start_time;
 
         chartView.updateWorkout(workout);
-        mapView.renderTrack(workout.track);
+        mapView.renderTrack(workout);
       } catch (err) {
         console.error(err);
       } finally {

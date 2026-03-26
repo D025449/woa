@@ -290,4 +290,74 @@ router.get("/cp-best-efforts", authMiddleware, async (req, res, next) => {
 });
 
 
+router.post("/workouts/:id/segments", authMiddleware, async (req, res, next) => {
+  try {
+    const workoutId = req.params.id;
+    const authSub = req.user?.sub;
+
+    const segments = Array.isArray(req.body)
+      ? req.body
+      : req.body.segments;
+
+    if (!Array.isArray(segments) || segments.length === 0) {
+      return res.status(400).json({
+        error: "Segments must be a non-empty array"
+      });
+    }
+
+    // ✅ Validierung
+    for (const seg of segments) {
+      if (
+        seg.start === undefined ||
+        seg.end === undefined ||
+        seg.start < 0 ||
+        seg.end < seg.start
+      ) {
+        return res.status(400).json({
+          error: "Invalid segment in payload",
+          segment: seg
+        });
+      }
+    }
+
+    const result = await FileDBService.createSegmentsBulk(
+      authSub,
+      workoutId,
+      segments
+    );
+
+    res.status(201).json({
+      ok: true,
+      count: result.length,
+      segments: result
+    });
+
+  } catch (err) {
+    console.error("POST /files/workouts/:id/segments failed:", err);
+    next(err);
+  }
+});
+
+router.get("/workouts/:id/segments", authMiddleware, async (req, res, next) => {
+  try {
+    const workoutId = req.params.id;
+    const authSub = req.user?.sub;
+
+    const segments = await FileDBService.getSegmentsByWorkout(
+      authSub,
+      workoutId
+    );
+
+    res.json({
+      count: segments.length,
+      data: segments
+    });
+
+  } catch (err) {
+    console.error("GET /files/workouts/:id/segments failed:", err);
+    next(err);
+  }
+});
+
+
 export default router;
