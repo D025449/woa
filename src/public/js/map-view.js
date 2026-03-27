@@ -83,9 +83,9 @@ export function createMapView(containerId) {
     const markAreas = buildMarkAreas(workout);
     for (let i = 0; i < markAreas.length; i++) {
       const markArea = markAreas[i];
-      const latlngs = markArea.map((p) => [p.lat, p.lng]);
+      const latlngs = markArea.currentTrackPoints.map((p) => [p.lat, p.lng]);
       L.polyline(latlngs, {
-        color: "Blue",
+        color: markArea.segmenttype === 'auto' ? "Blue": "Purple",
         pane: 'segmentPane',
         weight: 4,
         opacity: 0.9
@@ -96,12 +96,12 @@ export function createMapView(containerId) {
   }
 
   function buildMarkAreas(workout) {
-    const { track, intervals, manualIntervals } = workout;
-    const { count, starts, ends, durations, powers, heartRates } = intervals;
+    const { track, segments } = workout;
+    //const { count, starts, ends, durations, powers, heartRates } = intervals;
     const markAreas = [];
     //const areas = new Array(count);
 
-    for (let i = 0; i < count; i++) {
+    /*for (let i = 0; i < count; i++) {
       const currentTrackPoints = [];
       for (let n = starts[i]; n <= ends[i]; n++) {
         let lat = track.deltalat[n];
@@ -115,12 +115,13 @@ export function createMapView(containerId) {
 
       }
       markAreas.push(currentTrackPoints);
-    }
-    if (manualIntervals != null) {
-      for (let i = 0; i < manualIntervals.length; ++i) {
-        const mi = manualIntervals[i];
+    }*/
+    if ( segments != null) {
+      for (let i = 0; i < segments.length; ++i) {
+
+        const mi = segments[i];
         const currentTrackPoints = [];
-        for (let n = mi.start; n <= mi.end; n++) {
+        for (let n = mi.start_index; n <= mi.end_index; n++) {
           let lat = track.deltalat[n];
           let lng = track.deltalong[n];
 
@@ -128,10 +129,12 @@ export function createMapView(containerId) {
             lat: lat * SEMI_TO_DEG,
             lng: lng * SEMI_TO_DEG,
             idx: n
+            
           });
 
+
         }
-        markAreas.push(currentTrackPoints);
+        markAreas.push({currentTrackPoints, segmenttype: mi.segmenttype});
       }
     }
 

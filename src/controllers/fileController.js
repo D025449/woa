@@ -218,7 +218,7 @@ async function processFitBuffer(buffer, originalName, userSub) {
 }
 
 async function processFitJson(fitJsonObject, originalName, userSub) {
-  const { buffer, normalized_power, bestEfforts } = processFitRecords(fitJsonObject.records);
+  const { buffer, normalized_power, bestEfforts, segments } = processFitRecords(fitJsonObject.records);
   const newFilenamebin = path.basename(originalName, path.extname(originalName)) + ".bin";
   const s3KeyBin = `users/${userSub}/${randomUUID()}-${newFilenamebin}`;
   const fitFile = {
@@ -229,7 +229,7 @@ async function processFitJson(fitJsonObject, originalName, userSub) {
     file_size: buffer.byteLength
   };
   const fileRow = mapToFileRow(fitJsonObject, fitFile, normalized_power);
-  await insertFile(fileRow, bestEfforts);
+  await insertFile(fileRow, bestEfforts, segments);
   await s3Service.putObjectBinary(s3KeyBin, buffer, "application/octet-stream");
 }
 

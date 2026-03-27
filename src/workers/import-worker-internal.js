@@ -128,7 +128,7 @@ export async function createApp() {
       const zipDirectory = await unzipper.Open.file(zipPath);
 
       const fitEntries = zipDirectory.files.filter((entry) => {
-        return entry.type === "File" && entry.path.toLowerCase().endsWith(".fit");
+        return entry.type === "File" && entry.path.toLowerCase().endsWith(".fit") && ( ! entry.path.startsWith("__MACOSX/" ) );
       });
 
       const totalFiles = fitEntries.length;

@@ -5,6 +5,7 @@ import { TypedArrayHelpers } from "../shared/TypedArrayHelpers.js";
 import { IntervalDetector } from "../shared/IntervalDetector.js";
 import { RecordGapFiller } from "../shared/RecordGapFiller.js";
 import { BestEffortDetector } from "../shared/BestEffortDetector.js";
+import { SegmentService } from "../shared/SegmentService.js";
 
 const LIMITS = {
   Uint8: { min: 0, max: 0xFF },
@@ -420,6 +421,11 @@ function processFitRecords(recs) {
   // Sortieren (FIT kann out-of-order sein)
   // ----------------------------------
   recs.sort((a, b) => a.timestamp - b.timestamp);
+  if (recs?.length < 300)
+  {
+      throw new Error("less than five minutes");
+  }
+  
   // -------------------------
   // smap gaps füllen:
   // -------------------------
@@ -430,16 +436,18 @@ function processFitRecords(recs) {
 
 
 
-  const intervals = IntervalDetector.detect(records);
-
+  //const intervals = IntervalDetector.detect(records);
+  const segments = SegmentService.createSgmentsFromIntervals(IntervalDetector.detect(records));
+  //intervals = [];
 
   const bestEfforts = BestEffortDetector.detect(records);
 
 
+
   //const intervals = IntervalDetector.detect(powers, heartRates);
-  if (intervals.length > 32) {
+  if (segments.length > 32) {
     //console.log(intervals);
-    console.log({ intlen: intervals.length });
+    console.log({ intlen: segments.length });
   }
 
 
@@ -449,19 +457,24 @@ function processFitRecords(recs) {
 
   const headerSize = 16; // Uint32 record count
 
-  const bytes = TypedArrayHelpers.computeSizeForFitRecords(recCount, intervals.length, headerSize);
+  //const bytes = TypedArrayHelpers.computeSizeForFitRecords(recCount, intervals.length, headerSize);
+  const bytes = TypedArrayHelpers.computeSizeForFitRecords(recCount, 0, headerSize); 
   const buffer = new ArrayBuffer(bytes);
   const view = new DataView(buffer);
 
   view.setUint32(0, 0x46544b31); // "FTK1"
   view.setUint32(4, 1, true); // Version 
   view.setUint32(8, recCount, true);
-  view.setUint32(12, intervals.length, true); // 0: with out delta 1: with delta
+
+  //view.setUint32(12, intervals.length, true); // 0: with out delta 1: with delta
+  view.setUint32(12, 0, true); // 0: with out delta 1: with delta
 
 
-  const [powers, heartRates, cadences, speeds, altitudes, latitudes, longitudes, starts, ends, durations, intpowers, intHeartRates, intSpeeds] = TypedArrayHelpers.allocateViews(buffer, recCount, intervals.length, headerSize);
 
-  IntervalDetector.writeIntervalsToArrays(
+
+  //const [powers, heartRates, cadences, speeds, altitudes, latitudes, longitudes, starts, ends, durations, intpowers, intHeartRates, intSpeeds] = TypedArrayHelpers.allocateViews(buffer, recCount, intervals.length, headerSize);
+  const [powers, heartRates, cadences, speeds, altitudes, latitudes, longitudes] = TypedArrayHelpers.allocateViews(buffer, recCount, 0, headerSize);
+  /*IntervalDetector.writeIntervalsToArrays(
     intervals,
     starts,
     ends,
@@ -470,7 +483,7 @@ function processFitRecords(recs) {
     intHeartRates,
     intSpeeds,
     10
-  );
+  );*/
 
 
   /*let lastPower = 0;
@@ -541,7 +554,7 @@ function processFitRecords(recs) {
   //}
 
 
-  return {buffer, normalized_power, bestEfforts};
+  return {buffer, normalized_power, bestEfforts, segments};
 }
 
 

@@ -7,11 +7,13 @@ CREATE TABLE file_segments (
     start_index     INTEGER NOT NULL,
     end_index       INTEGER NOT NULL,
 
-    segmenttype    TEXT DEFAULT 'manual',
+    segmenttype     TEXT DEFAULT 'manual',
     duration        DOUBLE PRECISION,
-    power       DOUBLE PRECISION,
-    heartrate  DOUBLE PRECISION,
-
+    power           DOUBLE PRECISION,
+    heartrate       DOUBLE PRECISION,
+    speed           DOUBLE PRECISION,
+    cadence         DOUBLE PRECISION,
+    altimeters       DOUBLE PRECISION,
     position        INTEGER,
 
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),

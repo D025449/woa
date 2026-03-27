@@ -22,14 +22,33 @@ export function formatSeconds(value) {
   return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-export function buildMarkAreas(intervals, manualIntervals) {
-  const { count, starts, ends, durations, powers, heartRates } = intervals;
-  const areas = new Array(count);
+function getSegmentStyle(segment) {
+  if (segment.segmenttype === 'manual') {
+    return {
+      color: 'rgba(255, 0, 0, 0.3)' // 🔴 rot
+    };
+  }
 
-  for (let i = 0; i < count; i++) {
+  if (segment.segmenttype === 'auto') {
+    return {
+      color: 'rgba(0, 123, 255, 0.3)' // 🔵 blau
+    };
+  }
+
+  return {
+    color: 'rgba(100, 100, 100, 0.2)' // fallback
+  };
+}
+
+export function buildMarkAreas(workout) {
+  //const { count, starts, ends, durations, powers, heartRates } = workout.intervals;
+  const areas = [];
+
+  /*for (let i = 0; i < count; i++) {
     areas[i] = [
       {
         xAxis: starts[i],
+
         label: {
           show: true,
           position: "insideTop",
@@ -41,23 +60,24 @@ export function buildMarkAreas(intervals, manualIntervals) {
         xAxis: ends[i]
       }
     ];
-  }
+  }*/
 
-  for (let i = 0; i < manualIntervals.length; ++i) {
-    const mi = manualIntervals[i];
+  for (let i = 0; i < workout.segments.length; ++i) {
+    const mi = workout.segments[i];
     areas.push(
       [
         {
-          xAxis: mi.start,
+          xAxis: mi.start_index,
+          itemStyle: getSegmentStyle(mi),
           label: {
             show: true,
             position: "insideTop",
             distance: 8,
-            formatter: `${formatDuration(mi.duration)}\n${mi.power}W\n${mi.heartrate}bpm`
+            formatter: `${formatDuration(mi.duration)}\n${mi.power}W\n${mi.heartrate}bpm\n${mi.speed}km/h`
           }
         },
         {
-          xAxis: mi.end
+          xAxis: mi.end_index
         }
       ]);
 
@@ -68,7 +88,7 @@ export function buildMarkAreas(intervals, manualIntervals) {
   return areas;
 }
 
-export async function storeSegments(wid, pendingSegments)
+/*export async function storeSegments(wid, pendingSegments)
 {
     if (pendingSegments.length === 0) {
       alert("No segments to save");
@@ -106,7 +126,7 @@ export async function storeSegments(wid, pendingSegments)
       console.error(err);
       alert("Failed to save segments");
     }
-}
+}*/
 
 export function buildMarkAreasCP(interval) {
   const areas = new Array(1);

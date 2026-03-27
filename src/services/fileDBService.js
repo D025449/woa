@@ -633,56 +633,6 @@ class FileDBService {
 
   }
 
-
-  // -----------------------------
-  // Wochen-Gruppierung
-  // -----------------------------
-  /*static groupByWeek(data) {
-    const groups = {};
-
-    data.forEach(entry => {
-      const { year, week } = FileDBService.getISOWeek(entry.date);
-      const key = `${year}-W${String(week).padStart(2, '0')}`
-
-      if (!groups[key]) {
-        groups[key] = {
-          year: year,
-          week: week,
-          date: `${year}${String(week).padStart(2, '0')}`,
-          entries: [],
-          tss_sum: 0,
-          ctl_start: entry.ctl,
-          ctl_end: entry.ctl,
-          atl_sum: 0,
-          tsb_min: entry.tsb,
-          tsb_max: entry.tsb
-        };
-      }
-
-      const g = groups[key];
-
-      g.entries.push(entry);
-      g.tss_sum += entry.tss;
-      g.ctl_end = entry.ctl;
-      g.atl_sum += entry.atl;
-
-      if (entry.tsb < g.tsb_min) g.tsb_min = entry.tsb;
-      if (entry.tsb > g.tsb_max) g.tsb_max = entry.tsb;
-    });
-
-    return Object.values(groups).map(g => ({
-      year: g.year,
-      week: g.week,
-      date: `${g.year}${String(g.week).padStart(2, '0')}`,
-      tss_sum: g.tss_sum,
-      ctl_start: g.ctl_start,
-      ctl_end: g.ctl_end,
-      atl_avg: g.atl_sum / g.entries.length,
-      tsb_min: g.tsb_min,
-      tsb_max: g.tsb_max
-    }));
-  }*/
-
   // -----------------------------
   // Variable-Gruppierung
   // -----------------------------
@@ -723,34 +673,42 @@ class FileDBService {
     }));
   }
 
+  static async createSegmentsBulk(authSub, workoutId, segments) {
+    let cnt = 0;
 
-static async createSegmentsBulk(authSub, workoutId, segments) {
-  const values = [];
-  const placeholders = [];
-  let cnt = 0;
+    const ids = [];
+    const fileIds = [];
+    const authSubs = [];
+    const starts = [];
+    const ends = [];
+    const types = [];
+    const durations = [];
+    const powers = [];
+    const heartrates = [];
+    const cadences = [];
+    const speeds = [];
+    const altimetersArr = [];
+    const positions = [];
 
-  segments.forEach((seg, i) => {
-    const baseIndex = i * 9;
+    segments.forEach(seg => {
+      ids.push(seg.id);
+      fileIds.push(workoutId);
+      authSubs.push(authSub);
+      starts.push(seg.start_index);
+      ends.push(seg.end_index);
+      types.push(seg.segmenttype || "manual");
+      durations.push(seg.duration);
+      powers.push(seg.power);
+      heartrates.push(seg.heartrate);
+      cadences.push(seg.cadence);
+      speeds.push(seg.speed);
+      altimetersArr.push(seg.altimeters);
+      positions.push(++cnt);
+    });
 
-    placeholders.push(
-      `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9})`
-    );
-
-    values.push(
-      workoutId,
-      authSub,
-      seg.start,
-      seg.end,
-      seg.segmentType || "manual",
-      seg.duration,
-      seg.power,
-      seg.heartrate,
-      ++cnt
-    );
-  });
-
-  const query = `
+    const query = `
     INSERT INTO file_segments (
+      id,
       file_id,
       auth_sub,
       start_index,
@@ -759,19 +717,107 @@ static async createSegmentsBulk(authSub, workoutId, segments) {
       duration,
       power,
       heartrate,
-      position     
+      cadence,
+      speed,
+      altimeters,
+      position
     )
-    VALUES ${placeholders.join(", ")}
+    SELECT *
+    FROM UNNEST(
+      $1::uuid[],
+      $2::uuid[],
+      $3::text[],
+      $4::int[],
+      $5::int[],
+      $6::text[],
+      $7::float8[],
+      $8::float8[],
+      $9::float8[],
+      $10::float8[],
+      $11::float8[],
+      $12::float8[],
+      $13::int[]
+    )
     ON CONFLICT DO NOTHING
     RETURNING *
   `;
 
-  const result = await pool.query(query, values);
-  return result.rows;
-}
+    const values = [
+      ids,
+      fileIds,
+      authSubs,
+      starts,
+      ends,
+      types,
+      durations,
+      powers,
+      heartrates,
+      cadences,
+      speeds,
+      altimetersArr,
+      positions
+    ];
 
-static async getSegmentsByWorkout(authSub, workoutId) {
-  const query = `
+    const result = await pool.query(query, values);
+    return result.rows;
+  }
+
+  /*static async createSegmentsBulk(authSub, workoutId, segments) {
+    const values = [];
+    const placeholders = [];
+    let cnt = 0;
+  
+    segments.forEach((seg, i) => {
+      const baseIndex = i * 13;
+  
+      placeholders.push(
+        `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13})`
+      );
+  
+      values.push(
+        seg.id,
+        workoutId,
+        authSub,
+        seg.start_index,
+        seg.end_index,
+        seg.segmenttype || "manual",
+        seg.duration,
+        seg.power,
+        seg.heartrate,
+        seg.cadence,
+        seg.speed,
+        seg.altimeters,
+        ++cnt
+      );
+    });
+  
+    const query = `
+      INSERT INTO file_segments (
+        id, 
+        file_id,
+        auth_sub,
+        start_index,
+        end_index,
+        segmenttype,
+        duration,
+        power,
+        heartrate,
+        cadence,
+        speed,
+        altimeters,
+        position     
+      )
+      VALUES ${placeholders.join(", ")}
+      ON CONFLICT DO NOTHING
+      RETURNING *
+    `;
+  
+    const result = await pool.query(query, values);
+    return result.rows;
+  }*/
+
+  static async getSegmentsByWorkout(authSub, workoutId) {
+    const query = `
     SELECT
       fs.id,
       fs.file_id,
@@ -781,6 +827,9 @@ static async getSegmentsByWorkout(authSub, workoutId) {
       fs.duration,
       fs.power,
       fs.heartrate,
+      fs.cadence,
+      fs.speed,
+      fs.altimeters,
       fs.position,
       fs.created_at
     FROM file_segments fs
@@ -790,19 +839,73 @@ static async getSegmentsByWorkout(authSub, workoutId) {
     ORDER BY fs.start_index ASC
   `;
 
-  const values = [workoutId, authSub];
+    const values = [workoutId, authSub];
 
-  const result = await pool.query(query, values);
+    const result = await pool.query(query, values);
 
-  return result.rows;
-}
+    return result.rows;
+  }
 
+  static async insertBestEfforts(fileId, bestEfforts) {
+    if (!fileId) {
+      throw new Error('insertBestEfforts: fileId is required');
+    }
 
+    if (!Array.isArray(bestEfforts)) {
+      throw new Error('insertBestEfforts: bestEfforts must be an array');
+    }
+
+    if (bestEfforts.length === 0) {
+      return;
+    }
+    try {
+
+      const values = [];
+      const params = [];
+
+      let paramIndex = 1;
+
+      for (const effort of bestEfforts) {
+        values.push(`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`);
+
+        params.push(
+          fileId,
+          effort.start_offset,
+          effort.duration,
+          effort.endOffset ?? effort.end_offset,
+          effort.avgPower,
+          effort.avgHeartRate ?? null,
+          effort.avgCadence ?? null,
+          effort.avgSpeed ?? null
+        );
+      }
+
+      const sql = `
+    INSERT INTO file_best_efforts (
+      file_id,
+      start_offset,
+      duration,
+      end_offset,
+      avg_power,
+      avg_heart_rate,
+      avg_cadence,
+      avg_speed
+    )
+    VALUES ${values.join(', ')}
+  `;
+
+      await pool.query(sql, params);
+
+    } catch (err) {
+
+      throw err;
+    }
+  }
 
 } // class
 
 
-async function insertFile(fileRow, bestEfforts) {
+async function insertFile(fileRow, bestEfforts, segments) {
   const d = new Date(fileRow.start_time);
 
 
@@ -960,7 +1063,8 @@ async function insertFile(fileRow, bestEfforts) {
       );
     }
 
-    await insertBestEfforts(result.rows[0].id, bestEfforts);
+    await FileDBService.insertBestEfforts(result.rows[0].id, bestEfforts);
+    await FileDBService.createSegmentsBulk(auth_sub, result.rows[0].id, segments);
     await pool.query('COMMIT');
 
     return result.rows[0];
@@ -973,126 +1077,7 @@ async function insertFile(fileRow, bestEfforts) {
 }
 
 
-async function insertBestEfforts(fileId, bestEfforts) {
-  if (!fileId) {
-    throw new Error('insertBestEfforts: fileId is required');
-  }
-
-  if (!Array.isArray(bestEfforts)) {
-    throw new Error('insertBestEfforts: bestEfforts must be an array');
-  }
-
-  if (bestEfforts.length === 0) {
-    return;
-  }
-  try {
-
-    const values = [];
-    const params = [];
-
-    let paramIndex = 1;
-
-    for (const effort of bestEfforts) {
-      values.push(`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`);
-
-      params.push(
-        fileId,
-        effort.start_offset,
-        effort.duration,
-        effort.endOffset ?? effort.end_offset,
-        effort.avgPower,
-        effort.avgHeartRate ?? null,
-        effort.avgCadence ?? null,
-        effort.avgSpeed ?? null
-      );
-    }
-
-    const sql = `
-    INSERT INTO file_best_efforts (
-      file_id,
-      start_offset,
-      duration,
-      end_offset,
-      avg_power,
-      avg_heart_rate,
-      avg_cadence,
-      avg_speed
-    )
-    VALUES ${values.join(', ')}
-  `;
-
-    await pool.query(sql, params);
-
-    /*const sql = `
-      INSERT INTO file_best_efforts (
-        file_id,
-        start_offset,
-        duration,
-        end_offset,
-        avg_power,
-        avg_heart_rate,
-        avg_cadence,
-        avg_speed
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      ON CONFLICT (file_id, duration)
-      DO UPDATE SET
-        start_offset   = EXCLUDED.start_offset,
-        end_offset     = EXCLUDED.end_offset,
-        avg_power      = EXCLUDED.avg_power,
-        avg_heart_rate = EXCLUDED.avg_heart_rate,
-        avg_cadence    = EXCLUDED.avg_cadence,
-        avg_speed      = EXCLUDED.avg_speed
-    `;
-  
-  
-  
-    try {
-      for (const effort of bestEfforts) {
-        const startOffset = effort.start_offset;
-        const duration = effort.duration;
-        const endOffset = effort.endOffset ?? effort.end_offset;
-        const avgPower = effort.avgPower;
-        const avgHeartRate = effort.avgHeartRate ?? null;
-        const avgCadence = effort.avgCadence ?? null;
-        const avgSpeed = effort.avgSpeed ?? null;
-  
-        if (!Number.isInteger(startOffset) || startOffset < 0) {
-          throw new Error(`Invalid startOffset: ${startOffset}`);
-        }
-  
-        if (!Number.isInteger(duration) || duration <= 0) {
-          throw new Error(`Invalid duration: ${duration}`);
-        }
-  
-        if (!Number.isInteger(endOffset) || endOffset !== startOffset + duration - 1) {
-          throw new Error(
-            `Invalid endOffset: ${endOffset} for startOffset=${startOffset}, duration=${duration}`
-          );
-        }
-  
-        if (typeof avgPower !== 'number' || Number.isNaN(avgPower)) {
-          throw new Error(`Invalid avgPower: ${avgPower}`);
-        }
-  
-        await pool.query(sql, [
-          fileId,
-          startOffset,
-          duration,
-          endOffset,
-          avgPower,
-          avgHeartRate,
-          avgCadence,
-          avgSpeed,
-        ]);
-      }*/
 
 
-  } catch (err) {
 
-    throw err;
-  }
-}
-
-
-export { insertFile, FileDBService, insertBestEfforts };
+export { insertFile, FileDBService };

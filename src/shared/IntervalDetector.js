@@ -1,3 +1,6 @@
+
+import { SegmentService } from "./SegmentService.js";
+
 class IntervalDetector {
   // ================================
   // PUBLIC API
@@ -59,9 +62,11 @@ class IntervalDetector {
     let sumPower = 0;
     let sumHR = 0;
     let sumSpeed = 0;
+    let sumCadence = 0;
 
     let hrCount = 0;
     let speedCount = 0;
+     let cadenceCount = 0;
 
     for (let i = start; i < end; i++) {
       sumPower += smoothPower[i];
@@ -77,6 +82,14 @@ class IntervalDetector {
         sumSpeed += speed;
         speedCount++;
       }
+
+      const cadence = records[i].cadence;
+      if (cadence != null) {
+        sumCadence += cadence;
+        cadenceCount++;
+      }
+
+
     }
 
     const duration = end - start;
@@ -94,6 +107,14 @@ class IntervalDetector {
 
       avgSpeed: speedCount
         ? this.round1(sumSpeed / speedCount)
+        : null,
+      avgCadence: cadenceCount
+        ? Math.round(sumCadence / cadenceCount)
+        : null,
+      altitude_start : ( records[start]?.altitude != null ) ? Math.round(records[start].altitude * 1000) : null,
+      altitude_end : ( records[end - 1]?.altitude != null ) ? Math.round(records[end - 1].altitude * 1000) : null,
+      altimeters: ( records[start]?.altitude != null && records[end - 1]?.altitude != null)
+        ? Math.round((records[end - 1].altitude - records[start].altitude) * 1000)
         : null
     };
   }
@@ -174,15 +195,26 @@ class IntervalDetector {
           current.duration,
           next.duration
         );
+        const avgCadence = this.weightedMerge(
+          current.avgCadence,
+          next.avgCadence,
+          current.duration,
+          next.duration
+        );
+
+
 
         current = {
           start: current.start,
           end: next.end,
           duration: next.end - current.start,
-
+          altitude_start: current.altitude_start,
+          altitude_end: next.altitude_end,
+          altimeters:  next.altitude_end - current.altitude_start,
           avgPower: Math.round(avgPower),
           avgHeartRate: avgHR != null ? Math.round(avgHR) : null,
-          avgSpeed: avgSpeed != null ? this.round1(avgSpeed) : null
+          avgSpeed: avgSpeed != null ? this.round1(avgSpeed) : null,
+          avgCadence: avgCadence != null ? this.round1(avgCadence) : null          
         };
       } else {
         merged.push(current);
@@ -207,37 +239,41 @@ class IntervalDetector {
     return Math.round(value * 10) / 10;
   }
 
-static writeIntervalsToArrays(
-  intervals,
-  starts,
-  ends,
-  durations,
-  powers,
-  heartRates,
-  speeds,
-  speedScale = 1 // optional (z. B. 10)
-) {
-  const len = intervals.length;
+  
 
-  for (let i = 0; i < len; i++) {
-    const it = intervals[i];
 
-    starts[i] = it.start;
-    ends[i] = it.end;
-    durations[i] = it.duration;
+  static writeIntervalsToArrays(
+    intervals,
+    starts,
+    ends,
+    durations,
+    powers,
+    heartRates,
+    speeds,
+    speedScale = 1 // optional (z. B. 10)
+  ) {
+    const len = intervals.length;
 
-    powers[i] = it.avgPower ?? 0;
-    heartRates[i] = it.avgHeartRate ?? 0;
+    for (let i = 0; i < len; i++) {
+      const it = intervals[i];
 
-    // Speed optional skalieren (z. B. *10 → int)
-    const sp = it.avgSpeed ?? 0;
-    speeds[i] = speedScale !== 1
-      ? Math.round(sp * speedScale)
-      : sp;
+      starts[i] = it.start;
+      ends[i] = it.end;
+      durations[i] = it.duration;
+
+      powers[i] = it.avgPower ?? 0;
+      heartRates[i] = it.avgHeartRate ?? 0;
+
+      // Speed optional skalieren (z. B. *10 → int)
+      const sp = it.avgSpeed ?? 0;
+      speeds[i] = speedScale !== 1
+        ? Math.round(sp * speedScale)
+        : sp;
+    }
+
+    return len;
   }
 
-  return len;
-}
 
 
 }

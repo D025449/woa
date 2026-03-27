@@ -1,4 +1,5 @@
 import { TypedArrayHelpers } from "/shared/TypedArrayHelpers.js";
+import { SegmentService } from "../../shared/SegmentService.js";
 
 export async function deleteWorkoutByRow(row) {
   const data = row.getData();
@@ -40,10 +41,15 @@ export async function loadWorkoutByRow(row) {
     const { url } = await metaResponse.json();
     const response = await fetch(url);
     const buffer = await response.arrayBuffer();
+    const workout = { id: wid, ...parseWorkoutBuffer(buffer, '') };
+    await SegmentService.fetchSegments(workout);
+    return workout;
 
-    const segs = await fetchSegments(wid);
 
-    const manualIntervals = [];
+
+    //const segs = await fetchSegments(wid);
+
+    /*const manualIntervals = [];
     for (let i = 0; i < segs.length; ++i) {
       const seg = segs[i];
       manualIntervals.push(
@@ -59,16 +65,16 @@ export async function loadWorkoutByRow(row) {
 
       );
 
-    }
+    }*/
 
 
-    return {manualIntervals, id: wid, ...parseWorkoutBuffer(buffer, '') };// filename);    
+    //return {manualIntervals, id: wid, ...parseWorkoutBuffer(buffer, '') };// filename);    
   }
 
 
 }
 
-async function fetchSegments(workoutId) {
+/*async function fetchSegments(workoutId) {
   const res = await fetch(`/files/workouts/${workoutId}/segments`);
 
   if (!res.ok) {
@@ -78,7 +84,7 @@ async function fetchSegments(workoutId) {
   const json = await res.json();
 
   return json.data; // <- wichtig
-}
+}*/
 
 function getWorkoutId(rowOrData) {
   // 🟢 Tabulator sicher erkennen
@@ -289,5 +295,5 @@ function buildWorkoutSeries(
     data[idx + 9] = sumAltitude7 / Math.min(i + 2, WIN_ALTITUDE);
   }
 
-  return { series: data, STRIDE, manualIntervals: [] };
+  return { series: data, STRIDE };
 }

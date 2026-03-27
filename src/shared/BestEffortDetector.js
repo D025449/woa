@@ -50,7 +50,7 @@ class BestEffortDetector {
 
     const results = [];
 
-    for (const duration of durations) {
+    for (const duration of durations.filter( s => s <= n)){
       if (duration > n) {
         results.push({
           startOffset: null,

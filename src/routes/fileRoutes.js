@@ -308,10 +308,10 @@ router.post("/workouts/:id/segments", authMiddleware, async (req, res, next) => 
     // ✅ Validierung
     for (const seg of segments) {
       if (
-        seg.start === undefined ||
-        seg.end === undefined ||
-        seg.start < 0 ||
-        seg.end < seg.start
+        seg.start_index === undefined ||
+        seg.end_index === undefined ||
+        seg.start_index < 0 ||
+        seg.end_index < seg.start_index
       ) {
         return res.status(400).json({
           error: "Invalid segment in payload",

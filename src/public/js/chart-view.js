@@ -1,8 +1,10 @@
-import { buildMarkAreas, buildMarkAreasCP, formatSeconds, storeSegments } from "./chart-helpers.js";
+import { buildMarkAreas, buildMarkAreasCP, formatSeconds } from "./chart-helpers.js";
+import { SegmentService } from "../../shared/SegmentService.js";
+
 
 let selectionStart = null;
 let currentWorkout = null;
-let manualIntervals = [];
+//let manualIntervals = [];
 let isSegmentMode = false;
 
 export function createChartView(containerId, handlers = {}) {
@@ -18,7 +20,8 @@ export function createChartView(containerId, handlers = {}) {
   });
   document.getElementById('save-segments')?.addEventListener('click', async (e) => {
      const wid = currentWorkout.id;
-     storeSegments(wid, manualIntervals);
+     SegmentService.storeSegments(currentWorkout);
+     //storeSegments(wid, manualIntervals);
 
     /*isSegmentMode = !isSegmentMode;
 
@@ -163,8 +166,9 @@ export function createChartView(containerId, handlers = {}) {
   function updateWorkout(workout) {
     if (currentWorkout !== null && currentWorkout.startDate != workout.startDate) {
       currentWorkout = workout;
-      manualIntervals = workout.manualIntervals;
+      //manualIntervals = workout.manualIntervals;
     }
+    const markAreas = buildMarkAreas(workout);
     currentWorkout = workout;
     const dte = new Date(workout.startDate);
     chart.setOption({
@@ -180,7 +184,7 @@ export function createChartView(containerId, handlers = {}) {
         {
           name: "Power",
           markArea: {
-            data: buildMarkAreas(workout.intervals, manualIntervals)
+            data: markAreas
           }
         }
       ]
@@ -189,7 +193,7 @@ export function createChartView(containerId, handlers = {}) {
 
   function updateWorkoutCP(workout, cpview) {
     currentWorkout = workout;
-    manualIntervals = [];
+    //manualIntervals = [];
     const tem = new Date(cpview.startTime).toDateString();
     chart.setOption({
       title: { text: tem },
@@ -297,7 +301,7 @@ function registerChartInteractions(chart, handlers) {
 
 
   function createNewInterval(startEnd) {
-    let startIndex = startEnd.startIndex;
+    /*let startIndex = startEnd.startIndex;
     let endIndex = startEnd.endIndex;
     if (endIndex < startIndex) {
       const aaa = endIndex;
@@ -325,14 +329,17 @@ function registerChartInteractions(chart, handlers) {
 
 
     manualIntervals.push({
-      start: startIndex,
-      end: endIndex,
+      start_index: startIndex,
+      end_index: endIndex,
       duration: endIndex - startIndex,
       power: power,
-      heartrate: heartrate
-    });
+      heartrate: heartrate,
+      segmenttype: 'manual'
 
-    currentWorkout.manualIntervals = manualIntervals;
+    });*/
+    SegmentService.createAddNewSegment(currentWorkout,startEnd);
+
+    //currentWorkout.manualIntervals = manualIntervals;
 
     handlers.onUpdateWorkout?.(currentWorkout);
 
