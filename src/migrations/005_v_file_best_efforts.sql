@@ -1,3 +1,4 @@
+DROP VIEW IF EXISTS v_files_with_best_efforts;
 CREATE VIEW v_files_with_best_efforts AS
 SELECT
     f.id,
@@ -41,10 +42,11 @@ SELECT
     f.avg_cadence,
     f.max_cadence,
 
-    f.nec_lat,
-    f.nec_long,
-    f.swc_lat,
-    f.swc_long,
+    f.minLat,
+    f.maxLat,
+    f.minLng,
+    f.maxLng,
+    f.validGPS,
 
     b.id AS best_effort_id,
     b.file_id AS best_effort_file_id,
@@ -58,5 +60,6 @@ SELECT
     b.created_at AS best_effort_created_at
 
 FROM files f
-INNER JOIN file_best_efforts b
-    ON b.file_id = f.id;
+INNER JOIN file_segments b
+    ON b.file_id = f.id
+where b.segmenttype = 'crit';

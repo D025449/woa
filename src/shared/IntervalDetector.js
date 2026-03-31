@@ -1,7 +1,6 @@
 
-import { SegmentService } from "./SegmentService.js";
 
-class IntervalDetector {
+export default class IntervalDetector {
   // ================================
   // PUBLIC API
   // ================================
@@ -277,5 +276,3 @@ class IntervalDetector {
 
 
 }
-
-export { IntervalDetector };

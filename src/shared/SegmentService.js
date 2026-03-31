@@ -1,7 +1,7 @@
 //import { ServerSideEncryption } from "@aws-sdk/client-s3";
+import Utils from "./Utils.js";
 
-
-export class SegmentService {
+export default class SegmentService {
 
 
     static createAddNewSegment(workout, startEnd, segmenttype = 'manual') {
@@ -41,21 +41,24 @@ export class SegmentService {
         speed /= 10;
         cadence = Math.round(cadence / cnt);
 
+        const duration = endIndex - startIndex;
+
 
 
         workout.segments ??= [];
         workout.segments.push({
             id: globalThis.crypto.randomUUID(),
-            start_index: startIndex,
-            end_index: endIndex,
-            duration: endIndex - startIndex,
-            power: power,
-            heartrate: heartrate,
-            cadence: cadence,
-            speed: speed,
+            start_offset: startIndex,
+            end_offset: endIndex,
+            duration: duration,
+            avg_power: power,
+            avg_heart_rate: heartrate,
+            avg_cadence: cadence,
+            avg_speed: speed,
             altimeters: altimeters,
             segmenttype: segmenttype,
-            rowstate: 'CRE'
+            rowstate: 'CRE',
+            segmentname: `+${Utils.formatStartIndex(startIndex)}(${Utils.formatDuration(duration)})`
         });
 
         return workout;
@@ -71,17 +74,18 @@ export class SegmentService {
             res.push(
                 {
                     id: globalThis.crypto.randomUUID(),
-                    start_index: it.start,
-                    end_index: it.end,
+                    start_offset: it.start ?? it.start_offset,
+                    end_offset: it.end ?? it.end_offset,
                     duration: it.duration,
-                    power: it.avgPower ?? 0,
-                    heartrate: it.avgHeartRate ?? 0,
-                    cadence: it.avgCadence ?? 0,
-                    speed: it.avgSpeed ?? 0,
+                    avg_power: it.avgPower ?? 0,
+                    avg_heart_rate: it.avgHeartRate ?? 0,
+                    avg_cadence: it.avgCadence ?? 0,
+                    avg_speed: it.avgSpeed ?? 0,
                     altimeters: it.altimeters ?? 0,
                     segmenttype: segmenttype,
                     rowstate: 'CRE',
-                    position: i
+                    position: i,
+                    segmentname: it.segmentname ?? ''
                 });
         }
 
@@ -114,7 +118,7 @@ export class SegmentService {
     }
 
     static async storeSegments(workout) {
-        const new_segments = workout.segments.filter(s => s.rowstate === 'CRE');
+        const new_segments = workout.segments.filter(s => s.rowstate !== 'DB');
         if (new_segments.length === 0) {
             //lert("No segments to save");
             return;

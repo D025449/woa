@@ -1,4 +1,4 @@
-class BestEffortDetector {
+export default class BestEffortDetector {
   static DURATIONS = [5, 15, 60, 120, 240, 480, 900, 1800];
 
   static detect(records) {
@@ -60,6 +60,7 @@ class BestEffortDetector {
           avgHeartRate: null,
           avgCadence: null,
           avgSpeed: null,
+          altimeters: null
         });
         continue;
       }
@@ -94,20 +95,22 @@ class BestEffortDetector {
       const avgSpeed =
         speedN > 0 ? rangeSum(speedSum, bestOffset, duration) / speedN : null;
 
+
+      const endalt = Math.round((records[endOffset]?.altitude ?? 0) * 1000);
+      const startalt = Math.round((records[bestOffset]?.altitude ?? 0) * 1000);
+
       results.push({
         start_offset: bestOffset,
         duration,
-        endOffset,
+        end_offset: endOffset,
         avgPower: Math.round(avgPower),
         avgHeartRate: avgHeartRate == null ? null : Math.round(avgHeartRate),
         avgCadence: avgCadence == null ? null : Math.round(avgCadence),
         avgSpeed: avgSpeed == null ? null : Number(avgSpeed.toFixed(2)),
+        altimeters:  endalt - startalt
       });
     }
 
     return results;
   }
 }
-
-
-export { BestEffortDetector };

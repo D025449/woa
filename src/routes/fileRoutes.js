@@ -1,44 +1,33 @@
 import express from "express";
 
 import authMiddleware from "../middleware/authMiddleware.js";
-import checkSessionMiddleware from "../middleware/checkSessionMiddleware.js";
-import uploadMiddleware from "../middleware/uploadMiddleware.js";
+//import checkSessionMiddleware from "../middleware/checkSessionMiddleware.js";
+//import uploadMiddleware from "../middleware/uploadMiddleware.js";
 
 
-import * as fileController from "../controllers/fileController.js";
 
 import { FileDBService } from "../services/fileDBService.js";
 
 const router = express.Router();
 
+const checkAuth = (req, res, next) => {
+  req.isAuthenticated = !!req.session.userInfo;
+  next();
+};
+
 
 // POST /files/upload
-router.post(
+/*router.post(
   '/upload',
   authMiddleware,
   uploadMiddleware.single('file'),
   fileController.uploadFile
-);
+);*/
 
-/*const checkAuth = (req, res, next) => {
-  if (!req.session.userInfo) {
-    req.isAuthenticated = false;
-  } else {
-    req.isAuthenticated = true;
-  }
-  next();
-};*/
 
 router.delete("/workouts/:id", authMiddleware, async (req, res) => {
   const workoutId = req.params.id;
   const sub = req.user.sub;
-
-
-
-
-  /*if (!Number.isInteger(workoutId) || workoutId <= 0) {
-    return res.status(400).json({ error: "Invalid workout id" });
-  }*/
 
   try {
     const result = await FileDBService.deleteWorkout(sub, workoutId);
@@ -57,9 +46,13 @@ router.delete("/workouts/:id", authMiddleware, async (req, res) => {
 });
 
 
-router.get('/uploadUI', authMiddleware, async (req, res) => {
+router.get('/uploadUI', checkAuth, async (req, res) => {
   console.log(req.user);
-  //console.log(req.isAuthenticated);
+  if (!req?.user?.sub) {
+    //return res.redirect("/");
+    const redirectUrl = encodeURIComponent(req.originalUrl);
+    return res.redirect(`/login?redirect=${redirectUrl}`);
+  }
 
   res.render('fileUpload', {
     userInfo: req.user,
@@ -94,15 +87,10 @@ router.get("/workouts", authMiddleware, async (req, res, next) => {
     );
 
 
-
-
-
-
-
-
     res.json(result);
 
   } catch (err) {
+    console.log(err);
     next(err);
   }
 });
@@ -308,10 +296,10 @@ router.post("/workouts/:id/segments", authMiddleware, async (req, res, next) => 
     // ✅ Validierung
     for (const seg of segments) {
       if (
-        seg.start_index === undefined ||
-        seg.end_index === undefined ||
-        seg.start_index < 0 ||
-        seg.end_index < seg.start_index
+        seg.start_offset === undefined ||
+        seg.end_offset === undefined ||
+        seg.start_offset < 0 ||
+        seg.end_offset < seg.start_offset
       ) {
         return res.status(400).json({
           error: "Invalid segment in payload",
@@ -320,7 +308,13 @@ router.post("/workouts/:id/segments", authMiddleware, async (req, res, next) => 
       }
     }
 
-    const result = await FileDBService.createSegmentsBulk(
+    const result_del = await FileDBService.deleteSegmentsBulk(
+      authSub,
+      workoutId,
+      segments
+    );
+
+    const result = await FileDBService.upsertSegmentsBulk(
       authSub,
       workoutId,
       segments

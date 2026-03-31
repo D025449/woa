@@ -1,183 +1,141 @@
-export function createMapView(containerId) {
-  const SEMI_TO_DEG = 18000 / 2147483648;
+export default class MapView {
 
-  const map = L.map(containerId);
-  const trackLayer = L.layerGroup().addTo(map);
-  const hoverLayer = L.layerGroup().addTo(map);
-  map.createPane('trackPane');
-  map.createPane('segmentPane');
+  constructor(containerId) {
+    this.SEMI_TO_DEG = 18000 / 2147483648;
 
-  map.getPane('trackPane').style.zIndex = 400;
-  map.getPane('segmentPane').style.zIndex = 500;
+    this.map = L.map(containerId);
+    this.trackLayer = L.layerGroup().addTo(this.map);
+    this.hoverLayer = L.layerGroup().addTo(this.map);
 
+    this.map.createPane('trackPane');
+    this.map.createPane('segmentPane');
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 18
-  }).addTo(map);
+    this.map.getPane('trackPane').style.zIndex = 400;
+    this.map.getPane('segmentPane').style.zIndex = 500;
 
-  let hoverMarker = null;
-  let currentTrackPoints = [];
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 18
+    }).addTo(this.map);
 
-  function highlightSegment(segment) {
-    const coords = currentTrackPoints.slice(
+    this.hoverMarker = null;
+    this.currentTrackPoints = [];
+  }
+
+  // -----------------------------
+  // SEGMENT HIGHLIGHT
+  // -----------------------------
+  highlightSegment(segment) {
+    const coords = this.currentTrackPoints.slice(
       segment.start,
       segment.end
     );
 
     const bounds = L.latLngBounds(coords);
 
-    // Zoom
-    map.fitBounds(bounds, { padding: [20, 20] });
-
-    // Highlight
-    //segmentLayer.clearLayers();
-
-    /*L.polyline(coords, {
-      color: 'red',
-      weight: 6,
-      pane: 'segmentPane'
-    }).addTo(segmentLayer);*/
+    this.map.fitBounds(bounds, { padding: [20, 20] });
   }
 
+  // -----------------------------
+  // TRACK RENDERING
+  // -----------------------------
+  renderTrack(workout) {
+    this.trackLayer.clearLayers();
+    this.hoverLayer.clearLayers();
+    this.hoverMarker = null;
 
-  function renderTrack(workout) {
-    trackLayer.clearLayers();
-    hoverLayer.clearLayers();
-    hoverMarker = null;
-    currentTrackPoints = [];
+    if (workout?.validgps) {
 
-    /*let lat = track.baselat;
-    let lng = track.baselong;
+      this.currentTrackPoints = workout.track;
 
-    currentTrackPoints.push({
-      lat: lat * SEMI_TO_DEG,
-      lng: lng * SEMI_TO_DEG,
-      idx: 0
-    });*/
+      const latlngs = this.currentTrackPoints.map((p) => [p.lat, p.lng]);
 
-    const track = workout.track;
-
-    for (let i = 0; i < track.recCount; i++) {
-      let lat = track.deltalat[i];
-      let lng = track.deltalong[i];
-
-      currentTrackPoints.push({
-        lat: lat * SEMI_TO_DEG,
-        lng: lng * SEMI_TO_DEG,
-        idx: i + 1
-      });
-    }
-
-    const latlngs = currentTrackPoints.map((p) => [p.lat, p.lng]);
-
-
-
-
-    const polyline = L.polyline(latlngs, {
-      color: "#ff4d4f",
-      pane: 'trackPane',
-      weight: 4,
-      opacity: 0.9
-    }).addTo(trackLayer);
-
-    const markAreas = buildMarkAreas(workout);
-    for (let i = 0; i < markAreas.length; i++) {
-      const markArea = markAreas[i];
-      const latlngs = markArea.currentTrackPoints.map((p) => [p.lat, p.lng]);
-      L.polyline(latlngs, {
-        color: markArea.segmenttype === 'auto' ? "Blue": "Purple",
-        pane: 'segmentPane',
+      const polyline = L.polyline(latlngs, {
+        color: "#ff4d4f",
+        pane: 'trackPane',
         weight: 4,
         opacity: 0.9
-      }).addTo(trackLayer);
+      }).addTo(this.trackLayer);
+
+      const markAreas = this.buildMarkAreas(workout);
+
+      for (let i = 0; i < markAreas.length; i++) {
+        const markArea = markAreas[i];
+
+        const latlngs = markArea.currentTrackPoints.map((p) => [p.lat, p.lng]);
+
+        L.polyline(latlngs, {
+          color: markArea.segmenttype === 'auto' ? "Blue" : "Purple",
+          pane: 'segmentPane',
+          weight: 4,
+          opacity: 0.9
+        }).addTo(this.trackLayer);
+      }
+
+      this.map.fitBounds(polyline.getBounds(), { padding: [10, 10] });
     }
 
-    map.fitBounds(polyline.getBounds(), { padding: [10, 10] });
   }
 
-  function buildMarkAreas(workout) {
+  // -----------------------------
+  // BUILD SEGMENTS
+  // -----------------------------
+  buildMarkAreas(workout) {
     const { track, segments } = workout;
-    //const { count, starts, ends, durations, powers, heartRates } = intervals;
     const markAreas = [];
-    //const areas = new Array(count);
 
-    /*for (let i = 0; i < count; i++) {
-      const currentTrackPoints = [];
-      for (let n = starts[i]; n <= ends[i]; n++) {
-        let lat = track.deltalat[n];
-        let lng = track.deltalong[n];
+    if (segments != null) {
+      segments
+        .filter(f => f.rowstate !== 'DEL')
+        .forEach(seg => {
 
-        currentTrackPoints.push({
-          lat: lat * SEMI_TO_DEG,
-          lng: lng * SEMI_TO_DEG,
-          idx: n
-        });
+          const currentTrackPoints = this.currentTrackPoints.slice(seg.start_offset, seg.end_offset);
 
-      }
-      markAreas.push(currentTrackPoints);
-    }*/
-    if ( segments != null) {
-      for (let i = 0; i < segments.length; ++i) {
-
-        const mi = segments[i];
-        const currentTrackPoints = [];
-        for (let n = mi.start_index; n <= mi.end_index; n++) {
-          let lat = track.deltalat[n];
-          let lng = track.deltalong[n];
-
-          currentTrackPoints.push({
-            lat: lat * SEMI_TO_DEG,
-            lng: lng * SEMI_TO_DEG,
-            idx: n
-            
+          markAreas.push({
+            currentTrackPoints,
+            segmenttype: seg.segmenttype
           });
-
-
-        }
-        markAreas.push({currentTrackPoints, segmenttype: mi.segmenttype});
-      }
+        });
     }
-
-
-
-
 
     return markAreas;
   }
 
-  function moveMarker(lat, lng) {
-    if (!hoverMarker) {
-      hoverMarker = L.circleMarker([lat, lng], {
+  // -----------------------------
+  // MARKER
+  // -----------------------------
+  moveMarker(lat, lng) {
+    if (!this.hoverMarker) {
+      this.hoverMarker = L.circleMarker([lat, lng], {
         radius: 7,
         weight: 2,
         color: "#111",
         fillColor: "#ffd54f",
         fillOpacity: 1
-      }).addTo(hoverLayer);
+      }).addTo(this.hoverLayer);
     } else {
-      hoverMarker.setLatLng([lat, lng]);
+      this.hoverMarker.setLatLng([lat, lng]);
     }
   }
 
-  function moveMarkerToIndex(idx) {
-    const p = currentTrackPoints[idx];
+  moveMarkerToIndex(idx) {
+    const p = this.currentTrackPoints[idx];
     if (!p) return;
-    moveMarker(p.lat, p.lng);
+
+    this.moveMarker(p.lat, p.lng);
   }
 
-  function hideMarker() {
-    if (hoverMarker) {
-      hoverLayer.removeLayer(hoverMarker);
-      hoverMarker = null;
+  hideMarker() {
+    if (this.hoverMarker) {
+      this.hoverLayer.removeLayer(this.hoverMarker);
+      this.hoverMarker = null;
     }
   }
 
-  return {
-    map,
-    renderTrack,
-    moveMarkerToIndex,
-    hideMarker,
-    highlightSegment,
-    getTrackPoints: () => currentTrackPoints
-  };
+  // -----------------------------
+  // GETTER
+  // -----------------------------
+  getTrackPoints() {
+    return this.currentTrackPoints;
+  }
 }
+

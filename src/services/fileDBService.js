@@ -240,48 +240,17 @@ class FileDBService {
       return [];
     }
 
-    /*const data = [];
-    for (let i = 0; i < payload.records.length; i++) {
-      data.push([
-        i, // oder payload.records[i].timestamp, je nachdem was du als x-Achse willst
-        payload.records[i].power ?? null,
-        payload.records[i].heart_rate ?? null,
-        payload.records[i].cadence ?? null
-      ]);
-    }*/
 
-    /*
-      const t = [];
-      const p = [];
-      const h = [];
-      const c = [];
-      let i = 0;
-      for (const r of payload.records) {
-        t.push(i++);
-        p.push(r.power ?? null);
-        h.push(r.heart_rate ?? null);
-        c.push(r.cadence ?? null);
-      }
-      data = { t, p, h, c };*/
     const data = payload.data;
 
-    /*for (let i = 0; i < payload.records.length; i++) {
-      data.push([
-        i,
-        payload.records[i].power ?? null,
-        payload.records[i].heart_rate ?? null,
-        payload.records[i].cadence ?? null
-      ]);
-    }*/
 
-
-    const segments = [];
+    /*const segments = [];
     segments.push({ start: 100, end: 160, type: 'CP1', segmentDuration: 60, avgPower: 500 });
     segments.push({ start: 200, end: 320, type: 'CP2', segmentDuration: 120, avgPower: 400 });
     segments.push({ start: 400, end: 640, type: 'CP4', segmentDuration: 240, avgPower: 300 });
-    segments.push({ start: 700, end: 1180, type: 'CP8', segmentDuration: 480, avgPower: 270 });
+    segments.push({ start: 700, end: 1180, type: 'CP8', segmentDuration: 480, avgPower: 270 });*/
 
-    return { data, segments };
+    return { data };
 
   }
 
@@ -673,7 +642,23 @@ class FileDBService {
     }));
   }
 
-  static async createSegmentsBulk(authSub, workoutId, segments) {
+  static async getSegmentsByWorkout(authSub, workoutId) {
+    const query = `
+    SELECT *
+    FROM file_segments fs
+    WHERE file_id = $1
+      AND auth_sub = $2
+    ORDER BY start_offset ASC
+  `;
+
+    const values = [workoutId, authSub];
+
+    const result = await pool.query(query, values);
+
+    return result.rows;
+  }
+
+  static async upsertSegmentsBulk(authSub, workoutId, segments) {
     let cnt = 0;
 
     const ids = [];
@@ -689,58 +674,81 @@ class FileDBService {
     const speeds = [];
     const altimetersArr = [];
     const positions = [];
+    const segmentnames = [];
 
-    segments.forEach(seg => {
+    segments.filter(f => f.rowstate === 'CRE' || f.rowstate === 'UPD').forEach(seg => {
       ids.push(seg.id);
       fileIds.push(workoutId);
       authSubs.push(authSub);
-      starts.push(seg.start_index);
-      ends.push(seg.end_index);
+      starts.push(seg.start_offset);
+      ends.push(seg.end_offset);
       types.push(seg.segmenttype || "manual");
       durations.push(seg.duration);
-      powers.push(seg.power);
-      heartrates.push(seg.heartrate);
-      cadences.push(seg.cadence);
-      speeds.push(seg.speed);
+      powers.push(seg.avg_power);
+      heartrates.push(seg.avg_heart_rate);
+      cadences.push(seg.avg_cadence);
+      speeds.push(seg.avg_speed);
       altimetersArr.push(seg.altimeters);
+      segmentnames.push(seg.segmentname);
       positions.push(++cnt);
     });
 
+    if (cnt === 0) {
+      return [];
+    }
+
+
     const query = `
-    INSERT INTO file_segments (
-      id,
-      file_id,
-      auth_sub,
-      start_index,
-      end_index,
-      segmenttype,
-      duration,
-      power,
-      heartrate,
-      cadence,
-      speed,
-      altimeters,
-      position
-    )
-    SELECT *
-    FROM UNNEST(
-      $1::uuid[],
-      $2::uuid[],
-      $3::text[],
-      $4::int[],
-      $5::int[],
-      $6::text[],
-      $7::float8[],
-      $8::float8[],
-      $9::float8[],
-      $10::float8[],
-      $11::float8[],
-      $12::float8[],
-      $13::int[]
-    )
-    ON CONFLICT DO NOTHING
-    RETURNING *
-  `;
+  INSERT INTO file_segments (
+    id,
+    file_id,
+    auth_sub,
+    start_offset,
+    end_offset,
+    segmenttype,
+    duration,
+    avg_power,
+    avg_heart_rate,
+    avg_cadence,
+    avg_speed,
+    altimeters,
+    position,
+    segmentname
+  )
+  SELECT *
+  FROM UNNEST(
+    $1::uuid[],
+    $2::uuid[],
+    $3::text[],
+    $4::int[],
+    $5::int[],
+    $6::text[],
+    $7::float8[],
+    $8::float8[],
+    $9::float8[],
+    $10::float8[],
+    $11::float8[],
+    $12::float8[],
+    $13::int[],
+    $14::text[]
+  )
+  ON CONFLICT (id)
+  DO UPDATE SET
+    start_offset = EXCLUDED.start_offset,
+    end_offset = EXCLUDED.end_offset,
+    segmenttype = EXCLUDED.segmenttype,
+    duration = EXCLUDED.duration,
+    avg_power = EXCLUDED.avg_power,
+    avg_heart_rate = EXCLUDED.avg_heart_rate,
+    avg_cadence = EXCLUDED.avg_cadence,
+    avg_speed = EXCLUDED.avg_speed,
+    altimeters = EXCLUDED.altimeters,
+    position = EXCLUDED.position,
+    segmentname = EXCLUDED.segmentname
+  WHERE file_segments.auth_sub = EXCLUDED.auth_sub
+    AND file_segments.file_id = EXCLUDED.file_id
+  RETURNING *
+`;
 
     const values = [
       ids,
@@ -755,88 +763,57 @@ class FileDBService {
       cadences,
       speeds,
       altimetersArr,
-      positions
+      positions,
+      segmentnames
     ];
 
     const result = await pool.query(query, values);
     return result.rows;
   }
 
-  /*static async createSegmentsBulk(authSub, workoutId, segments) {
-    const values = [];
-    const placeholders = [];
+
+
+
+
+
+  static async deleteSegmentsBulk(authSub, workoutId, segments) {
+    if (!Array.isArray(segments)) {
+      return [];
+    }
     let cnt = 0;
-  
-    segments.forEach((seg, i) => {
-      const baseIndex = i * 13;
-  
-      placeholders.push(
-        `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13})`
-      );
-  
-      values.push(
-        seg.id,
-        workoutId,
-        authSub,
-        seg.start_index,
-        seg.end_index,
-        seg.segmenttype || "manual",
-        seg.duration,
-        seg.power,
-        seg.heartrate,
-        seg.cadence,
-        seg.speed,
-        seg.altimeters,
-        ++cnt
-      );
+
+    const ids = [];
+
+    segments.filter(f => f.rowstate === 'DEL').forEach(seg => {
+      ids.push(seg.id);
+      ++cnt;
     });
-  
+
+    if (cnt === 0) {
+      return [];
+    }
+
     const query = `
-      INSERT INTO file_segments (
-        id, 
-        file_id,
-        auth_sub,
-        start_index,
-        end_index,
-        segmenttype,
-        duration,
-        power,
-        heartrate,
-        cadence,
-        speed,
-        altimeters,
-        position     
-      )
-      VALUES ${placeholders.join(", ")}
-      ON CONFLICT DO NOTHING
-      RETURNING *
-    `;
-  
+    DELETE FROM file_segments
+    WHERE id = ANY($1::uuid[])
+      AND auth_sub = $2
+    RETURNING id
+  `;
+
+    const values = [ids, authSub];
+
     const result = await pool.query(query, values);
     return result.rows;
-  }*/
+  }
 
   static async getSegmentsByWorkout(authSub, workoutId) {
     const query = `
     SELECT
-      fs.id,
-      fs.file_id,
-      fs.start_index,
-      fs.end_index,
-      fs.segmenttype,
-      fs.duration,
-      fs.power,
-      fs.heartrate,
-      fs.cadence,
-      fs.speed,
-      fs.altimeters,
-      fs.position,
-      fs.created_at
-    FROM file_segments fs
-    JOIN files f ON f.id = fs.file_id
-    WHERE fs.file_id = $1
-      AND fs.auth_sub = $2
-    ORDER BY fs.start_index ASC
+   *
+    FROM file_segments
+    WHERE file_id = $1
+      AND auth_sub = $2
+    ORDER BY start_offset ASC
   `;
 
     const values = [workoutId, authSub];
@@ -846,118 +823,67 @@ class FileDBService {
     return result.rows;
   }
 
-  static async insertBestEfforts(fileId, bestEfforts) {
-    if (!fileId) {
-      throw new Error('insertBestEfforts: fileId is required');
-    }
+  static async insertFile(fileRow, segments, gps_track) {
+    const d = new Date(fileRow.start_time);
 
-    if (!Array.isArray(bestEfforts)) {
-      throw new Error('insertBestEfforts: bestEfforts must be an array');
-    }
+    fileRow.validGPS = gps_track.validGPS;
+    fileRow.minLat = gps_track?.bbox?.minLat ?? 0;
+    fileRow.maxLat = gps_track?.bbox?.maxLat ?? 0;
+    fileRow.minLng = gps_track?.bbox?.minLng ?? 0;
+    fileRow.maxLng = gps_track?.bbox?.maxLng ?? 0;
 
-    if (bestEfforts.length === 0) {
-      return;
-    }
+
+
+
+
+    const {
+      auth_sub,
+      original_filename,
+      s3_key,
+      mime_type,
+      file_size,
+
+      start_time,
+      end_time,
+
+      total_elapsed_time,
+      total_timer_time,
+      total_distance,
+      total_cycles,
+      total_work,
+      total_calories,
+      total_ascent,
+      total_descent,
+
+      avg_speed,
+      max_speed,
+      avg_power,
+      max_power,
+      avg_normalized_power,
+      avg_heart_rate,
+      max_heart_rate,
+      avg_cadence,
+      max_cadence,
+
+      minLat,
+      maxLat,
+      minLng,
+      maxLng,
+      validGPS,
+      year,
+      month,
+      week,
+      year_quarter,
+      year_month,
+      year_week
+
+    } = fileRow;
     try {
 
-      const values = [];
-      const params = [];
+      await pool.query('BEGIN');
 
-      let paramIndex = 1;
-
-      for (const effort of bestEfforts) {
-        values.push(`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`);
-
-        params.push(
-          fileId,
-          effort.start_offset,
-          effort.duration,
-          effort.endOffset ?? effort.end_offset,
-          effort.avgPower,
-          effort.avgHeartRate ?? null,
-          effort.avgCadence ?? null,
-          effort.avgSpeed ?? null
-        );
-      }
-
-      const sql = `
-    INSERT INTO file_best_efforts (
-      file_id,
-      start_offset,
-      duration,
-      end_offset,
-      avg_power,
-      avg_heart_rate,
-      avg_cadence,
-      avg_speed
-    )
-    VALUES ${values.join(', ')}
-  `;
-
-      await pool.query(sql, params);
-
-    } catch (err) {
-
-      throw err;
-    }
-  }
-
-} // class
-
-
-async function insertFile(fileRow, bestEfforts, segments) {
-  const d = new Date(fileRow.start_time);
-
-
-
-
-  const {
-    auth_sub,
-    original_filename,
-    s3_key,
-    mime_type,
-    file_size,
-
-    start_time,
-    end_time,
-
-    total_elapsed_time,
-    total_timer_time,
-    total_distance,
-    total_cycles,
-    total_work,
-    total_calories,
-    total_ascent,
-    total_descent,
-
-    avg_speed,
-    max_speed,
-    avg_power,
-    max_power,
-    avg_normalized_power,
-    avg_heart_rate,
-    max_heart_rate,
-    avg_cadence,
-    max_cadence,
-
-    nec_lat,
-    nec_long,
-    swc_lat,
-    swc_long,
-    year,
-    month,
-    week,
-    year_quarter,
-    year_month,
-    year_week
-
-  } = fileRow;
-  try {
-
-    await pool.query('BEGIN');
-
-    const result = await pool.query(
-      `
+      const result = await pool.query(
+        `
     INSERT INTO files (
       auth_sub,
       original_filename,
@@ -987,10 +913,11 @@ async function insertFile(fileRow, bestEfforts, segments) {
       avg_cadence,
       max_cadence,
 
-      nec_lat,
-      nec_long,
-      swc_lat,
-      swc_long,
+      minLat,
+      maxLat,
+      minLng,
+      maxLng,
+      validGPS,
 
       year,
       month,
@@ -1005,79 +932,86 @@ async function insertFile(fileRow, bestEfforts, segments) {
       $8,$9,$10,$11,$12,$13,$14,$15,
       $16,$17,$18,$19,$20,$21,$22,$23,
       $24,$25,$26,$27,$28,
-      $29,$30,$31,$32,$33,$34
+      $29,$30,$31,$32,$33,$34, $35
     )
     ON CONFLICT (auth_sub, start_time)
     DO NOTHING
     RETURNING *;
     `,
-      [
-        auth_sub,
-        original_filename,
-        s3_key,
-        mime_type,
-        file_size,
+        [
+          auth_sub,
+          original_filename,
+          s3_key,
+          mime_type,
+          file_size,
 
-        start_time,
-        end_time,
+          start_time,
+          end_time,
 
-        total_elapsed_time,
-        total_timer_time,
-        total_distance,
-        total_cycles,
-        total_work,
-        total_calories,
-        total_ascent,
-        total_descent,
+          total_elapsed_time,
+          total_timer_time,
+          total_distance,
+          total_cycles,
+          total_work,
+          total_calories,
+          total_ascent,
+          total_descent,
 
-        avg_speed,
-        max_speed,
-        avg_power,
-        max_power,
-        avg_normalized_power,
-        avg_heart_rate,
-        max_heart_rate,
-        avg_cadence,
-        max_cadence,
+          avg_speed,
+          max_speed,
+          avg_power,
+          max_power,
+          avg_normalized_power,
+          avg_heart_rate,
+          max_heart_rate,
+          avg_cadence,
+          max_cadence,
 
-        nec_lat,
-        nec_long,
-        swc_lat,
-        swc_long,
+          minLat,
+          maxLat,
+          minLng,
+          maxLng,
+          validGPS,
+          
+          year,
+          month,
+          week,
+          year_quarter,
+          year_month,
+          year_week,
 
-        year,
-        month,
-        week,
-        year_quarter,
-        year_month,
-        year_week,
-
-      ]
-    );
-
-    if (result.rows.length === 0) {
-
-      const str = d.toLocaleDateString();
-      throw new Error(
-        `Upload failed: At '${str}' there's already a workout for this user`
+        ]
       );
+
+      if (result.rows.length === 0) {
+
+        const str = d.toLocaleDateString();
+        throw new Error(
+          `Upload failed: At '${str}' there's already a workout for this user`
+        );
+      }
+
+      //await FileDBService.insertBestEfforts(result.rows[0].id, bestEfforts);
+      await FileDBService.upsertSegmentsBulk(auth_sub, result.rows[0].id, segments);
+      await pool.query('COMMIT');
+
+      return result.rows[0];
+
+    } catch (err) {
+      await pool.query('ROLLBACK');
+      throw err;
     }
 
-    await FileDBService.insertBestEfforts(result.rows[0].id, bestEfforts);
-    await FileDBService.createSegmentsBulk(auth_sub, result.rows[0].id, segments);
-    await pool.query('COMMIT');
-
-    return result.rows[0];
-
-  } catch (err) {
-    await pool.query('ROLLBACK');
-    throw err;
   }
 
-}
+
+} // class
 
 
 
 
 
-export { insertFile, FileDBService };
+
+
+
+export { FileDBService };

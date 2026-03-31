@@ -1,351 +1,276 @@
-import { buildMarkAreas, buildMarkAreasCP, formatSeconds } from "./chart-helpers.js";
-import { SegmentService } from "../../shared/SegmentService.js";
+import { buildMarkAreas, buildMarkAreasCP } from "./chart-helpers.js";
+import SegmentService from "../../shared/SegmentService.js";
+import Utils from "../../shared/Utils.js";
 
+export default class ChartView {
 
-let selectionStart = null;
-let currentWorkout = null;
-//let manualIntervals = [];
-let isSegmentMode = false;
+  constructor(containerId, handlers = {}) {
+    this.chart = echarts.init(document.getElementById(containerId));
 
-export function createChartView(containerId, handlers = {}) {
-  const chart = echarts.init(document.getElementById(containerId));
-  document.getElementById('draw-segment-toggle')?.addEventListener('click', async (e) => {
-    isSegmentMode = !isSegmentMode;
+    this.handlers = handlers;
 
-    e.target.classList.toggle('btn-primary', isSegmentMode);
-    e.target.classList.toggle('btn-outline-primary', !isSegmentMode);
+    this.selectionStart = null;
+    this.currentWorkout = null;
+    this.isSegmentMode = false;
+    this.editMode = "";
+    this.currentSegment = null;
 
-    setDrawingMode( isSegmentMode );
+    this.editor = document.getElementById('segment-editor');
+    this.input = document.getElementById('segment-name-input');
 
-  });
-  document.getElementById('save-segments')?.addEventListener('click', async (e) => {
-     const wid = currentWorkout.id;
-     SegmentService.storeSegments(currentWorkout);
-     //storeSegments(wid, manualIntervals);
+    this.initUI();
+    this.initChart();
+    this.registerInteractions();
+  }
 
-    /*isSegmentMode = !isSegmentMode;
+  // -----------------------------
+  // INIT
+  // -----------------------------
+  initUI() {
+    document.getElementById('draw-segment-toggle')?.addEventListener('click', (e) => {
+      this.isSegmentMode = !this.isSegmentMode;
 
-    e.target.classList.toggle('btn-primary', isSegmentMode);
-    e.target.classList.toggle('btn-outline-primary', !isSegmentMode);
+      e.target.classList.toggle('btn-primary', this.isSegmentMode);
+      e.target.classList.toggle('btn-outline-primary', !this.isSegmentMode);
 
-    setDrawingMode( isSegmentMode );*/
+      this.setDrawingMode(this.isSegmentMode);
+      this.editMode = this.isSegmentMode ? 'CreSeg' : '';
+    });
 
-  });
-  
-  const option = {
-    title: { text: "..." },
-    tooltip: {
-      trigger: "axis",
-      confine: true,
-      alwaysShowContent: false,
-      axisPointer: {
-        type: "line",
-        snap: true
-      },
-      formatter(params) {
-        if (!params || !params.length) return "";
+    document.getElementById('save-segments')?.addEventListener('click', () => {
+      SegmentService.storeSegments(this.currentWorkout);
+    });
 
-        const p = params.find((x) => x.seriesName === "Power") || params[0];
-        const row = p.data;
-        if (!row) return "";
+    document.getElementById('delete-segments')?.addEventListener('click', () => {
+      this.isSegmentMode = !this.isSegmentMode;
+      this.editMode = this.isSegmentMode ? 'DelSeg' : '';
+    });
 
-        const power = row[1];
-        const hr = row[2];
-        const cadence = row[3];
-        const speed = row[4] != null ? Number(row[4]).toFixed(1) : "-";
-        const altitude = row[5] != null ? Number(row[5]).toFixed(1) : "-";
+    this.input?.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') this.hideSegmentEditor();
 
-        return `
-          ⚡ ${power ?? "-"} W<br/>
-          ❤️ ${hr ?? "-"} bpm<br/>
-          🔁 ${cadence ?? "-"} rpm<br/>
-          🚴 ${speed} km/h<br/>
-          ⛰ ${altitude} m
-        `;
-      }
-    },
-    animation: false,
-    legend: {},
-    grid: { top: 80 },
-    xAxis: {
-      type: "value",
-      scale: true,
-      minInterval: 1,
-      axisLabel: {
-        formatter: formatSeconds
-      },
-      axisPointer: {
-        show: true,
-        snap: true,
-        lineStyle: {
-          width: 1,
-          type: "solid"
-        },
-        label: {
-          show: true,
-          formatter(params) {
-            return formatSeconds(params.value);
+      if (e.key === 'Enter') {
+        if (this.currentSegment && this.currentSegment.name !== this.input.value) {
+          this.currentSegment.segmentname = this.input.value;
+
+          if (this.currentSegment.rowstate === 'DB') {
+            this.currentSegment.rowstate = 'UPD';
+            this.handlers.onUpdateWorkout?.(this.currentWorkout);
           }
         }
+        this.hideSegmentEditor();
       }
-    },
+    });
+  }
+
+  initChart() {
+    this.chart.setOption({
+      title: { text: "..." },
+      tooltip: {
+        trigger: "axis",
+        confine: true,
+        axisPointer: { type: "line", snap: true },
+        formatter: (params) => this.formatTooltip(params)
+      },
+      animation: false,
+      legend: {},
+      grid: { top: 80 },
+      xAxis: {
+        type: "value",
+        scale: true,
+        minInterval: 1,
+        axisLabel: { formatter: Utils.formatSeconds }
+      },
     yAxis: [
       { type: "value", name: "Power (W)", position: "left" },
       { type: "value", name: "HR/Cad", position: "right" },
-      { type: "value", name: "Speed", position: "left", offset: 60 },
-      { type: "value", name: "Altitude", position: "right", offset: 60 }
+      { type: "value", name: "Sp", position: "left", offset: 40 },
+      { type: "value", name: "Alt", position: "right", offset: 50 }
     ],
-    dataset: {
-      dimensions: [
-        "x",
-        "Power",
-        "Heartrate",
-        "Cadence",
-        "Speed",
-        "Altitude",
-        "PowerS5",
-        "PowerS15",
-        "SpeedS5",
-        "AltitudeS7"
+      dataset: {
+        dimensions: [
+          "x", "Power", "Heartrate", "Cadence",
+          "Speed", "Altitude", "PowerS5", "PowerS15",
+          "SpeedS5", "AltitudeS7"
+        ],
+        source: []
+      },
+      dataZoom: [
+        { type: "inside", xAxisIndex: 0, filterMode: "none" },
+        { type: "slider", xAxisIndex: 0 }
       ],
-      source: new Float32Array()
-    },
-    dataZoom: [
-      { type: "inside", xAxisIndex: 0, filterMode: "none" },
-      { type: "slider", xAxisIndex: 0 }
-    ],
-    series: [
-      {
+      series: [
+        {
+          name: "Power",
+          type: "line",
+          showSymbol: false,
+          sampling: "lttb",
+          yAxisIndex: 0,
+          markArea: { data: [] },
+          encode: { x: "x", y: "PowerS15" }
+        },
+        {
+          name: "Heartrate",
+          type: "line",
+          showSymbol: false,
+          sampling: "lttb",
+          yAxisIndex: 1,
+          encode: { x: "x", y: "Heartrate" }
+        },
+        {
+          name: "Cadence",
+          type: "line",
+          showSymbol: false,
+          sampling: "lttb",
+          yAxisIndex: 1,
+          encode: { x: "x", y: "Cadence" }
+        },
+        {
+          name: "Speed",
+          type: "line",
+          showSymbol: false,
+          sampling: "lttb",
+          yAxisIndex: 2,
+          encode: { x: "x", y: "SpeedS5" }
+        },
+        {
+          name: "Altitude",
+          type: "line",
+          showSymbol: false,
+          sampling: "lttb",
+          yAxisIndex: 3,
+          encode: { x: "x", y: "AltitudeS7" }
+        }
+      ]
+    });
+  }
+
+  // -----------------------------
+  // DATA UPDATE
+  // -----------------------------
+  updateWorkout(workout) {
+    this.currentWorkout = workout;
+
+    this.chart.setOption({
+      title: { text: new Date(workout.startDate).toDateString() },
+      xAxis: { min: 0, max: workout.recCount },
+      dataset: { source: workout.series },
+      series: [{
         name: "Power",
-        type: "line",
-        showSymbol: false,
-        sampling: "lttb",
-        yAxisIndex: 0,
-        markArea: { data: [] },
-        encode: { x: "x", y: "PowerS15" }
-      },
-      {
-        name: "Heartrate",
-        type: "line",
-        showSymbol: false,
-        sampling: "lttb",
-        yAxisIndex: 1,
-        encode: { x: "x", y: "Heartrate" }
-      },
-      {
-        name: "Cadence",
-        type: "line",
-        showSymbol: false,
-        sampling: "lttb",
-        yAxisIndex: 1,
-        encode: { x: "x", y: "Cadence" }
-      },
-      {
-        name: "Speed",
-        type: "line",
-        showSymbol: false,
-        sampling: "lttb",
-        yAxisIndex: 2,
-        encode: { x: "x", y: "SpeedS5" }
-      },
-      {
-        name: "Altitude",
-        type: "line",
-        showSymbol: false,
-        sampling: "lttb",
-        yAxisIndex: 3,
-        encode: { x: "x", y: "AltitudeS7" }
+        markArea: { data: buildMarkAreas(workout) }
+      }]
+    });
+  }
+
+  updateWorkoutCP(workout, cpview) {
+    this.currentWorkout = workout;
+
+    this.chart.setOption({
+      title: { text: new Date(cpview.startTime).toDateString() },
+      xAxis: { min: 0, max: workout.recCount },
+      dataset: { source: workout.series },
+      series: [{
+        name: "Power",
+        markArea: { data: buildMarkAreasCP(cpview) }
+      }]
+    });
+  }
+
+  // -----------------------------
+  // INTERACTIONS
+  // -----------------------------
+  registerInteractions() {
+    this.chart.on("click", (params) => {
+      if (params.componentType !== "markArea") return;
+
+      const seg = this.currentWorkout.segments.find(s => s.id === params.data.segmentId);
+
+      if (this.editMode === 'DelSeg') {
+        seg.rowstate = 'DEL';
+        this.handlers.onUpdateWorkout?.(this.currentWorkout);
+      } else {
+        this.handlers.onZoomSegment?.(
+          params.data.coord[0][0],
+          params.data.coord[1][0]
+        );
       }
-    ]
-  };
 
-  chart.setOption(option);
+      this.showSegmentEditor(seg);
+    });
 
-  registerChartInteractions(chart, handlers);
+    this.chart.getZr().on("mousemove", (p) => {
+      const x = this.chart.convertFromPixel({ xAxisIndex: 0 }, p.offsetX);
+      if (!isNaN(x)) this.handlers.onChartHoverIndex?.(Math.round(x));
+    });
 
-  function updateWorkout(workout) {
-    if (currentWorkout !== null && currentWorkout.startDate != workout.startDate) {
-      currentWorkout = workout;
-      //manualIntervals = workout.manualIntervals;
-    }
-    const markAreas = buildMarkAreas(workout);
-    currentWorkout = workout;
-    const dte = new Date(workout.startDate);
-    chart.setOption({
-      title: { text: dte.toDateString() },
-      xAxis: {
-        min: 0,
-        max: workout.recCount
-      },
-      dataset: {
-        source: workout.series
-      },
-      series: [
-        {
-          name: "Power",
-          markArea: {
-            data: markAreas
-          }
-        }
-      ]
+    this.chart.getZr().on('mousedown', (e) => {
+      if (!this.isSegmentMode) return;
+
+      const data = this.chart.convertFromPixel({ seriesIndex: 0 }, [e.offsetX, e.offsetY]);
+      this.selectionStart = data[0];
+    });
+
+    this.chart.getZr().on('mouseup', (e) => {
+      if (this.selectionStart == null) return;
+
+      const data = this.chart.convertFromPixel({ seriesIndex: 0 }, [e.offsetX, e.offsetY]);
+
+      SegmentService.createAddNewSegment(this.currentWorkout, {
+        startIndex: Math.round(this.selectionStart),
+        endIndex: Math.round(data[0])
+      });
+
+      this.handlers.onUpdateWorkout?.(this.currentWorkout);
+      this.selectionStart = null;
     });
   }
 
-  function updateWorkoutCP(workout, cpview) {
-    currentWorkout = workout;
-    //manualIntervals = [];
-    const tem = new Date(cpview.startTime).toDateString();
-    chart.setOption({
-      title: { text: tem },
-      xAxis: {
-        min: 0,
-        max: workout.recCount
-      },
-      dataset: {
-        source: workout.series
-      },
-      series: [
-        {
-          name: "Power",
-          markArea: {
-            data: buildMarkAreasCP(cpview)
-          }
-        }
-      ]
+  // -----------------------------
+  // UI HELPERS
+  // -----------------------------
+  showSegmentEditor(segment) {
+    this.currentSegment = segment;
+    this.input.value = segment.segmentname || '';
+    this.editor.classList.remove('d-none');
+    this.input.focus();
+  }
+
+  hideSegmentEditor() {
+    this.currentSegment = null;
+    this.editor.classList.add('d-none');
+  }
+
+  setDrawingMode(enabled) {
+    this.chart.setOption({
+      dataZoom: [{
+        type: 'inside',
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: !enabled
+      }]
     });
   }
-function setDrawingMode(enabled) {
-chart.setOption({
-  dataZoom: [
-    {
-      type: 'inside',
-      zoomOnMouseWheel: true,   // ✅ Zoom bleibt
-      moveOnMouseMove: !enabled,   // ❌ kein Drag mehr
-      moveOnMouseWheel: true   // ❌ kein horizontales Scroll-Pan
-    }
-  ]
-});
-}
 
-
-  function zoomToSegment(start, end) {
-    chart.dispatchAction({
+  zoomToSegment(start, end) {
+    this.chart.dispatchAction({
       type: "dataZoom",
       startValue: start,
-      endValue: end,
-      animation: true
+      endValue: end
     });
   }
 
-  return {
-    chart,
-    resize: () => chart.resize(),
-    showLoading: () => chart.showLoading(),
-    hideLoading: () => chart.hideLoading(),
-    updateWorkout,
-    updateWorkoutCP,
-    zoomToSegment
-  };
-}
+  formatTooltip(params) {
+    const p = params?.[0];
+    if (!p) return "";
 
-function registerChartInteractions(chart, handlers) {
-  chart.on("click", (params) => {
-    if (params.componentType !== "markArea") return;
-
-    const start = Math.min(params.data.coord[0][0], params.data.coord[1][0]);
-    const end = Math.max(params.data.coord[0][0], params.data.coord[1][0]);
-
-    handlers.onZoomSegment?.(start, end);
-  });
-
-  chart.getZr().on("mousemove", (params) => {
-    const xVal = chart.convertFromPixel({ xAxisIndex: 0 }, params.offsetX);
-    if (xVal == null || Number.isNaN(xVal)) return;
-
-    handlers.onChartHoverIndex?.(Math.round(xVal));
-  });
-
-  chart.getZr().on('mousedown', (event) => {
-    if (isSegmentMode) {
-      event.event.preventDefault();
-      event.event.stopPropagation();
-
-      const point = [event.offsetX, event.offsetY];
-      const data = chart.convertFromPixel({ seriesIndex: 0 }, point);
-
-      selectionStart = data[0]; // x-Achse
-
-      console.log(selectionStart);
-    }
-
-  });
-
-
-  chart.getZr().on('mouseup', (event) => {
-    if (selectionStart === null) return;
-
-    const point = [event.offsetX, event.offsetY];
-    const data = chart.convertFromPixel({ seriesIndex: 0 }, point);
-
-    const selectionEnd = data[0];
-
-    createNewInterval({ startIndex: Math.round(selectionStart), endIndex: Math.round(selectionEnd) });
-
-    //handlers.createMarkArea(selectionStart, selectionEnd);
-
-
-    console.log(selectionEnd);
-    selectionStart = null;
-  });
-
-
-
-  function createNewInterval(startEnd) {
-    /*let startIndex = startEnd.startIndex;
-    let endIndex = startEnd.endIndex;
-    if (endIndex < startIndex) {
-      const aaa = endIndex;
-      endIndex = startIndex;
-      startIndex = aaa;
-    }
-    if ((endIndex - startIndex) < 2) {
-      return null;
-    }
-
-    const { series, STRIDE } = currentWorkout;
-
-    let power = 0;
-    let heartrate = 0;
-    let cnt = 0;
-    for (let i = startIndex * STRIDE; i < endIndex * STRIDE; i += STRIDE) {
-      power += series[i];
-      heartrate += series[i];
-      ++cnt;
-    }
-    power = Math.round(power / cnt);
-    heartrate = Math.round(heartrate / cnt);
-
-
-
-
-    manualIntervals.push({
-      start_index: startIndex,
-      end_index: endIndex,
-      duration: endIndex - startIndex,
-      power: power,
-      heartrate: heartrate,
-      segmenttype: 'manual'
-
-    });*/
-    SegmentService.createAddNewSegment(currentWorkout,startEnd);
-
-    //currentWorkout.manualIntervals = manualIntervals;
-
-    handlers.onUpdateWorkout?.(currentWorkout);
-
-
-
+    const row = p.data;
+    return `
+      ⚡ ${row[1] ?? "-"} W<br/>
+      ❤️ ${row[2] ?? "-"} bpm<br/>
+      🔁 ${row[3] ?? "-"} rpm
+    `;
   }
 
-
+  resize() { this.chart.resize(); }
+  showLoading() { this.chart.showLoading(); }
+  hideLoading() { this.chart.hideLoading(); }
 }

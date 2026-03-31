@@ -1,5 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";  -- für gen_random_uuid()
+CREATE EXTENSION postgis;
 
 DROP TABLE IF EXISTS files CASCADE;
 
@@ -45,11 +46,11 @@ CREATE TABLE files (
     avg_cadence          DOUBLE PRECISION,
     max_cadence          DOUBLE PRECISION,
 
-    nec_lat              DOUBLE PRECISION,
-    nec_long             DOUBLE PRECISION,
-    swc_lat              DOUBLE PRECISION,
-    swc_long             DOUBLE PRECISION,
-
+    minLat               DOUBLE PRECISION,
+    maxLat               DOUBLE PRECISION,
+    minLng               DOUBLE PRECISION,
+    maxLng               DOUBLE PRECISION,
+    validGPS             BOOLEAN,
 
     CONSTRAINT uq_user_start_time UNIQUE (auth_sub, start_time),
     CONSTRAINT fk_user FOREIGN KEY (auth_sub)

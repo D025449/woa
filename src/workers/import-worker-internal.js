@@ -7,7 +7,16 @@ import { pipeline } from "node:stream/promises";
 import { Worker } from "bullmq";
 import unzipper from "unzipper";
 import FitParser from "fit-file-parser";
-import { processFitJson } from "../controllers/fileController.js"
+
+import { randomUUID } from "crypto";
+//import path from "path";
+import s3Service from "../services/s3Service.js";
+import {
+  processFitRecords,
+  mapToFileRow
+} from "../services/fitService.js";
+
+import { FileDBService } from "../services/fileDBService.js";
 
 import { redisConnection } from "../queue/connection.js";
 import S3Service from "../services/s3Service.js";
@@ -17,6 +26,23 @@ import {
 } from "../db/import-jobs-repo.js";
 
 export async function createApp() {
+
+
+  async function processFitJson(fitJsonObject, originalName, userSub) {
+    const { buffer, normalized_power, segments, gps_track } = processFitRecords(fitJsonObject.records);
+    const newFilenamebin = path.basename(originalName, path.extname(originalName)) + ".bin";
+    const s3KeyBin = `users/${userSub}/${randomUUID()}-${newFilenamebin}`;
+    const fitFile = {
+      auth_sub: userSub,
+      original_filename: originalName,
+      s3_key: s3KeyBin,
+      mime_type: "application/octet-stream",
+      file_size: buffer.byteLength
+    };
+    const fileRow = mapToFileRow(fitJsonObject, fitFile, normalized_power);
+    await FileDBService.insertFile(fileRow, segments, gps_track);
+    await s3Service.putObjectBinary(s3KeyBin, buffer, "application/octet-stream");
+  }
 
   async function downloadObjectToTempFile(s3Key, extension = ".bin") {
     const tmpPath = path.join(os.tmpdir(), `${crypto.randomUUID()}${extension}`);
@@ -128,7 +154,7 @@ export async function createApp() {
       const zipDirectory = await unzipper.Open.file(zipPath);
 
       const fitEntries = zipDirectory.files.filter((entry) => {
-        return entry.type === "File" && entry.path.toLowerCase().endsWith(".fit") && ( ! entry.path.startsWith("__MACOSX/" ) );
+        return entry.type === "File" && entry.path.toLowerCase().endsWith(".fit") && (!entry.path.startsWith("__MACOSX/"));
       });
 
       const totalFiles = fitEntries.length;

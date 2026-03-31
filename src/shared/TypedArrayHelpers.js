@@ -1,4 +1,4 @@
-export class TypedArrayHelpers {
+export default class TypedArrayHelpers {
     static align(offset, alignment) {
         if ((alignment & (alignment - 1)) !== 0) {
             throw new Error("alignment must be a power of two");

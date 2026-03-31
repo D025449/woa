@@ -1,4 +1,4 @@
-class RecordGapFiller {
+export default class RecordGapFiller {
   static fillGaps(records) {
     const maxGap = 5; // Sekunden
 
@@ -86,5 +86,3 @@ class RecordGapFiller {
     return Math.floor(new Date(ts).getTime() / 1000);
   }
 }
-
-export { RecordGapFiller };
