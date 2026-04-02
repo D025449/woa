@@ -58,7 +58,7 @@ export default class SegmentService {
             altimeters: altimeters,
             segmenttype: segmenttype,
             rowstate: 'CRE',
-            segmentname: `+${Utils.formatStartIndex(startIndex)}(${Utils.formatDuration(duration)})`
+            segmentname: ''
         });
 
         return workout;
@@ -117,11 +117,49 @@ export default class SegmentService {
 
     }
 
+    static reduced_track(workout, seg, options = {}) {
+        const {
+            sampleRate = 5,
+            precision = 5
+        } = options;
+
+        let minLat = Infinity;
+        let maxLat = -Infinity;
+        let minLng = Infinity;
+        let maxLng = -Infinity;
+
+        const subset = workout.track.slice(seg.start_offset, seg.end_offset);
+        let reduced = [];
+        for (let i = 0; i < subset.length; i += sampleRate) {
+            const ss = subset[i];
+            const lat = Number(ss.lat.toFixed(precision));
+            const lng = Number(ss.lng.toFixed(precision));
+            const idx = ss.idx;
+            // bbox
+            if (lat < minLat) minLat = lat;
+            if (lat > maxLat) maxLat = lat;
+            if (lng < minLng) minLng = lng;
+            if (lng > maxLng) maxLng = lng;
+            reduced.push({ idx, lat, lng });
+        }
+
+        return { 
+            bbox: { minLat, maxLat, minLng, maxLng },
+            track: reduced
+        }
+    }
+
+
     static async storeSegments(workout) {
         const new_segments = workout.segments.filter(s => s.rowstate !== 'DB');
         if (new_segments.length === 0) {
             //lert("No segments to save");
             return;
+        }
+        if (workout?.validgps) {
+            new_segments.filter(s => s.segmenttype == 'manual' && s?.segmentname !== '').forEach(s => {
+                s.gpstrack = SegmentService.reduced_track(workout, s);
+            });
         }
 
         try {
@@ -148,14 +186,6 @@ export default class SegmentService {
             workout.segments.forEach(seg => {
                 seg.rowstate = 'DB';
             });
-
-            // 🔥 Reset pending state
-            //pendingSegments = [];
-
-            // Optional: neu laden (sauberer Zustand)
-            //await reloadSegments();
-
-            //alert("Segments saved!");
 
         } catch (err) {
             console.error(err);

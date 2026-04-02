@@ -4,6 +4,8 @@ import url from "url";
 
 import { createSessionMiddleware } from "./services/sessionService.js";
 import fileRoutes from "./routes/fileRoutes.js";
+import segmentRoutes from "./routes/segmentRoutes.js";
+
 //import { ensureUserExists } from "./services/userDBService.js";
 import { Issuer, generators } from "openid-client";
 import { InitiateAuthCommand } from "@aws-sdk/client-cognito-identity-provider";
@@ -42,9 +44,11 @@ export async function createApp() {
     app.use(authGlobal);
 
     app.use("/files", fileRoutes);
+    app.use('/segments', segmentRoutes);
 
     app.use('/api/uploads', uploadsRouter);
     app.use('/api/imports', importsRouter);
+
 
     app.use((err, req, res, next) => {
         console.error(err);
@@ -256,7 +260,6 @@ export async function createApp() {
     app.get("/dashboard", checkAuth, (req, res) => {
 
         if (!req?.user?.sub) {
-            //return res.redirect("/");
             const redirectUrl = encodeURIComponent(req.originalUrl);
             return res.redirect(`/login?redirect=${redirectUrl}`);
         }
@@ -273,10 +276,23 @@ export async function createApp() {
         if (!req?.user?.sub) {
             const redirectUrl = encodeURIComponent(req.originalUrl);
             return res.redirect(`/login?redirect=${redirectUrl}`);
-            //return res.redirect("/");
         }
 
         res.render("analytics", {
+            userInfo: req.user,
+            isAuthenticated: true
+        });
+
+    });    
+
+    app.get("/segments", checkAuth, (req, res) => {
+
+        if (!req?.user?.sub) {
+            const redirectUrl = encodeURIComponent(req.originalUrl);
+            return res.redirect(`/login?redirect=${redirectUrl}`);
+        }
+
+        res.render("segments", {
             userInfo: req.user,
             isAuthenticated: true
         });

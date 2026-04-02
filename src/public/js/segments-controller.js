@@ -1,20 +1,32 @@
-import MapView from "./map-view.js";
+import MapView from "./segment-map-view.js";
 import ChartView from "./chart-view.js";
-import TableView from "./table-view.js";
+import TableView from "./segment-table-view.js";
 import WorkoutService from "./workout-service.js";
+import MapSegment from "../../shared/MapSegment.js";
 
 export default class Controller {
 
   constructor() {
     this.initViews();
     this.registerEvents();
+    this.mapSegments = [];
   }
 
   // -----------------------------
   // INIT
   // -----------------------------
   initViews() {
-    this.mapView = new MapView("workout-map");
+
+
+    this.mapView = new MapView("workout-map", this,
+      {
+        onSegmentOpen: async (e, segment) => {
+          console.log(e, segment);
+          await this.tableView.loadSegment(e, segment);
+        }
+      }
+
+    );
 
     this.chartView = new ChartView("workout-chart", {
       onChartHoverIndex: (idx) => {
@@ -31,12 +43,12 @@ export default class Controller {
       },
 
       onUpdateWorkout: (workout) => {
-        this.chartView.updateWorkout(workout);
-        this.mapView.renderTrack(workout);
+        //this.chartView.updateWorkout(workout);
+        //this.mapView.renderTrack(workout);
       }
     });
 
-    this.tableView = new TableView("#file-table", {
+    this.tableView = new TableView("#segment-table", {
 
       onRowOpen: async (e, row) => {
         if (e.target.closest("button")) return;
@@ -51,7 +63,7 @@ export default class Controller {
           workout.startDate = d.start_time;
 
           this.chartView.updateWorkout(workout);
-          this.mapView.renderTrack(workout);
+          //this.mapView.renderTrack(workout);
 
         } catch (err) {
           console.error(err);

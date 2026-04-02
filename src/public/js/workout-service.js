@@ -42,7 +42,8 @@ export default class WorkoutService {
     if (metaResponse.status === 401) {
       window.location.href = '/login';
       return;
-    } else {
+    }
+    else {
       const { url } = await metaResponse.json();
       const response = await fetch(url);
       const buffer = await response.arrayBuffer();

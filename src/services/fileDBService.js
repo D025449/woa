@@ -1,5 +1,6 @@
 import pool from "./database.js";
 import S3Service from "./s3Service.js";
+import pgPromise from "pg-promise";
 
 
 class FileDBService {
@@ -242,14 +243,6 @@ class FileDBService {
 
 
     const data = payload.data;
-
-
-    /*const segments = [];
-    segments.push({ start: 100, end: 160, type: 'CP1', segmentDuration: 60, avgPower: 500 });
-    segments.push({ start: 200, end: 320, type: 'CP2', segmentDuration: 120, avgPower: 400 });
-    segments.push({ start: 400, end: 640, type: 'CP4', segmentDuration: 240, avgPower: 300 });
-    segments.push({ start: 700, end: 1180, type: 'CP8', segmentDuration: 480, avgPower: 270 });*/
-
     return { data };
 
   }
@@ -676,6 +669,11 @@ class FileDBService {
     const positions = [];
     const segmentnames = [];
 
+    const minLats = [];
+    const maxLats = [];
+    const minLngs = [];
+    const maxLngs = [];
+
     segments.filter(f => f.rowstate === 'CRE' || f.rowstate === 'UPD').forEach(seg => {
       ids.push(seg.id);
       fileIds.push(workoutId);
@@ -691,6 +689,12 @@ class FileDBService {
       altimetersArr.push(seg.altimeters);
       segmentnames.push(seg.segmentname);
       positions.push(++cnt);
+      minLats.push(seg?.gpstrack?.bbox?.minLat ?? null);
+      maxLats.push(seg?.gpstrack?.bbox?.maxLat ?? null);
+      minLngs.push(seg?.gpstrack?.bbox?.minLng ?? null);
+      maxLngs.push(seg?.gpstrack?.bbox?.maxLng ?? null);
+      //seg?.gpstrack?.bbox
+
     });
 
     if (cnt === 0) {
@@ -713,9 +717,30 @@ class FileDBService {
     avg_speed,
     altimeters,
     position,
-    segmentname
+    segmentname,
+    bounds
   )
-  SELECT *
+    SELECT
+  u.id,
+  u.file_id,
+  u.auth_sub,
+  u.start_offset,
+  u.end_offset,
+  u.segmenttype,
+  u.duration,
+  u.avg_power,
+  u.avg_heart_rate,
+  u.avg_cadence,
+  u.avg_speed,
+  u.altimeters,
+  u.position,
+  u.segmentname,
+
+  CASE 
+    WHEN u.minLat IS NOT NULL
+    THEN ST_MakeEnvelope(u.minLng, u.minLat, u.maxLng, u.maxLat, 4326)
+    ELSE NULL
+  END
   FROM UNNEST(
     $1::uuid[],
     $2::uuid[],
@@ -730,8 +755,31 @@ class FileDBService {
     $11::float8[],
     $12::float8[],
     $13::int[],
-    $14::text[]
-  )
+    $14::text[],
+    $15::float8[],
+    $16::float8[],
+    $17::float8[],
+    $18::float8[]    
+  ) AS u(
+  id,
+  file_id,
+  auth_sub,
+  start_offset,
+  end_offset,
+  segmenttype,
+  duration,
+  avg_power,
+  avg_heart_rate,
+  avg_cadence,
+  avg_speed,
+  altimeters,
+  position,
+  segmentname,
+  minLat,
+  maxLat,
+  minLng,
+  maxLng
+)
   ON CONFLICT (id)
   DO UPDATE SET
     start_offset = EXCLUDED.start_offset,
@@ -744,7 +792,8 @@ class FileDBService {
     avg_speed = EXCLUDED.avg_speed,
     altimeters = EXCLUDED.altimeters,
     position = EXCLUDED.position,
-    segmentname = EXCLUDED.segmentname
+    segmentname = EXCLUDED.segmentname,
+    bounds = EXCLUDED.bounds
   WHERE file_segments.auth_sub = EXCLUDED.auth_sub
     AND file_segments.file_id = EXCLUDED.file_id
   RETURNING *
@@ -764,7 +813,11 @@ class FileDBService {
       speeds,
       altimetersArr,
       positions,
-      segmentnames
+      segmentnames,
+      minLats,
+      maxLats,
+      minLngs,
+      maxLngs
     ];
 
     const result = await pool.query(query, values);
@@ -842,10 +895,8 @@ class FileDBService {
       s3_key,
       mime_type,
       file_size,
-
       start_time,
       end_time,
-
       total_elapsed_time,
       total_timer_time,
       total_distance,
@@ -854,7 +905,6 @@ class FileDBService {
       total_calories,
       total_ascent,
       total_descent,
-
       avg_speed,
       max_speed,
       avg_power,
@@ -864,7 +914,6 @@ class FileDBService {
       max_heart_rate,
       avg_cadence,
       max_cadence,
-
       minLat,
       maxLat,
       minLng,
@@ -876,110 +925,103 @@ class FileDBService {
       year_quarter,
       year_month,
       year_week
-
     } = fileRow;
+    // SET bounds = ST_MakeEnvelope(minLng, minLat, maxLng, maxLat, 4326);
+
+
     try {
 
       await pool.query('BEGIN');
 
       const result = await pool.query(
         `
-    INSERT INTO files (
-      auth_sub,
-      original_filename,
-      s3_key,
-      mime_type,
-      file_size,
-
-      start_time,
-      end_time,
-
-      total_elapsed_time,
-      total_timer_time,
-      total_distance,
-      total_cycles,
-      total_work,
-      total_calories,
-      total_ascent,
-      total_descent,
-
-      avg_speed,
-      max_speed,
-      avg_power,
-      max_power,
-      avg_normalized_power,
-      avg_heart_rate,
-      max_heart_rate,
-      avg_cadence,
-      max_cadence,
-
-      minLat,
-      maxLat,
-      minLng,
-      maxLng,
-      validGPS,
-
-      year,
-      month,
-      week,
-      year_quarter,
-      year_month,
-      year_week      
-    )
-    VALUES (
-      $1,$2,$3,$4,$5,
-      $6,$7,
-      $8,$9,$10,$11,$12,$13,$14,$15,
-      $16,$17,$18,$19,$20,$21,$22,$23,
-      $24,$25,$26,$27,$28,
-      $29,$30,$31,$32,$33,$34, $35
-    )
-    ON CONFLICT (auth_sub, start_time)
-    DO NOTHING
-    RETURNING *;
+INSERT INTO files (
+  auth_sub,
+  original_filename,
+  s3_key,
+  mime_type,
+  file_size,
+  start_time,
+  end_time,
+  total_elapsed_time,
+  total_timer_time,
+  total_distance,
+  total_cycles,
+  total_work,
+  total_calories,
+  total_ascent,
+  total_descent,
+  avg_speed,
+  max_speed,
+  avg_power,
+  max_power,
+  avg_normalized_power,
+  avg_heart_rate,
+  max_heart_rate,
+  avg_cadence,
+  max_cadence,
+  minLat, 
+  maxLat,
+  minLng,
+  maxLng,
+  validGPS,
+  year,
+  month,
+  week,
+  year_quarter,
+  year_month,
+  year_week,
+  bounds        
+)
+VALUES (
+  $1,$2,$3,$4,$5,
+  $6,$7,
+  $8,$9,$10,$11,$12,$13,$14,$15,
+  $16,$17,$18,$19,$20,$21,$22,$23,
+  $24,$25,$26,$27,$28,
+  $29,$30,$31,$32,$33,$34,$35,
+  ST_MakeEnvelope($27, $25, $28, $26, 4326)
+)
+ON CONFLICT (auth_sub, start_time)
+DO NOTHING
+RETURNING *;
     `,
         [
-          auth_sub,
-          original_filename,
-          s3_key,
-          mime_type,
-          file_size,
-
-          start_time,
-          end_time,
-
-          total_elapsed_time,
-          total_timer_time,
-          total_distance,
-          total_cycles,
-          total_work,
-          total_calories,
-          total_ascent,
-          total_descent,
-
-          avg_speed,
-          max_speed,
-          avg_power,
-          max_power,
-          avg_normalized_power,
-          avg_heart_rate,
-          max_heart_rate,
-          avg_cadence,
-          max_cadence,
-
-          minLat,
-          maxLat,
-          minLng,
-          maxLng,
-          validGPS,
-          
-          year,
-          month,
-          week,
-          year_quarter,
-          year_month,
-          year_week,
-
+          auth_sub,              // $1
+          original_filename,     // $2
+          s3_key,                // $3
+          mime_type,             // $4
+          file_size,             // $5
+          start_time,            // $6
+          end_time,              // $7
+          total_elapsed_time,    // $8
+          total_timer_time,      // $9
+          total_distance,        // $10
+          total_cycles,          // $11
+          total_work,            // $12
+          total_calories,        // $13
+          total_ascent,          // $14
+          total_descent,         // $15
+          avg_speed,             // $16
+          max_speed,             // $17
+          avg_power,             // $18
+          max_power,             // $19
+          avg_normalized_power,  // $20
+          avg_heart_rate,        // $21
+          max_heart_rate,        // $22
+          avg_cadence,           // $23
+          max_cadence,           // $24
+          minLat,                // $25
+          maxLat,                // $26
+          minLng,                // $27
+          maxLng,                // $28
+          validGPS,              // $29
+          year,                  // $30
+          month,                 // $31
+          week,                  // $32
+          year_quarter,          // $33
+          year_month,            // $34
+          year_week              // $35
         ]
       );
 

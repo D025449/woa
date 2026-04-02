@@ -5,7 +5,7 @@ import CTLChartView from "./ctl-chart-view.js";
 import ChartView from "./chart-view.js";
 import WorkoutService from "./workout-service.js";
 
-export default class AnalyticsController {
+export default class Controller {
 
   constructor() {
     this.initViews();

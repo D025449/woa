@@ -32,7 +32,6 @@ CREATE TABLE IF NOT EXISTS import_jobs (
 );
 COMMIT;
 
-
 -- users ---
 
 BEGIN;
@@ -42,7 +41,7 @@ BEGIN;
 -- DROP TABLE IF EXISTS users CASCADE;
 
 -- 3️⃣ Neue Users-Tabelle
-CREATE TABLE IF NOT EXITS users (
+CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
     -- Auth0 / Cognito / OIDC Sub
@@ -58,7 +57,7 @@ CREATE TABLE IF NOT EXITS users (
 );
 
 -- 4️⃣ Optionaler Index für schnellere Suche per Email
-CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 -- 5️⃣ Updated_at automatisch pflegen
 CREATE OR REPLACE FUNCTION set_updated_at()
@@ -69,12 +68,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trigger_set_updated_at
+CREATE OR REPLACE TRIGGER trigger_set_updated_at
 BEFORE UPDATE ON users
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 
 COMMIT;
+
+
 
 -- files ----
 
@@ -402,3 +403,16 @@ BEGIN
     USING p_durations, p_auth_sub;
 END;
 $$ LANGUAGE plpgsql;
+
+
+ALTER TABLE files
+ADD COLUMN IF NOT EXISTS bounds geometry(POLYGON, 4326);
+CREATE INDEX IF NOT EXISTS idx_files_bounds
+ON files
+USING GIST (bounds);
+
+ALTER TABLE file_segments
+ADD COLUMN IF NOT EXISTS bounds geometry(POLYGON, 4326);
+CREATE INDEX IF NOT EXISTS idx_file_segments_bounds
+ON file_segments
+USING GIST (bounds);
