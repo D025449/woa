@@ -31,13 +31,13 @@ router.post("/", async (req, res, next) => {
       });
     }
 
-    const userId = req.user.sub;
-    console.log("UserID: " + userId);
+    const uid = req.user.id;
+    console.log("UserID: " + uid);
     const job = await createAndEnqueueImport({
       key,
       originalFileName,
       sizeBytes: numericSizeBytes,
-      auth_sub: userId
+      uid: uid
     });
 
     res.status(202).json({
@@ -58,7 +58,7 @@ router.get("/:id", async (req, res, next) => {
       });
     }
 
-    if (req.user && job.user_sub && req.user.sub !== job.user_sub) {
+    if (req.user && job.uid && req.user.id !== job.uid) {
       return res.status(403).json({
         error: "Kein Zugriff auf diesen Job"
       });

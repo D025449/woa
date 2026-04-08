@@ -1,14 +1,11 @@
 BEGIN;
 
--- 1️⃣ UUID Extension sicherstellen (für gen_random_uuid)
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
--- 2️⃣ Alte Tabelle entfernen (ACHTUNG: CASCADE löscht abhängige Tabellen!)
+-- 1️⃣ Alte Tabelle entfernen (ACHTUNG!)
 DROP TABLE IF EXISTS users CASCADE;
 
--- 3️⃣ Neue Users-Tabelle
+-- 2️⃣ Neue Users-Tabelle
 CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 
     -- Auth0 / Cognito / OIDC Sub
     auth_sub VARCHAR(255) NOT NULL UNIQUE,
@@ -22,10 +19,10 @@ CREATE TABLE users (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 4️⃣ Optionaler Index für schnellere Suche per Email
+-- 3️⃣ Index für Email
 CREATE INDEX idx_users_email ON users(email);
 
--- 5️⃣ Updated_at automatisch pflegen
+-- 4️⃣ Updated_at automatisch pflegen
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN

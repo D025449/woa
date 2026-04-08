@@ -74,6 +74,26 @@ export function buildMarkAreas(workout) {
   return areas;
 }*/
 
+export function buildMarkAreasSegment(segment) {
+  const areas = new Array(1);
+
+  areas[0] = [
+    {
+      xAxis: segment.start_offset,
+      label: {
+        show: true,
+        position: "insideTop",
+        distance: 8,
+        formatter: `${Utils.formatDuration(segment.end_offset + 1 - segment.start_offset)}\n${segment.avg_power}W\n${segment.avg_heart_rate}bpm`
+      }
+    },
+    {
+      xAxis: segment.end_offset
+    }
+  ];
+
+  return areas;
+}
 
 export function buildMarkAreasCP(interval) {
   const areas = new Array(1);

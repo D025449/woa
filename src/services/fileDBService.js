@@ -7,29 +7,90 @@ class FileDBService {
 
   static allowedColumns = [
     "start_time",
+    "uid",
+    "id",
     "total_distance",
     "avg_speed",
     "avg_power",
-    "avg_normalized_power",
-    "total_timer_time",
-    "auth_sub"
-  ];
-
-  static numericFields = [
-    "total_distance",
+    "avg_cadence",
     "avg_speed",
-    "avg_power",
     "avg_normalized_power",
     "total_timer_time"
   ];
 
-  static async getCPBestEfforts(grouping, durations, authSub) {
+  static numericFields = [
+    "id",
+    "total_distance",
+    "avg_speed",
+    "avg_power",
+    "avg_cadence",
+    "avg_speed",
+    "avg_normalized_power",
+    "total_timer_time"
+  ];
+
+
+
+static async getMatchingWorkoutCandidates(sids, uid) {
+
+  const sql = `
+    SELECT
+      w.id as wid,
+      w.samplerategps as wsamplerate,
+      s.id as sid,
+      ST_AsGeoJSON(w.geom)::json AS wgeom,
+      ST_AsGeoJSON(s.geom)::json AS sgeom
+    FROM gps_segments s
+    JOIN workouts w
+      ON w.uid = $2
+    WHERE
+      s.uid = $2
+      AND s.id = ANY($1)
+      AND s.bounds && w.bounds
+      AND ST_DWithin(w.geom, s.geom, 30)
+  `;
+
+  const result = await pool.query(
+    sql,
+    [sids, uid] // 👈 wichtig: Array übergeben
+  );
+
+  return result.rows;
+}
+
+
+
+
+  static async getTrack(wid, uid) {
+
+
+    const sql = `SELECT
+      id,
+      ST_AsGeoJSON(geom)::json AS geom
+    FROM files
+    WHERE
+      uid = $2
+      AND id = $1`
+
+    const result = await pool.query(
+      sql,
+      [wid, uid]
+    );
+
+    return result.rows;
+  }
+
+
+
+
+
+  static async getCPBestEfforts(grouping, durations, uid) {
     const query = `
     SELECT *
     FROM get_cp_best_efforts($1, $2, $3)
   `;
 
-    const values = [grouping, durations, authSub];
+    const values = [grouping, durations, uid];
 
     const result = await pool.query(query, values);
     return result.rows;
@@ -37,8 +98,8 @@ class FileDBService {
 
 
 
-  static async getFTPValues(authSub, period = "quarter") {
-    if (!authSub) {
+  static async getFTPValues(uid, period = "quarter") {
+    if (!uid) {
       throw new Error("Unauthorized");
     }
 
@@ -47,7 +108,7 @@ class FileDBService {
     FROM get_ftp_by_period2($1, $2)
   `;
 
-    const values = [authSub, period];
+    const values = [uid, period];
 
     const result = await pool.query(query, values);
 
@@ -55,7 +116,7 @@ class FileDBService {
   }
 
 
-  static buildQueryParts(sort = [], filter = []) {
+  static buildQueryParts(allowedColumns, numericColumns, sort = [], filter = []) {
 
     let whereParts = [];
     let orderParts = [];
@@ -66,13 +127,13 @@ class FileDBService {
     // --------------------
     (filter || []).forEach(f => {
 
-      if (!FileDBService.allowedColumns.includes(f.field)) return;
+      if (!allowedColumns.includes(f.field)) return;
 
       const paramIndex = params.length + 1;
 
       let value = f.value;
       // 🔥 Cast numbers
-      if (FileDBService.numericFields.includes(f.field)) {
+      if (numericColumns.includes(f.field)) {
         value = parseFloat(value);
       }
       switch (f.type) {
@@ -121,7 +182,7 @@ class FileDBService {
     // --------------------
     (sort || []).forEach(s => {
 
-      if (!FileDBService.allowedColumns.includes(s.field)) return;
+      if (!allowedColumns.includes(s.field)) return;
 
       const dir = s.dir === "desc" ? "DESC" : "ASC";
 
@@ -136,7 +197,7 @@ class FileDBService {
 
     const orderSQL = orderParts.length
       ? `ORDER BY ${orderParts.join(", ")}`
-      : "ORDER BY start_time DESC";
+      : "ORDER BY id ASC";
 
 
     return {
@@ -146,8 +207,8 @@ class FileDBService {
     };
   }
 
-  static async getWorkoutRecordsPreSignedUrl(workoutId, authSub) {
-    if (!authSub) {
+  static async getWorkoutRecordsPreSignedUrl(workoutId, uid) {
+    if (!uid) {
       throw new Error("Unauthorized");
     }
 
@@ -155,11 +216,11 @@ class FileDBService {
     const { rows } = await pool.query(
       `
       SELECT s3_key
-      FROM files
+      FROM workouts
       WHERE id = $1
-      AND auth_sub = $2
+      AND uid = $2
       `,
-      [workoutId, authSub]
+      [workoutId, uid]
     );
 
     if (rows.length === 0) {
@@ -172,16 +233,16 @@ class FileDBService {
     return payload;
   }
 
-  static async deleteWorkout(sub, workoutId) {
+  static async deleteWorkout(uid, workoutId) {
 
     const { rows } = await pool.query(
       `
       SELECT s3_key
-      FROM files
+      FROM workouts
       WHERE id = $1
-      AND auth_sub = $2
+      AND uid = $2
       `,
-      [workoutId, sub]
+      [workoutId, uid]
     );
 
     if (rows.length === 0) {
@@ -196,11 +257,11 @@ class FileDBService {
     // 2. DB-Eintrag löschen
     const result = await pool.query(
       `
-      DELETE FROM files
+      DELETE FROM workouts
       WHERE id = $1
-      AND auth_sub = $2
+      AND uid= $2
   `,
-      [workoutId, sub]
+      [workoutId, uid]
     );
 
 
@@ -209,9 +270,9 @@ class FileDBService {
 
   }
 
-  static async getWorkoutRecords(workoutId, authSub) {
+  static async getWorkoutRecords(workoutId, uid) {
 
-    if (!authSub) {
+    if (!uid) {
       throw new Error("Unauthorized");
     }
 
@@ -219,11 +280,11 @@ class FileDBService {
     const { rows } = await pool.query(
       `
       SELECT s3_key
-      FROM files
+      FROM workouts
       WHERE id = $1
-      AND auth_sub = $2
+      AND uid = $2
       `,
-      [workoutId, authSub]
+      [workoutId, uid]
     );
 
     if (rows.length === 0) {
@@ -247,39 +308,77 @@ class FileDBService {
 
   }
 
+  static getFileDefaultColumns() {
+    return `id,
+      uid,
+      start_time,
+      end_time,
+      year,
+      month,
+      week,
+      year_quarter,
+      year_month,
+      year_week,
+      total_elapsed_time,
+      total_timer_time,
+      total_distance,
+      total_cycles,
+      total_work,
+      total_calories,
+      total_ascent,
+      total_descent,
+      avg_speed,
+      max_speed,
+      avg_normalized_power,
+      avg_power,
+      max_power,
+      avg_heart_rate,
+      max_heart_rate,
+      avg_cadence,
+      max_cadence,
+      minlat,
+      maxlat,
+      minlng,
+      maxlng,
+      validgps`
+  }
 
 
-  static async getWorkoutsByUser(authSub, page, size, sort, filter) {
+  static async getWorkoutsByUser(uid, page, size, sort, filter) {
 
     const offset = (page - 1) * size;
 
     const filter_all = [];
-    filter_all.push({ field: 'auth_sub', type: '=', value: authSub });
+    filter_all.push({ field: 'uid', type: '=', value: uid });
     filter_all.push(...filter);
 
 
 
     const { whereSQL, orderSQL, params } =
-      FileDBService.buildQueryParts(sort, filter_all);
+      FileDBService.buildQueryParts(FileDBService.allowedColumns, FileDBService.numericFields, sort, filter_all);
 
     // -----------------------------------
     // BASE WHERE (User Filter + Tabulator Filter)
     // -----------------------------------
 
-    let baseWhere = "WHERE ";//auth_sub = $1";
+    let baseWhere = "WHERE ";
     let sqlParams = params;
     if (whereSQL) {
       baseWhere += whereSQL.replace("WHERE ", "");
       // sqlParams = [params];
     }
 
+    const colums = FileDBService.getFileDefaultColumns();
+
     // -----------------------------------
     // DATA QUERY
     // -----------------------------------
 
+
+
     const dataQuery = `
-    SELECT *
-    FROM files
+    SELECT ${colums} 
+    FROM workouts
     ${baseWhere}
     ${orderSQL}
     LIMIT $${sqlParams.length + 1}
@@ -300,7 +399,7 @@ class FileDBService {
 
     const countQuery = `
     SELECT COUNT(*) AS total
-    FROM files
+    FROM workouts
     ${baseWhere}
   `;
 
@@ -308,7 +407,7 @@ class FileDBService {
 
     const totalRecords = parseInt(countResult.rows[0].total);
 
-    const enriched_recs = await FileDBService.post_calculations(authSub, dataResult.rows, "year");
+    const enriched_recs = await FileDBService.post_calculations(uid, dataResult.rows, "year");
 
     return {
       data: enriched_recs,
@@ -431,15 +530,15 @@ class FileDBService {
       .sort((a, b) => new Date(a.day) - new Date(b.day));
   }
 
-  static async getCTLATL(authSub, period) {
+  static async getCTLATL(uid, period) {
     // 1. Alle Workouts laden
     const { rows } = await pool.query(
-      `SELECT * FROM files WHERE auth_sub = $1 ORDER BY start_time`,
-      [authSub]
+      `SELECT * FROM workouts WHERE uid = $1 ORDER BY start_time`,
+      [uid]
     );
 
     // 2. FTP-Serie laden
-    const ftpResult = await FileDBService.getFTPValues(authSub, "year");
+    const ftpResult = await FileDBService.getFTPValues(uid, "year");
     const ftpSeries = ftpResult.raw || ftpResult;
 
     // 3. Enrichment
@@ -635,28 +734,27 @@ class FileDBService {
     }));
   }
 
-  static async getSegmentsByWorkout(authSub, workoutId) {
+  static async getSegmentsByWorkout(uid, workoutId) {
     const query = `
     SELECT *
-    FROM file_segments fs
+    FROM workout_segments fs
     WHERE file_id = $1
-      AND auth_sub = $2
+      AND uid = $2
     ORDER BY start_offset ASC
   `;
 
-    const values = [workoutId, authSub];
+    const values = [workoutId, uid];
 
     const result = await pool.query(query, values);
 
     return result.rows;
   }
 
-  static async upsertSegmentsBulk(authSub, workoutId, segments) {
+  static async upsertSegmentsBulk(uid, workoutId, segments) {
     let cnt = 0;
 
-    const ids = [];
     const fileIds = [];
-    const authSubs = [];
+    const uids = [];
     const starts = [];
     const ends = [];
     const types = [];
@@ -675,9 +773,8 @@ class FileDBService {
     const maxLngs = [];
 
     segments.filter(f => f.rowstate === 'CRE' || f.rowstate === 'UPD').forEach(seg => {
-      ids.push(seg.id);
       fileIds.push(workoutId);
-      authSubs.push(authSub);
+      uids.push(uid);
       starts.push(seg.start_offset);
       ends.push(seg.end_offset);
       types.push(seg.segmenttype || "manual");
@@ -703,10 +800,9 @@ class FileDBService {
 
 
     const query = `
-  INSERT INTO file_segments (
-    id,
-    file_id,
-    auth_sub,
+  INSERT INTO workout_segments (
+    wid,
+    uid,
     start_offset,
     end_offset,
     segmenttype,
@@ -721,9 +817,8 @@ class FileDBService {
     bounds
   )
     SELECT
-  u.id,
-  u.file_id,
-  u.auth_sub,
+  u.wid,
+  u.uid,
   u.start_offset,
   u.end_offset,
   u.segmenttype,
@@ -742,28 +837,26 @@ class FileDBService {
     ELSE NULL
   END
   FROM UNNEST(
-    $1::uuid[],
-    $2::uuid[],
-    $3::text[],
+    $1::int[],
+    $2::int[],
+    $3::int[],
     $4::int[],
-    $5::int[],
-    $6::text[],
+    $5::text[],
+    $6::float8[],
     $7::float8[],
     $8::float8[],
     $9::float8[],
     $10::float8[],
     $11::float8[],
-    $12::float8[],
-    $13::int[],
-    $14::text[],
+    $12::int[],
+    $13::text[],
+    $14::float8[],
     $15::float8[],
     $16::float8[],
-    $17::float8[],
-    $18::float8[]    
+    $17::float8[]    
   ) AS u(
-  id,
-  file_id,
-  auth_sub,
+  wid,
+  uid,
   start_offset,
   end_offset,
   segmenttype,
@@ -794,15 +887,14 @@ class FileDBService {
     position = EXCLUDED.position,
     segmentname = EXCLUDED.segmentname,
     bounds = EXCLUDED.bounds
-  WHERE file_segments.auth_sub = EXCLUDED.auth_sub
-    AND file_segments.file_id = EXCLUDED.file_id
+  WHERE workout_segments.uid = EXCLUDED.uid
+    AND workout_segments.wid = EXCLUDED.wid
   RETURNING *
 `;
 
     const values = [
-      ids,
       fileIds,
-      authSubs,
+      uids,
       starts,
       ends,
       types,
@@ -829,7 +921,7 @@ class FileDBService {
 
 
 
-  static async deleteSegmentsBulk(authSub, workoutId, segments) {
+  static async deleteSegmentsBulk(uid, workoutId, segments) {
     if (!Array.isArray(segments)) {
       return [];
     }
@@ -847,29 +939,29 @@ class FileDBService {
     }
 
     const query = `
-    DELETE FROM file_segments
+    DELETE FROM workout_segments
     WHERE id = ANY($1::uuid[])
-      AND auth_sub = $2
+      AND uid = $2
     RETURNING id
   `;
 
-    const values = [ids, authSub];
+    const values = [ids, uid];
 
     const result = await pool.query(query, values);
     return result.rows;
   }
 
-  static async getSegmentsByWorkout(authSub, workoutId) {
+  static async getSegmentsByWorkout(uid, workoutId) {
     const query = `
     SELECT
    *
-    FROM file_segments
-    WHERE file_id = $1
-      AND auth_sub = $2
+    FROM workout_segments
+    WHERE wid = $1
+      AND uid = $2
     ORDER BY start_offset ASC
   `;
 
-    const values = [workoutId, authSub];
+    const values = [workoutId, uid];
 
     const result = await pool.query(query, values);
 
@@ -880,17 +972,33 @@ class FileDBService {
     const d = new Date(fileRow.start_time);
 
     fileRow.validGPS = gps_track.validGPS;
-    fileRow.minLat = gps_track?.bbox?.minLat ?? 0;
-    fileRow.maxLat = gps_track?.bbox?.maxLat ?? 0;
-    fileRow.minLng = gps_track?.bbox?.minLng ?? 0;
-    fileRow.maxLng = gps_track?.bbox?.maxLng ?? 0;
+    let sampleRateGPS = gps_track?.sampleRate ?? 1;
+    if (fileRow.validGPS) {
+      fileRow.minLat = gps_track?.bbox?.minLat ?? 0;
+      fileRow.maxLat = gps_track?.bbox?.maxLat ?? 0;
+      fileRow.minLng = gps_track?.bbox?.minLng ?? 0;
+      fileRow.maxLng = gps_track?.bbox?.maxLng ?? 0;
+    }
+    else {
+      sampleRateGPS = 1;
+      fileRow.minLat = null;
+      fileRow.maxLat = null;
+      fileRow.minLng = null;
+      fileRow.maxLng = null;
+    }
 
 
+    // 🔥 LINESTRING bauen
+    const points_count = gps_track?.track.length ?? 0;
+    const coords = gps_track.track
+      .map(p => `${p[1]} ${p[0]}`) // ⚠️ lng lat!
+      .join(", ");
 
+    const geom = `LINESTRING(${coords})`;
 
 
     const {
-      auth_sub,
+      uid,
       original_filename,
       s3_key,
       mime_type,
@@ -935,8 +1043,8 @@ class FileDBService {
 
       const result = await pool.query(
         `
-INSERT INTO files (
-  auth_sub,
+INSERT INTO workouts (
+  uid,
   original_filename,
   s3_key,
   mime_type,
@@ -971,7 +1079,10 @@ INSERT INTO files (
   year_quarter,
   year_month,
   year_week,
-  bounds        
+  bounds,
+  geom,
+  points_count,
+  sampleRateGPS        
 )
 VALUES (
   $1,$2,$3,$4,$5,
@@ -980,14 +1091,31 @@ VALUES (
   $16,$17,$18,$19,$20,$21,$22,$23,
   $24,$25,$26,$27,$28,
   $29,$30,$31,$32,$33,$34,$35,
-  ST_MakeEnvelope($27, $25, $28, $26, 4326)
+CASE 
+  WHEN $29 = true
+  THEN ST_MakeEnvelope(
+    $27::float8,
+    $25::float8,
+    $28::float8,
+    $26::float8,
+    4326
+  )
+  ELSE NULL
+END,
+CASE 
+  WHEN $29 = true
+  THEN $36 
+  ELSE NULL
+END,
+  $37,
+  $38
 )
-ON CONFLICT (auth_sub, start_time)
+ON CONFLICT (uid, start_time)
 DO NOTHING
-RETURNING *;
+RETURNING id, uid;
     `,
         [
-          auth_sub,              // $1
+          uid,              // $1
           original_filename,     // $2
           s3_key,                // $3
           mime_type,             // $4
@@ -1021,7 +1149,10 @@ RETURNING *;
           week,                  // $32
           year_quarter,          // $33
           year_month,            // $34
-          year_week              // $35
+          year_week,             // $35
+          geom,                  // $36
+          points_count,          // $37
+          sampleRateGPS          // $38 
         ]
       );
 
@@ -1034,7 +1165,7 @@ RETURNING *;
       }
 
       //await FileDBService.insertBestEfforts(result.rows[0].id, bestEfforts);
-      await FileDBService.upsertSegmentsBulk(auth_sub, result.rows[0].id, segments);
+      await FileDBService.upsertSegmentsBulk(uid, result.rows[0].id, segments);
       await pool.query('COMMIT');
 
       return result.rows[0];
@@ -1045,7 +1176,6 @@ RETURNING *;
     }
 
   }
-
 
 } // class
 

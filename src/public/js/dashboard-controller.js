@@ -44,7 +44,7 @@ export default class Controller {
         this.chartView.showLoading();
 
         try {
-          let workout = await WorkoutService.loadWorkoutByRow(row);
+          let workout = await WorkoutService.loadWorkoutByRow(row.getData().id);
 
           const d = row.getData();
           workout.validgps = d.validgps;

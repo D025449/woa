@@ -1,14 +1,14 @@
 import crypto from 'node:crypto';
 import pool from '../services/database.js';
 
-export async function createImportJob({ s3Key, originalFileName, sizeBytes, auth_sub }) {
+export async function createImportJob({ s3Key, originalFileName, sizeBytes, uid: uid }) {
     const id = crypto.randomUUID();
 
     await pool.query(
         `
         insert into import_jobs (
             id,
-            auth_sub,
+            uid,
             s3_key,
             original_file_name,
             size_bytes,
@@ -20,7 +20,7 @@ export async function createImportJob({ s3Key, originalFileName, sizeBytes, auth
         )
         values ($1, $2, $3, $4, $5, 'queued', 'waiting_for_worker', 0, 0, 0)
         `,
-        [id, auth_sub, s3Key, originalFileName, sizeBytes]
+        [id, uid, s3Key, originalFileName, sizeBytes]
     );
 
     return { id };
@@ -31,7 +31,7 @@ export async function getImportJobById(id) {
         `
         select
             id,
-            auth_sub,
+            uid,
             s3_key as "s3Key",
             original_file_name as "originalFileName",
             size_bytes as "sizeBytes",

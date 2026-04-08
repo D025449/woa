@@ -98,9 +98,6 @@
 
                 </div>
 
-
-
-                <!--div class="row g-4 "-->
                 <!-- Workout Table -->
                 <div class="col-12">
                     <div class="card shadow-sm">
@@ -123,47 +120,34 @@
 
                 <div class="col-12">
 
-                    <div class="row g-4">
+                    <div class="card shadow-sm h-100">
 
-                        <!-- Chart -->
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 id="files_header" class="mb-0">Workout Data</h5>
 
-                        <div class="col-lg-7 col-12">
+                            <div class="d-flex gap-2">
+                                <div id="segment-editor" class="d-none d-flex align-items-center gap-2">
 
-                            <div class="card shadow-sm h-100">
+                                    <span class="small text-muted">Segment:</span>
 
-                                <div class="card-header d-flex justify-content-between align-items-center">
-                                    <h5 id="files_header" class="mb-0">Workout Data</h5>
-
-
-
-                                    <div class="d-flex gap-2">
-                                        <div id="segment-editor" class="d-none d-flex align-items-center gap-2">
-
-                                            <span class="small text-muted">Segment:</span>
-
-                                            <input id="segment-name-input" type="text"
-                                                class="form-control form-control-sm" style="width:150px;" />
-                                        </div>
-                                        <button id="draw-segment-toggle" class="btn btn-sm">
-                                            ✏️
-                                        </button>
-                                        <button id="delete-segments" class="btn btn-sm btn-outline-danger">
-                                            🗑️
-                                        </button>
-                                        <button id="save-segments" class="btn btn-sm ">
-                                            💾
-                                        </button>
-                                    </div>
+                                    <input id="segment-name-input" type="text" class="form-control form-control-sm"
+                                        style="width:150px;" />
                                 </div>
-
-                                <div class="card-body">
-                                    <div id="workout-chart" style="height:500px;"></div>
-                                </div>
-
+                                <button id="draw-segment-toggle" class="btn btn-sm">
+                                    ✏️
+                                </button>
+                                <button id="delete-segments" class="btn btn-sm btn-outline-danger">
+                                    🗑️
+                                </button>
+                                <button id="save-segments" class="btn btn-sm ">
+                                    💾
+                                </button>
                             </div>
-
                         </div>
 
+                        <div class="card-body">
+                            <div id="workout-chart" style="height:500px;"></div>
+                        </div>
 
                     </div>
 

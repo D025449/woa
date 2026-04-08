@@ -1,10 +1,9 @@
-DROP TABLE IF EXISTS gps_segment_best_efforts;
+DROP TABLE IF EXISTS gps_segment_best_efforts cascade;
 
 CREATE TABLE gps_segment_best_efforts (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    segment_id      UUID NOT NULL,
-    file_id         UUID    NOT NULL,
-    auth_sub        TEXT   NOT NULL,
+    id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    sid             BIGINT NOT NULL,
+    wid             BIGINT NOT NULL,
     start_offset    INTEGER NOT NULL,
     end_offset      INTEGER NOT NULL,
     duration        INTEGER NOT NULL,
@@ -16,18 +15,13 @@ CREATE TABLE gps_segment_best_efforts (
     updated_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 
     CONSTRAINT fk_gps_segments
-        FOREIGN KEY (segment_id)
+        FOREIGN KEY (sid)
         REFERENCES gps_segments(id)
         ON DELETE CASCADE,
 
-    CONSTRAINT fk_file
-        FOREIGN KEY (file_id)
-        REFERENCES files(id)
-        ON DELETE CASCADE,
-
-    CONSTRAINT fk_user
-        FOREIGN KEY (auth_sub)
-        REFERENCES users(auth_sub)
+    CONSTRAINT fk_workout
+        FOREIGN KEY (wid)
+        REFERENCES workouts(id)
         ON DELETE CASCADE
 
 

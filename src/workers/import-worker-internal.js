@@ -17,6 +17,8 @@ import {
 } from "../services/fitService.js";
 
 import { FileDBService } from "../services/fileDBService.js";
+import SegmentDBService from "../services/segmentDBService.js";
+import FilesStreamsApi from "../services/FilesStreamsApi.js";
 
 import { redisConnection } from "../queue/connection.js";
 import S3Service from "../services/s3Service.js";
@@ -28,20 +30,33 @@ import {
 export async function createApp() {
 
 
-  async function processFitJson(fitJsonObject, originalName, userSub) {
-    const { buffer, normalized_power, segments, gps_track } = processFitRecords(fitJsonObject.records);
+  async function processFitJson(fitJsonObject, originalName, uid) {
+    const { buffer, normalized_power, segments, gps_track, powers, heartRates, cadences, speeds, altitudes } = processFitRecords(fitJsonObject.records);
     const newFilenamebin = path.basename(originalName, path.extname(originalName)) + ".bin";
-    const s3KeyBin = `users/${userSub}/${randomUUID()}-${newFilenamebin}`;
+    const s3KeyBin = `users/${uid}/${randomUUID()}-${newFilenamebin}`;
     const fitFile = {
-      auth_sub: userSub,
+      uid: uid,
       original_filename: originalName,
       s3_key: s3KeyBin,
       mime_type: "application/octet-stream",
       file_size: buffer.byteLength
     };
     const fileRow = mapToFileRow(fitJsonObject, fitFile, normalized_power);
-    await FileDBService.insertFile(fileRow, segments, gps_track);
+    const dbrow = await FileDBService.insertFile(fileRow, segments, gps_track);
+    //const values = { powers, heartRates, cadences, speeds, altitudes };
+    await FilesStreamsApi.insertStreams(dbrow.id, dbrow.uid, powers, heartRates, cadences, speeds, altitudes);
+
+    if (gps_track.validGPS) {
+      const candidates = await SegmentDBService.getMatchingSegmentCandidates(dbrow.id, dbrow.uid);
+
+      const workout = { id: dbrow.id, track: gps_track.track, sampleRate: gps_track.sampleRate };
+
+      const matches = SegmentDBService.matchSegments(workout, candidates);
+      await SegmentDBService.storeSegmentBestEfforts(dbrow.uid, matches, powers, heartRates, cadences, speeds);
+    }
+
     await s3Service.putObjectBinary(s3KeyBin, buffer, "application/octet-stream");
+
   }
 
   async function downloadObjectToTempFile(s3Key, extension = ".bin") {
@@ -84,19 +99,21 @@ export async function createApp() {
     // - Duplikate prüfen
     const filename = path.basename(context.entryName);
 
-    await processFitJson(parsedData, filename, context.auth_sub);
-
-    console.log("Persist workout", {
-      importJobId: context.importJobId,
-      auth_sub: context.auth_sub,
-      entryName: filename || null,
-      hasData: !!parsedData
-    });
+    await processFitJson(parsedData, filename, context.uid);
+    const hasData = !!parsedData;
+    if (hasData === false) {
+      console.log("Persist workout", {
+        importJobId: context.importJobId,
+        uid: context.uid,
+        entryName: filename || null,
+        hasData: !!parsedData
+      })
+    }
 
     return true;
   }
 
-  async function processSingleFitFile(jobId, s3Key, auth_sub) {
+  async function processSingleFitFile(jobId, s3Key, uid) {
     await updateImportJob(jobId, {
       status: "processing",
       stage: "downloading_zip",
@@ -119,7 +136,7 @@ export async function createApp() {
 
       await persistParsedWorkout(parsed, {
         importJobId: jobId,
-        auth_sub: auth_sub,
+        uid: uid,
         entryName: path.basename(fitPath)
       });
 
@@ -136,7 +153,7 @@ export async function createApp() {
     }
   }
 
-  async function processZipFile(jobId, s3Key, auth_sub) {
+  async function processZipFile(jobId, s3Key, uid) {
     await updateImportJob(jobId, {
       status: "processing",
       stage: "downloading_zip",
@@ -178,7 +195,7 @@ export async function createApp() {
           await persistParsedWorkout(parsed, {
             importJobId: jobId,
             entryName: entry.path,
-            auth_sub: auth_sub
+            uid: uid
           });
 
           processedFiles += 1;
@@ -233,16 +250,16 @@ export async function createApp() {
 
     const s3Key = importJob.s3Key;
     const lowerKey = s3Key.toLowerCase();
-    const auth_sub = importJob.auth_sub;
+    const uid = importJob.uid;
 
     try {
       if (lowerKey.endsWith(".fit")) {
-        await processSingleFitFile(importJobId, s3Key, auth_sub);
+        await processSingleFitFile(importJobId, s3Key, uid);
         return;
       }
 
       if (lowerKey.endsWith(".zip")) {
-        await processZipFile(importJobId, s3Key, auth_sub);
+        await processZipFile(importJobId, s3Key, uid);
         return;
       }
 

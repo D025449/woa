@@ -92,14 +92,28 @@ export default class MapSegment {
 
       console.log("Saved segments:", result);
 
-      const map = new Map(result.segments.map(s => [s.id, s]));
+      if (segs.length !== result.segments.length)
+      {
+          console.log("AAA");
+      }
+      else
+      {
+          for(let i = 0; i < segs.length; ++i)
+          {
+            const updated = result.segments[i];
+            Object.assign(segs[i], updated);
+          }
+      }
+
+
+      /*const map = new Map(result.segments.map(s => [s.id, s]));
 
       for (const seg of controller.mapSegments) {
         const updated = map.get(seg.id);
         if (updated) {
           Object.assign(seg, updated);
         }
-      }
+      }*/
 
 
 

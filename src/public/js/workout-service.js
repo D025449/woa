@@ -32,10 +32,10 @@ export default class WorkoutService {
     await row.delete();
   }
 
-  static async loadWorkoutByRow(row) {
-    console.log(row);
+  static async loadWorkoutByRow(wid) {
+    //console.log(row);
 
-    const wid = this.getWorkoutId(row);
+    //const wid = this.getWorkoutId(row);
 
     const metaResponse = await fetch(`/files/workouts/${wid}/data`);
 

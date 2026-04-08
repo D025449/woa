@@ -1,7 +1,9 @@
+DROP FUNCTION IF EXISTS get_cp_best_efforts;
+
 CREATE OR REPLACE FUNCTION get_cp_best_efforts(
     p_grouping TEXT,
     p_durations INT[],
-    p_auth_sub TEXT
+    p_uid BIGINT
 )
 RETURNS TABLE (
     grp TEXT,
@@ -10,7 +12,7 @@ RETURNS TABLE (
     best_effort_avg_heart_rate DOUBLE PRECISION,
     best_effort_avg_cadence DOUBLE PRECISION,
     best_effort_avg_speed DOUBLE PRECISION,
-    best_effort_file_id UUID,
+    best_effort_file_id BIGINT,
     start_offset INT,
     end_offset INT,
     start_time TIMESTAMPTZ
@@ -39,9 +41,9 @@ BEGIN
                     PARTITION BY %I, duration
                     ORDER BY best_effort_avg_power DESC
                 ) AS rn
-            FROM v_files_with_best_efforts
+            FROM v_workouts_with_best_efforts
             WHERE duration = ANY($1)
-              AND auth_sub = $2
+              AND uid = $2
         )
         SELECT
             grp,
@@ -60,6 +62,6 @@ BEGIN
         $f$,
         p_grouping, p_grouping
     )
-    USING p_durations, p_auth_sub;
+    USING p_durations, p_uid;
 END;
 $$ LANGUAGE plpgsql;

@@ -29,9 +29,9 @@ export default class Controller {
 
     this.cpChartView = new CPChartView('cp-chart', {
       onCPClick: async (row) => {
-        const workout = await WorkoutService.loadWorkoutByRow(row);
+        const workout = await WorkoutService.loadWorkoutByRow(row.fileId);
 
-        this.chartView.updateWorkoutCP(workout, row);
+        this.chartView.updateWorkoutCP(workout, row.fileId);
         this.mapView.renderTrack(workout);
       }
     });

@@ -25,6 +25,10 @@ export default async function authMiddleware(req, res, next) {
     if (!authHeader) {
       return res.status(401).json({ error: "No token provided" });
     }*/
+    if (req?.user?.id) {
+      return next();
+
+    }
 
     const token = req.cookies.accessToken;
 
@@ -38,8 +42,19 @@ export default async function authMiddleware(req, res, next) {
 
     const payload = await verifier.verify(token);
 
+    const user = {
+      sub: payload.sub,
+      email: payload.email,
+      username: payload.username
+    };
+
+    // 🔥 3. DB Lookup NUR wenn keine Session
+    const dbuser = await UserDBService.ensureUserExists(user);
+
+
     // WICHTIG:
     req.user = {
+      id: dbuser.id,
       sub: payload.sub,
       email: payload.email,
       username: payload.username

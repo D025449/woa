@@ -1,17 +1,20 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";  -- für gen_random_uuid()
-CREATE EXTENSION postgis;
+CREATE EXTENSION IF NOT EXISTS postgis;
 
-DROP TABLE IF EXISTS files CASCADE;
+DROP TABLE IF EXISTS workouts CASCADE;
 
-CREATE TABLE files (
-    id               UUID           PRIMARY KEY DEFAULT gen_random_uuid(),
-    auth_sub         VARCHAR(255)   NOT NULL,
+
+DROP INDEX idx_files_geom;
+
+CREATE TABLE workouts (
+    id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    uid               BIGINT   NOT NULL,
     original_filename TEXT          NOT NULL,
-    s3_key           TEXT           NOT NULL,
-    mime_type        TEXT           NOT NULL,
-    file_size        INTEGER        NOT NULL,
-    uploaded_at      TIMESTAMP      NOT NULL DEFAULT NOW(),
+    s3_key            TEXT           NOT NULL,
+    mime_type         TEXT           NOT NULL,
+    file_size         INTEGER        NOT NULL,
+    uploaded_at       TIMESTAMP      NOT NULL DEFAULT NOW(),
 
     start_time          TIMESTAMPTZ,
     end_time            TIMESTAMPTZ,
@@ -51,10 +54,24 @@ CREATE TABLE files (
     minLng               DOUBLE PRECISION,
     maxLng               DOUBLE PRECISION,
     validGPS             BOOLEAN,
+    points_count         INTEGER,
+    sampleRateGPS        DOUBLE PRECISION,
 
-    CONSTRAINT uq_user_start_time UNIQUE (auth_sub, start_time),
-    CONSTRAINT fk_user FOREIGN KEY (auth_sub)
-        REFERENCES users(auth_sub)
+    bounds               geometry(POLYGON, 4326),
+    geom                 geometry(LINESTRING, 4326),
+
+    CONSTRAINT uq_user_start_time2 UNIQUE (uid, start_time),
+    CONSTRAINT fk_user2 FOREIGN KEY (uid)
+        REFERENCES users(id)
         ON DELETE CASCADE
 );
+
+CREATE INDEX IF NOT EXISTS idx_files_bounds
+ON workouts
+USING GIST (bounds);
+
+CREATE INDEX IF NOT EXISTS idx_files_geom
+ON workouts
+USING GIST (geom);
+
 COMMIT;

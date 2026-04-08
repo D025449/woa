@@ -1,11 +1,11 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";  -- für gen_random_uuid()
-DROP VIEW IF EXISTS v_files_with_best_efforts;
-DROP TABLE IF EXISTS file_segments;
-CREATE TABLE file_segments (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    file_id         UUID NOT NULL,
-    auth_sub        VARCHAR(255) NOT NULL,
+DROP VIEW IF EXISTS v_workouts_with_best_efforts;
+DROP TABLE IF EXISTS workout_segments;
+CREATE TABLE workout_segments (
+    id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    wid             BIGINT NOT NULL,
+    UID             BIGINT NOT NULL,
     segmenttype     VARCHAR(10) DEFAULT 'manual',
     segmentname     VARCHAR(100),
     start_offset    INTEGER NOT NULL,
@@ -17,6 +17,7 @@ CREATE TABLE file_segments (
     avg_speed       DOUBLE PRECISION,    
     altimeters      DOUBLE PRECISION,
     position        INTEGER,
+    bounds          geometry(POLYGON, 4326),
 
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
@@ -33,26 +34,26 @@ CREATE TABLE file_segments (
         CHECK (end_offset >= start_offset),
 
 
-    CONSTRAINT uq_file_best_effort_start_offet_duration
-        UNIQUE (file_id, segmenttype, start_offset, duration),
+    CONSTRAINT uq_file_best_effort_start_offet_duration2
+        UNIQUE (wid, segmenttype, start_offset, duration),
 
 
-    CONSTRAINT fk_file
-        FOREIGN KEY (file_id)
-        REFERENCES files(id)
+    CONSTRAINT fk_workout
+        FOREIGN KEY (wid)
+        REFERENCES workouts(id)
         ON DELETE CASCADE,
 
     CONSTRAINT fk_user
-        FOREIGN KEY (auth_sub)
-        REFERENCES users(auth_sub)
+        FOREIGN KEY (uid)
+        REFERENCES users(id)
         ON DELETE CASCADE
 );
 
 
-CREATE VIEW v_files_with_best_efforts AS
+CREATE VIEW v_workouts_with_best_efforts AS
 SELECT
     f.id,
-    f.auth_sub,
+    f.uid,
     f.original_filename,
     f.s3_key,
     f.mime_type,
@@ -99,7 +100,7 @@ SELECT
     f.validGPS,
     
     b.id AS best_effort_id,
-    b.file_id AS best_effort_file_id,
+    b.wid AS best_effort_file_id,
     b.start_offset,
     b.duration,
     b.end_offset,
@@ -109,8 +110,8 @@ SELECT
     b.avg_speed AS best_effort_avg_speed,
     b.created_at AS best_effort_created_at
 
-FROM files f
-INNER JOIN file_segments b
-    ON b.file_id = f.id
+FROM workouts f
+INNER JOIN workout_segments b
+    ON b.wid = f.id
 where b.segmenttype = 'crit';
 END;

@@ -1,10 +1,10 @@
 DROP FUNCTION get_ftp_by_period2;
 CREATE OR REPLACE FUNCTION get_ftp_by_period2(
-  p_auth_sub TEXT,
+  p_uid BIGINT,
   p_period_type TEXT DEFAULT 'quarter'
 )
 RETURNS TABLE (
-  auth_sub VARCHAR,
+  uid BIGINT,
   period INTEGER,
   cp8 DOUBLE PRECISION,
   cp15 DOUBLE PRECISION,
@@ -16,7 +16,7 @@ BEGIN
   RETURN QUERY
   WITH efforts AS (
     SELECT
-      v.auth_sub,
+      v.uid,
       (
       CASE
         WHEN p_period_type = 'year' THEN v.year
@@ -26,15 +26,15 @@ BEGIN
       END ) ::INTEGER  AS period,
       v.duration,
       v.best_effort_avg_power AS power
-    FROM v_files_with_best_efforts v
-    WHERE v.auth_sub = p_auth_sub
+    FROM v_workouts_with_best_efforts v
+    WHERE v.uid = p_uid
       AND v.duration IN (480, 900)
       AND v.best_effort_avg_power IS NOT NULL
   ),
 
   aggregated AS (
     SELECT
-      e.auth_sub,
+      e.uid,
       e.period,
 
       PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY e.power)
@@ -47,11 +47,11 @@ BEGIN
       COUNT(*) FILTER (WHERE e.duration = 900) AS n_cp15
 
     FROM efforts e
-    GROUP BY e.auth_sub, e.period
+    GROUP BY e.uid, e.period
   )
 
   SELECT
-    a.auth_sub,
+    a.uid,
     a.period,
     a.cp8,
     a.cp15,

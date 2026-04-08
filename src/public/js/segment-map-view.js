@@ -241,7 +241,7 @@ export default class MapView {
       fillOpacity: 1
     }).addTo(this.lookupResultLayer);
 
-    startMarker.bindPopup(`🟢 Start<br>${segment.start.name}`).openPopup();
+    startMarker.bindPopup(`🟢 Start<br>${segment.id}: ${segment.start.name}<br>Altitude ${segment.start.altitude}`);//.openPopup();
     //startMarker.bindPopup(`Start:<br>${start.name || ""}`);
 
     // -------------------
@@ -254,7 +254,7 @@ export default class MapView {
       fillOpacity: 1
     }).addTo(this.lookupResultLayer);
 
-    endMarker.bindPopup(`🔴 Ziel<br>${segment.end.name}<br>state ${segment.rowstate}`).openPopup();
+    endMarker.bindPopup(`🔴 Ziel<br>${segment.id}: ${segment.end.name}<br>Altitude ${segment.end.altitude}`);//.openPopup();
 
     startMarker.on("click", async () => {
       this.onSegmentStartClick(segment);

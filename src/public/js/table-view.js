@@ -57,6 +57,12 @@ export default class TableView {
   buildColumns() {
     return [
       {
+        title: "ID",
+        field: "id",
+        sorter: "number",
+        formatter: (cell) => cell.getValue()
+      },      
+      {
         title: "Start On",
         field: "start_time",
         sorter: "datetime",

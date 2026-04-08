@@ -27,10 +27,10 @@ const checkAuth = (req, res, next) => {
 
 router.delete("/workouts/:id", authMiddleware, async (req, res) => {
   const workoutId = req.params.id;
-  const sub = req.user.sub;
+  const uid = req.user.id;
 
   try {
-    const result = await FileDBService.deleteWorkout(sub, workoutId);
+    const result = await FileDBService.deleteWorkout(uid, workoutId);
 
     if (result.rowCount === 0) {
       return res.status(404).json({ error: "Workout not found" });
@@ -48,7 +48,7 @@ router.delete("/workouts/:id", authMiddleware, async (req, res) => {
 
 router.get('/uploadUI', checkAuth, async (req, res) => {
   console.log(req.user);
-  if (!req?.user?.sub) {
+  if (!req?.user?.id) {
     //return res.redirect("/");
     const redirectUrl = encodeURIComponent(req.originalUrl);
     return res.redirect(`/login?redirect=${redirectUrl}`);
@@ -76,10 +76,10 @@ router.get("/workouts", authMiddleware, async (req, res, next) => {
     const size = parseInt(req.query.size || req.body.size) || 20;
     const sort = req.query.sort || [];
     const filters = req.query.filter || [];
-    const authSub = req.user?.sub;
+    const uid = req.user?.id;
 
     const result = await FileDBService.getWorkoutsByUser(
-      authSub,
+      uid,
       page,
       size,
       sort,
@@ -104,11 +104,11 @@ router.get("/workouts/:id/data", authMiddleware, async (req, res, next) => {
        });
      }*/
     const workoutId = req.params.id;
-    const authSub = req.user?.sub;
+    const uid = req.user?.id;
 
     const url = await FileDBService.getWorkoutRecordsPreSignedUrl(
       workoutId,
-      authSub
+      uid
     );
 
     res.json({ url });
@@ -128,7 +128,7 @@ router.get("/workouts/:id/data", authMiddleware, async (req, res, next) => {
 
 router.get("/ctl-atl", authMiddleware, async (req, res, next) => {
   try {
-    const authSub = req.user?.sub;
+    const uid = req.user?.id;
 
     const { period } = req.query;
 
@@ -139,7 +139,7 @@ router.get("/ctl-atl", authMiddleware, async (req, res, next) => {
       : "date";
 
 
-    const data = await FileDBService.getCTLATL(authSub, selectedPeriod);
+    const data = await FileDBService.getCTLATL(uid, selectedPeriod);
 
     res.json({
       grouping: selectedPeriod,
@@ -166,7 +166,7 @@ router.get("/ctl-atl", authMiddleware, async (req, res, next) => {
 */
 router.get("/ftp", authMiddleware, async (req, res, next) => {
   try {
-    const authSub = req.user?.sub;
+    const uid = req.user?.id;
 
     const { period } = req.query;
 
@@ -177,7 +177,7 @@ router.get("/ftp", authMiddleware, async (req, res, next) => {
       : "quarter";
 
     const result = await FileDBService.getFTPValues(
-      authSub,
+      uid,
       selectedPeriod
     );
 
@@ -208,7 +208,7 @@ router.get("/ftp", authMiddleware, async (req, res, next) => {
 router.get("/cp-best-efforts", authMiddleware, async (req, res, next) => {
   try {
     const { grouping, durations } = req.query;
-    const authSub = req.user?.sub;
+    const uid = req.user?.id;
 
     const ALLOWED_GROUPINGS = ['year', 'year_quarter', 'year_month', 'year_week'];
 
@@ -242,7 +242,7 @@ router.get("/cp-best-efforts", authMiddleware, async (req, res, next) => {
     const rows = await FileDBService.getCPBestEfforts(
       grouping,
       durationArray,
-      authSub
+      uid
     );
 
     // 🔄 Response strukturieren (wie vorher)
@@ -281,7 +281,7 @@ router.get("/cp-best-efforts", authMiddleware, async (req, res, next) => {
 router.post("/workouts/:id/segments", authMiddleware, async (req, res, next) => {
   try {
     const workoutId = req.params.id;
-    const authSub = req.user?.sub;
+    const uid = req.user?.id;
 
     const segments = Array.isArray(req.body)
       ? req.body
@@ -309,13 +309,13 @@ router.post("/workouts/:id/segments", authMiddleware, async (req, res, next) => 
     }
 
     const result_del = await FileDBService.deleteSegmentsBulk(
-      authSub,
+      uid,
       workoutId,
       segments
     );
 
     const result = await FileDBService.upsertSegmentsBulk(
-      authSub,
+      uid,
       workoutId,
       segments
     );
@@ -335,10 +335,10 @@ router.post("/workouts/:id/segments", authMiddleware, async (req, res, next) => 
 router.get("/workouts/:id/segments", authMiddleware, async (req, res, next) => {
   try {
     const workoutId = req.params.id;
-    const authSub = req.user?.sub;
+    const uid = req.user?.id;
 
     const segments = await FileDBService.getSegmentsByWorkout(
-      authSub,
+      uid,
       workoutId
     );
 

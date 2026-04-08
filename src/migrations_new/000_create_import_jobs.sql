@@ -19,7 +19,7 @@ CREATE TABLE import_jobs (
       'failed'
     )
   ),
-  auth_sub varchar(255) NOT NULL,
+  uid BIGINT not null,
   progress_percent numeric(5,2) NOT NULL DEFAULT 0,
   total_files integer,
   processed_files integer NOT NULL DEFAULT 0,

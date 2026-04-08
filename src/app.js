@@ -6,7 +6,6 @@ import { createSessionMiddleware } from "./services/sessionService.js";
 import fileRoutes from "./routes/fileRoutes.js";
 import segmentRoutes from "./routes/segmentRoutes.js";
 
-//import { ensureUserExists } from "./services/userDBService.js";
 import { Issuer, generators } from "openid-client";
 import { InitiateAuthCommand } from "@aws-sdk/client-cognito-identity-provider";
 import { ConfirmSignUpCommand } from "@aws-sdk/client-cognito-identity-provider";
@@ -259,7 +258,7 @@ export async function createApp() {
 
     app.get("/dashboard", checkAuth, (req, res) => {
 
-        if (!req?.user?.sub) {
+        if (!req?.user?.id) {
             const redirectUrl = encodeURIComponent(req.originalUrl);
             return res.redirect(`/login?redirect=${redirectUrl}`);
         }
@@ -273,7 +272,7 @@ export async function createApp() {
 
     app.get("/analytics", checkAuth, (req, res) => {
 
-        if (!req?.user?.sub) {
+        if (!req?.user?.id) {
             const redirectUrl = encodeURIComponent(req.originalUrl);
             return res.redirect(`/login?redirect=${redirectUrl}`);
         }
@@ -287,7 +286,7 @@ export async function createApp() {
 
     app.get("/segments", checkAuth, (req, res) => {
 
-        if (!req?.user?.sub) {
+        if (!req?.user?.id) {
             const redirectUrl = encodeURIComponent(req.originalUrl);
             return res.redirect(`/login?redirect=${redirectUrl}`);
         }

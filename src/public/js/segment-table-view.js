@@ -19,14 +19,17 @@ export default class TableView {
     return new Tabulator(this.containerSelector, {
       //ajaxURL: "/files/workouts",
 
-      /*ajaxResponse: (url, params, response) => {
+      ajaxResponse: (url, params, response) => {
         console.log(response);
+        const hdr = document.getElementById("segment-header");
+        if (hdr) {
+          hdr.innerText = `📍➡️📍 ${THAT.currentSegment.id}: ${THAT.currentSegment.start.name} - ${THAT.currentSegment.end.name}: ${(THAT.currentSegment.distance / 1000).toFixed(2)} km ${THAT.currentSegment.ascent} hm: ${response.total_records} Matches`;
+        }
 
-        document.getElementById("files_header").innerText =
-          response.total_records + " Workouts";
 
         return response;
-      },*/
+      },
+
       /*ajaxRequesting: function (url, params) {
         console.log("ID:", THAT.currentSegment.id);
         console.log("Params:", params);
@@ -71,7 +74,7 @@ export default class TableView {
         last_row: "total_records"
       },
 
-      initialSort: [{ column: "avg_power", dir: "desc" }],
+      initialSort: [{ column: "duration", dir: "asc" }],
 
       columns: this.buildColumns()
     });
@@ -83,32 +86,47 @@ export default class TableView {
   buildColumns() {
     return [
       {
-        title: "Start On",
-        field: "start_time",
-        sorter: "datetime",
-        formatter: (cell) => new Date(cell.getValue()).toLocaleString()
+        title: "Rank",
+        field: "rn",
+        sorter: false,
+        formatter: (cell) => cell.getValue()
       },
       {
         title: "Duration",
-        field: "total_timer_time",
+        field: "duration",
         sorter: "number",
         formatter: (cell) => Utils.formatDuration(cell.getValue())
       },
       {
+        title: "ID",
+        field: "id",
+        sorter: "number",
+        formatter: (cell) => cell.getValue()
+      },       
+      {
+        title: "Start On",
+        field: "start_time",
+        sorter: "datetime",
+        formatter: (cell) =>  {
+          const rowd = cell.getRow().getData();
+          return `${new Date(cell.getValue()).toLocaleDateString()} + ${Utils.formatStartIndex(rowd.start_offset)} `;
+        }
+      },
+      /*{
         title: "Distance (km)",
         field: "total_distance",
         sorter: "number",
         headerFilter: "input",
         headerFilterFunc: ">=",
         formatter: (cell) => cell.getValue().toFixed(2)
-      },
+      },*/
       {
         title: "Avg Speed (km/h)",
         field: "avg_speed",
         sorter: "number",
         headerFilter: "input",
         headerFilterFunc: ">=",
-        formatter: (cell) => cell.getValue().toFixed(1)
+        formatter: (cell) => (cell.getValue() / 10).toFixed(1)
       },
       {
         title: "Avg Power",
@@ -125,16 +143,16 @@ export default class TableView {
         headerFilter: "input",
         headerFilterFunc: ">=",
         formatter: (cell) => cell.getValue().toFixed(0)
-      },
-      {
+      }
+      /*{
         title: "Norm Power",
         field: "avg_normalized_power",
         sorter: "number",
         headerFilter: "input",
         headerFilterFunc: ">=",
         formatter: (cell) => cell.getValue().toFixed(0)
-      },
-      {
+      },*/
+      /*{
         title: "FTP",
         field: "ftp",
         sorter: false,
@@ -149,8 +167,8 @@ export default class TableView {
         headerSort: false,
         headerFilter: false,
         formatter: (cell) => cell.getValue().toFixed(0)
-      },
-      {
+      },*/
+      /*{
         title: "Actions",
         width: 160,
         formatter: () =>
@@ -163,7 +181,7 @@ export default class TableView {
             await this.handlers.onRowDelete?.(row);
           }
         }
-      }
+      }*/
     ];
   }
 
@@ -180,7 +198,7 @@ export default class TableView {
     this.currentSegment = segment;
     const hdr = document.getElementById("segment-header");
     if (hdr) {
-      hdr.innerText = `📍➡️📍 ${segment.start.name} - ${segment.end.name}: ${(segment.distance / 1000).toFixed(2)} km`;
+      hdr.innerText = `📍➡️📍 #${segment}:  ${segment.start.name} - ${segment.end.name}: ${(segment.distance / 1000).toFixed(2)} km`;
     }
     await this.loadSegmentBestEfforts(segment);
 

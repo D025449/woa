@@ -1,5 +1,5 @@
 import MapView from "./segment-map-view.js";
-import ChartView from "./chart-view.js";
+import ChartView from "./segment-chart-view.js";
 import TableView from "./segment-table-view.js";
 import WorkoutService from "./workout-service.js";
 import MapSegment from "../../shared/MapSegment.js";
@@ -56,13 +56,14 @@ export default class Controller {
         this.chartView.showLoading();
 
         try {
-          let workout = await WorkoutService.loadWorkoutByRow(row);
+          let workout = await WorkoutService.loadWorkoutByRow(row.getData().file_id);
 
-          const d = row.getData();
-          workout.validgps = d.validgps;
-          workout.startDate = d.start_time;
+          const segment  = row.getData();
+          workout.validgps = true;//d.validgps;
+          workout.startDate = segment.start_time;
 
-          this.chartView.updateWorkout(workout);
+
+          this.chartView.updateWorkout(workout, segment);
           //this.mapView.renderTrack(workout);
 
         } catch (err) {
