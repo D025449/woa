@@ -90,8 +90,9 @@ export default class ChartView {
       dataset: {
         dimensions: [
           "x", "Power", "Heartrate", "Cadence",
-          "Speed", "Altitude", "PowerS5", "PowerS15",
-          "SpeedS5", "AltitudeS7"
+          "Speed", "Altitude"
+          //, "PowerS5", "PowerS15",
+          //"SpeedS5", "AltitudeS7"
         ],
         source: []
       },
@@ -107,7 +108,7 @@ export default class ChartView {
           sampling: "lttb",
           yAxisIndex: 0,
           markArea: { data: [] },
-          encode: { x: "x", y: "PowerS15" }
+          encode: { x: "x", y: "Power" }
         },
         {
           name: "Heartrate",
@@ -131,7 +132,7 @@ export default class ChartView {
           showSymbol: false,
           sampling: "lttb",
           yAxisIndex: 2,
-          encode: { x: "x", y: "SpeedS5" }
+          encode: { x: "x", y: "Speed" }
         },
         {
           name: "Altitude",
@@ -139,7 +140,7 @@ export default class ChartView {
           showSymbol: false,
           sampling: "lttb",
           yAxisIndex: 3,
-          encode: { x: "x", y: "AltitudeS7" }
+          encode: { x: "x", y: "Altitude" }
         }
       ]
     });
@@ -150,11 +151,14 @@ export default class ChartView {
   // -----------------------------
   updateWorkout(workout) {
     this.currentWorkout = workout;
+    const obj = workout.workoutObject;
+    const result = obj.getAsStrideArray();
+    const sd = obj.getStartTime(); 
 
     this.chart.setOption({
-      title: { text: new Date(workout.startDate).toDateString() },
-      xAxis: { min: 0, max: workout.recCount },
-      dataset: { source: workout.series },
+      title: { text: new Date(sd).toDateString() },
+      xAxis: { min: 0, max: result.rowCount },
+      dataset: { source: result.data }, //workout.series },
       series: [{
         name: "Power",
         markArea: { data: buildMarkAreas(workout) }
@@ -164,11 +168,14 @@ export default class ChartView {
 
   updateWorkoutCP(workout, cpview) {
     this.currentWorkout = workout;
+    const obj = workout.workoutObject;
+    const result = obj.getAsStrideArray();
+    const sd = obj.getStartTime(); 
 
     this.chart.setOption({
       title: { text: new Date(cpview.startTime).toDateString() },
-      xAxis: { min: 0, max: workout.recCount },
-      dataset: { source: workout.series },
+      xAxis: { min: 0, max: result.rowCount },
+      dataset: { source: result.data }, //workout.series },
       series: [{
         name: "Power",
         markArea: { data: buildMarkAreasCP(cpview) }

@@ -1,6 +1,7 @@
 
 import TypedArrayHelpers from "/shared/TypedArrayHelpers.js";
 import SegmentService from "../../shared/SegmentService.js";
+import Workout from "../../shared/Workout.js";
 
 export default class WorkoutService {
 
@@ -36,27 +37,79 @@ export default class WorkoutService {
     //console.log(row);
 
     //const wid = this.getWorkoutId(row);
+    //console.time("fetchWO");
+    try {
+      const streamResponse = await fetch(`/workouts/${wid}/stream`);
+      if (streamResponse.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
+      const buffer = await streamResponse.arrayBuffer();
+      const workoutObject = Workout.fromBuffer(buffer);
 
-    const metaResponse = await fetch(`/files/workouts/${wid}/data`);
 
-    if (metaResponse.status === 401) {
-      window.location.href = '/login';
-      return;
-    }
-    else {
-      const { url } = await metaResponse.json();
-      const response = await fetch(url);
-      const buffer = await response.arrayBuffer();
+      const trackResonse = await fetch(`/workouts/${wid}/track`);
+      if (trackResonse.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
+
+      if (!trackResonse.ok) {
+        throw new Error(`Track fetch failed (${trackResonse.status})`);
+      }
+
+      const trackRow = await trackResonse.json();
+
+      //console.timeEnd("fetchWO");
+
+
+
+
+      /*const metaResponse = await fetch(`/files/workouts/${wid}/data`);
+
+      if (metaResponse.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
+      else {
+        console.time("fetchOld");
+
+        const { url } = await metaResponse.json();
+        const response = await fetch(url);
+        const buffer = await response.arrayBuffer();*/
 
       const workout = {
         id: wid,
-        ...this.parseWorkoutBuffer(buffer, '')
+        workoutObject,
+        validGps: workoutObject.isValidGps(),
+        sampleRateGPS: trackRow?.samplerategps ?? trackRow?.sampleRateGPS ?? 1,
+        track: this.parseGeoJsonTrack(trackRow?.track)
+        //...WorkoutService.parseWorkoutBuffer(buffer)
       };
+
+      //console.timeEnd("fetchOld");
 
       await SegmentService.fetchSegments(workout);
 
       return workout;
+      //}
     }
+    catch (err) {
+      console.error("Parsing fehlgeschlagen:", err.message);
+    }
+
+  }
+
+  static parseGeoJsonTrack(trackGeoJson) {
+    if (!trackGeoJson || trackGeoJson.type !== "LineString") {
+      return [];
+    }
+
+    return (trackGeoJson.coordinates || []).map(([lng, lat], idx) => ({
+      lat,
+      lng,
+      idx
+    }));
   }
 
   // -----------------------------
@@ -125,11 +178,14 @@ export default class WorkoutService {
   // -----------------------------
   // PARSING
   // -----------------------------
-  static parseWorkoutBuffer(buffer, filename) {
+  static parseWorkoutBuffer(buffer) {
     const view = new DataView(buffer);
 
     const recCount = view.getUint32(8, true);
-    const headerSize = 16;
+    const validGps = (view.getUint32(12, true) === 1);
+    const ts = Number(view.getBigInt64(16, true));
+    const startdate = new Date(ts);
+    const headerSize = 24;
 
     const [
       powers,
@@ -166,7 +222,8 @@ export default class WorkoutService {
     }
 
     return {
-      filename,
+      startdate,
+      validGps,
       recCount,
       series,
       STRIDE,

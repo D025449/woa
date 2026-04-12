@@ -1,37 +1,50 @@
-export async function requestPresignedUpload({ fileName, fileType, fileSize }) {
-    const response = await fetch('/api/uploads/presign', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ fileName, fileType, fileSize })
+export function uploadFileAndStartImport({ file, onProgress }) {
+    return new Promise((resolve, reject) => {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/uploads');
+
+        xhr.upload.addEventListener('progress', (event) => {
+            if (!event.lengthComputable || !onProgress) return;
+
+            const percent = Math.round((event.loaded / event.total) * 100);
+
+            onProgress({
+                loaded: event.loaded,
+                total: event.total,
+                percent
+            });
+        });
+
+        xhr.onload = () => {
+            let data = {};
+
+            try {
+                data = xhr.responseText ? JSON.parse(xhr.responseText) : {};
+            } catch (_error) {
+                reject(new Error('Antwort vom Server konnte nicht gelesen werden'));
+                return;
+            }
+
+            if (xhr.status >= 200 && xhr.status < 300) {
+                resolve(data);
+            } else {
+                reject(new Error(data.error || `Upload fehlgeschlagen (${xhr.status})`));
+            }
+        };
+
+        xhr.onerror = () => {
+            reject(new Error('Netzwerkfehler beim Upload'));
+        };
+
+        xhr.onabort = () => {
+            reject(new Error('Upload wurde abgebrochen'));
+        };
+
+        xhr.send(formData);
     });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-        throw new Error(data.error || 'Presigned URL konnte nicht erstellt werden');
-    }
-
-    return data;
-}
-
-export async function startImport({ key, originalFileName, sizeBytes }) {
-    const response = await fetch('/api/imports', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ key, originalFileName, sizeBytes })
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-        throw new Error(data.error || 'Import konnte nicht gestartet werden');
-    }
-
-    return data;
 }
 
 export async function getImportStatus(jobId) {

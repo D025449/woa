@@ -3,13 +3,16 @@ import ChartView from "./segment-chart-view.js";
 import TableView from "./segment-table-view.js";
 import WorkoutService from "./workout-service.js";
 import MapSegment from "../../shared/MapSegment.js";
+import UIStateManager from "./UIStateManager.js"
 
 export default class Controller {
 
   constructor() {
+    this.uiState = new UIStateManager("segmentController");
     this.initViews();
     this.registerEvents();
     this.mapSegments = [];
+
   }
 
   // -----------------------------
@@ -56,13 +59,8 @@ export default class Controller {
         this.chartView.showLoading();
 
         try {
-          let workout = await WorkoutService.loadWorkoutByRow(row.getData().file_id);
-
-          const segment  = row.getData();
-          workout.validgps = true;//d.validgps;
-          workout.startDate = segment.start_time;
-
-
+          const segment = row.getData();
+          let workout = await WorkoutService.loadWorkoutByRow(segment.wid);
           this.chartView.updateWorkout(workout, segment);
           //this.mapView.renderTrack(workout);
 

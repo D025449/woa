@@ -1,11 +1,10 @@
 BEGIN;
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";  -- für gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS postgis;
 
 DROP TABLE IF EXISTS workouts CASCADE;
 
 
-DROP INDEX idx_files_geom;
+DROP INDEX IF EXISTS idx_files_geom;
 
 CREATE TABLE workouts (
     id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -53,7 +52,8 @@ CREATE TABLE workouts (
     maxLat               DOUBLE PRECISION,
     minLng               DOUBLE PRECISION,
     maxLng               DOUBLE PRECISION,
-    validGPS             BOOLEAN,
+    stream               BYTEA NOT NULL,
+    validGps             BOOLEAN,
     points_count         INTEGER,
     sampleRateGPS        DOUBLE PRECISION,
 

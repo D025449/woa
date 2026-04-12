@@ -120,7 +120,7 @@ export default class TableView {
         sorter: false,
         headerSort: false,
         headerFilter: false,
-        formatter: (cell) => cell.getValue().toFixed(0)
+        formatter: (cell) => cell.getValue()?.toFixed(0)
       },
       {
         title: "TSS",
@@ -128,7 +128,7 @@ export default class TableView {
         sorter: false,
         headerSort: false,
         headerFilter: false,
-        formatter: (cell) => cell.getValue().toFixed(0)
+        formatter: (cell) => cell.getValue()?.toFixed(0)
       },
       {
         title: "Actions",

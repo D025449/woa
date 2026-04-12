@@ -1,4 +1,4 @@
-DROP VIEW IF EXISTS v_gps_segment_best_efforts;
+DROP VIEW IF EXISTS v_gps_segment_best_efforts CASCADE;
 CREATE VIEW v_gps_segment_best_efforts AS
 SELECT
     b.id AS id,

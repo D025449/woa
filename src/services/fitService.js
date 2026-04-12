@@ -4,6 +4,7 @@ import IntervalDetector from "../shared/IntervalDetector.js";
 import RecordGapFiller from "../shared/RecordGapFiller.js";
 import BestEffortDetector from "../shared/BestEffortDetector.js";
 import SegmentService from "../shared/SegmentService.js";
+import Workout from "../shared/Workout.js";
 
 const LIMITS = {
   Uint8: { min: 0, max: 0xFF },
@@ -16,26 +17,7 @@ const LIMITS = {
 
 export default class FitProcessor {
 
-  // -----------------------------
-  // FIT PARSE
-  // -----------------------------
-  /*static parseFit(buffer) {
-    return new Promise((resolve, reject) => {
-      const parser = new FitParser({
-        force: true,
-        speedUnit: "km/h",
-        lengthUnit: "km",
-        temperatureUnit: "celcius",
-        elapsedRecordField: true,
-        mode: "list"
-      });
 
-      parser.parse(buffer, (err, data) => {
-        if (err) reject(err);
-        else resolve(data);
-      });
-    });
-  }*/
 
   // -----------------------------
   // DATE / GROUPING
@@ -225,7 +207,14 @@ export default class FitProcessor {
   // -----------------------------
   // MAIN PIPELINE
   // -----------------------------
-  static processFitRecords(recs) {
+  static processFitRecords(fitFile) {
+    const recs = fitFile.records;
+    const aggregated = FitProcessor.aggregateSessions(fitFile);
+
+    if (!aggregated) {
+      throw new Error("No sessions found in payload");
+    }
+    const startdate = new Date(aggregated.start_time);
 
     recs.sort((a, b) => a.timestamp - b.timestamp);
 
@@ -235,9 +224,16 @@ export default class FitProcessor {
 
     const records = RecordGapFiller.fillGaps(recs);
 
+
+
+
+
     const normalized_power = FitProcessor.calculateNormalizedPower(records);
 
-    const gps_track = FitProcessor.cleanGPSAndBuildTrack(records, {sampleRate: 5});
+    const gps_track = FitProcessor.cleanGPSAndBuildTrack(records, { sampleRate: 5 });
+
+    const workoutObject = Workout.fromRecords(records, { validGps: gps_track.validGps, startTime: startdate });
+
 
     const segments = SegmentService.createSgmentsFromIntervals(
       IntervalDetector.detect(records),
@@ -252,7 +248,7 @@ export default class FitProcessor {
     segments.push(...segBE);
 
     const recCount = records.length;
-    const headerSize = 16;
+    const headerSize = 24;
 
     const bytes = TypedArrayHelpers.computeSizeForFitRecords(recCount, 0, headerSize);
     const buffer = new ArrayBuffer(bytes);
@@ -261,7 +257,9 @@ export default class FitProcessor {
     view.setUint32(0, 0x46544b31);
     view.setUint32(4, 1, true);
     view.setUint32(8, recCount, true);
-    view.setUint32(12, 0, true);
+    view.setUint32(12, (gps_track?.validGps) ? 1 : 0, true);
+    view.setBigInt64(16, BigInt(startdate.getTime()), true);
+
 
     const [powers, heartRates, cadences, speeds, altitudes, latitudes, longitudes] =
       TypedArrayHelpers.allocateViews(buffer, recCount, 0, headerSize);
@@ -291,7 +289,7 @@ export default class FitProcessor {
       nn++;
     }
 
-    return { buffer, normalized_power, segments, gps_track, powers, heartRates, cadences, speeds, altitudes };
+    return { buffer, normalized_power, segments, gps_track, powers, heartRates, cadences, speeds, altitudes, workoutObject };
   }
 
   // -----------------------------
@@ -299,154 +297,154 @@ export default class FitProcessor {
   // -----------------------------
 
 
-static cleanGPSAndBuildTrack(records, options = {}) {
-  const MAX_SPEED = 40;
+  static cleanGPSAndBuildTrack(records, options = {}) {
+    const MAX_SPEED = 40;
 
-  const {
-    sampleRate = 1,
-    precision = 5
-  } = options;
+    const {
+      sampleRate = 1,
+      precision = 5
+    } = options;
 
-  function haversine(a, b) {
-    const R = 6371000;
-    const toRad = x => x * Math.PI / 180;
+    function haversine(a, b) {
+      const R = 6371000;
+      const toRad = x => x * Math.PI / 180;
 
-    const dLat = toRad(b.position_lat - a.position_lat);
-    const dLng = toRad(b.position_long - a.position_long);
+      const dLat = toRad(b.position_lat - a.position_lat);
+      const dLng = toRad(b.position_long - a.position_long);
 
-    const lat1 = toRad(a.position_lat);
-    const lat2 = toRad(b.position_lat);
+      const lat1 = toRad(a.position_lat);
+      const lat2 = toRad(b.position_lat);
 
-    const aVal =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(lat1) * Math.cos(lat2) *
-      Math.sin(dLng / 2) ** 2;
+      const aVal =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1) * Math.cos(lat2) *
+        Math.sin(dLng / 2) ** 2;
 
-    return 2 * R * Math.atan2(Math.sqrt(aVal), Math.sqrt(1 - aVal));
-  }
-
-  let lastValid = null;
-
-  // -------------------------
-  // PASS 1: Clean
-  // -------------------------
-  for (let i = 0; i < records.length; i++) {
-    const r = records[i];
-
-    const invalid =
-      r.position_lat == null ||
-      r.position_long == null ||
-      (r.position_lat === 0 && r.position_long === 0);
-
-    if (invalid) {
-      r.position_lat = null;
-      r.position_long = null;
-      continue;
+      return 2 * R * Math.atan2(Math.sqrt(aVal), Math.sqrt(1 - aVal));
     }
 
-    if (!lastValid) {
-      lastValid = r;
-      continue;
-    }
+    let lastValid = null;
 
-    const dist = haversine(lastValid, r);
+    // -------------------------
+    // PASS 1: Clean
+    // -------------------------
+    for (let i = 0; i < records.length; i++) {
+      const r = records[i];
 
-    if (dist > MAX_SPEED) {
-      r.position_lat = null;
-      r.position_long = null;
-    } else {
-      lastValid = r;
-    }
-  }
+      const invalid =
+        r.position_lat == null ||
+        r.position_long == null ||
+        (r.position_lat === 0 && r.position_long === 0);
 
-  // -------------------------
-  // PASS 2: Interpolation
-  // -------------------------
-  for (let i = 0; i < records.length; i++) {
-    const r = records[i];
+      if (invalid) {
+        r.position_lat = null;
+        r.position_long = null;
+        continue;
+      }
 
-    if (r.position_lat != null && r.position_long != null) continue;
+      if (!lastValid) {
+        lastValid = r;
+        continue;
+      }
 
-    let prev = null;
-    let next = null;
+      const dist = haversine(lastValid, r);
 
-    for (let j = i - 1; j >= 0; j--) {
-      if (records[j].position_lat != null && records[j].position_long != null) {
-        prev = records[j];
-        break;
+      if (dist > MAX_SPEED) {
+        r.position_lat = null;
+        r.position_long = null;
+      } else {
+        lastValid = r;
       }
     }
 
-    for (let j = i + 1; j < records.length; j++) {
-      if (records[j].position_lat != null && records[j].position_long != null) {
-        next = records[j];
-        break;
+    // -------------------------
+    // PASS 2: Interpolation
+    // -------------------------
+    for (let i = 0; i < records.length; i++) {
+      const r = records[i];
+
+      if (r.position_lat != null && r.position_long != null) continue;
+
+      let prev = null;
+      let next = null;
+
+      for (let j = i - 1; j >= 0; j--) {
+        if (records[j].position_lat != null && records[j].position_long != null) {
+          prev = records[j];
+          break;
+        }
+      }
+
+      for (let j = i + 1; j < records.length; j++) {
+        if (records[j].position_lat != null && records[j].position_long != null) {
+          next = records[j];
+          break;
+        }
+      }
+
+      if (prev && next) {
+        r.position_lat = (prev.position_lat + next.position_lat) / 2;
+        r.position_long = (prev.position_long + next.position_long) / 2;
+      } else if (prev) {
+        r.position_lat = prev.position_lat;
+        r.position_long = prev.position_long;
+      } else if (next) {
+        r.position_lat = next.position_lat;
+        r.position_long = next.position_long;
       }
     }
 
-    if (prev && next) {
-      r.position_lat = (prev.position_lat + next.position_lat) / 2;
-      r.position_long = (prev.position_long + next.position_long) / 2;
-    } else if (prev) {
-      r.position_lat = prev.position_lat;
-      r.position_long = prev.position_long;
-    } else if (next) {
-      r.position_lat = next.position_lat;
-      r.position_long = next.position_long;
+    // -------------------------
+    // PASS 3: Build Output
+    // -------------------------
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    let minLng = Infinity;
+    let maxLng = -Infinity;
+
+    let validCount = 0;
+    const reduced = [];
+
+    for (let i = 0; i < records.length; i++) {
+      const r = records[i];
+
+      if (r.position_lat == null || r.position_long == null) continue;
+
+      validCount++;
+
+      const lat = Number(r.position_lat.toFixed(precision));
+      const lng = Number(r.position_long.toFixed(precision));
+
+      // bbox
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+
+      if (i % sampleRate === 0) {
+        reduced.push([lat, lng]);
+      }
     }
+
+    const validGps = validCount > 0;
+
+    // einfacher TrackHash
+    const trackHash = validGps
+      ? reduced.map(p => p.join(',')).join('|')
+      : null;
+
+    return {
+      validGps,
+      sampleRate,
+      bbox: validGps
+        ? { minLat, maxLat, minLng, maxLng }
+        : null,
+
+      track: reduced,
+
+      trackHash
+    };
   }
-
-  // -------------------------
-  // PASS 3: Build Output
-  // -------------------------
-  let minLat = Infinity;
-  let maxLat = -Infinity;
-  let minLng = Infinity;
-  let maxLng = -Infinity;
-
-  let validCount = 0;
-  const reduced = [];
-
-  for (let i = 0; i < records.length; i++) {
-    const r = records[i];
-
-    if (r.position_lat == null || r.position_long == null) continue;
-
-    validCount++;
-
-    const lat = Number(r.position_lat.toFixed(precision));
-    const lng = Number(r.position_long.toFixed(precision));
-
-    // bbox
-    if (lat < minLat) minLat = lat;
-    if (lat > maxLat) maxLat = lat;
-    if (lng < minLng) minLng = lng;
-    if (lng > maxLng) maxLng = lng;
-
-    if (i % sampleRate === 0) {
-      reduced.push([lat, lng]);
-    }
-  }
-
-  const validGPS = validCount > 0;
-
-  // einfacher TrackHash
-  const trackHash = validGPS
-    ? reduced.map(p => p.join(',')).join('|')
-    : null;
-
-  return {
-    validGPS,
-    sampleRate,
-    bbox: validGPS
-      ? { minLat, maxLat, minLng, maxLng }
-      : null,
-
-    track: reduced,
-
-    trackHash
-  };
-}
 
 
 }

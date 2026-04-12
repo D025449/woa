@@ -124,7 +124,12 @@ router.post("/save/:id/segments", authMiddleware, async (req, res, next) => {
     const segments_inserted = await SegmentDBService.insertGpsSegmentsBulk(uid, segments);
     const matching_efforts = await SegmentDBService.scanWorkoutsForSegments(uid, segments_inserted);
 
-    console.log(matching_efforts);
+    const new_sbe = await SegmentDBService.storeSegmentBestEffortsV2(matching_efforts);
+
+    console.log(new_sbe);
+
+
+
 
 
     const updated = segments_inserted.map(seg => ({

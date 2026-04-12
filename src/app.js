@@ -4,6 +4,7 @@ import url from "url";
 
 import { createSessionMiddleware } from "./services/sessionService.js";
 import fileRoutes from "./routes/fileRoutes.js";
+import workoutRoutes from "./routes/workoutRoutes.js"
 import segmentRoutes from "./routes/segmentRoutes.js";
 
 import { Issuer, generators } from "openid-client";
@@ -14,7 +15,6 @@ import cookieParser from "cookie-parser";
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import { CognitoJwtVerifier } from "aws-jwt-verify";
 import authGlobal from "./middleware/authGlobal.js";
-import { progressEmitter } from "./services/progressEmitter.js";
 import fs from "fs";
 
 import uploadsRouter from './routes/uploads.js';
@@ -43,6 +43,8 @@ export async function createApp() {
     app.use(authGlobal);
 
     app.use("/files", fileRoutes);
+    app.use("/workouts", workoutRoutes);
+
     app.use('/segments', segmentRoutes);
 
     app.use('/api/uploads', uploadsRouter);

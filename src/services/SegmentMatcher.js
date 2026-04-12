@@ -81,8 +81,10 @@ export default class SegmentMatcher {
 
 
     // new:
-    static findProjectionCandidates(point, polyline, maxDist, startScanIndex = 0, maxHitCount = 100) {
+    static findProjectionCandidates(wid, sid, pos, point, polyline, maxDist, startScanIndex = 0, maxHitCount = 100) {
         const results = [];
+
+        let min = Infinity;
 
         for (let i = startScanIndex; i < polyline.length - 1; i++) {
 
@@ -107,7 +109,7 @@ export default class SegmentMatcher {
             };
 
             const dist = this.distance(point, proj);
-
+            min = Math.min(min, dist);
             if (dist < maxDist) {
                 results.push({
                     index: i,
@@ -119,7 +121,7 @@ export default class SegmentMatcher {
                 }
             }
         }
-
+        //console.log(`Skipped Wid ${wid} Sid ${sid} pos ${pos} startscanpos ${startScanIndex} at min dist ${min} ` );
         return results;
     }
 
@@ -246,12 +248,12 @@ export default class SegmentMatcher {
         const endPoint = segment[segment.length - 1];
 
         //const startCandidates = this.findNearbyIndices(workout, startPoint, MAX_DIST);
-        const startCandidatesV2 = this.findProjectionCandidates(startPoint, workout.track, MAX_DIST, 0, 100);
+        const startCandidatesV2 = this.findProjectionCandidates(workout.wid,segmentId, 'start', startPoint, workout.track, MAX_DIST, 0, 100);
 
 
         for (const startCandidate of startCandidatesV2) {
             if (startCandidate.index <= lastEndCandidate.index) continue;
-            const endCandidates = this.findProjectionCandidates(endPoint, workout.track, MAX_DIST, startCandidate.index + 1, 1);
+            const endCandidates = this.findProjectionCandidates(workout.wid,segmentId, 'end', endPoint, workout.track, MAX_DIST, startCandidate.index + 1, 1);
             if (endCandidates.length < 1) {
                 continue;
             }

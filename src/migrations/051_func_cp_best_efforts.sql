@@ -1,4 +1,4 @@
-DROP FUNCTION IF EXISTS get_cp_best_efforts;
+DROP FUNCTION IF EXISTS get_cp_best_efforts( TEXT, INT[], BIGINT)  CASCADE;
 
 CREATE OR REPLACE FUNCTION get_cp_best_efforts(
     p_grouping TEXT,

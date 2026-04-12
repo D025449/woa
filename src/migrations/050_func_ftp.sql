@@ -1,5 +1,5 @@
-DROP FUNCTION get_ftp_by_period2;
-CREATE OR REPLACE FUNCTION get_ftp_by_period2(
+DROP FUNCTION IF EXISTS get_ftp_by_period2(BIGINT, TEXT) CASCADE;
+CREATE OR FUNCTION get_ftp_by_period2(
   p_uid BIGINT,
   p_period_type TEXT DEFAULT 'quarter'
 )

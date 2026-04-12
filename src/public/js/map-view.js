@@ -19,16 +19,18 @@ export default class MapView {
 
     this.hoverMarker = null;
     this.currentTrackPoints = [];
+    this.currentTrackSampleRate = 1;
   }
 
   // -----------------------------
   // SEGMENT HIGHLIGHT
   // -----------------------------
   highlightSegment(segment) {
-    const coords = this.currentTrackPoints.slice(
-      segment.start,
-      segment.end
-    );
+    const startIdx = this.mapSourceIndexToTrackIndex(segment.start, "floor");
+    const endIdx = this.mapSourceIndexToTrackIndex(segment.end, "ceil");
+    const coords = this.currentTrackPoints.slice(startIdx, endIdx + 1);
+
+    if (coords.length === 0) return;
 
     const bounds = L.latLngBounds(coords);
 
@@ -42,10 +44,17 @@ export default class MapView {
     this.trackLayer.clearLayers();
     this.hoverLayer.clearLayers();
     this.hoverMarker = null;
+    this.currentTrackPoints = [];
+    this.currentTrackSampleRate = 1;
 
-    if (workout?.validgps) {
+    if (workout?.validGps) {
 
-      this.currentTrackPoints = workout.track;
+      this.currentTrackPoints = workout.track ?? [];
+      this.currentTrackSampleRate = Math.max(1, Number(workout.sampleRateGPS) || 1);
+
+      if (this.currentTrackPoints.length === 0) {
+        return;
+      }
 
       const latlngs = this.currentTrackPoints.map((p) => [p.lat, p.lng]);
 
@@ -62,6 +71,8 @@ export default class MapView {
         const markArea = markAreas[i];
 
         const latlngs = markArea.currentTrackPoints.map((p) => [p.lat, p.lng]);
+
+        if (latlngs.length === 0) continue;
 
         L.polyline(latlngs, {
           color: markArea.segmenttype === 'auto' ? "Blue" : "Purple",
@@ -87,8 +98,9 @@ export default class MapView {
       segments
         .filter(f => f.rowstate !== 'DEL')
         .forEach(seg => {
-
-          const currentTrackPoints = this.currentTrackPoints.slice(seg.start_offset, seg.end_offset);
+          const startIdx = this.mapSourceIndexToTrackIndex(seg.start_offset, "floor");
+          const endIdx = this.mapSourceIndexToTrackIndex(seg.end_offset, "ceil");
+          const currentTrackPoints = this.currentTrackPoints.slice(startIdx, endIdx + 1);
 
           markAreas.push({
             currentTrackPoints,
@@ -118,10 +130,33 @@ export default class MapView {
   }
 
   moveMarkerToIndex(idx) {
-    const p = this.currentTrackPoints[idx];
+    const trackIdx = this.mapSourceIndexToTrackIndex(idx, "nearest");
+    const p = this.currentTrackPoints[trackIdx];
     if (!p) return;
 
     this.moveMarker(p.lat, p.lng);
+  }
+
+  mapSourceIndexToTrackIndex(idx, mode = "nearest") {
+    if (!Number.isFinite(idx) || this.currentTrackPoints.length === 0) {
+      return 0;
+    }
+
+    const sampleRate = this.currentTrackSampleRate > 0
+      ? this.currentTrackSampleRate
+      : 1;
+
+    let mappedIdx;
+
+    if (mode === "floor") {
+      mappedIdx = Math.floor(idx / sampleRate);
+    } else if (mode === "ceil") {
+      mappedIdx = Math.ceil(idx / sampleRate);
+    } else {
+      mappedIdx = Math.round(idx / sampleRate);
+    }
+
+    return Math.max(0, Math.min(this.currentTrackPoints.length - 1, mappedIdx));
   }
 
   hideMarker() {
@@ -138,4 +173,3 @@ export default class MapView {
     return this.currentTrackPoints;
   }
 }
-

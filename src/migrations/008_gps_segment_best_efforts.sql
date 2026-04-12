@@ -22,8 +22,10 @@ CREATE TABLE gps_segment_best_efforts (
     CONSTRAINT fk_workout
         FOREIGN KEY (wid)
         REFERENCES workouts(id)
-        ON DELETE CASCADE
+        ON DELETE CASCADE,
 
+    CONSTRAINT unique_segment_effort
+        UNIQUE (sid, wid, start_offset, end_offset)
 
 );
 

@@ -1,68 +1,65 @@
-import { Router } from "express";
-import crypto from "node:crypto";
+import fs from "node:fs/promises";
 import path from "node:path";
-import S3Service from "../services/s3Service.js";
+import { Router } from "express";
+
+import authMiddleware from "../middleware/authMiddleware.js";
+import uploadMiddleware from "../middleware/uploadMiddleware.js";
+import { createAndEnqueueImport } from "../services/import-service.js";
 
 const router = Router();
 
-router.post("/presign", async (req, res, next) => {
-  try {
-    const { fileName, fileType, fileSize } = req.body;
+router.post(
+  "/",
+  authMiddleware,
+  uploadMiddleware.single("file"),
+  async (req, res, next) => {
+    const uploadedFile = req.file;
 
-    if (!fileName || !fileSize) {
-      return res.status(400).json({
-        error: "fileName und fileSize sind erforderlich"
+    try {
+      if (!req.user?.id) {
+        if (uploadedFile?.path) {
+          await fs.rm(uploadedFile.path, { force: true });
+        }
+
+        return res.status(401).json({
+          error: "Nicht angemeldet"
+        });
+      }
+
+      if (!uploadedFile) {
+        return res.status(400).json({
+          error: "Keine Datei hochgeladen"
+        });
+      }
+
+      const ext = path.extname(uploadedFile.originalname).toLowerCase();
+
+      if (ext !== ".zip" && ext !== ".fit") {
+        await fs.rm(uploadedFile.path, { force: true });
+
+        return res.status(400).json({
+          error: "Nur .zip oder .fit Dateien sind erlaubt"
+        });
+      }
+
+      const job = await createAndEnqueueImport({
+        localPath: uploadedFile.path,
+        originalFileName: uploadedFile.originalname,
+        sizeBytes: uploadedFile.size,
+        uid: req.user.id
       });
-    }
 
-    const numericFileSize = Number(fileSize);
-
-    if (!Number.isFinite(numericFileSize) || numericFileSize <= 0) {
-      return res.status(400).json({
-        error: "Ungültige fileSize"
+      res.status(202).json({
+        jobId: job.id
       });
+    } catch (err) {
+      if (uploadedFile?.path) {
+        await fs.rm(uploadedFile.path, { force: true }).catch(() => {});
+      }
+
+      next(err);
     }
-
-    if (numericFileSize > 250 * 1024 * 1024) {
-      return res.status(400).json({
-        error: "Datei ist zu groß"
-      });
-    }
-
-    const ext = path.extname(fileName).toLowerCase();
-
-    if (ext !== ".zip" && ext !== ".fit") {
-      return res.status(400).json({
-        error: "Nur .zip oder .fit Dateien sind erlaubt"
-      });
-    }
-
-    const safeFileName = path.basename(fileName).replace(/[^a-zA-Z0-9._-]/g, "_");
-    const key = `imports/${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}-${safeFileName}`;
-
-    const uploadUrl = await S3Service.getPresignedUploadUrl(
-      process.env.S3_BUCKET,
-      key,
-      fileType || guessContentType(fileName),
-      300
-    );
-
-    res.json({
-      uploadUrl,
-      key
-    });
-  } catch (err) {
-    next(err);
   }
-});
-
-function guessContentType(fileName) {
-  const lower = fileName.toLowerCase();
-
-  if (lower.endsWith(".zip")) return "application/zip";
-  if (lower.endsWith(".fit")) return "application/octet-stream";
-
-  return "application/octet-stream";
-}
+);
 
 export default router;

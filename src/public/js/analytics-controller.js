@@ -31,7 +31,7 @@ export default class Controller {
       onCPClick: async (row) => {
         const workout = await WorkoutService.loadWorkoutByRow(row.fileId);
 
-        this.chartView.updateWorkoutCP(workout, row.fileId);
+        this.chartView.updateWorkoutCP(workout, row);
         this.mapView.renderTrack(workout);
       }
     });

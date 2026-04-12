@@ -1,15 +1,15 @@
-import crypto from 'node:crypto';
+//import crypto from 'node:crypto';
 import pool from '../services/database.js';
 
-export async function createImportJob({ s3Key, originalFileName, sizeBytes, uid: uid }) {
-    const id = crypto.randomUUID();
+export async function createImportJob({ s3Key = null, localPath = null, originalFileName, sizeBytes, uid: uid }) {
+    //const id = crypto.randomUUID();
 
-    await pool.query(
+    const result = await pool.query(
         `
         insert into import_jobs (
-            id,
             uid,
             s3_key,
+            local_path,
             original_file_name,
             size_bytes,
             status,
@@ -17,13 +17,13 @@ export async function createImportJob({ s3Key, originalFileName, sizeBytes, uid:
             progress_percent,
             processed_files,
             failed_files
-        )
-        values ($1, $2, $3, $4, $5, 'queued', 'waiting_for_worker', 0, 0, 0)
+        ) 
+        values ($1, $2, $3, $4, $5, 'queued', 'waiting_for_worker', 0, 0, 0) returning id
         `,
-        [id, uid, s3Key, originalFileName, sizeBytes]
+        [uid, s3Key, localPath, originalFileName, sizeBytes]
     );
 
-    return { id };
+    return { id: result.rows[0].id };
 }
 
 export async function getImportJobById(id) {
@@ -33,6 +33,7 @@ export async function getImportJobById(id) {
             id,
             uid,
             s3_key as "s3Key",
+            local_path as "localPath",
             original_file_name as "originalFileName",
             size_bytes as "sizeBytes",
             status,

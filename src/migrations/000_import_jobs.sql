@@ -1,10 +1,8 @@
 BEGIN;
-
-
 DROP TABLE IF EXISTS import_jobs CASCADE;
 CREATE TABLE import_jobs (
-  id uuid PRIMARY KEY,
-  s3_key text NOT NULL,
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  local_path text,
   original_file_name text NOT NULL,
   size_bytes bigint NOT NULL,
   status text NOT NULL CHECK (status IN ('queued', 'processing', 'completed', 'failed')),
@@ -26,6 +24,9 @@ CREATE TABLE import_jobs (
   failed_files integer NOT NULL DEFAULT 0,
   error_message text,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+      CONSTRAINT fk_user FOREIGN KEY (uid)
+        REFERENCES users(id)
+        ON DELETE CASCADE
 );
 COMMIT;

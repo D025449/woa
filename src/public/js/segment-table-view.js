@@ -126,7 +126,7 @@ export default class TableView {
         sorter: "number",
         headerFilter: "input",
         headerFilterFunc: ">=",
-        formatter: (cell) => (cell.getValue() / 10).toFixed(1)
+        formatter: (cell) => (cell.getValue()).toFixed(1)
       },
       {
         title: "Avg Power",

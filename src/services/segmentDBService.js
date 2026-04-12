@@ -1,6 +1,7 @@
 import pool from "./database.js";
 import { FileDBService } from "./fileDBService.js";
 import SegmentMatcher from "./SegmentMatcher.js";
+import WorkoutDBService from "./workoutDBService.js";
 
 
 
@@ -31,6 +32,111 @@ export default class SegmentDBService {
     "avg_cadence",
     "avg_speed"
   ];
+
+  static async storeSegmentBestEffortsV2(matches) {
+
+    const gps_segments_be = [];
+    matches.forEach(match => {
+      const duration = match.end_offset - match.start_offset;
+      const segment_id = match.segment_id;
+      const file_id = match.workout_id;
+      const start_offset = match.start_offset;
+      const end_offset = match.end_offset;
+      const avg_power = match.power;
+      const avg_heart_rate = match.hr;
+      const avg_cadence = match.cadence;
+      const avg_speed = match.speed;
+
+      gps_segments_be.push({
+        segment_id,
+        file_id,
+        start_offset,
+        end_offset,
+        duration,
+        avg_power,
+        avg_heart_rate,
+        avg_cadence,
+        avg_speed
+      });
+
+    });
+
+    const segmentIds = [];
+    const fileIds = [];
+    const starts = [];
+    const ends = [];
+    const durations = [];
+    const pws = [];
+    const hrs = [];
+    const cds = [];
+    const sps = [];
+
+    for (const m of gps_segments_be) {
+      segmentIds.push(m.segment_id);
+      fileIds.push(m.file_id);
+      starts.push(m.start_offset);
+      ends.push(m.end_offset);
+      durations.push(m.duration);
+      pws.push(m.avg_power);
+      hrs.push(m.avg_heart_rate);
+      cds.push(m.avg_cadence);
+      sps.push(m.avg_speed);
+    }
+
+    const result = await pool.query(`
+    INSERT INTO gps_segment_best_efforts (
+      sid,
+      wid,
+      start_offset,
+      end_offset,
+      duration,
+      avg_power,
+      avg_heart_rate,
+      avg_cadence,
+      avg_speed
+    )
+    SELECT *
+    FROM UNNEST(
+      $1::int[],
+      $2::int[],   
+      $3::int[],   
+      $4::int[],   
+      $5::int[],    
+      $6::float8[],
+      $7::float8[],
+      $8::float8[],
+      $9::float8[]
+    )
+    RETURNING *;
+  `, [segmentIds, fileIds, starts, ends, durations, pws, hrs, cds, sps]);
+
+    return result.rows;
+
+  }
+
+
+  static matchSegments(workout, segments) {
+    const results = [];
+
+
+    const wotrack = {
+      wid: workout.id,
+      track: workout.track.map(p => ({ lat: p[0], lng: p[1] })),
+      sampleRate: workout.sampleRate
+    }
+
+
+    for (const seg of segments) {
+      //results.push( ... matchSegment(track, seg));
+      const segLine = seg.geom.coordinates.map(([lng, lat]) => ({ lat, lng }));
+      const m = SegmentMatcher.findMatches(wotrack, { id: seg.id, track: segLine });
+      //console.log({ wid: workout.id, sid: seg.id, segcount: m.length });
+      results.push(...m);
+    }
+
+    return results;
+  }
+
 
   static async storeSegmentBestEfforts(uid, matches, powers, heartRates, cadences, speeds) {
 
@@ -76,7 +182,7 @@ export default class SegmentDBService {
 
     const segmentIds = [];
     const fileIds = [];
-//    const uids = [];
+    //    const uids = [];
     const starts = [];
     const ends = [];
     const durations = [];
@@ -88,7 +194,7 @@ export default class SegmentDBService {
     for (const m of gps_segments_be) {
       segmentIds.push(m.segment_id);
       fileIds.push(m.file_id);
-//      uids.push(m.uid);
+      //      uids.push(m.uid);
       starts.push(m.start_offset);
       ends.push(m.end_offset);
       durations.push(m.duration);
@@ -313,14 +419,23 @@ export default class SegmentDBService {
 
 
   }
+
+static chunkArray(arr, size) {
+  const result = [];
+  for (let i = 0; i < arr.length; i += size) {
+    result.push(arr.slice(i, i + size));
+  }
+  return result;
+}
+
   static async scanWorkoutsForSegments(uid, segments) {
     const sids = segments.map(m => m.id);
 
     const candidates = await FileDBService.getMatchingWorkoutCandidates(sids, uid);
-    
-    const results = [];
 
-    candidates.forEach(cand=>{
+    const matches = [];
+
+    candidates.forEach(cand => {
       const wotrack = {
         wid: cand.wid,
         track: cand.wgeom.coordinates.map(([lng, lat]) => ({ lat, lng })),
@@ -328,11 +443,41 @@ export default class SegmentDBService {
       }
       const segLine = cand.sgeom.coordinates.map(([lng, lat]) => ({ lat, lng }));
       const m = SegmentMatcher.findMatches(wotrack, { id: cand.sid, track: segLine });
-      console.log({ wid: cand.wdisplay_id, sid: cand.sdisplay_id, segcount: m.length });
-      results.push(...m);
+      //console.log({ wid: cand.wdisplay_id, sid: cand.sdisplay_id, segcount: m.length });
+      matches.push(...m);
     });
 
-    return results;
+
+    const uniqueIds = [...new Set(matches.map(w => w.workout_id))];
+
+    if (uniqueIds.length > 0) {
+      const chunks = SegmentDBService.chunkArray(uniqueIds, 10);
+
+      const CONCURRENCY = 3; // 🔥 feinjustieren!
+
+      for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+        const batch = chunks.slice(i, i + CONCURRENCY);
+
+        const results = await Promise.all(
+          batch.map(chunk => WorkoutDBService.getWorkouts(chunk))
+        );
+
+        results.forEach((workoutMap, idx) => {
+          const chunk = batch[idx];
+
+          matches.forEach(match => {
+            if (!chunk.includes(match.workout_id)) return;
+
+            const workoutObject = workoutMap.get(match.workout_id);
+            if (!workoutObject) return;
+
+            const avgs = workoutObject.getAverages(match.start_offset, match.end_offset);
+            Object.assign(match, avgs);
+          });
+        });
+      }
+    }
+    return matches;
   }
 
   static async insertGpsSegmentsBulk(uid, segments) {

@@ -156,7 +156,7 @@ export default class SegmentService {
             //lert("No segments to save");
             return;
         }
-        if (workout?.validgps) {
+        if (workout?.validGps) {
             new_segments.filter(s => s.segmenttype == 'manual' && s?.segmentname !== '').forEach(s => {
                 s.gpstrack = SegmentService.reduced_track(workout, s);
             });

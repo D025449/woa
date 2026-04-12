@@ -48,6 +48,7 @@ static async getMatchingWorkoutCandidates(sids, uid) {
       AND s.id = ANY($1)
       AND s.bounds && w.bounds
       AND ST_DWithin(w.geom, s.geom, 30)
+      AND NOT EXISTS( SELECT 1 from gps_segment_best_efforts sbe WHERE sbe.wid = w.id and sbe.sid = s.id  )
   `;
 
   const result = await pool.query(
@@ -340,7 +341,7 @@ static async getMatchingWorkoutCandidates(sids, uid) {
       maxlat,
       minlng,
       maxlng,
-      validgps`
+      validGps`
   }
 
 
@@ -968,12 +969,16 @@ static async getMatchingWorkoutCandidates(sids, uid) {
     return result.rows;
   }
 
-  static async insertFile(fileRow, segments, gps_track) {
+  static async insertFile(fileRow, segments, gps_track, workoutObject) {
     const d = new Date(fileRow.start_time);
 
-    fileRow.validGPS = gps_track.validGPS;
+    const compressedBuffer = await workoutObject.toCompressedBuffer();
+    console.log({BufferSizeWritten: compressedBuffer.length});
+
+
+    fileRow.validGps = gps_track.validGps;
     let sampleRateGPS = gps_track?.sampleRate ?? 1;
-    if (fileRow.validGPS) {
+    if (fileRow.validGps) {
       fileRow.minLat = gps_track?.bbox?.minLat ?? 0;
       fileRow.maxLat = gps_track?.bbox?.maxLat ?? 0;
       fileRow.minLng = gps_track?.bbox?.minLng ?? 0;
@@ -1026,7 +1031,7 @@ static async getMatchingWorkoutCandidates(sids, uid) {
       maxLat,
       minLng,
       maxLng,
-      validGPS,
+      validGps,
       year,
       month,
       week,
@@ -1072,7 +1077,7 @@ INSERT INTO workouts (
   maxLat,
   minLng,
   maxLng,
-  validGPS,
+  validGps,
   year,
   month,
   week,
@@ -1082,7 +1087,8 @@ INSERT INTO workouts (
   bounds,
   geom,
   points_count,
-  sampleRateGPS        
+  sampleRateGPS,
+  stream        
 )
 VALUES (
   $1,$2,$3,$4,$5,
@@ -1108,7 +1114,8 @@ CASE
   ELSE NULL
 END,
   $37,
-  $38
+  $38,
+  $39
 )
 ON CONFLICT (uid, start_time)
 DO NOTHING
@@ -1143,7 +1150,7 @@ RETURNING id, uid;
           maxLat,                // $26
           minLng,                // $27
           maxLng,                // $28
-          validGPS,              // $29
+          validGps,              // $29
           year,                  // $30
           month,                 // $31
           week,                  // $32
@@ -1152,7 +1159,8 @@ RETURNING id, uid;
           year_week,             // $35
           geom,                  // $36
           points_count,          // $37
-          sampleRateGPS          // $38 
+          sampleRateGPS,         // $38
+          compressedBuffer       // $39
         ]
       );
 

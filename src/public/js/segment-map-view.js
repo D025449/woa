@@ -29,7 +29,7 @@ export default class MapView {
     this.lookupPoints = [];
     this.lookupMarkers = L.layerGroup().addTo(this.map);
 
-    this.initMapWithFallback();
+    //this.initMapWithFallback();
 
     this.map.on("click", (e) => this.handleMapClick(e));
     //this.map.on("dblclick", (e) => this.handleMapDoubleClick(e));
@@ -85,7 +85,47 @@ export default class MapView {
     });
 
 
+    this.restoreMapState(containerId);
+    this.bindMapState(containerId);
+
+
   }
+
+  restoreMapState(key = "map") {
+    const state = this.controller.uiState.get(key);
+    if (!state){
+      this.initMapWithFallback();
+      return;
+    }
+
+    this.map.setView(
+      [state.lat, state.lng],
+      state.zoom,
+      { animate: false }
+    );
+  }
+
+  bindMapState(key = "map") {
+    let timeout;
+
+    const save = () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        const center = this.map.getCenter();
+        const zoom = this.map.getZoom();
+
+        this.controller.uiState.set(key, {
+          lat: center.lat,
+          lng: center.lng,
+          zoom
+        });
+      }, 200);
+    };
+
+    this.map.on("move", save);
+    this.map.on("zoomend", save);
+  }
+
 
   enableSelectionMode() {
     this.isSelecting = true;
@@ -289,8 +329,8 @@ export default class MapView {
 
 
   async onSegmentStartClick(segment) {
-    this.handlers.onSegmentOpen?.({ type: 'start' },segment);
-    
+    this.handlers.onSegmentOpen?.({ type: 'start' }, segment);
+
 
 
     // z. B.:
@@ -298,7 +338,7 @@ export default class MapView {
   }
 
   async onSegmentEndClick(segment) {
-    this.handlers.onSegmentOpen?.({ type: 'end' },segment);
+    this.handlers.onSegmentOpen?.({ type: 'end' }, segment);
     //this.lookupEnd = segment.end;
     // 🔥 direkt Request triggern
     //this.triggerSegmentLookup();

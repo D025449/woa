@@ -31,7 +31,7 @@ export async function createApp() {
 
 
   async function processFitJson(fitJsonObject, originalName, uid) {
-    const { buffer, normalized_power, segments, gps_track, powers, heartRates, cadences, speeds, altitudes } = processFitRecords(fitJsonObject.records);
+    const { buffer, normalized_power, segments, gps_track, powers, heartRates, cadences, speeds, altitudes, workoutObject } = processFitRecords(fitJsonObject);
     const newFilenamebin = path.basename(originalName, path.extname(originalName)) + ".bin";
     const s3KeyBin = `users/${uid}/${randomUUID()}-${newFilenamebin}`;
     const fitFile = {
@@ -42,11 +42,9 @@ export async function createApp() {
       file_size: buffer.byteLength
     };
     const fileRow = mapToFileRow(fitJsonObject, fitFile, normalized_power);
-    const dbrow = await FileDBService.insertFile(fileRow, segments, gps_track);
-    //const values = { powers, heartRates, cadences, speeds, altitudes };
-    await FilesStreamsApi.insertStreams(dbrow.id, dbrow.uid, powers, heartRates, cadences, speeds, altitudes);
+    const dbrow = await FileDBService.insertFile(fileRow, segments, gps_track, workoutObject);
 
-    if (gps_track.validGPS) {
+    if (gps_track.validGps) {
       const candidates = await SegmentDBService.getMatchingSegmentCandidates(dbrow.id, dbrow.uid);
 
       const workout = { id: dbrow.id, track: gps_track.track, sampleRate: gps_track.sampleRate };
@@ -55,7 +53,6 @@ export async function createApp() {
       await SegmentDBService.storeSegmentBestEfforts(dbrow.uid, matches, powers, heartRates, cadences, speeds);
     }
 
-    await s3Service.putObjectBinary(s3KeyBin, buffer, "application/octet-stream");
 
   }
 
@@ -153,6 +150,39 @@ export async function createApp() {
     }
   }
 
+  async function processSingleLocalFitFile(jobId, filePath, uid, originalFileName) {
+    await updateImportJob(jobId, {
+      status: "processing",
+      stage: "parsing_fit_files",
+      totalFiles: 1,
+      processedFiles: 0,
+      failedFiles: 0,
+      progressPercent: 30
+    });
+
+    try {
+      const buffer = await fs.promises.readFile(filePath);
+      const parsed = await parseFitBuffer(buffer);
+
+      await persistParsedWorkout(parsed, {
+        importJobId: jobId,
+        uid,
+        entryName: originalFileName || path.basename(filePath)
+      });
+
+      await updateImportJob(jobId, {
+        status: "completed",
+        stage: "completed",
+        totalFiles: 1,
+        processedFiles: 1,
+        failedFiles: 0,
+        progressPercent: 100
+      });
+    } finally {
+      await fs.promises.rm(filePath, { force: true });
+    }
+  }
+
   async function processZipFile(jobId, s3Key, uid) {
     await updateImportJob(jobId, {
       status: "processing",
@@ -241,6 +271,87 @@ export async function createApp() {
     }
   }
 
+  async function processLocalZipFile(jobId, zipPath, uid) {
+    await updateImportJob(jobId, {
+      status: "processing",
+      stage: "reading_zip",
+      progressPercent: 15
+    });
+
+    try {
+      const zipDirectory = await unzipper.Open.file(zipPath);
+
+      const fitEntries = zipDirectory.files.filter((entry) => {
+        return entry.type === "File" && entry.path.toLowerCase().endsWith(".fit") && (!entry.path.startsWith("__MACOSX/"));
+      });
+
+      const totalFiles = fitEntries.length;
+
+      await updateImportJob(jobId, {
+        stage: "parsing_fit_files",
+        totalFiles,
+        processedFiles: 0,
+        failedFiles: 0,
+        progressPercent: totalFiles > 0 ? 20 : 100
+      });
+
+      let processedFiles = 0;
+      let failedFiles = 0;
+
+      for (const entry of fitEntries) {
+        try {
+          const buffer = await entry.buffer();
+          const parsed = await parseFitBuffer(buffer);
+
+          await persistParsedWorkout(parsed, {
+            importJobId: jobId,
+            entryName: entry.path,
+            uid
+          });
+
+          processedFiles += 1;
+
+          const progressPercent =
+            totalFiles === 0
+              ? 100
+              : Math.min(95, 20 + (processedFiles / totalFiles) * 75);
+
+          await updateImportJob(jobId, {
+            processedFiles,
+            failedFiles,
+            progressPercent
+          });
+        } catch (error) {
+          failedFiles += 1;
+
+          console.error("FIT processing failed", {
+            jobId,
+            entryName: entry.path,
+            error: error.message
+          });
+
+          await updateImportJob(jobId, {
+            processedFiles,
+            failedFiles
+          });
+        }
+      }
+
+      await updateImportJob(jobId, {
+        stage: "saving_results",
+        progressPercent: 98
+      });
+
+      await updateImportJob(jobId, {
+        status: "completed",
+        stage: "completed",
+        progressPercent: 100
+      });
+    } finally {
+      await fs.promises.rm(zipPath, { force: true });
+    }
+  }
+
   async function processImportJob(importJobId) {
     const importJob = await getImportJobById(importJobId);
 
@@ -248,22 +359,35 @@ export async function createApp() {
       throw new Error(`Import job not found: ${importJobId}`);
     }
 
+    const localPath = importJob.localPath;
     const s3Key = importJob.s3Key;
-    const lowerKey = s3Key.toLowerCase();
+    const originalFileName = importJob.originalFileName;
+    const lowerLocalPath = localPath?.toLowerCase?.();
+    const lowerKey = s3Key?.toLowerCase?.();
     const uid = importJob.uid;
 
     try {
-      if (lowerKey.endsWith(".fit")) {
+      if (lowerLocalPath?.endsWith(".fit")) {
+        await processSingleLocalFitFile(importJobId, localPath, uid, originalFileName);
+        return;
+      }
+
+      if (lowerLocalPath?.endsWith(".zip")) {
+        await processLocalZipFile(importJobId, localPath, uid);
+        return;
+      }
+
+      if (lowerKey?.endsWith(".fit")) {
         await processSingleFitFile(importJobId, s3Key, uid);
         return;
       }
 
-      if (lowerKey.endsWith(".zip")) {
+      if (lowerKey?.endsWith(".zip")) {
         await processZipFile(importJobId, s3Key, uid);
         return;
       }
 
-      throw new Error(`Unsupported file type for key: ${s3Key}`);
+      throw new Error(`Unsupported file type for import job: ${importJobId}`);
     } catch (error) {
       await updateImportJob(importJobId, {
         status: "failed",

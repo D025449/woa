@@ -1,11 +1,11 @@
 import { Router } from "express";
 import { createAndEnqueueImport } from "../services/import-service.js";
 import { getImportJobById } from "../db/import-jobs-repo.js";
-import S3Service from "../services/s3Service.js";
+import authMiddleware from "../middleware/authMiddleware.js";
 
 const router = Router();
 
-router.post("/", async (req, res, next) => {
+router.post("/", authMiddleware, async (req, res, next) => {
   try {
     const { key, originalFileName, sizeBytes } = req.body;
 
@@ -20,14 +20,6 @@ router.post("/", async (req, res, next) => {
     if (!Number.isFinite(numericSizeBytes) || numericSizeBytes <= 0) {
       return res.status(400).json({
         error: "Ungültige sizeBytes"
-      });
-    }
-
-    try {
-      await S3Service.headObject(process.env.S3_BUCKET, key);
-    } catch (err) {
-      return res.status(400).json({
-        error: "S3-Objekt wurde nicht gefunden"
       });
     }
 
@@ -48,7 +40,7 @@ router.post("/", async (req, res, next) => {
   }
 });
 
-router.get("/:id", async (req, res, next) => {
+router.get("/:id", authMiddleware, async (req, res, next) => {
   try {
     const job = await getImportJobById(req.params.id);
 

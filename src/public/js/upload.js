@@ -1,5 +1,4 @@
-import { requestPresignedUpload, startImport } from './upload-api.js';
-import { uploadFileToS3 } from './s3-upload.js';
+import { uploadFileAndStartImport } from './upload-api.js';
 import { pollImportStatus } from './import-polling.js';
 import { createUploadUI } from './upload-ui.js';
 
@@ -32,21 +31,12 @@ async function handleUploadSubmit(event) {
         ui.setLoading(true);
         ui.showStatusArea();
 
-        ui.setPhase('Presigned URL wird angefordert');
+        ui.setPhase('Upload wird vorbereitet');
         ui.setUploadProgress(0, '');
         ui.setProcessingProgress(0, '');
-        ui.setInfo('Upload wird vorbereitet ...');
+        ui.setInfo('Datei wird hochgeladen ...');
 
-        const presignResult = await requestPresignedUpload({
-            fileName: file.name,
-            fileType: file.type || guessContentType(file.name),
-            fileSize: file.size
-        });
-
-        ui.setPhase('Upload nach S3 läuft');
-
-        await uploadFileToS3({
-            uploadUrl: presignResult.uploadUrl,
+        const importResult = await uploadFileAndStartImport({
             file,
             onProgress: ({ loaded, total, percent }) => {
                 ui.setUploadProgress(
@@ -59,12 +49,6 @@ async function handleUploadSubmit(event) {
         ui.setUploadProgress(100, `${formatBytes(file.size)} hochgeladen`);
         ui.setPhase('Import wird gestartet');
         ui.setInfo('Datei wurde hochgeladen. Import-Job wird gestartet ...');
-
-        const importResult = await startImport({
-            key: presignResult.key,
-            originalFileName: file.name,
-            sizeBytes: file.size
-        });
 
         ui.setPhase('Verarbeitung läuft');
         ui.setInfo(`Import läuft (Job-ID: ${importResult.jobId})`);
@@ -117,16 +101,9 @@ function formatBytes(bytes) {
     return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }
 
-function guessContentType(fileName) {
-    const lower = fileName.toLowerCase();
-    if (lower.endsWith('.zip')) return 'application/zip';
-    if (lower.endsWith('.fit')) return 'application/octet-stream';
-    return 'application/octet-stream';
-}
-
 function formatStage(stage, status) {
     if (status === 'queued') return 'Wartet auf Worker';
-    if (stage === 'downloading_zip') return 'ZIP wird von S3 geladen';
+    if (stage === 'downloading_zip') return 'Legacy-Import lädt Datei';
     if (stage === 'reading_zip') return 'ZIP wird analysiert';
     if (stage === 'parsing_fit_files') return 'FIT-Dateien werden verarbeitet';
     if (stage === 'saving_results') return 'Ergebnisse werden gespeichert';

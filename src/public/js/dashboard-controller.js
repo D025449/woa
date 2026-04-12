@@ -46,10 +46,6 @@ export default class Controller {
         try {
           let workout = await WorkoutService.loadWorkoutByRow(row.getData().id);
 
-          const d = row.getData();
-          workout.validgps = d.validgps;
-          workout.startDate = d.start_time;
-
           this.chartView.updateWorkout(workout);
           this.mapView.renderTrack(workout);
 
