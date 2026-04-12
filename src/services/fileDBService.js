@@ -250,10 +250,6 @@ static async getMatchingWorkoutCandidates(sids, uid) {
       throw new Error("Workout not found");
     }
 
-    const s3Key = rows[0].s3_key;
-    const bucket = process.env.S3_BUCKET;
-
-    const payload = await S3Service.deleteObject(bucket, s3Key);
 
     // 2. DB-Eintrag löschen
     const result = await pool.query(

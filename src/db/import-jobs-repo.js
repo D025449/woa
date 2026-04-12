@@ -8,7 +8,6 @@ export async function createImportJob({ s3Key = null, localPath = null, original
         `
         insert into import_jobs (
             uid,
-            s3_key,
             local_path,
             original_file_name,
             size_bytes,
@@ -20,7 +19,7 @@ export async function createImportJob({ s3Key = null, localPath = null, original
         ) 
         values ($1, $2, $3, $4, $5, 'queued', 'waiting_for_worker', 0, 0, 0) returning id
         `,
-        [uid, s3Key, localPath, originalFileName, sizeBytes]
+        [uid, localPath, originalFileName, sizeBytes]
     );
 
     return { id: result.rows[0].id };
@@ -32,7 +31,6 @@ export async function getImportJobById(id) {
         select
             id,
             uid,
-            s3_key as "s3Key",
             local_path as "localPath",
             original_file_name as "originalFileName",
             size_bytes as "sizeBytes",
