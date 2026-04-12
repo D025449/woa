@@ -1,10 +1,9 @@
 import { createImportJob } from '../db/import-jobs-repo.js';
 import { importQueue } from '../queue/import-queue.js';
 
-export async function createAndEnqueueImport({ key = null, localPath = null, originalFileName, sizeBytes, uid} ) 
+export async function createAndEnqueueImport({ localPath = null, originalFileName, sizeBytes, uid} ) 
 {
     const job = await createImportJob({
-        s3Key: key,
         localPath,
         originalFileName,
         sizeBytes,
