@@ -60,6 +60,7 @@ export default class TableView {
         title: "ID",
         field: "id",
         sorter: "number",
+        headerFilter: "number",
         formatter: (cell) => cell.getValue()
       },      
       {

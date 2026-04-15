@@ -1,6 +1,7 @@
 export default class ElevationService {
     constructor(options = {}) {
-        this.apiUrl = options.apiUrl || "https://api.opentopodata.org/v1/srtm90m";
+        this.apiBaseUrl = options.apiBaseUrl || "https://api.opentopodata.org/v1";
+        this.defaultDataset = options.defaultDataset || "srtm30m";
         this.batchSize = options.batchSize || 100;
         this.sleepMs = options.sleepMs || 200;
 
@@ -9,10 +10,41 @@ export default class ElevationService {
         this.useDownsampling = this.downsampleStep > 1;
     }
 
+    static EUROPE_BOUNDS = {
+        minLat: 34,
+        maxLat: 72,
+        minLng: -25,
+        maxLng: 45
+    };
+
+    isWithinBounds(point, bounds) {
+        return (
+            point?.lat >= bounds.minLat &&
+            point?.lat <= bounds.maxLat &&
+            point?.lng >= bounds.minLng &&
+            point?.lng <= bounds.maxLng
+        );
+    }
+
+    resolveDataset(track) {
+        if (!Array.isArray(track) || track.length === 0) {
+            return this.defaultDataset;
+        }
+
+        const start = track[0];
+        const end = track[track.length - 1];
+        const inEurope =
+            this.isWithinBounds(start, ElevationService.EUROPE_BOUNDS) &&
+            this.isWithinBounds(end, ElevationService.EUROPE_BOUNDS);
+
+        return inEurope ? "eudem25m" : this.defaultDataset;
+    }
+
     // -----------------------------
     // PUBLIC
     // -----------------------------
     async enrichTrack(track) {
+        this.dataset = this.resolveDataset(track);
         let workingTrack = track;
 
         if (this.useDownsampling) {
@@ -55,7 +87,7 @@ export default class ElevationService {
 
     async fetchBatch(points) {
         const coords = points.map(p => `${p.lat},${p.lng}`).join("|");
-        const url = `${this.apiUrl}?locations=${coords}`;
+        const url = `${this.apiBaseUrl}/${this.dataset}?locations=${coords}`;
 
         try {
             const res = await fetch(url);

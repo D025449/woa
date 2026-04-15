@@ -81,12 +81,12 @@ export default class ChartView {
         minInterval: 1,
         axisLabel: { formatter: Utils.formatSeconds }
       },
-    yAxis: [
-      { type: "value", name: "Power (W)", position: "left" },
-      { type: "value", name: "HR/Cad", position: "right" },
-      { type: "value", name: "Sp", position: "left", offset: 40 },
-      { type: "value", name: "Alt", position: "right", offset: 50 }
-    ],
+      yAxis: [
+        { type: "value", name: "Power (W)", position: "left" },
+        { type: "value", name: "HR/Cad", position: "right" },
+        { type: "value", name: "Sp", position: "left", offset: 40 },
+        { type: "value", name: "Alt", position: "right", offset: 50 }
+      ],
       dataset: {
         dimensions: [
           "x", "Power", "Heartrate", "Cadence",
@@ -152,8 +152,8 @@ export default class ChartView {
   updateWorkout(workout) {
     this.currentWorkout = workout;
     const obj = workout.workoutObject;
-    const result = obj.getAsStrideArray();
-    const sd = obj.getStartTime(); 
+    const result = obj.getAsStrideArray({ smoothing: { power: 10, speed: 30, cadence: 30 } });
+    const sd = obj.getStartTime();
 
     this.chart.setOption({
       title: { text: new Date(sd).toDateString() },
@@ -170,7 +170,7 @@ export default class ChartView {
     this.currentWorkout = workout;
     const obj = workout.workoutObject;
     const result = obj.getAsStrideArray();
-    const sd = obj.getStartTime(); 
+    const sd = obj.getStartTime();
 
     this.chart.setOption({
       title: { text: new Date(cpview.startTime).toDateString() },

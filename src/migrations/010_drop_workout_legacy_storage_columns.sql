@@ -1,5 +1,19 @@
 BEGIN;
+
 DROP VIEW IF EXISTS v_workouts_with_best_efforts CASCADE;
+
+ALTER TABLE workouts
+  DROP COLUMN IF EXISTS original_filename,
+  DROP COLUMN IF EXISTS mime_type,
+  DROP COLUMN IF EXISTS file_size,
+  DROP COLUMN IF EXISTS s3_key,
+  DROP COLUMN IF EXISTS minLat,
+  DROP COLUMN IF EXISTS maxLat,
+  DROP COLUMN IF EXISTS minLng,
+  DROP COLUMN IF EXISTS maxLng;
+
+
+
 CREATE VIEW v_workouts_with_best_efforts AS
 SELECT
     f.id,
@@ -38,8 +52,9 @@ SELECT
 
     f.avg_cadence,
     f.max_cadence,
+
     f.validGps,
-    
+
     b.id AS best_effort_id,
     b.wid AS best_effort_file_id,
     b.start_offset,
@@ -54,5 +69,6 @@ SELECT
 FROM workouts f
 INNER JOIN workout_segments b
     ON b.wid = f.id
-where b.segmenttype = 'crit';
-END;
+WHERE b.segmenttype = 'crit';
+
+COMMIT;

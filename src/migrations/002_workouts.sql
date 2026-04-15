@@ -9,10 +9,6 @@ DROP INDEX IF EXISTS idx_files_geom;
 CREATE TABLE workouts (
     id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     uid               BIGINT   NOT NULL,
-    original_filename TEXT          NOT NULL,
-    s3_key            TEXT           NOT NULL,
-    mime_type         TEXT           NOT NULL,
-    file_size         INTEGER        NOT NULL,
     uploaded_at       TIMESTAMP      NOT NULL DEFAULT NOW(),
 
     start_time          TIMESTAMPTZ,
@@ -47,11 +43,6 @@ CREATE TABLE workouts (
 
     avg_cadence          DOUBLE PRECISION,
     max_cadence          DOUBLE PRECISION,
-
-    minLat               DOUBLE PRECISION,
-    maxLat               DOUBLE PRECISION,
-    minLng               DOUBLE PRECISION,
-    maxLng               DOUBLE PRECISION,
     stream               BYTEA NOT NULL,
     validGps             BOOLEAN,
     points_count         INTEGER,
@@ -70,8 +61,15 @@ CREATE INDEX IF NOT EXISTS idx_files_bounds
 ON workouts
 USING GIST (bounds);
 
-CREATE INDEX IF NOT EXISTS idx_files_geom
-ON workouts
-USING GIST (geom);
+-- CREATE INDEX IF NOT EXISTS idx_files_geom
+-- ON workouts
+-- USING GIST (geom);
+
+CREATE INDEX IF NOT EXISTS idx_workouts_uid
+ON workouts (uid);
+
+-- CREATE INDEX IF NOT EXISTS idx_workouts_geom_geography
+-- ON workouts
+-- USING GIST ((geom::geography));
 
 COMMIT;

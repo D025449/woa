@@ -1,6 +1,7 @@
 import MapView from "./segment-map-view.js";
 import ChartView from "./segment-chart-view.js";
 import TableView from "./segment-table-view.js";
+import SegmentElevationView from "./segment-elevation-view.js";
 import WorkoutService from "./workout-service.js";
 import MapSegment from "../../shared/MapSegment.js";
 import UIStateManager from "./UIStateManager.js"
@@ -9,10 +10,10 @@ export default class Controller {
 
   constructor() {
     this.uiState = new UIStateManager("segmentController");
+    this.selectedSegment = null;
+    this.mapSegments = [];
     this.initViews();
     this.registerEvents();
-    this.mapSegments = [];
-
   }
 
   // -----------------------------
@@ -24,7 +25,7 @@ export default class Controller {
     this.mapView = new MapView("workout-map", this,
       {
         onSegmentOpen: async (e, segment) => {
-          console.log(e, segment);
+          this.selectSegment(segment);
           await this.tableView.loadSegment(e, segment);
         }
       }
@@ -77,6 +78,24 @@ export default class Controller {
       }
 
     });
+
+    this.elevationView = new SegmentElevationView(
+      "segment-elevation-chart",
+      "segment-elevation-panel",
+      "segment-elevation-stats",
+      {
+        onHoverPoint: (point) => {
+          this.mapView.moveMarkerToPoint(point);
+        },
+        onLeave: () => {
+          this.mapView.hideMarker();
+        }
+      }
+    );
+
+    this.deleteButton = document.getElementById("delete-selected-segment");
+    this.segmentHeader = document.getElementById("segment-header");
+    this.updateDeleteButton();
   }
 
   // -----------------------------
@@ -84,9 +103,61 @@ export default class Controller {
   // -----------------------------
   registerEvents() {
     window.addEventListener("resize", () => this.onResize());
+    this.deleteButton?.addEventListener("click", () => this.deleteSelectedSegment());
   }
 
   onResize() {
     this.chartView.resize();
+    this.elevationView.resize();
+  }
+
+  selectSegment(segment) {
+    this.selectedSegment = segment;
+    this.mapView.selectSegment(segment);
+    this.elevationView.updateSegment(segment);
+    this.updateDeleteButton();
+  }
+
+  clearSelectedSegment() {
+    this.selectedSegment = null;
+    this.tableView.clear();
+    this.elevationView.hide();
+    if (this.segmentHeader) {
+      this.segmentHeader.textContent = "Segments";
+    }
+    this.mapView.selectSegment(null);
+    this.mapView.hideMarker();
+    this.updateDeleteButton();
+  }
+
+  updateDeleteButton() {
+    if (!this.deleteButton) return;
+
+    const hasSelection = !!this.selectedSegment;
+    this.deleteButton.classList.toggle("d-none", !hasSelection);
+    this.deleteButton.disabled = !hasSelection;
+  }
+
+  async deleteSelectedSegment() {
+    const segment = this.selectedSegment;
+    if (!segment) return;
+
+    const label = `${segment.start?.name ?? "Start"} - ${segment.end?.name ?? "End"}`;
+    const ok = window.confirm(`Segment wirklich loeschen?\n\n${label}`);
+    if (!ok) return;
+
+    try {
+      if (segment.rowstate === "DB") {
+        await MapSegment.deleteSegment(segment.id);
+      }
+
+      this.mapSegments = this.mapSegments.filter((entry) => entry.id !== segment.id);
+      this.mapView.controller.mapSegments = this.mapSegments;
+      this.mapView.refreshSegments();
+      this.clearSelectedSegment();
+    } catch (err) {
+      console.error(err);
+      window.alert("Failed to delete segment");
+    }
   }
 }

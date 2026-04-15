@@ -24,7 +24,7 @@
         <!-- Navbar -->
 
         <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-            <div class="container">
+            <div class="container-fluid px-3 px-xl-4">
 
                 <span class="navbar-brand">Segments</span>
 
@@ -55,7 +55,7 @@
 
         <!-- Content -->
 
-        <div class="container py-4">
+        <div class="container-fluid px-3 px-xl-4 py-4">
 
             <div class="row g-4">
                 <!-- Map -->
@@ -73,20 +73,19 @@
                                     <input id="segment-name-input" type="text" class="form-control form-control-sm"
                                         style="width:150px;" />
                                 </div-->
-                                <button id="draw-segment-map-toggle" class="btn btn-sm">
-                                    ✏️
+                                <button id="draw-segment-map-toggle" class="btn btn-sm btn-outline-primary"
+                                    title="Enter segment creation mode. Then click two points on the map to define a new segment.">
+                                    ＋ Create
                                 </button>
 
-                                <button id="draw-segment-map-lookup" class="btn btn-sm">
-                                    📍➡️📍 Lookup
+                                <button id="draw-segment-map-lookup" class="btn btn-sm btn-outline-secondary" disabled
+                                    title="Select two points on the track first, then click to create the segment from the routed path.">
+                                    🧭 Lookup
                                 </button>
 
                                 <!--button id="delete-segments" class="btn btn-sm btn-outline-danger">
                                     🗑️
                                 </button-->
-                                <button id="save-map-segments" class="btn btn-sm ">
-                                    💾
-                                </button>
                             </div>
                         </div>
 
@@ -102,14 +101,38 @@
                 <div class="col-12">
                     <div class="card shadow-sm">
 
-                        <div class="card-header">
+                        <div class="card-header d-flex justify-content-between align-items-center gap-3">
                             <h5 id="segment-header" class="mb-0">Segments</h5>
+                            <button id="delete-selected-segment" class="btn btn-sm btn-outline-danger d-none">
+                                Delete Segment
+                            </button>
                         </div>
 
                         <div class="card-body">
+                            <div class="row g-3 align-items-stretch">
+                                <div class="col-12 col-xl-8">
+                                    <div class="border rounded-3 bg-body p-3 h-100">
+                                        <div class="small text-muted fw-semibold mb-2">Best Efforts</div>
+                                        <div id="segment-table"></div>
+                                    </div>
+                                </div>
 
-                            <div id="segment-table"></div>
-
+                                <div class="col-12 col-xl-4 d-flex">
+                                    <div class="border rounded-3 bg-light-subtle p-3 h-100 w-100">
+                                        <div id="segment-elevation-panel" class="d-none h-100">
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <div class="small text-muted fw-semibold">Elevation Profile</div>
+                                                <div id="segment-elevation-stats" class="small text-muted"></div>
+                                            </div>
+                                            <div id="segment-elevation-chart" style="height:300px;"></div>
+                                        </div>
+                                        <div id="segment-elevation-empty" class="small text-muted d-flex align-items-center justify-content-center h-100"
+                                            style="min-height:300px;">
+                                            Select a segment on the map to see its elevation profile.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                     </div>

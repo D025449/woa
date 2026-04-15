@@ -1,9 +1,35 @@
 import pool from "./database.js";
-import S3Service from "./s3Service.js";
 import pgPromise from "pg-promise";
 
 
 class FileDBService {
+
+  static createStepLogger(scope, meta = {}) {
+    const startedAt = Date.now();
+    let lastAt = startedAt;
+    const steps = [];
+
+    return {
+      mark(label, extra = {}) {
+        const now = Date.now();
+        steps.push({
+          label,
+          stepMs: now - lastAt,
+          totalMs: now - startedAt,
+          ...extra
+        });
+        lastAt = now;
+      },
+      flush(extra = {}) {
+        console.log(`[timing] ${scope}`, {
+          ...meta,
+          totalMs: Date.now() - startedAt,
+          steps,
+          ...extra
+        });
+      }
+    };
+  }
 
   static allowedColumns = [
     "start_time",
@@ -32,6 +58,12 @@ class FileDBService {
 
 
 static async getMatchingWorkoutCandidates(sids, uid) {
+  const USE_BOUNDS_ONLY_SEGMENT_CANDIDATES = true;
+
+  const spatialFilter = USE_BOUNDS_ONLY_SEGMENT_CANDIDATES
+    ? `s.bounds && w.bounds`
+    : `s.bounds && w.bounds
+      AND ST_DWithin(w.geom::geography, s.geom::geography, 100)`;
 
   const sql = `
     SELECT
@@ -46,14 +78,39 @@ static async getMatchingWorkoutCandidates(sids, uid) {
     WHERE
       s.uid = $2
       AND s.id = ANY($1)
-      AND s.bounds && w.bounds
-      AND ST_DWithin(w.geom, s.geom, 30)
+      AND ${spatialFilter}
       AND NOT EXISTS( SELECT 1 from gps_segment_best_efforts sbe WHERE sbe.wid = w.id and sbe.sid = s.id  )
   `;
 
   const result = await pool.query(
     sql,
     [sids, uid] // 👈 wichtig: Array übergeben
+  );
+
+  return result.rows;
+}
+
+static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
+  const sql = `
+    SELECT
+      w.id as wid,
+      w.samplerategps as wsamplerate,
+      ST_AsGeoJSON(w.geom)::json AS wgeom
+    FROM workouts w
+    WHERE
+      w.uid = $1
+      AND w.bounds && ST_MakeEnvelope($2, $3, $4, $5, 4326)
+  `;
+
+  const result = await pool.query(
+    sql,
+    [
+      uid,
+      bounds.minLng,
+      bounds.minLat,
+      bounds.maxLng,
+      bounds.maxLat
+    ]
   );
 
   return result.rows;
@@ -208,37 +265,15 @@ static async getMatchingWorkoutCandidates(sids, uid) {
     };
   }
 
-  static async getWorkoutRecordsPreSignedUrl(workoutId, uid) {
-    if (!uid) {
-      throw new Error("Unauthorized");
-    }
-
-    // 1️⃣ File prüfen + s3_key holen
-    const { rows } = await pool.query(
-      `
-      SELECT s3_key
-      FROM workouts
-      WHERE id = $1
-      AND uid = $2
-      `,
-      [workoutId, uid]
-    );
-
-    if (rows.length === 0) {
-      throw new Error("Workout not found");
-    }
-
-    const s3Key = rows[0].s3_key;
-    const bucket = process.env.S3_BUCKET;
-    const payload = await S3Service.getPresignedUrl(bucket, s3Key);
-    return payload;
+  static async getWorkoutRecordsPreSignedUrl() {
+    throw new Error("Legacy workout data endpoint is no longer supported");
   }
 
   static async deleteWorkout(uid, workoutId) {
 
-    const { rows } = await pool.query(
+    const { rowCount } = await pool.query(
       `
-      SELECT s3_key
+      SELECT 1
       FROM workouts
       WHERE id = $1
       AND uid = $2
@@ -246,7 +281,7 @@ static async getMatchingWorkoutCandidates(sids, uid) {
       [workoutId, uid]
     );
 
-    if (rows.length === 0) {
+    if (rowCount === 0) {
       throw new Error("Workout not found");
     }
 
@@ -267,42 +302,8 @@ static async getMatchingWorkoutCandidates(sids, uid) {
 
   }
 
-  static async getWorkoutRecords(workoutId, uid) {
-
-    if (!uid) {
-      throw new Error("Unauthorized");
-    }
-
-    // 1️⃣ File prüfen + s3_key holen
-    const { rows } = await pool.query(
-      `
-      SELECT s3_key
-      FROM workouts
-      WHERE id = $1
-      AND uid = $2
-      `,
-      [workoutId, uid]
-    );
-
-    if (rows.length === 0) {
-      throw new Error("Workout not found");
-    }
-
-    const s3Key = rows[0].s3_key;
-
-    // 2️⃣ JSON von S3 laden
-    const bucket = process.env.S3_BUCKET;
-    const payload = await S3Service.getJsonObject(bucket, s3Key);
-
-    // 3️⃣ Records extrahieren
-    if (!payload.data || !Array.isArray(payload.data)) {
-      return [];
-    }
-
-
-    const data = payload.data;
-    return { data };
-
+  static async getWorkoutRecords() {
+    throw new Error("Legacy workout data endpoint is no longer supported");
   }
 
   static getFileDefaultColumns() {
@@ -333,10 +334,6 @@ static async getMatchingWorkoutCandidates(sids, uid) {
       max_heart_rate,
       avg_cadence,
       max_cadence,
-      minlat,
-      maxlat,
-      minlng,
-      maxlng,
       validGps`
   }
 
@@ -764,11 +761,6 @@ static async getMatchingWorkoutCandidates(sids, uid) {
     const positions = [];
     const segmentnames = [];
 
-    const minLats = [];
-    const maxLats = [];
-    const minLngs = [];
-    const maxLngs = [];
-
     segments.filter(f => f.rowstate === 'CRE' || f.rowstate === 'UPD').forEach(seg => {
       fileIds.push(workoutId);
       uids.push(uid);
@@ -783,11 +775,6 @@ static async getMatchingWorkoutCandidates(sids, uid) {
       altimetersArr.push(seg.altimeters);
       segmentnames.push(seg.segmentname);
       positions.push(++cnt);
-      minLats.push(seg?.gpstrack?.bbox?.minLat ?? null);
-      maxLats.push(seg?.gpstrack?.bbox?.maxLat ?? null);
-      minLngs.push(seg?.gpstrack?.bbox?.minLng ?? null);
-      maxLngs.push(seg?.gpstrack?.bbox?.maxLng ?? null);
-      //seg?.gpstrack?.bbox
 
     });
 
@@ -810,8 +797,7 @@ static async getMatchingWorkoutCandidates(sids, uid) {
     avg_speed,
     altimeters,
     position,
-    segmentname,
-    bounds
+    segmentname
   )
     SELECT
   u.wid,
@@ -826,13 +812,7 @@ static async getMatchingWorkoutCandidates(sids, uid) {
   u.avg_speed,
   u.altimeters,
   u.position,
-  u.segmentname,
-
-  CASE 
-    WHEN u.minLat IS NOT NULL
-    THEN ST_MakeEnvelope(u.minLng, u.minLat, u.maxLng, u.maxLat, 4326)
-    ELSE NULL
-  END
+  u.segmentname
   FROM UNNEST(
     $1::int[],
     $2::int[],
@@ -846,11 +826,7 @@ static async getMatchingWorkoutCandidates(sids, uid) {
     $10::float8[],
     $11::float8[],
     $12::int[],
-    $13::text[],
-    $14::float8[],
-    $15::float8[],
-    $16::float8[],
-    $17::float8[]    
+    $13::text[]
   ) AS u(
   wid,
   uid,
@@ -864,11 +840,7 @@ static async getMatchingWorkoutCandidates(sids, uid) {
   avg_speed,
   altimeters,
   position,
-  segmentname,
-  minLat,
-  maxLat,
-  minLng,
-  maxLng
+  segmentname
 )
   ON CONFLICT (id)
   DO UPDATE SET
@@ -882,8 +854,7 @@ static async getMatchingWorkoutCandidates(sids, uid) {
     avg_speed = EXCLUDED.avg_speed,
     altimeters = EXCLUDED.altimeters,
     position = EXCLUDED.position,
-    segmentname = EXCLUDED.segmentname,
-    bounds = EXCLUDED.bounds
+    segmentname = EXCLUDED.segmentname
   WHERE workout_segments.uid = EXCLUDED.uid
     AND workout_segments.wid = EXCLUDED.wid
   RETURNING *
@@ -902,11 +873,7 @@ static async getMatchingWorkoutCandidates(sids, uid) {
       speeds,
       altimetersArr,
       positions,
-      segmentnames,
-      minLats,
-      maxLats,
-      minLngs,
-      maxLngs
+      segmentnames
     ];
 
     const result = await pool.query(query, values);
@@ -966,26 +933,29 @@ static async getMatchingWorkoutCandidates(sids, uid) {
   }
 
   static async insertFile(fileRow, segments, gps_track, workoutObject) {
+    const timing = FileDBService.createStepLogger("db.insert-file", {
+      uid: fileRow.uid,
+      validGps: !!gps_track?.validGps,
+      gpsPointCount: gps_track?.track?.length ?? 0,
+      segmentCount: segments?.length ?? 0
+    });
     const d = new Date(fileRow.start_time);
 
     const compressedBuffer = await workoutObject.toCompressedBuffer();
-    console.log({BufferSizeWritten: compressedBuffer.length});
+    timing.mark("to-compressed-buffer", {
+      compressedBytes: compressedBuffer.length
+    });
+    //console.log({BufferSizeWritten: compressedBuffer.length});
 
 
     fileRow.validGps = gps_track.validGps;
     let sampleRateGPS = gps_track?.sampleRate ?? 1;
     if (fileRow.validGps) {
-      fileRow.minLat = gps_track?.bbox?.minLat ?? 0;
-      fileRow.maxLat = gps_track?.bbox?.maxLat ?? 0;
-      fileRow.minLng = gps_track?.bbox?.minLng ?? 0;
-      fileRow.maxLng = gps_track?.bbox?.maxLng ?? 0;
+      fileRow.bbox = gps_track?.bbox ?? null;
     }
     else {
       sampleRateGPS = 1;
-      fileRow.minLat = null;
-      fileRow.maxLat = null;
-      fileRow.minLng = null;
-      fileRow.maxLng = null;
+      fileRow.bbox = null;
     }
 
 
@@ -996,14 +966,11 @@ static async getMatchingWorkoutCandidates(sids, uid) {
       .join(", ");
 
     const geom = `LINESTRING(${coords})`;
+    timing.mark("build-geometry-wkt");
 
 
     const {
       uid,
-      original_filename,
-      s3_key,
-      mime_type,
-      file_size,
       start_time,
       end_time,
       total_elapsed_time,
@@ -1023,10 +990,6 @@ static async getMatchingWorkoutCandidates(sids, uid) {
       max_heart_rate,
       avg_cadence,
       max_cadence,
-      minLat,
-      maxLat,
-      minLng,
-      maxLng,
       validGps,
       year,
       month,
@@ -1041,15 +1004,12 @@ static async getMatchingWorkoutCandidates(sids, uid) {
     try {
 
       await pool.query('BEGIN');
+      timing.mark("begin-transaction");
 
       const result = await pool.query(
         `
 INSERT INTO workouts (
   uid,
-  original_filename,
-  s3_key,
-  mime_type,
-  file_size,
   start_time,
   end_time,
   total_elapsed_time,
@@ -1069,10 +1029,6 @@ INSERT INTO workouts (
   max_heart_rate,
   avg_cadence,
   max_cadence,
-  minLat, 
-  maxLat,
-  minLng,
-  maxLng,
   validGps,
   year,
   month,
@@ -1087,31 +1043,29 @@ INSERT INTO workouts (
   stream        
 )
 VALUES (
-  $1,$2,$3,$4,$5,
-  $6,$7,
-  $8,$9,$10,$11,$12,$13,$14,$15,
-  $16,$17,$18,$19,$20,$21,$22,$23,
-  $24,$25,$26,$27,$28,
-  $29,$30,$31,$32,$33,$34,$35,
+  $1,$2,
+  $3,$4,$5,$6,$7,$8,$9,$10,
+  $11,$12,$13,$14,$15,$16,$17,$18,
+  $19,$20,$21,$22,$23,$24,$25,$26,$27,
 CASE 
-  WHEN $29 = true
+  WHEN $21 = true
   THEN ST_MakeEnvelope(
-    $27::float8,
-    $25::float8,
     $28::float8,
-    $26::float8,
+    $29::float8,
+    $30::float8,
+    $31::float8,
     4326
   )
   ELSE NULL
 END,
 CASE 
-  WHEN $29 = true
-  THEN $36 
+  WHEN $21 = true
+  THEN $32
   ELSE NULL
 END,
-  $37,
-  $38,
-  $39
+  $33,
+  $34,
+  $35
 )
 ON CONFLICT (uid, start_time)
 DO NOTHING
@@ -1119,44 +1073,40 @@ RETURNING id, uid;
     `,
         [
           uid,              // $1
-          original_filename,     // $2
-          s3_key,                // $3
-          mime_type,             // $4
-          file_size,             // $5
-          start_time,            // $6
-          end_time,              // $7
-          total_elapsed_time,    // $8
-          total_timer_time,      // $9
-          total_distance,        // $10
-          total_cycles,          // $11
-          total_work,            // $12
-          total_calories,        // $13
-          total_ascent,          // $14
-          total_descent,         // $15
-          avg_speed,             // $16
-          max_speed,             // $17
-          avg_power,             // $18
-          max_power,             // $19
-          avg_normalized_power,  // $20
-          avg_heart_rate,        // $21
-          max_heart_rate,        // $22
-          avg_cadence,           // $23
-          max_cadence,           // $24
-          minLat,                // $25
-          maxLat,                // $26
-          minLng,                // $27
-          maxLng,                // $28
-          validGps,              // $29
-          year,                  // $30
-          month,                 // $31
-          week,                  // $32
-          year_quarter,          // $33
-          year_month,            // $34
-          year_week,             // $35
-          geom,                  // $36
-          points_count,          // $37
-          sampleRateGPS,         // $38
-          compressedBuffer       // $39
+          start_time,            // $2
+          end_time,              // $3
+          total_elapsed_time,    // $4
+          total_timer_time,      // $5
+          total_distance,        // $6
+          total_cycles,          // $7
+          total_work,            // $8
+          total_calories,        // $9
+          total_ascent,          // $10
+          total_descent,         // $11
+          avg_speed,             // $12
+          max_speed,             // $13
+          avg_power,             // $14
+          max_power,             // $15
+          avg_normalized_power,  // $16
+          avg_heart_rate,        // $17
+          max_heart_rate,        // $18
+          avg_cadence,           // $19
+          max_cadence,           // $20
+          validGps,              // $21
+          year,                  // $22
+          month,                 // $23
+          week,                  // $24
+          year_quarter,          // $25
+          year_month,            // $26
+          year_week,             // $27
+          gps_track?.bbox?.minLng ?? null, // $28
+          gps_track?.bbox?.minLat ?? null, // $29
+          gps_track?.bbox?.maxLng ?? null, // $30
+          gps_track?.bbox?.maxLat ?? null, // $31
+          geom,                  // $32
+          points_count,          // $33
+          sampleRateGPS,         // $34
+          compressedBuffer       // $35
         ]
       );
 
@@ -1167,15 +1117,29 @@ RETURNING id, uid;
           `Upload failed: At '${str}' there's already a workout for this user`
         );
       }
+      timing.mark("insert-workout-row", {
+        workoutId: result.rows[0]?.id
+      });
 
       //await FileDBService.insertBestEfforts(result.rows[0].id, bestEfforts);
       await FileDBService.upsertSegmentsBulk(uid, result.rows[0].id, segments);
+      timing.mark("upsert-workout-segments");
       await pool.query('COMMIT');
+      timing.mark("commit");
+      timing.flush({
+        status: "completed",
+        workoutId: result.rows[0]?.id
+      });
 
       return result.rows[0];
 
     } catch (err) {
       await pool.query('ROLLBACK');
+      timing.mark("rollback");
+      timing.flush({
+        status: "failed",
+        error: err.message
+      });
       throw err;
     }
 

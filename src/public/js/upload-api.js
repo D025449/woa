@@ -1,7 +1,9 @@
-export function uploadFileAndStartImport({ file, onProgress }) {
+export function uploadFilesAndStartImport({ files, onProgress }) {
     return new Promise((resolve, reject) => {
         const formData = new FormData();
-        formData.append('file', file);
+        for (const file of files) {
+            formData.append('files', file);
+        }
 
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/api/uploads');

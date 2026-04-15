@@ -1,15 +1,20 @@
 //import crypto from 'node:crypto';
 import pool from '../services/database.js';
 
-export async function createImportJob({ localPath = null, originalFileName, sizeBytes, uid: uid }) {
+export async function createImportJob({
+    localPaths = null,
+    originalFileNames = null,
+    sizeBytes,
+    uid: uid
+}) {
     //const id = crypto.randomUUID();
 
     const result = await pool.query(
         `
         insert into import_jobs (
             uid,
-            local_path,
-            original_file_name,
+            local_paths,
+            original_file_names,
             size_bytes,
             status,
             stage,
@@ -17,9 +22,14 @@ export async function createImportJob({ localPath = null, originalFileName, size
             processed_files,
             failed_files
         ) 
-        values ($1, $2, $3, $4, 'queued', 'waiting_for_worker', 0, 0, 0) returning id
+        values ($1, $2::jsonb, $3::jsonb, $4, 'queued', 'waiting_for_worker', 0, 0, 0) returning id
         `,
-        [uid, localPath, originalFileName, sizeBytes]
+        [
+            uid,
+            localPaths ? JSON.stringify(localPaths) : null,
+            originalFileNames ? JSON.stringify(originalFileNames) : null,
+            sizeBytes
+        ]
     );
 
     return { id: result.rows[0].id };
@@ -31,8 +41,8 @@ export async function getImportJobById(id) {
         select
             id,
             uid,
-            local_path as "localPath",
-            original_file_name as "originalFileName",
+            local_paths as "localPaths",
+            original_file_names as "originalFileNames",
             size_bytes as "sizeBytes",
             status,
             stage,

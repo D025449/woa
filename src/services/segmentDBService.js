@@ -138,7 +138,7 @@ export default class SegmentDBService {
   }
 
 
-  static async storeSegmentBestEfforts(uid, matches, powers, heartRates, cadences, speeds) {
+  static async storeSegmentBestEfforts(matches, workoutObject) {
 
     const gps_segments_be = [];
     matches.forEach(match => {
@@ -147,28 +147,15 @@ export default class SegmentDBService {
       const file_id = match.workout_id;
       const start_offset = match.start_offset;
       const end_offset = match.end_offset;
-      let avg_power = 0;
-      let avg_heart_rate = 0;
-      let avg_cadence = 0;
-      let avg_speed = 0;
-      let cnt = 0;
-      for (let i = start_offset; i <= end_offset; ++i) {
-        avg_power += powers[i];
-        avg_heart_rate += heartRates[i];
-        avg_cadence += cadences[i];
-        avg_speed += speeds[i];
-        ++cnt;
-      }
-      if (cnt > 0) {
-        avg_power = Math.round(avg_power / cnt);
-        avg_heart_rate = Math.round(avg_heart_rate / cnt);
-        avg_cadence = Math.round(avg_cadence / cnt);
-        avg_speed = Math.round(avg_speed * 10 / cnt) / 10;
-      }
+      const averages = workoutObject.getAverages(start_offset, end_offset);
+      const avg_power = Math.round(averages.power ?? 0);
+      const avg_heart_rate = Math.round(averages.hr ?? 0);
+      const avg_cadence = Math.round(averages.cadence ?? 0);
+      const avg_speed = Math.round((averages.speed ?? 0) * 10) / 10;
+
       gps_segments_be.push({
         segment_id,
         file_id,
-        uid,
         start_offset,
         end_offset,
         duration,
@@ -182,7 +169,6 @@ export default class SegmentDBService {
 
     const segmentIds = [];
     const fileIds = [];
-    //    const uids = [];
     const starts = [];
     const ends = [];
     const durations = [];
@@ -194,7 +180,6 @@ export default class SegmentDBService {
     for (const m of gps_segments_be) {
       segmentIds.push(m.segment_id);
       fileIds.push(m.file_id);
-      //      uids.push(m.uid);
       starts.push(m.start_offset);
       ends.push(m.end_offset);
       durations.push(m.duration);
@@ -235,52 +220,80 @@ export default class SegmentDBService {
 
   }
 
-
-  static matchSegments(workout, segments) {
-    const results = [];
-
-
-    const wotrack = {
-      wid: workout.id,
-      track: workout.track.map(p => ({ lat: p[0], lng: p[1] })),
-      sampleRate: workout.sampleRate
-    }
-
-
-    for (const seg of segments) {
-      //results.push( ... matchSegment(track, seg));
-      const segLine = seg.geom.coordinates.map(([lng, lat]) => ({ lat, lng }));
-      const m = SegmentMatcher.findMatches(wotrack, { id: seg.id, track: segLine });
-      console.log({ wid: workout.id, sid: seg.id, segcount: m.length });
-      results.push(...m);
-    }
-
-    return results;
-  }
-
-  static async getMatchingSegmentCandidates(wid, uid) {
-
+  static async getMatchingSegmentCandidatesV2(bounds, uid) {
     const sql = `SELECT
       s.id,
       ST_AsGeoJSON(s.geom)::json AS geom
-    FROM gps_segments s
-    JOIN workouts w
-      ON w.id = $1
-      AND w.uid = $2
-    WHERE
-      s.uid = $2
-      AND s.bounds && w.bounds
-      AND ST_DWithin(w.geom, s.geom, 30)
-      `
+      FROM gps_segments s
+      WHERE
+        s.uid = $1
+        AND s.bounds && ST_MakeEnvelope($2, $3, $4, $5, 4326);`;
+
+    const result = await pool.query(
+      sql,
+      [uid,
+      bounds.minLng,
+      bounds.minLat,
+      bounds.maxLng,
+      bounds.maxLat]
+    );
+
+    return result.rows;
+  }
+
+  static async getSegmentById(uid, segmentId) {
+    const result = await pool.query(`
+      SELECT
+        id,
+        uid,
+        distance,
+        duration,
+        start_lat,
+        start_lng,
+        start_name,
+        start_altitude,
+        end_lat,
+        end_lng,
+        end_name,
+        end_altitude,
+        ascent,
+        altitudes,
+        points_count,
+        best_efforts_status,
+        ST_AsGeoJSON(geom)::json AS geom_geojson,
+        ST_YMin(bounds) AS min_lat,
+        ST_YMax(bounds) AS max_lat,
+        ST_XMin(bounds) AS min_lng,
+        ST_XMax(bounds) AS max_lng
+      FROM gps_segments
+      WHERE id = $1
+        AND uid = $2
+    `, [segmentId, uid]);
+
+    return result.rows[0] ? SegmentDBService.mapSegment(result.rows[0]) : null;
+  }
+
+  /*
+  static async getMatchingSegmentCandidates(wid, uid) {
+    const sql = `SELECT
+      s.id,
+      ST_AsGeoJSON(s.geom)::json AS geom
+      FROM gps_segments s
+      JOIN workouts w
+        ON w.id = $1
+        AND w.uid = $2
+      WHERE
+        s.uid = $2
+        AND s.bounds && w.bounds;`;
 
     const result = await pool.query(
       sql,
       [wid, uid]
     );
 
-
     return result.rows;
   }
+  */
 
 
   static async getBestEffortsBySegment(uid, segid, page, size, sort, filter) {
@@ -367,6 +380,23 @@ export default class SegmentDBService {
     };
   }
 
+  static async getBestEffortsStatus(uid, segmentId) {
+    const result = await pool.query(`
+      SELECT
+        id,
+        best_efforts_status,
+        best_efforts_error
+      FROM gps_segments
+      WHERE id = $1
+        AND uid = $2
+    `, [segmentId, uid]);
+
+    return result.rows[0] ?? null;
+  }
+
+
+
+
 
   static async querySegmentsByBounds(uid, bounds, excludeIds, limit) {
 
@@ -389,6 +419,7 @@ export default class SegmentDBService {
     ascent,
     altitudes,
     points_count,
+    best_efforts_status,
     ST_AsGeoJSON(geom)::json AS geom_geojson,
     ST_YMin(bounds) AS min_lat,
     ST_YMax(bounds) AS max_lat,
@@ -420,18 +451,54 @@ export default class SegmentDBService {
 
   }
 
-static chunkArray(arr, size) {
-  const result = [];
-  for (let i = 0; i < arr.length; i += size) {
-    result.push(arr.slice(i, i + size));
+  static async deleteSegmentById(uid, segmentId) {
+    const result = await pool.query(`
+      DELETE FROM gps_segments
+      WHERE id = $1
+        AND uid = $2
+      RETURNING id
+    `, [segmentId, uid]);
+
+    return result.rows[0] ?? null;
   }
-  return result;
-}
+
+  static async updateBestEffortsStatus(uid, segmentIds, status, errorMessage = null) {
+    if (!Array.isArray(segmentIds) || segmentIds.length === 0) {
+      return [];
+    }
+
+    const result = await pool.query(`
+      UPDATE gps_segments
+      SET
+        best_efforts_status = $3,
+        best_efforts_error = $4,
+        updated_at = NOW()
+      WHERE id = ANY($1::bigint[])
+        AND uid = $2
+      RETURNING id
+    `, [segmentIds, uid, status, errorMessage]);
+
+    return result.rows;
+  }
+
+  static chunkArray(arr, size) {
+    const result = [];
+    for (let i = 0; i < arr.length; i += size) {
+      result.push(arr.slice(i, i + size));
+    }
+    return result;
+  }
 
   static async scanWorkoutsForSegments(uid, segments) {
     const sids = segments.map(m => m.id);
+    if (sids.length < 1) {
+      return [];
+    }
+
+    console.time("scanWorkoutsForSegments");
 
     const candidates = await FileDBService.getMatchingWorkoutCandidates(sids, uid);
+    //console.log({NumberOfCandidates: candidates.length, sids, wids: candidates.map(m=>m.wid)  });
 
     const matches = [];
 
@@ -477,6 +544,71 @@ static chunkArray(arr, size) {
         });
       }
     }
+    console.timeEnd("scanWorkoutsForSegments");
+    return matches;
+  }
+
+  static async scanWorkoutsForSegment(uid, segment) {
+    if (!segment?.id || !segment?.bbox) {
+      return [];
+    }
+
+    console.time("scanWorkoutsForSegment");
+
+    const candidates = await FileDBService.getMatchingWorkoutCandidatesV2(
+      segment.bbox,
+      segment.id,
+      uid
+    );
+
+    const segLine = segment.track.map(({ lat, lng }) => ({ lat, lng }));
+    const matches = [];
+
+    candidates.forEach((cand) => {
+      const wotrack = {
+        wid: cand.wid,
+        track: cand.wgeom.coordinates.map(([lng, lat]) => ({ lat, lng })),
+        sampleRate: cand.wsamplerate
+      };
+
+      const found = SegmentMatcher.findMatches(wotrack, {
+        id: segment.id,
+        track: segLine
+      });
+
+      matches.push(...found);
+    });
+
+    const uniqueIds = [...new Set(matches.map((match) => match.workout_id))];
+
+    if (uniqueIds.length > 0) {
+      const chunks = SegmentDBService.chunkArray(uniqueIds, 10);
+      const CONCURRENCY = 3;
+
+      for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+        const batch = chunks.slice(i, i + CONCURRENCY);
+
+        const results = await Promise.all(
+          batch.map((chunk) => WorkoutDBService.getWorkouts(chunk))
+        );
+
+        results.forEach((workoutMap, idx) => {
+          const chunk = batch[idx];
+
+          matches.forEach((match) => {
+            if (!chunk.includes(match.workout_id)) return;
+
+            const workoutObject = workoutMap.get(match.workout_id);
+            if (!workoutObject) return;
+
+            const avgs = workoutObject.getAverages(match.start_offset, match.end_offset);
+            Object.assign(match, avgs);
+          });
+        });
+      }
+    }
+
+    console.timeEnd("scanWorkoutsForSegment");
     return matches;
   }
 
@@ -501,6 +633,7 @@ static chunkArray(arr, size) {
     const ascents = [];
     const pointCounts = [];
     const altitudes = [];
+    const bestEffortsStatuses = [];
 
     const wkts = [];
 
@@ -522,6 +655,7 @@ static chunkArray(arr, size) {
       endAltitudes.push(seg.end?.altitude ?? null);
 
       ascents.push(seg.ascent ?? null);
+      bestEffortsStatuses.push(seg.bestEffortsStatus ?? "queued");
 
       const altis = seg.track.map(t => t.ele ?? null);
       altitudes.push(JSON.stringify(altis));
@@ -554,6 +688,7 @@ static chunkArray(arr, size) {
       ascent,
       points_count,
       altitudes,
+      best_efforts_status,
 
       bounds,
       geom
@@ -576,6 +711,7 @@ static chunkArray(arr, size) {
       u.ascent,
       u.points_count,
       u.altitudes,
+      u.best_efforts_status,
 
       ST_Envelope(ST_GeomFromText(u.wkt, 4326)),
       ST_GeomFromText(u.wkt, 4326)
@@ -598,8 +734,8 @@ static chunkArray(arr, size) {
       $12::float8[],
       $13::int[],
       $14::jsonb[],
-
-      $15::text[]
+      $15::text[],
+      $16::text[]
     ) AS u(
       uid,
       distance,
@@ -618,6 +754,7 @@ static chunkArray(arr, size) {
       ascent,
       points_count,
       altitudes,
+      best_efforts_status,
 
       wkt
     )
@@ -638,6 +775,7 @@ static chunkArray(arr, size) {
     ascent,
     altitudes,
     points_count,
+    best_efforts_status,
     ST_AsGeoJSON(geom)::json AS geom_geojson,
     ST_YMin(bounds) AS min_lat,
     ST_YMax(bounds) AS max_lat,
@@ -663,6 +801,7 @@ static chunkArray(arr, size) {
       ascents,
       pointCounts,
       altitudes,
+      bestEffortsStatuses,
 
       wkts
     ];
@@ -692,6 +831,7 @@ static chunkArray(arr, size) {
       duration: row.duration,
       ascent: row.ascent,
       points_count: row.points_count,
+      bestEffortsStatus: row.best_efforts_status,
 
       start: {
         lat: row.start_lat,

@@ -6,6 +6,8 @@ export default class TableView {
     this.containerSelector = containerSelector;
     this.handlers = handlers;
     this.currentSegment = null;
+    this.pollTimer = null;
+    this.pollAttempt = 0;
 
     this.table = this.initTable();
     this.registerEvents();
@@ -98,8 +100,8 @@ export default class TableView {
         formatter: (cell) => Utils.formatDuration(cell.getValue())
       },
       {
-        title: "ID",
-        field: "id",
+        title: "Workout ID",
+        field: "wid",
         sorter: "number",
         formatter: (cell) => cell.getValue()
       },       
@@ -196,6 +198,7 @@ export default class TableView {
 
   async loadSegment(e, segment) {
     this.currentSegment = segment;
+    this.stopBestEffortsPolling();
     const hdr = document.getElementById("segment-header");
     if (hdr) {
       hdr.innerText = `📍➡️📍 #${segment}:  ${segment.start.name} - ${segment.end.name}: ${(segment.distance / 1000).toFixed(2)} km`;
@@ -210,8 +213,71 @@ export default class TableView {
   async loadSegmentBestEfforts(segment) {
     //const segid 
 
-    this.table.setData(`/segments/bestefforts/${segment.id}/data`);
+    await this.table.setData(`/segments/bestefforts/${segment.id}/data`);
 
+    if (this.shouldPollBestEfforts(segment)) {
+      this.startBestEffortsPolling(segment.id);
+    }
+
+  }
+
+  clear() {
+    this.currentSegment = null;
+    this.stopBestEffortsPolling();
+    this.table.clearData();
+  }
+
+  shouldPollBestEfforts(segment) {
+    return segment?.bestEffortsStatus === "queued" || segment?.bestEffortsStatus === "processing";
+  }
+
+  startBestEffortsPolling(segmentId) {
+    this.stopBestEffortsPolling();
+    this.pollAttempt = 0;
+
+    const tick = async () => {
+      if (!this.currentSegment || this.currentSegment.id !== segmentId) {
+        this.stopBestEffortsPolling();
+        return;
+      }
+
+      this.pollAttempt += 1;
+
+      try {
+        const res = await fetch(`/segments/${segmentId}/best-efforts-status`);
+        if (!res.ok) {
+          throw new Error("Failed to fetch best-efforts status");
+        }
+
+        const data = await res.json();
+        this.currentSegment.bestEffortsStatus = data.status;
+
+        if (data.status === "completed" || data.status === "failed") {
+          await this.table.setData(`/segments/bestefforts/${segmentId}/data`);
+          this.stopBestEffortsPolling();
+          return;
+        }
+
+        if (this.pollAttempt >= 20) {
+          this.stopBestEffortsPolling();
+          return;
+        }
+
+        this.pollTimer = window.setTimeout(tick, 1000);
+      } catch (err) {
+        console.error(err);
+        this.stopBestEffortsPolling();
+      }
+    };
+
+    this.pollTimer = window.setTimeout(tick, 1000);
+  }
+
+  stopBestEffortsPolling() {
+    if (this.pollTimer) {
+      window.clearTimeout(this.pollTimer);
+      this.pollTimer = null;
+    }
   }
 
 
@@ -225,10 +291,4 @@ export default class TableView {
   reload() {
     this.table.replaceData();
   }
-
-  clear() {
-    this.table.clearData();
-  }
 }
-
-

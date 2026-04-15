@@ -130,18 +130,9 @@ router.get("/workouts", authMiddleware, async (req, res, next) => {
 // GET /files/workouts/:id/data
 router.get("/workouts/:id/data", authMiddleware, async (req, res, next) => {
   try {
-
-    const workoutId = req.params.id;
-    const uid = req.user?.id;
-
-    const url = await FileDBService.getWorkoutRecordsPreSignedUrl(
-      workoutId,
-      uid
-    );
-
-    res.json({ url });
-
-
+    return res.status(410).json({
+      error: "Legacy workout data endpoint removed"
+    });
 
   } catch (err) {
     next(err);

@@ -15,7 +15,6 @@ CREATE TABLE workout_segments (
     avg_speed       DOUBLE PRECISION,    
     altimeters      DOUBLE PRECISION,
     position        INTEGER,
-    bounds          geometry(POLYGON, 4326),
 
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 

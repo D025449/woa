@@ -1,11 +1,16 @@
 import { createImportJob } from '../db/import-jobs-repo.js';
 import { importQueue } from '../queue/import-queue.js';
 
-export async function createAndEnqueueImport({ localPath = null, originalFileName, sizeBytes, uid} ) 
+export async function createAndEnqueueImport({
+    localPaths = null,
+    originalFileNames = null,
+    sizeBytes,
+    uid
+})
 {
     const job = await createImportJob({
-        localPath,
-        originalFileName,
+        localPaths,
+        originalFileNames,
         sizeBytes,
         uid
     });

@@ -8,17 +8,13 @@ import { Worker } from "bullmq";
 import unzipper from "unzipper";
 import FitParser from "fit-file-parser";
 
-import { randomUUID } from "crypto";
-//import path from "path";
-import s3Service from "../services/s3Service.js";
 import {
   processFitRecords,
-  mapToFileRow
+  mapAggregatedToFileRow
 } from "../services/fitService.js";
 
 import { FileDBService } from "../services/fileDBService.js";
 import SegmentDBService from "../services/segmentDBService.js";
-import FilesStreamsApi from "../services/FilesStreamsApi.js";
 
 import { redisConnection } from "../queue/connection.js";
 import S3Service from "../services/s3Service.js";
@@ -28,41 +24,200 @@ import {
 } from "../db/import-jobs-repo.js";
 
 export async function createApp() {
+  const LOCAL_BATCH_FIT_CONCURRENCY = 2;
 
+  function createStepLogger(scope, meta = {}) {
+    const startedAt = Date.now();
+    let lastAt = startedAt;
+    const steps = [];
 
-  async function processFitJson(fitJsonObject, originalName, uid) {
-    const { buffer, normalized_power, segments, gps_track, powers, heartRates, cadences, speeds, altitudes, workoutObject } = processFitRecords(fitJsonObject);
-    const newFilenamebin = path.basename(originalName, path.extname(originalName)) + ".bin";
-    const s3KeyBin = `users/${uid}/${randomUUID()}-${newFilenamebin}`;
-    const fitFile = {
-      uid: uid,
-      original_filename: originalName,
-      s3_key: s3KeyBin,
-      mime_type: "application/octet-stream",
-      file_size: buffer.byteLength
+    return {
+      mark(label, extra = {}) {
+        const now = Date.now();
+        steps.push({
+          label,
+          stepMs: now - lastAt,
+          totalMs: now - startedAt,
+          ...extra
+        });
+        lastAt = now;
+      },
+      flush(extra = {}) {
+        console.log(`[timing] ${scope}`, {
+          ...meta,
+          totalMs: Date.now() - startedAt,
+          steps,
+          ...extra
+        });
+      }
     };
-    const fileRow = mapToFileRow(fitJsonObject, fitFile, normalized_power);
-    const dbrow = await FileDBService.insertFile(fileRow, segments, gps_track, workoutObject);
+  }
 
-    if (gps_track.validGps) {
-      const candidates = await SegmentDBService.getMatchingSegmentCandidates(dbrow.id, dbrow.uid);
+  function createBatchTrace(scope, meta = {}) {
+    const startedAt = Date.now();
+    const totals = {
+      entryBufferMs: 0,
+      parseFitMs: 0,
+      persistWorkoutMs: 0,
+      updateJobMs: 0,
+      processFitRecordsMs: 0,
+      mapAggregatedRowMs: 0,
+      insertFileMs: 0,
+      getMatchingSegmentCandidatesMs: 0,
+      matchSegmentsMs: 0,
+      storeSegmentBestEffortsMs: 0
+    };
 
-      const workout = { id: dbrow.id, track: gps_track.track, sampleRate: gps_track.sampleRate };
+    return {
+      add(metric, ms) {
+        if (Object.hasOwn(totals, metric)) {
+          totals[metric] += ms;
+        }
+      },
+      checkpoint(extra = {}) {
+        console.log(`[timing] ${scope}`, {
+          ...meta,
+          totalMs: Date.now() - startedAt,
+          totals,
+          ...extra
+        });
+      },
+      flush(extra = {}) {
+        console.log(`[timing] ${scope}`, {
+          ...meta,
+          totalMs: Date.now() - startedAt,
+          totals,
+          ...extra
+        });
+      }
+    };
+  }
 
-      const matches = SegmentDBService.matchSegments(workout, candidates);
-      await SegmentDBService.storeSegmentBestEfforts(dbrow.uid, matches, powers, heartRates, cadences, speeds);
+  async function processSegmentBestEffortsJob(uid, segmentIds) {
+    await SegmentDBService.updateBestEffortsStatus(uid, segmentIds, "processing", null);
+
+    try {
+      const matchingEfforts =
+        segmentIds.length === 1
+          ? await (async () => {
+              const segment = await SegmentDBService.getSegmentById(uid, segmentIds[0]);
+              return segment
+                ? SegmentDBService.scanWorkoutsForSegment(uid, segment)
+                : [];
+            })()
+          : await SegmentDBService.scanWorkoutsForSegments(
+              uid,
+              segmentIds.map((id) => ({ id }))
+            );
+
+      await SegmentDBService.storeSegmentBestEffortsV2(matchingEfforts);
+      await SegmentDBService.updateBestEffortsStatus(uid, segmentIds, "completed", null);
+    } catch (error) {
+      await SegmentDBService.updateBestEffortsStatus(
+        uid,
+        segmentIds,
+        "failed",
+        error.message || "Unknown segment best-effort error"
+      );
+      throw error;
+    }
+  }
+
+
+  async function processFitJson(fitJsonObject,uid) {
+    const timing = createStepLogger("worker.process-fit-json", {
+      uid
+    });
+    let dbrow = null;
+
+    try {
+      const { aggregated, segments, gps_track, workoutObject } = processFitRecords(fitJsonObject);
+      timing.mark("process-fit-records", {
+        segmentCount: segments?.length ?? 0,
+        gpsPointCount: gps_track?.track?.length ?? 0,
+        validGps: !!gps_track?.validGps
+      });
+      const fitFile = {
+        uid: uid
+      };
+      const fileRow = mapAggregatedToFileRow(aggregated, fitFile, workoutObject.getNormalizedPower());
+      timing.mark("map-aggregated-to-file-row");
+      dbrow = await FileDBService.insertFile(fileRow, segments, gps_track, workoutObject);
+      timing.mark("insert-file", {
+        workoutId: dbrow?.id
+      });
+
+      if (gps_track.validGps) {
+        const candidates = await SegmentDBService.getMatchingSegmentCandidatesV2(
+          gps_track.bbox,
+          dbrow.uid
+        );
+        timing.mark("get-matching-segment-candidates", {
+          candidateCount: candidates.length
+        });
+
+        const workout = { id: dbrow.id, track: gps_track.track, sampleRate: gps_track.sampleRate };
+
+        const matches = SegmentDBService.matchSegments(workout, candidates);
+        timing.mark("match-segments", {
+          matchCount: matches.length
+        });
+        await SegmentDBService.storeSegmentBestEfforts(matches, workoutObject);
+        timing.mark("store-segment-best-efforts");
+      }
+
+      timing.flush({
+        status: "completed",
+        workoutId: dbrow?.id
+      });
+    } catch (error) {
+      timing.flush({
+        status: "failed",
+        workoutId: dbrow?.id,
+        error: error.message
+      });
+      throw error;
     }
 
 
   }
 
-  async function downloadObjectToTempFile(s3Key, extension = ".bin") {
-    const tmpPath = path.join(os.tmpdir(), `${crypto.randomUUID()}${extension}`);
-    const bodyStream = await S3Service.getObjectStream(process.env.S3_BUCKET, s3Key);
+  async function processFitJsonWithMetrics(fitJsonObject, uid, batchTrace) {
+    const processFitRecordsStartedAt = Date.now();
+    const { aggregated, segments, gps_track, workoutObject } = processFitRecords(fitJsonObject);
+    batchTrace?.add("processFitRecordsMs", Date.now() - processFitRecordsStartedAt);
 
-    await pipeline(bodyStream, fs.createWriteStream(tmpPath));
+    const fitFile = {
+      uid
+    };
 
-    return tmpPath;
+    const mapStartedAt = Date.now();
+    const fileRow = mapAggregatedToFileRow(aggregated, fitFile, workoutObject.getNormalizedPower());
+    batchTrace?.add("mapAggregatedRowMs", Date.now() - mapStartedAt);
+
+    const insertStartedAt = Date.now();
+    const dbrow = await FileDBService.insertFile(fileRow, segments, gps_track, workoutObject);
+    batchTrace?.add("insertFileMs", Date.now() - insertStartedAt);
+
+    if (gps_track.validGps) {
+      const candidatesStartedAt = Date.now();
+      const candidates = await SegmentDBService.getMatchingSegmentCandidatesV2(
+        gps_track.bbox,
+        dbrow.uid
+      );
+      batchTrace?.add("getMatchingSegmentCandidatesMs", Date.now() - candidatesStartedAt);
+
+      const matchStartedAt = Date.now();
+      const workout = { id: dbrow.id, track: gps_track.track, sampleRate: gps_track.sampleRate };
+      const matches = SegmentDBService.matchSegments(workout, candidates);
+      batchTrace?.add("matchSegmentsMs", Date.now() - matchStartedAt);
+
+      const storeStartedAt = Date.now();
+      await SegmentDBService.storeSegmentBestEfforts(matches, workoutObject);
+      batchTrace?.add("storeSegmentBestEffortsMs", Date.now() - storeStartedAt);
+    }
+
+    return dbrow;
   }
 
   function parseFitBuffer(buffer) {
@@ -73,7 +228,7 @@ export async function createApp() {
         lengthUnit: "km",
         temperatureUnit: "celsius",
         elapsedRecordField: true,
-        mode: "both"
+        mode: "list"
       });
 
       parser.parse(buffer, (error, data) => {
@@ -96,7 +251,7 @@ export async function createApp() {
     // - Duplikate prüfen
     const filename = path.basename(context.entryName);
 
-    await processFitJson(parsedData, filename, context.uid);
+    await processFitJson(parsedData, context.uid);
     const hasData = !!parsedData;
     if (hasData === false) {
       console.log("Persist workout", {
@@ -110,45 +265,7 @@ export async function createApp() {
     return true;
   }
 
-  async function processSingleFitFile(jobId, s3Key, uid) {
-    await updateImportJob(jobId, {
-      status: "processing",
-      stage: "downloading_zip",
-      progressPercent: 10
-    });
 
-    const fitPath = await downloadObjectToTempFile(s3Key, ".fit");
-
-    try {
-      await updateImportJob(jobId, {
-        stage: "parsing_fit_files",
-        totalFiles: 1,
-        processedFiles: 0,
-        failedFiles: 0,
-        progressPercent: 30
-      });
-
-      const buffer = await fs.promises.readFile(fitPath);
-      const parsed = await parseFitBuffer(buffer);
-
-      await persistParsedWorkout(parsed, {
-        importJobId: jobId,
-        uid: uid,
-        entryName: path.basename(fitPath)
-      });
-
-      await updateImportJob(jobId, {
-        status: "completed",
-        stage: "completed",
-        totalFiles: 1,
-        processedFiles: 1,
-        failedFiles: 0,
-        progressPercent: 100
-      });
-    } finally {
-      await fs.promises.rm(fitPath, { force: true });
-    }
-  }
 
   async function processSingleLocalFitFile(jobId, filePath, uid, originalFileName) {
     await updateImportJob(jobId, {
@@ -183,95 +300,24 @@ export async function createApp() {
     }
   }
 
-  async function processZipFile(jobId, s3Key, uid) {
-    await updateImportJob(jobId, {
-      status: "processing",
-      stage: "downloading_zip",
-      progressPercent: 5
+  async function processFitFileAtPath(filePath, uid, originalFileName) {
+    const buffer = await fs.promises.readFile(filePath);
+    const parsed = await parseFitBuffer(buffer);
+
+    await persistParsedWorkout(parsed, {
+      uid,
+      entryName: originalFileName || path.basename(filePath)
     });
-
-    const zipPath = await downloadObjectToTempFile(s3Key, ".zip");
-
-    try {
-      await updateImportJob(jobId, {
-        stage: "reading_zip",
-        progressPercent: 15
-      });
-
-      const zipDirectory = await unzipper.Open.file(zipPath);
-
-      const fitEntries = zipDirectory.files.filter((entry) => {
-        return entry.type === "File" && entry.path.toLowerCase().endsWith(".fit") && (!entry.path.startsWith("__MACOSX/"));
-      });
-
-      const totalFiles = fitEntries.length;
-
-      await updateImportJob(jobId, {
-        stage: "parsing_fit_files",
-        totalFiles,
-        processedFiles: 0,
-        failedFiles: 0,
-        progressPercent: totalFiles > 0 ? 20 : 100
-      });
-
-      let processedFiles = 0;
-      let failedFiles = 0;
-
-      for (const entry of fitEntries) {
-        try {
-          const buffer = await entry.buffer();
-          const parsed = await parseFitBuffer(buffer);
-
-          await persistParsedWorkout(parsed, {
-            importJobId: jobId,
-            entryName: entry.path,
-            uid: uid
-          });
-
-          processedFiles += 1;
-
-          const progressPercent =
-            totalFiles === 0
-              ? 100
-              : Math.min(95, 20 + (processedFiles / totalFiles) * 75);
-
-          await updateImportJob(jobId, {
-            processedFiles,
-            failedFiles,
-            progressPercent
-          });
-        } catch (error) {
-          failedFiles += 1;
-
-          console.error("FIT processing failed", {
-            jobId,
-            entryName: entry.path,
-            error: error.message
-          });
-
-          await updateImportJob(jobId, {
-            processedFiles,
-            failedFiles
-          });
-        }
-      }
-
-      await updateImportJob(jobId, {
-        stage: "saving_results",
-        progressPercent: 98
-      });
-
-      await updateImportJob(jobId, {
-        status: "completed",
-        stage: "completed",
-        progressPercent: 100
-      });
-    } finally {
-      await fs.promises.rm(zipPath, { force: true });
-    }
   }
 
+
+
   async function processLocalZipFile(jobId, zipPath, uid) {
+    const batchTrace = createBatchTrace("worker.process-local-zip", {
+      jobId,
+      uid,
+      zipPath: path.basename(zipPath)
+    });
     await updateImportJob(jobId, {
       status: "processing",
       stage: "reading_zip",
@@ -297,17 +343,27 @@ export async function createApp() {
 
       let processedFiles = 0;
       let failedFiles = 0;
+      batchTrace.checkpoint({
+        phase: "opened-zip",
+        totalFiles
+      });
 
       for (const entry of fitEntries) {
         try {
+          const bufferStartedAt = Date.now();
           const buffer = await entry.buffer();
+          batchTrace.add("entryBufferMs", Date.now() - bufferStartedAt);
+          const parseStartedAt = Date.now();
           const parsed = await parseFitBuffer(buffer);
+          batchTrace.add("parseFitMs", Date.now() - parseStartedAt);
 
+          const persistStartedAt = Date.now();
           await persistParsedWorkout(parsed, {
             importJobId: jobId,
             entryName: entry.path,
             uid
           });
+          batchTrace.add("persistWorkoutMs", Date.now() - persistStartedAt);
 
           processedFiles += 1;
 
@@ -316,11 +372,21 @@ export async function createApp() {
               ? 100
               : Math.min(95, 20 + (processedFiles / totalFiles) * 75);
 
+          const updateStartedAt = Date.now();
           await updateImportJob(jobId, {
             processedFiles,
             failedFiles,
             progressPercent
           });
+          batchTrace.add("updateJobMs", Date.now() - updateStartedAt);
+
+          if (processedFiles % 25 === 0 || processedFiles === totalFiles) {
+            batchTrace.checkpoint({
+              phase: "processing",
+              processedFiles,
+              failedFiles
+            });
+          }
         } catch (error) {
           failedFiles += 1;
 
@@ -330,25 +396,241 @@ export async function createApp() {
             error: error.message
           });
 
+          const updateStartedAt = Date.now();
           await updateImportJob(jobId, {
+            processedFiles,
+            failedFiles
+          });
+          batchTrace.add("updateJobMs", Date.now() - updateStartedAt);
+        }
+      }
+
+      const savingStartedAt = Date.now();
+      await updateImportJob(jobId, {
+        stage: "saving_results",
+        progressPercent: 98
+      });
+      batchTrace.add("updateJobMs", Date.now() - savingStartedAt);
+
+      const completedStartedAt = Date.now();
+      await updateImportJob(jobId, {
+        status: "completed",
+        stage: "completed",
+        progressPercent: 100
+      });
+      batchTrace.add("updateJobMs", Date.now() - completedStartedAt);
+      batchTrace.flush({
+        phase: "completed",
+        totalFiles,
+        processedFiles,
+        failedFiles
+      });
+    } finally {
+      await fs.promises.rm(zipPath, { force: true });
+    }
+  }
+
+  async function countFitEntries(filePath) {
+    const lowerPath = filePath.toLowerCase();
+
+    if (lowerPath.endsWith(".fit")) {
+      return 1;
+    }
+
+    if (lowerPath.endsWith(".zip")) {
+      const zipDirectory = await unzipper.Open.file(filePath);
+      return zipDirectory.files.filter((entry) =>
+        entry.type === "File" &&
+        entry.path.toLowerCase().endsWith(".fit") &&
+        (!entry.path.startsWith("__MACOSX/"))
+      ).length;
+    }
+
+    return 0;
+  }
+
+  async function processLocalBatch(jobId, files, uid, originalFileNames = []) {
+    const batchTrace = createBatchTrace("worker.process-local-batch", {
+      jobId,
+      uid,
+      inputCount: files.length
+    });
+    await updateImportJob(jobId, {
+      status: "processing",
+      stage: "reading_zip",
+      progressPercent: 10
+    });
+
+    const totalFilesPerInput = await Promise.all(files.map((filePath) => countFitEntries(filePath)));
+    const totalFiles = totalFilesPerInput.reduce((sum, count) => sum + count, 0);
+    batchTrace.checkpoint({
+      phase: "counted-inputs",
+      totalFiles
+    });
+
+    await updateImportJob(jobId, {
+      stage: "parsing_fit_files",
+      totalFiles,
+      processedFiles: 0,
+      failedFiles: 0,
+      progressPercent: totalFiles > 0 ? 15 : 100
+    });
+
+    let processedFiles = 0;
+    let failedFiles = 0;
+
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const filePath = files[i];
+        const originalFileName = originalFileNames[i] || path.basename(filePath);
+        const lowerPath = filePath.toLowerCase();
+
+        if (lowerPath.endsWith(".fit")) {
+          try {
+          const persistStartedAt = Date.now();
+          const buffer = await fs.promises.readFile(filePath);
+          const parsed = await parseFitBuffer(buffer);
+          batchTrace.add("parseFitMs", Date.now() - persistStartedAt);
+
+          const processStartedAt = Date.now();
+          await processFitJsonWithMetrics(parsed, uid, batchTrace);
+          batchTrace.add("persistWorkoutMs", Date.now() - processStartedAt);
+          processedFiles += 1;
+          } catch (error) {
+            failedFiles += 1;
+            console.error("FIT processing failed", {
+              jobId,
+              entryName: originalFileName,
+              error: error.message
+            });
+          } finally {
+            await fs.promises.rm(filePath, { force: true });
+          }
+        } else if (lowerPath.endsWith(".zip")) {
+          try {
+            const zipDirectory = await unzipper.Open.file(filePath);
+            const fitEntries = zipDirectory.files.filter((entry) =>
+              entry.type === "File" &&
+              entry.path.toLowerCase().endsWith(".fit") &&
+              (!entry.path.startsWith("__MACOSX/"))
+            );
+
+            const processZipFitEntry = async (entry) => {
+              try {
+                const bufferStartedAt = Date.now();
+                const buffer = await entry.buffer();
+                batchTrace.add("entryBufferMs", Date.now() - bufferStartedAt);
+                const parseStartedAt = Date.now();
+                const parsed = await parseFitBuffer(buffer);
+                batchTrace.add("parseFitMs", Date.now() - parseStartedAt);
+
+                const persistStartedAt = Date.now();
+                await processFitJsonWithMetrics(parsed, uid, batchTrace);
+                batchTrace.add("persistWorkoutMs", Date.now() - persistStartedAt);
+
+                processedFiles += 1;
+              } catch (error) {
+                failedFiles += 1;
+                console.error("FIT processing failed", {
+                  jobId,
+                  entryName: entry.path,
+                  error: error.message
+                });
+              }
+            };
+
+            for (let entryIndex = 0; entryIndex < fitEntries.length; entryIndex += LOCAL_BATCH_FIT_CONCURRENCY) {
+              const entryBatch = fitEntries.slice(
+                entryIndex,
+                entryIndex + LOCAL_BATCH_FIT_CONCURRENCY
+              );
+              await Promise.all(entryBatch.map((entry) => processZipFitEntry(entry)));
+
+              const progressPercent =
+                totalFiles === 0
+                  ? 100
+                  : Math.min(95, 15 + ((processedFiles + failedFiles) / totalFiles) * 80);
+
+              const updateStartedAt = Date.now();
+              await updateImportJob(jobId, {
+                processedFiles,
+                failedFiles,
+                progressPercent
+              });
+              batchTrace.add("updateJobMs", Date.now() - updateStartedAt);
+
+              if ((processedFiles + failedFiles) % 25 === 0 || (processedFiles + failedFiles) === totalFiles) {
+                batchTrace.checkpoint({
+                  phase: "processing",
+                  processedFiles,
+                  failedFiles
+                });
+              }
+            }
+          } finally {
+            await fs.promises.rm(filePath, { force: true });
+          }
+
+          continue;
+        } else {
+          failedFiles += 1;
+        }
+
+        const progressPercent =
+          totalFiles === 0
+            ? 100
+            : Math.min(95, 15 + ((processedFiles + failedFiles) / totalFiles) * 80);
+
+        const updateStartedAt = Date.now();
+        await updateImportJob(jobId, {
+          processedFiles,
+          failedFiles,
+          progressPercent
+        });
+        batchTrace.add("updateJobMs", Date.now() - updateStartedAt);
+
+        if ((processedFiles + failedFiles) % 25 === 0 || (processedFiles + failedFiles) === totalFiles) {
+          batchTrace.checkpoint({
+            phase: "processing",
             processedFiles,
             failedFiles
           });
         }
       }
 
+      const savingStartedAt = Date.now();
       await updateImportJob(jobId, {
         stage: "saving_results",
         progressPercent: 98
       });
+      batchTrace.add("updateJobMs", Date.now() - savingStartedAt);
 
+      const completedStartedAt = Date.now();
       await updateImportJob(jobId, {
         status: "completed",
         stage: "completed",
+        totalFiles,
+        processedFiles,
+        failedFiles,
         progressPercent: 100
       });
-    } finally {
-      await fs.promises.rm(zipPath, { force: true });
+      batchTrace.add("updateJobMs", Date.now() - completedStartedAt);
+      batchTrace.flush({
+        phase: "completed",
+        totalFiles,
+        processedFiles,
+        failedFiles
+      });
+    } catch (error) {
+      await Promise.all(files.map((filePath) => fs.promises.rm(filePath, { force: true }).catch(() => {})));
+      batchTrace.flush({
+        phase: "failed",
+        totalFiles,
+        processedFiles,
+        failedFiles,
+        error: error.message
+      });
+      throw error;
     }
   }
 
@@ -359,14 +641,19 @@ export async function createApp() {
       throw new Error(`Import job not found: ${importJobId}`);
     }
 
+    const localPaths = Array.isArray(importJob.localPaths) ? importJob.localPaths : null;
     const localPath = importJob.localPath;
-    const s3Key = importJob.s3Key;
+    const originalFileNames = Array.isArray(importJob.originalFileNames) ? importJob.originalFileNames : null;
     const originalFileName = importJob.originalFileName;
     const lowerLocalPath = localPath?.toLowerCase?.();
-    const lowerKey = s3Key?.toLowerCase?.();
     const uid = importJob.uid;
 
     try {
+      if (localPaths?.length) {
+        await processLocalBatch(importJobId, localPaths, uid, originalFileNames || []);
+        return;
+      }
+
       if (lowerLocalPath?.endsWith(".fit")) {
         await processSingleLocalFitFile(importJobId, localPath, uid, originalFileName);
         return;
@@ -374,16 +661,6 @@ export async function createApp() {
 
       if (lowerLocalPath?.endsWith(".zip")) {
         await processLocalZipFile(importJobId, localPath, uid);
-        return;
-      }
-
-      if (lowerKey?.endsWith(".fit")) {
-        await processSingleFitFile(importJobId, s3Key, uid);
-        return;
-      }
-
-      if (lowerKey?.endsWith(".zip")) {
-        await processZipFile(importJobId, s3Key, uid);
         return;
       }
 
@@ -437,6 +714,46 @@ export async function createApp() {
 
   worker.on("error", (error) => {
     console.error("Import worker error", error);
+  });
+
+  const segmentBestEffortsWorker = new Worker(
+    "segment-best-efforts",
+    async (job) => {
+      const { uid, segmentIds } = job.data ?? {};
+
+      if (!uid || !Array.isArray(segmentIds) || segmentIds.length === 0) {
+        throw new Error("Segment best-efforts queue job is missing uid or segmentIds");
+      }
+
+      await processSegmentBestEffortsJob(uid, segmentIds);
+    },
+    {
+      connection: redisConnection,
+      concurrency: 1
+    }
+  );
+
+  segmentBestEffortsWorker.on("ready", () => {
+    console.log("Segment best-efforts worker is ready");
+  });
+
+  segmentBestEffortsWorker.on("completed", (job) => {
+    console.log("Segment best-efforts worker job completed", {
+      queueJobId: job.id,
+      segmentIds: job.data?.segmentIds
+    });
+  });
+
+  segmentBestEffortsWorker.on("failed", (job, error) => {
+    console.error("Segment best-efforts worker job failed", {
+      queueJobId: job?.id,
+      segmentIds: job?.data?.segmentIds,
+      error: error.message
+    });
+  });
+
+  segmentBestEffortsWorker.on("error", (error) => {
+    console.error("Segment best-efforts worker error", error);
   });
 
 }

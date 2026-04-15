@@ -11,7 +11,7 @@ export default class WorkoutService {
   static async deleteWorkoutByRow(row) {
     const data = row.getData();
     const workoutId = data.id;
-    const filename = data.original_filename || `Workout ${workoutId}`;
+    const filename = `Workout ${workoutId}`;
 
     const ok = window.confirm(`Workout wirklich löschen?\n\n${filename}`);
     if (!ok) return;

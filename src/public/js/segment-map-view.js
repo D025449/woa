@@ -25,6 +25,8 @@ export default class MapView {
 
     this.hoverMarker = null;
     this.currentTrackPoints = [];
+    this.segmentLayers = new Map();
+    this.selectedSegmentId = null;
 
     this.lookupPoints = [];
     this.lookupMarkers = L.layerGroup().addTo(this.map);
@@ -35,33 +37,22 @@ export default class MapView {
     //this.map.on("dblclick", (e) => this.handleMapDoubleClick(e));
 
     this.isSelecting = false;
-    const btn = document.getElementById("draw-segment-map-toggle");
+    this.toggleBtn = document.getElementById("draw-segment-map-toggle");
+    this.lookupBtn = document.getElementById("draw-segment-map-lookup");
 
-
-    btn?.addEventListener("click", () => {
-      const isActive = btn.classList.toggle("active");
-
-      if (isActive) {
-        this.enableSelectionMode();
-      } else {
+    this.toggleBtn?.addEventListener("click", () => {
+      if (this.isSelecting) {
         this.disableSelectionMode();
+      } else {
+        this.enableSelectionMode();
       }
     });
 
-    this.lookupBtn = document.getElementById("draw-segment-map-lookup");
-    this.lookupBtn?.classList.remove("active");
-
-    this?.lookupBtn?.addEventListener("click", async () => {
+    this.lookupBtn?.addEventListener("click", async () => {
       await this.handleLookUpClick();
     });
 
-    this.saveBtn = document.getElementById("save-map-segments");
-    this.saveBtn?.classList.remove("active");
-    this.saveBtn.disabled = true;
-
-    this?.saveBtn?.addEventListener("click", async () => {
-      await this.handleSaveClick();
-    });
+    this.syncSelectionUi();
 
     this.map.whenReady(async () => {
       console.log("Map ready");
@@ -129,18 +120,37 @@ export default class MapView {
 
   enableSelectionMode() {
     this.isSelecting = true;
-    this.lookupPoints = [];
-    this.lookupMarkers.clearLayers();
-
+    this.resetLookupSelection();
     this.map.getContainer().style.cursor = "crosshair";
+    this.syncSelectionUi();
   }
 
   disableSelectionMode() {
     this.isSelecting = false;
+    this.resetLookupSelection();
+    this.map.getContainer().style.cursor = "";
+    this.syncSelectionUi();
+  }
+
+  resetLookupSelection() {
     this.lookupPoints = [];
     this.lookupMarkers.clearLayers();
+    this.syncSelectionUi();
+  }
 
-    this.map.getContainer().style.cursor = "";
+  syncSelectionUi() {
+    const hasTwoPoints = this.lookupPoints.length === 2;
+
+    this.toggleBtn?.classList.toggle("btn-primary", this.isSelecting);
+    this.toggleBtn?.classList.toggle("btn-outline-primary", !this.isSelecting);
+    this.toggleBtn?.classList.toggle("active", this.isSelecting);
+
+    if (this.lookupBtn) {
+      this.lookupBtn.disabled = !this.isSelecting || !hasTwoPoints;
+      this.lookupBtn.classList.toggle("btn-primary", this.isSelecting && hasTwoPoints);
+      this.lookupBtn.classList.toggle("btn-outline-secondary", !this.isSelecting || !hasTwoPoints);
+      this.lookupBtn.classList.toggle("active", this.isSelecting && hasTwoPoints);
+    }
   }
 
   handleMapClick(e) {
@@ -152,16 +162,11 @@ export default class MapView {
 
     // max 2 Punkte speichern
     if (this.lookupPoints.length >= 2) {
-      this.lookupPoints = [];
-      this.lookupMarkers.clearLayers();
-      this.lookupBtn?.classList.remove("active");
+      this.resetLookupSelection();
     }
 
     this.lookupPoints.push({ lat, lng });
-
-    if (this.lookupPoints.length == 2) {
-      this.lookupBtn?.classList.add("active");
-    }
+    this.syncSelectionUi();
 
 
     L.marker([lat, lng])
@@ -183,22 +188,6 @@ export default class MapView {
     await MapSegment.query(this.controller);
 
   }*/
-
-
-
-  async handleSaveClick() {
-
-    const segsToBeSaved = this.controller.mapSegments.filter(f => f?.rowstate !== 'DB');
-    if (segsToBeSaved.length > 0) {
-      await MapSegment.storeSegments(this.controller, segsToBeSaved);
-      this.renderAllSegments();
-    }
-
-    this.saveBtn?.classList.remove("active");
-    this.saveBtn.disabled = true;
-    console.log("Save Clicked");
-  }
-
 
   async handleLookUpClick() {
     if (this.lookupPoints.length !== 2) {
@@ -225,17 +214,11 @@ export default class MapView {
       console.log("Lookup result:", data);
 
       if (data?.track) {
-        data.rowstate = 'CRE';
         await this.controller.mapSegments.push(data);
         this.renderAllSegments();
-        //this.renderSegment(data);
+        this.handlers.onSegmentOpen?.({ type: 'end' }, data);
       }
-
-      // 👉 danach Selection Mode optional beenden
-      this.disableSelectionMode();
-      this.lookupBtn?.classList.remove("active");
-      this.saveBtn?.classList.add("active");
-      this.saveBtn.disabled = false;
+      this.resetLookupSelection();
 
     } catch (err) {
       console.error("Lookup failed:", err);
@@ -257,7 +240,16 @@ export default class MapView {
     }
   }
 
+  refreshSegments() {
+    this.segmentLayers.clear();
+    this.lookupResultLayer.clearLayers();
+    this.controller.mapSegments.forEach(s => {
+      this.renderSegment(s);
+    });
+  }
+
   renderSegment(segment) {
+    const isSelected = this.selectedSegmentId === segment.id;
 
 
     // -------------------
@@ -266,35 +258,50 @@ export default class MapView {
     const latlngs = segment.track.map(p => [p.lat, p.lng]);
 
     const polyline = L.polyline(latlngs, {
-      color: "#1890ff",
-      weight: 4,
-      opacity: 0.9
+      color: isSelected ? "#1d4ed8" : "#475569",
+      weight: isSelected ? 7 : 5,
+      opacity: isSelected ? 0.95 : 0.72,
+      lineCap: "round",
+      lineJoin: "round"
     }).addTo(this.lookupResultLayer);
 
     // -------------------
-    // Start Marker (grün)
+    // Start Marker
     // -------------------
     const startMarker = L.circleMarker([segment.start.lat, segment.start.lng], {
-      radius: 8,
-      color: "#0f0",
-      fillColor: "#0f0",
+      radius: isSelected ? 8 : 6,
+      weight: isSelected ? 3 : 2,
+      color: "#ffffff",
+      fillColor: isSelected ? "#16a34a" : "#22c55e",
       fillOpacity: 1
     }).addTo(this.lookupResultLayer);
 
-    startMarker.bindPopup(`🟢 Start<br>${segment.id}: ${segment.start.name}<br>Altitude ${segment.start.altitude}`);//.openPopup();
+    startMarker.bindPopup(`Start<br>${segment.id}: ${segment.start.name}<br>Altitude ${segment.start.altitude}`);
     //startMarker.bindPopup(`Start:<br>${start.name || ""}`);
 
     // -------------------
-    // End Marker (rot)
+    // End Marker
     // -------------------
     const endMarker = L.circleMarker([segment.end.lat, segment.end.lng], {
-      radius: 8,
-      color: "#f00",
-      fillColor: "#f00",
+      radius: isSelected ? 8 : 6,
+      weight: isSelected ? 3 : 2,
+      color: "#ffffff",
+      fillColor: isSelected ? "#dc2626" : "#ef4444",
       fillOpacity: 1
     }).addTo(this.lookupResultLayer);
 
-    endMarker.bindPopup(`🔴 Ziel<br>${segment.id}: ${segment.end.name}<br>Altitude ${segment.end.altitude}`);//.openPopup();
+    endMarker.bindPopup(`End<br>${segment.id}: ${segment.end.name}<br>Altitude ${segment.end.altitude}`);
+
+    this.segmentLayers.set(segment.id, {
+      polyline,
+      startMarker,
+      endMarker
+    });
+
+    polyline.on("click", async () => {
+      this.selectSegment(segment);
+      this.handlers.onSegmentOpen?.({ type: "line" }, segment);
+    });
 
     startMarker.on("click", async () => {
       this.onSegmentStartClick(segment);
@@ -313,6 +320,11 @@ export default class MapView {
     //this.map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
   }
 
+  selectSegment(segment) {
+    this.selectedSegmentId = segment?.id ?? null;
+    this.refreshSegments();
+  }
+
   // -----------------------------
   // SEGMENT HIGHLIGHT
   // -----------------------------
@@ -329,6 +341,7 @@ export default class MapView {
 
 
   async onSegmentStartClick(segment) {
+    this.selectSegment(segment);
     this.handlers.onSegmentOpen?.({ type: 'start' }, segment);
 
 
@@ -338,6 +351,7 @@ export default class MapView {
   }
 
   async onSegmentEndClick(segment) {
+    this.selectSegment(segment);
     this.handlers.onSegmentOpen?.({ type: 'end' }, segment);
     //this.lookupEnd = segment.end;
     // 🔥 direkt Request triggern
@@ -430,6 +444,11 @@ export default class MapView {
     }
   }
 
+  moveMarkerToPoint(point) {
+    if (!point) return;
+    this.moveMarker(point.lat, point.lng);
+  }
+
   moveMarkerToIndex(idx) {
     const p = this.currentTrackPoints[idx];
     if (!p) return;
@@ -451,4 +470,3 @@ export default class MapView {
     return this.currentTrackPoints;
   }
 }
-

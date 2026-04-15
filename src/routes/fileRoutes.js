@@ -98,27 +98,9 @@ router.get("/workouts", authMiddleware, async (req, res, next) => {
 // GET /files/workouts/:id/data
 router.get("/workouts/:id/data", authMiddleware, async (req, res, next) => {
   try {
-    /* if (!req.session.userInfo) {
-       return res.status(401).json({
-         error: "Session expired"
-       });
-     }*/
-    const workoutId = req.params.id;
-    const uid = req.user?.id;
-
-    const url = await FileDBService.getWorkoutRecordsPreSignedUrl(
-      workoutId,
-      uid
-    );
-
-    res.json({ url });
-
-    /*const data = await FileDBService.getWorkoutRecords(
-      workoutId,
-      authSub
-    );
-
-    res.json(data);*/
+    return res.status(410).json({
+      error: "Legacy workout data endpoint removed"
+    });
 
   } catch (err) {
     next(err);

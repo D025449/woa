@@ -1,21 +1,37 @@
-import FitParser from "fit-file-parser";
-import TypedArrayHelpers from "../shared/TypedArrayHelpers.js";
 import IntervalDetector from "../shared/IntervalDetector.js";
 import RecordGapFiller from "../shared/RecordGapFiller.js";
 import BestEffortDetector from "../shared/BestEffortDetector.js";
 import SegmentService from "../shared/SegmentService.js";
 import Workout from "../shared/Workout.js";
 
-const LIMITS = {
-  Uint8: { min: 0, max: 0xFF },
-  Int8: { min: -0x80, max: 0x7F },
-  Uint16: { min: 0, max: 0xFFFF },
-  Int16: { min: -0x8000, max: 0x7FFF },
-  Uint32: { min: 0, max: 0xFFFFFFFF },
-  Int32: { min: -0x80000000, max: 0x7FFFFFFF },
-};
-
 export default class FitProcessor {
+
+  static createStepLogger(scope, meta = {}) {
+    const startedAt = Date.now();
+    let lastAt = startedAt;
+    const steps = [];
+
+    return {
+      mark(label, extra = {}) {
+        const now = Date.now();
+        steps.push({
+          label,
+          stepMs: now - lastAt,
+          totalMs: now - startedAt,
+          ...extra
+        });
+        lastAt = now;
+      },
+      flush(extra = {}) {
+        console.log(`[timing] ${scope}`, {
+          ...meta,
+          totalMs: Date.now() - startedAt,
+          steps,
+          ...extra
+        });
+      }
+    };
+  }
 
 
 
@@ -54,6 +70,10 @@ export default class FitProcessor {
       throw new Error("No sessions found in payload");
     }
 
+    return FitProcessor.mapAggregatedToFileRow(aggregated, fileMeta, normalized_power);
+  }
+
+  static mapAggregatedToFileRow(aggregated, fileMeta, normalized_power) {
     const d = new Date(aggregated.start_time);
 
     const year = d.getUTCFullYear();
@@ -170,126 +190,85 @@ export default class FitProcessor {
   }
 
   // -----------------------------
-  // NORMALIZED POWER
-  // -----------------------------
-  static calculateNormalizedPower(records) {
-    if (!records || records.length === 0) return 0;
-
-    const powers = records.map(r => Math.max(0, Number(r.power) || 0));
-
-    if (powers.length < 30) {
-      return Math.round(
-        Math.pow(
-          powers.reduce((sum, p) => sum + Math.pow(p, 4), 0) / powers.length,
-          1 / 4
-        )
-      );
-    }
-
-    const rollingAverages = [];
-    let windowSum = 0;
-
-    for (let i = 0; i < powers.length; i++) {
-      windowSum += powers[i];
-
-      if (i >= 30) windowSum -= powers[i - 30];
-
-      if (i >= 29) rollingAverages.push(windowSum / 30);
-    }
-
-    const meanFourth =
-      rollingAverages.reduce((sum, avg) => sum + Math.pow(avg, 4), 0) /
-      rollingAverages.length;
-
-    return Math.round(Math.pow(meanFourth, 1 / 4));
-  }
-
-  // -----------------------------
   // MAIN PIPELINE
   // -----------------------------
   static processFitRecords(fitFile) {
+    const timing = FitProcessor.createStepLogger("fit.process-fit-records", {
+      recordCount: fitFile?.records?.length ?? 0,
+      sessionCount: fitFile?.sessions?.length ?? 0
+    });
     const recs = fitFile.records;
     const aggregated = FitProcessor.aggregateSessions(fitFile);
+    timing.mark("aggregate-sessions");
 
     if (!aggregated) {
+      timing.flush({
+        status: "failed",
+        error: "No sessions found in payload"
+      });
       throw new Error("No sessions found in payload");
     }
     const startdate = new Date(aggregated.start_time);
 
     recs.sort((a, b) => a.timestamp - b.timestamp);
+    timing.mark("sort-records");
 
     if (recs?.length < 300) {
+      timing.flush({
+        status: "failed",
+        error: "less than five minutes"
+      });
       throw new Error("less than five minutes");
     }
 
     const records = RecordGapFiller.fillGaps(recs);
-
-
-
-
-
-    const normalized_power = FitProcessor.calculateNormalizedPower(records);
+    timing.mark("fill-gaps", {
+      filledRecordCount: records.length
+    });
 
     const gps_track = FitProcessor.cleanGPSAndBuildTrack(records, { sampleRate: 5 });
+    timing.mark("clean-gps-build-track", {
+      gpsPointCount: gps_track?.track?.length ?? 0,
+      validGps: !!gps_track?.validGps
+    });
 
     const workoutObject = Workout.fromRecords(records, { validGps: gps_track.validGps, startTime: startdate });
-
+    timing.mark("workout-from-records");
 
     const segments = SegmentService.createSgmentsFromIntervals(
       IntervalDetector.detect(records),
       'auto'
     );
+    timing.mark("detect-auto-segments", {
+      autoSegmentCount: segments.length
+    });
 
     const segBE = SegmentService.createSgmentsFromIntervals(
       BestEffortDetector.detect(records),
       'crit'
     );
+    timing.mark("detect-best-efforts", {
+      bestEffortSegmentCount: segBE.length
+    });
 
     segments.push(...segBE);
+    timing.mark("merge-segments", {
+      segmentCount: segments.length
+    });
 
-    const recCount = records.length;
-    const headerSize = 24;
+    timing.flush({
+      status: "completed",
+      validGps: !!gps_track?.validGps,
+      gpsPointCount: gps_track?.track?.length ?? 0,
+      segmentCount: segments.length
+    });
 
-    const bytes = TypedArrayHelpers.computeSizeForFitRecords(recCount, 0, headerSize);
-    const buffer = new ArrayBuffer(bytes);
-    const view = new DataView(buffer);
-
-    view.setUint32(0, 0x46544b31);
-    view.setUint32(4, 1, true);
-    view.setUint32(8, recCount, true);
-    view.setUint32(12, (gps_track?.validGps) ? 1 : 0, true);
-    view.setBigInt64(16, BigInt(startdate.getTime()), true);
-
-
-    const [powers, heartRates, cadences, speeds, altitudes, latitudes, longitudes] =
-      TypedArrayHelpers.allocateViews(buffer, recCount, 0, headerSize);
-
-    const factor = Math.pow(2, 31) / 180;
-
-    let nn = 0;
-
-    for (const r of records) {
-
-      const power = Math.max(Math.min(Math.round(r.power ?? 0), LIMITS.Uint16.max), LIMITS.Uint16.min);
-      const heartRate = Math.max(Math.min(Math.round(r.heart_rate ?? 0), LIMITS.Uint8.max), LIMITS.Uint8.min);
-      const cadence = Math.max(Math.min(Math.round(r.cadence ?? 0), LIMITS.Uint8.max), LIMITS.Uint8.min);
-      const speed = Math.max(Math.min(Math.round((r.speed ?? 0) * 10), LIMITS.Uint16.max), LIMITS.Uint16.min);
-      const altitude = Math.max(Math.min(Math.round((r.altitude ?? 0) * 1000), LIMITS.Uint16.max), LIMITS.Uint16.min);
-      const lat = Math.max(Math.min(Math.round(((r.position_lat ?? 0) * factor) / 100), LIMITS.Int32.max), LIMITS.Int32.min);
-      const long = Math.max(Math.min(Math.round(((r.position_long ?? 0) * factor) / 100), LIMITS.Int32.max), LIMITS.Int32.min);
-
-      powers[nn] = power;
-      heartRates[nn] = heartRate;
-      cadences[nn] = cadence;
-      speeds[nn] = speed;
-      altitudes[nn] = altitude;
-      latitudes[nn] = lat;
-      longitudes[nn] = long;
-
-      nn++;
-    }
-
-    return { buffer, normalized_power, segments, gps_track, powers, heartRates, cadences, speeds, altitudes, workoutObject };
+    return {
+      aggregated,
+      segments,
+      gps_track,
+      workoutObject
+    };
   }
 
   // -----------------------------
@@ -451,4 +430,5 @@ export default class FitProcessor {
 
 //export const parseFit = FitProcessor.parseFit;
 export const mapToFileRow = FitProcessor.mapToFileRow;
+export const mapAggregatedToFileRow = FitProcessor.mapAggregatedToFileRow;
 export const processFitRecords = FitProcessor.processFitRecords;

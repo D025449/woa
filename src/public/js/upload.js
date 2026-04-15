@@ -1,4 +1,4 @@
-import { uploadFileAndStartImport } from './upload-api.js';
+import { uploadFilesAndStartImport } from './upload-api.js';
 import { pollImportStatus } from './import-polling.js';
 import { createUploadUI } from './upload-ui.js';
 
@@ -9,22 +9,24 @@ ui.elements.form.addEventListener('submit', handleUploadSubmit);
 async function handleUploadSubmit(event) {
     event.preventDefault();
 
-    const file = ui.getSelectedFile();
+    const files = ui.getSelectedFiles();
 
     ui.clearMessage();
 
-    if (!file) {
-        ui.setError('Bitte eine Datei auswählen.');
+    if (files.length === 0) {
+        ui.setError('Bitte mindestens eine Datei auswählen.');
         return;
     }
 
-    const lowerName = file.name.toLowerCase();
-    const isZip = lowerName.endsWith('.zip');
-    const isFit = lowerName.endsWith('.fit');
+    for (const file of files) {
+        const lowerName = file.name.toLowerCase();
+        const isZip = lowerName.endsWith('.zip');
+        const isFit = lowerName.endsWith('.fit');
 
-    if (!isZip && !isFit) {
-        ui.setError('Bitte nur .fit oder .zip Dateien hochladen.');
-        return;
+        if (!isZip && !isFit) {
+            ui.setError('Bitte nur .fit oder .zip Dateien hochladen.');
+            return;
+        }
     }
 
     try {
@@ -36,8 +38,8 @@ async function handleUploadSubmit(event) {
         ui.setProcessingProgress(0, '');
         ui.setInfo('Datei wird hochgeladen ...');
 
-        const importResult = await uploadFileAndStartImport({
-            file,
+        const importResult = await uploadFilesAndStartImport({
+            files,
             onProgress: ({ loaded, total, percent }) => {
                 ui.setUploadProgress(
                     percent,
@@ -46,7 +48,8 @@ async function handleUploadSubmit(event) {
             }
         });
 
-        ui.setUploadProgress(100, `${formatBytes(file.size)} hochgeladen`);
+        const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+        ui.setUploadProgress(100, `${files.length} Dateien, ${formatBytes(totalBytes)} hochgeladen`);
         ui.setPhase('Import wird gestartet');
         ui.setInfo('Datei wurde hochgeladen. Import-Job wird gestartet ...');
 

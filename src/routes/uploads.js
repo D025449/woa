@@ -11,41 +11,41 @@ const router = Router();
 router.post(
   "/",
   authMiddleware,
-  uploadMiddleware.single("file"),
+  uploadMiddleware.array("files", 50),
   async (req, res, next) => {
-    const uploadedFile = req.file;
+    const uploadedFiles = req.files || [];
 
     try {
       if (!req.user?.id) {
-        if (uploadedFile?.path) {
-          await fs.rm(uploadedFile.path, { force: true });
-        }
+        await Promise.all(uploadedFiles.map((file) => fs.rm(file.path, { force: true }).catch(() => {})));
 
         return res.status(401).json({
           error: "Nicht angemeldet"
         });
       }
 
-      if (!uploadedFile) {
+      if (uploadedFiles.length === 0) {
         return res.status(400).json({
-          error: "Keine Datei hochgeladen"
+          error: "Keine Dateien hochgeladen"
         });
       }
 
-      const ext = path.extname(uploadedFile.originalname).toLowerCase();
+      for (const uploadedFile of uploadedFiles) {
+        const ext = path.extname(uploadedFile.originalname).toLowerCase();
 
-      if (ext !== ".zip" && ext !== ".fit") {
-        await fs.rm(uploadedFile.path, { force: true });
+        if (ext !== ".zip" && ext !== ".fit") {
+          await Promise.all(uploadedFiles.map((file) => fs.rm(file.path, { force: true }).catch(() => {})));
 
-        return res.status(400).json({
-          error: "Nur .zip oder .fit Dateien sind erlaubt"
-        });
+          return res.status(400).json({
+            error: "Nur .zip oder .fit Dateien sind erlaubt"
+          });
+        }
       }
 
       const job = await createAndEnqueueImport({
-        localPath: uploadedFile.path,
-        originalFileName: uploadedFile.originalname,
-        sizeBytes: uploadedFile.size,
+        localPaths: uploadedFiles.map((file) => file.path),
+        originalFileNames: uploadedFiles.map((file) => file.originalname),
+        sizeBytes: uploadedFiles.reduce((sum, file) => sum + file.size, 0),
         uid: req.user.id
       });
 
@@ -53,9 +53,7 @@ router.post(
         jobId: job.id
       });
     } catch (err) {
-      if (uploadedFile?.path) {
-        await fs.rm(uploadedFile.path, { force: true }).catch(() => {});
-      }
+      await Promise.all(uploadedFiles.map((file) => fs.rm(file.path, { force: true }).catch(() => {})));
 
       next(err);
     }

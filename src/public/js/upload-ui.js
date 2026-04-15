@@ -59,8 +59,8 @@ export function createUploadUI() {
         elements.response.innerHTML = '';
     }
 
-    function getSelectedFile() {
-        return elements.fileInput.files[0] || null;
+    function getSelectedFiles() {
+        return Array.from(elements.fileInput.files || []);
     }
 
     return {
@@ -74,6 +74,6 @@ export function createUploadUI() {
         setSuccess,
         setInfo,
         clearMessage,
-        getSelectedFile
+        getSelectedFiles
     };
 }

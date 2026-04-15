@@ -2,8 +2,8 @@ BEGIN;
 DROP TABLE IF EXISTS import_jobs CASCADE;
 CREATE TABLE import_jobs (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  local_path text,
-  original_file_name text NOT NULL,
+  local_paths jsonb,
+  original_file_names jsonb,
   size_bytes bigint NOT NULL,
   status text NOT NULL CHECK (status IN ('queued', 'processing', 'completed', 'failed')),
   stage text NOT NULL CHECK (

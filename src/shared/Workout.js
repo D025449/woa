@@ -55,6 +55,7 @@ export default class Workout {
     // =============================
     _computeDerived() {
         this.elevationGainTotal = 0;
+        this.normalizedPower = this._computeNormalizedPower();
 
         let prevAlt = null;
 
@@ -150,6 +151,67 @@ export default class Workout {
         return this.cumAltitude[i] - this.cumAltitude[i - 1];
     }
 
+    _getPowerAt(i) {
+        if (i === 0) return this.cumPower[0];
+        return this.cumPower[i] - this.cumPower[i - 1];
+    }
+
+    _getSeriesValueAt(cumArray, i) {
+        if (i === 0) return cumArray[0];
+        return cumArray[i] - cumArray[i - 1];
+    }
+
+    _getRangeAverageFromCum(cumArray, startIdx, endIdxInclusive) {
+        const start = Math.max(0, Math.floor(startIdx));
+        const end = Math.min(cumArray.length - 1, Math.floor(endIdxInclusive));
+
+        if (end < start) {
+            throw new Error("Invalid range");
+        }
+
+        const sum = cumArray[end] - (start > 0 ? cumArray[start - 1] : 0);
+        const count = end - start + 1;
+
+        return sum / count;
+    }
+
+    _computeNormalizedPower() {
+        if (this.length === 0) return 0;
+
+        if (this.length < 30) {
+            let sumFourth = 0;
+
+            for (let i = 0; i < this.length; i++) {
+                const power = Math.max(0, this._getPowerAt(i));
+                sumFourth += Math.pow(power, 4);
+            }
+
+            return Math.round(Math.pow(sumFourth / this.length, 1 / 4));
+        }
+
+        let windowSum = 0;
+        let rollingCount = 0;
+        let sumFourth = 0;
+
+        for (let i = 0; i < this.length; i++) {
+            windowSum += Math.max(0, this._getPowerAt(i));
+
+            if (i >= 30) {
+                windowSum -= Math.max(0, this._getPowerAt(i - 30));
+            }
+
+            if (i >= 29) {
+                const rollingAverage = windowSum / 30;
+                sumFourth += Math.pow(rollingAverage, 4);
+                rollingCount += 1;
+            }
+        }
+
+        return rollingCount > 0
+            ? Math.round(Math.pow(sumFourth / rollingCount, 1 / 4))
+            : 0;
+    }
+
     // =============================
     // GETTER
     // =============================
@@ -163,6 +225,10 @@ export default class Workout {
 
     getElevationGainTotal() {
         return this.elevationGainTotal;
+    }
+
+    getNormalizedPower() {
+        return this.normalizedPower;
     }
 
     // =============================
@@ -230,6 +296,30 @@ export default class Workout {
         return this.toAbsolute(this.cumAltitude);
     }
 
+    smoothSeriesCentered(cumArray, windowSize = 1, scale = 1) {
+        const size = Math.max(1, Math.floor(windowSize));
+        const out = new Int32Array(cumArray.length);
+
+        if (size <= 1) {
+            for (let i = 0; i < cumArray.length; i++) {
+                out[i] = Math.round(this._getSeriesValueAt(cumArray, i) / scale);
+            }
+            return out;
+        }
+
+        const halfLeft = Math.floor((size - 1) / 2);
+        const halfRight = size - 1 - halfLeft;
+
+        for (let i = 0; i < cumArray.length; i++) {
+            const start = Math.max(0, i - halfLeft);
+            const end = Math.min(cumArray.length - 1, i + halfRight);
+
+            out[i] = Math.round(this._getRangeAverageFromCum(cumArray, start, end) / scale);
+        }
+
+        return out;
+    }
+
     // =============================
     // COMPRESS
     // =============================
@@ -287,11 +377,18 @@ export default class Workout {
         throw new Error("Decompression not supported");
     }
 
-    // =============================
+// =============================
 // STRIDE ARRAY EXPORT (mit Index)
 // =============================
-getAsStrideArray() {
+getAsStrideArray(options = {}) {
     const n = this.length;
+    const smoothing = options?.smoothing ?? {};
+
+    const powers = this.smoothSeriesCentered(this.cumPower, smoothing.power ?? 10);
+    const heartRates = this.smoothSeriesCentered(this.cumHr, smoothing.hr ?? 10);
+    const cadences = this.smoothSeriesCentered(this.cumCadence, smoothing.cadence ?? 30);
+    const speeds = this.smoothSeriesCentered(this.cumSpeed, smoothing.speed ?? 30, 10);
+    const altitudes = this.smoothSeriesCentered(this.cumAltitude, smoothing.altitude ?? 10);
 
     const strideSize = 6; // index + 5 Werte
     const result = new Int32Array(n * strideSize);
@@ -299,18 +396,12 @@ getAsStrideArray() {
     let offset = 0;
 
     for (let i = 0; i < n; i++) {
-        const p = i === 0 ? this.cumPower[0] : this.cumPower[i] - this.cumPower[i - 1];
-        const hr = i === 0 ? this.cumHr[0] : this.cumHr[i] - this.cumHr[i - 1];
-        const cad = i === 0 ? this.cumCadence[0] : this.cumCadence[i] - this.cumCadence[i - 1];
-        const speed = i === 0 ? this.cumSpeed[0] : this.cumSpeed[i] - this.cumSpeed[i - 1];
-        const alt = i === 0 ? this.cumAltitude[0] : this.cumAltitude[i] - this.cumAltitude[i - 1];
-
         result[offset++] = i;      // 👈 Index zuerst
-        result[offset++] = p | 0;
-        result[offset++] = hr | 0;
-        result[offset++] = cad | 0;
-        result[offset++] = speed | 0;
-        result[offset++] = alt | 0;
+        result[offset++] = powers[i] | 0;
+        result[offset++] = heartRates[i] | 0;
+        result[offset++] = cadences[i] | 0;
+        result[offset++] = speeds[i] | 0;
+        result[offset++] = altitudes[i] | 0;
     }
 
     return {

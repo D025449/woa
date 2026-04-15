@@ -129,6 +129,24 @@ export default class MapSegment {
 
   }
 
+  static async deleteSegment(segmentId) {
+    const res = await fetch(`/segments/${segmentId}`, {
+      method: "DELETE",
+      credentials: "include"
+    });
+
+    if (res.status === 401) {
+      window.location.href = "/login";
+      return null;
+    }
+
+    if (!res.ok) {
+      throw new Error("Delete failed");
+    }
+
+    return res.json();
+  }
+
   static formatLocation(address, mode = "medium") {
     if (!address) return null;
 
