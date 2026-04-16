@@ -4,66 +4,86 @@ import Utils from "./Utils.js";
 export default class SegmentService {
 
 
-    static createAddNewSegment(workout, startEnd, segmenttype = 'manual') {
-        let startIndex = startEnd.startIndex;
-        let endIndex = startEnd.endIndex;
-        if (endIndex < startIndex) {
-            const aaa = endIndex;
-            endIndex = startIndex;
-            startIndex = aaa;
+
+    static async deleteSegment(workout, seg) {
+
+        seg.rowstate = 'DEL';
+        try {
+            const res = await fetch(`/files/workouts/${workout.id}/segments`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    segments: [seg]
+                })
+            });
+
+            if (!res.ok) {
+                throw new Error("Save failed");
+            }
+            const result = await res.json();
+
+
+            //seg.id = result.segments[0].id;
+
+            console.log("Deleted segments:", result);
+
+        } catch (err) {
+            console.error(err);
         }
-        if ((endIndex - startIndex) < 2) {
+
+
+        //this.handlers.onUpdateWorkout?.(this.currentWorkout);      
+    }
+
+
+    static async createAddNewSegment(workout, startEnd, segmenttype = 'manual') {
+
+        const newSeg = workout.workoutObject.createNewSegment(startEnd, segmenttype = 'manual');
+        if (newSeg) {
+            await SegmentService.storeSegment(workout, newSeg);
+
+            workout.segments ??= [];
+            workout.segments.push(newSeg);
+
+        }
+        return workout;
+    }
+
+    static async createAddNewGpsSegment(workout, startEnd) {
+        if (!workout?.validGps || !Array.isArray(workout.track) || workout.track.length === 0) {
             return null;
         }
 
-        const { series, STRIDE } = workout;
-
-        let power = 0;
-        let heartrate = 0;
-        let speed = 0;
-        let altimeters = 0;
-        let cadence = 0;
-        let cnt = 0;
-        for (let i = startIndex * STRIDE; i < endIndex * STRIDE; i += STRIDE) {
-            power += series[i + 1];
-            heartrate += series[i + 2];
-            cadence += series[i + 3];
-            speed += series[i + 4];
-            altimeters += series[i + 5];
-            ++cnt;
+        const newSeg = workout.workoutObject.createNewSegment(startEnd, 'manual');
+        if (!newSeg) {
+            return null;
         }
-        altimeters = series[(endIndex - 1) * STRIDE + 5] - series[startIndex * STRIDE + 5];
-        power = Math.round(power / cnt);
-        heartrate = Math.round(heartrate / cnt);
-        speed /= cnt;
-        speed *= 10;
-        speed = Math.round(speed);
-        speed /= 10;
-        cadence = Math.round(cadence / cnt);
 
-        const duration = endIndex - startIndex;
+        const gpsTrack = SegmentService.reduced_track(workout, newSeg);
+        if (!gpsTrack?.track?.length) {
+            return null;
+        }
 
-
-
-        workout.segments ??= [];
-        workout.segments.push({
-            id: globalThis.crypto.randomUUID(),
-            start_offset: startIndex,
-            end_offset: endIndex,
-            duration: duration,
-            avg_power: power,
-            avg_heart_rate: heartrate,
-            avg_cadence: cadence,
-            avg_speed: speed,
-            altimeters: altimeters,
-            segmenttype: segmenttype,
-            rowstate: 'CRE',
-            segmentname: ''
+        const res = await fetch(`/segments/track-lookup-v2`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                track: gpsTrack.track
+            })
         });
 
-        return workout;
+        if (!res.ok) {
+            throw new Error("GPS segment lookup failed");
+        }
 
+        return res.json();
     }
+
+
 
     static createSgmentsFromIntervals(intervals, segmenttype = 'auto') {
         const res = [];
@@ -119,7 +139,7 @@ export default class SegmentService {
 
     static reduced_track(workout, seg, options = {}) {
         const {
-            sampleRate = 5,
+            sampleRate = 1,
             precision = 5
         } = options;
 
@@ -127,26 +147,61 @@ export default class SegmentService {
         let maxLat = -Infinity;
         let minLng = Infinity;
         let maxLng = -Infinity;
+        const slice = workout.workoutObject.getMetricsForRange(seg.start_offset, seg.end_offset);
 
-        const subset = workout.track.slice(seg.start_offset, seg.end_offset);
+        const subset = workout.track.slice(seg.start_offset / workout.sampleRateGPS, seg.end_offset / workout.sampleRateGPS);
         let reduced = [];
         for (let i = 0; i < subset.length; i += sampleRate) {
             const ss = subset[i];
             const lat = Number(ss.lat.toFixed(precision));
             const lng = Number(ss.lng.toFixed(precision));
+            const ele = slice.altitude[i * workout.sampleRateGPS];
             const idx = ss.idx;
             // bbox
             if (lat < minLat) minLat = lat;
             if (lat > maxLat) maxLat = lat;
             if (lng < minLng) minLng = lng;
             if (lng > maxLng) maxLng = lng;
-            reduced.push({ idx, lat, lng });
+            reduced.push({ idx, lat, lng, ele });
         }
 
-        return { 
+        return {
             bbox: { minLat, maxLat, minLng, maxLng },
             track: reduced
         }
+    }
+
+    static async storeSegment(workout, seg) {
+
+        if (workout?.validGps) {
+            seg.gpstrack = SegmentService.reduced_track(workout, seg);
+        };
+        try {
+            const res = await fetch(`/files/workouts/${workout.id}/segments`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    segments: [seg]
+                })
+            });
+
+            if (!res.ok) {
+                throw new Error("Save failed");
+            }
+            const result = await res.json();
+
+            seg.rowstate = 'DB';
+            seg.id = result.segments[0].id;
+
+            console.log("Saved segments:", result);
+
+        } catch (err) {
+            console.error(err);
+            alert("Failed to save segments");
+        }
+
     }
 
 

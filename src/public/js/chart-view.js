@@ -11,12 +11,10 @@ export default class ChartView {
 
     this.selectionStart = null;
     this.currentWorkout = null;
-    this.isSegmentMode = false;
-    this.editMode = "";
-    this.currentSegment = null;
-
-    this.editor = document.getElementById('segment-editor');
-    this.input = document.getElementById('segment-name-input');
+    this.mode = "";
+    this.createButton = document.getElementById('draw-segment-toggle');
+    this.createGpsButton = document.getElementById('draw-gps-segment-toggle');
+    this.deleteButton = document.getElementById('delete-segments');
 
     this.initUI();
     this.initChart();
@@ -27,40 +25,21 @@ export default class ChartView {
   // INIT
   // -----------------------------
   initUI() {
-    document.getElementById('draw-segment-toggle')?.addEventListener('click', (e) => {
-      this.isSegmentMode = !this.isSegmentMode;
-
-      e.target.classList.toggle('btn-primary', this.isSegmentMode);
-      e.target.classList.toggle('btn-outline-primary', !this.isSegmentMode);
-
-      this.setDrawingMode(this.isSegmentMode);
-      this.editMode = this.isSegmentMode ? 'CreSeg' : '';
+    this.createButton?.addEventListener('click', () => {
+      this.setMode(this.mode === "create" ? "" : "create");
     });
-
-    document.getElementById('save-segments')?.addEventListener('click', () => {
-      SegmentService.storeSegments(this.currentWorkout);
-    });
-
-    document.getElementById('delete-segments')?.addEventListener('click', () => {
-      this.isSegmentMode = !this.isSegmentMode;
-      this.editMode = this.isSegmentMode ? 'DelSeg' : '';
-    });
-
-    this.input?.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') this.hideSegmentEditor();
-
-      if (e.key === 'Enter') {
-        if (this.currentSegment && this.currentSegment.name !== this.input.value) {
-          this.currentSegment.segmentname = this.input.value;
-
-          if (this.currentSegment.rowstate === 'DB') {
-            this.currentSegment.rowstate = 'UPD';
-            this.handlers.onUpdateWorkout?.(this.currentWorkout);
-          }
-        }
-        this.hideSegmentEditor();
+    this.createGpsButton?.addEventListener('click', () => {
+      if (this.createGpsButton.disabled) {
+        return;
       }
+
+      this.setMode(this.mode === "gps-create" ? "" : "gps-create");
     });
+    this.deleteButton?.addEventListener('click', () => {
+      this.setMode(this.mode === "delete" ? "" : "delete");
+    });
+
+    this.syncModeButtons();
   }
 
   initChart() {
@@ -151,6 +130,11 @@ export default class ChartView {
   // -----------------------------
   updateWorkout(workout) {
     this.currentWorkout = workout;
+    if (!workout?.validGps && this.mode === "gps-create") {
+      this.setMode("");
+    } else {
+      this.syncModeButtons();
+    }
     const obj = workout.workoutObject;
     const result = obj.getAsStrideArray({ smoothing: { power: 10, speed: 30, cadence: 30 } });
     const sd = obj.getStartTime();
@@ -168,6 +152,11 @@ export default class ChartView {
 
   updateWorkoutCP(workout, cpview) {
     this.currentWorkout = workout;
+    if (!workout?.validGps && this.mode === "gps-create") {
+      this.setMode("");
+    } else {
+      this.syncModeButtons();
+    }
     const obj = workout.workoutObject;
     const result = obj.getAsStrideArray();
     const sd = obj.getStartTime();
@@ -187,13 +176,18 @@ export default class ChartView {
   // INTERACTIONS
   // -----------------------------
   registerInteractions() {
-    this.chart.on("click", (params) => {
+    this.chart.on("click", async (params) => {
       if (params.componentType !== "markArea") return;
 
       const seg = this.currentWorkout.segments.find(s => s.id === params.data.segmentId);
 
-      if (this.editMode === 'DelSeg') {
-        seg.rowstate = 'DEL';
+      if (this.mode === "create" || this.mode === "gps-create") {
+        return;
+      }
+
+      if (this.mode === "delete") {
+        //seg.rowstate = 'DEL';
+        SegmentService.deleteSegment(this.currentWorkout, seg) 
         this.handlers.onUpdateWorkout?.(this.currentWorkout);
       } else {
         this.handlers.onZoomSegment?.(
@@ -201,8 +195,6 @@ export default class ChartView {
           params.data.coord[1][0]
         );
       }
-
-      this.showSegmentEditor(seg);
     });
 
     this.chart.getZr().on("mousemove", (p) => {
@@ -211,23 +203,34 @@ export default class ChartView {
     });
 
     this.chart.getZr().on('mousedown', (e) => {
-      if (!this.isSegmentMode) return;
+      if (this.mode !== "create" && this.mode !== "gps-create") return;
 
       const data = this.chart.convertFromPixel({ seriesIndex: 0 }, [e.offsetX, e.offsetY]);
       this.selectionStart = data[0];
     });
 
-    this.chart.getZr().on('mouseup', (e) => {
+    this.chart.getZr().on('mouseup', async (e) => {
+      if (this.mode !== "create" && this.mode !== "gps-create") {
+        this.selectionStart = null;
+        return;
+      }
+
       if (this.selectionStart == null) return;
 
       const data = this.chart.convertFromPixel({ seriesIndex: 0 }, [e.offsetX, e.offsetY]);
 
-      SegmentService.createAddNewSegment(this.currentWorkout, {
+      const startEnd = {
         startIndex: Math.round(this.selectionStart),
         endIndex: Math.round(data[0])
-      });
+      };
 
-      this.handlers.onUpdateWorkout?.(this.currentWorkout);
+      if (this.mode === "gps-create") {
+        const gpsSegment = await SegmentService.createAddNewGpsSegment(this.currentWorkout, startEnd);
+        this.handlers.onGpsSegmentCreated?.(gpsSegment);
+      } else {
+        await SegmentService.createAddNewSegment(this.currentWorkout, startEnd);
+        this.handlers.onUpdateWorkout?.(this.currentWorkout);
+      }
       this.selectionStart = null;
     });
   }
@@ -235,19 +238,72 @@ export default class ChartView {
   // -----------------------------
   // UI HELPERS
   // -----------------------------
-  showSegmentEditor(segment) {
-    this.currentSegment = segment;
-    this.input.value = segment.segmentname || '';
-    this.editor.classList.remove('d-none');
-    this.input.focus();
+  setMode(mode) {
+    this.mode = mode;
+    this.selectionStart = null;
+    this.setDrawingMode(mode === "create");
+    this.syncModeButtons();
   }
 
-  hideSegmentEditor() {
-    this.currentSegment = null;
-    this.editor.classList.add('d-none');
+  syncModeButtons() {
+    const canCreateGps = !!this.currentWorkout?.validGps;
+
+    if (this.createButton) {
+      const isCreate = this.mode === "create";
+      this.createButton.classList.toggle('btn-primary', isCreate);
+      this.createButton.classList.toggle('btn-outline-primary', !isCreate);
+      this.createButton.setAttribute(
+        "title",
+        isCreate
+          ? "Create-Segment-Modus aktiv. Ziehe im Chart einen Bereich auf, um ein neues Segment anzulegen."
+          : "Create-Segment-Modus aktivieren."
+      );
+      this.createButton.setAttribute(
+        "aria-pressed",
+        isCreate ? "true" : "false"
+      );
+    }
+
+    if (this.createGpsButton) {
+      const isGpsCreate = this.mode === "gps-create";
+      this.createGpsButton.disabled = !canCreateGps;
+      this.createGpsButton.classList.toggle('btn-success', isGpsCreate);
+      this.createGpsButton.classList.toggle('btn-outline-success', !isGpsCreate);
+      this.createGpsButton.setAttribute(
+        "title",
+        canCreateGps
+          ? (
+              isGpsCreate
+                ? "Create-GPS-Segment-Modus aktiv. Ziehe im Chart einen Bereich auf, um ein GPS-Segment zu erzeugen."
+                : "Create-GPS-Segment-Modus aktivieren."
+            )
+          : "Nur verfuegbar, wenn das Workout gueltige GPS-Daten hat."
+      );
+      this.createGpsButton.setAttribute(
+        "aria-pressed",
+        isGpsCreate ? "true" : "false"
+      );
+    }
+
+    if (this.deleteButton) {
+      const isDelete = this.mode === "delete";
+      this.deleteButton.classList.toggle('btn-danger', isDelete);
+      this.deleteButton.classList.toggle('btn-outline-danger', !isDelete);
+      this.deleteButton.setAttribute(
+        "title",
+        isDelete
+          ? "Delete-Segment-Modus aktiv. Klicke auf ein vorhandenes Segment, um es zu löschen."
+          : "Delete-Segment-Modus aktivieren."
+      );
+      this.deleteButton.setAttribute(
+        "aria-pressed",
+        isDelete ? "true" : "false"
+      );
+    }
   }
 
   setDrawingMode(enabled) {
+    this.chart.getZr().setCursorStyle(enabled ? "crosshair" : "default");
     this.chart.setOption({
       dataZoom: [{
         type: 'inside',

@@ -257,6 +257,14 @@ export async function createApp() {
         res.redirect("/login")
     });
 
+    app.get("/impressum", (req, res) => {
+        res.render("impressum");
+    });
+
+    app.get("/datenschutz", (req, res) => {
+        res.render("datenschutz");
+    });
+
 
     app.get("/dashboard", checkAuth, (req, res) => {
 

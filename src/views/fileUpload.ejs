@@ -6,16 +6,286 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FIT Upload</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <style>
+        body.upload-page {
+            background:
+                radial-gradient(circle at top left, rgba(30, 64, 175, 0.08), transparent 28%),
+                radial-gradient(circle at top right, rgba(13, 148, 136, 0.10), transparent 22%),
+                linear-gradient(180deg, #f5f7fb 0%, #edf2f7 100%);
+            color: #10233b;
+        }
+
+        .app-topbar {
+            background: linear-gradient(180deg, #0f172a 0%, #172235 100%) !important;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+            box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
+        }
+
+        .app-topbar .navbar-brand {
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: #f8fafc;
+        }
+
+        .app-topbar-user {
+            color: rgba(226, 232, 240, 0.82);
+            font-size: 0.92rem;
+            font-weight: 500;
+        }
+
+        .app-topbar .btn {
+            border-radius: 999px;
+            padding-inline: 0.9rem;
+            font-weight: 600;
+            border-color: rgba(148, 163, 184, 0.28);
+        }
+
+        .app-topbar .btn-outline-light {
+            color: #e2e8f0;
+            border-color: rgba(148, 163, 184, 0.3);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .app-topbar .btn-outline-light:hover {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(226, 232, 240, 0.36);
+        }
+
+        .app-topbar .btn-outline-danger {
+            color: #fecaca;
+            border-color: rgba(248, 113, 113, 0.32);
+            background: rgba(127, 29, 29, 0.18);
+        }
+
+        .app-topbar .btn-outline-danger:hover {
+            color: #fff1f2;
+            background: rgba(220, 38, 38, 0.28);
+            border-color: rgba(248, 113, 113, 0.45);
+        }
+
+        .upload-shell {
+            display: grid;
+            gap: 1.5rem;
+        }
+
+        .app-footer {
+            margin-top: 1.5rem;
+            text-align: center;
+            color: #64748b;
+            font-size: 0.88rem;
+        }
+
+        .app-footer a {
+            color: #475569;
+            text-decoration: none;
+        }
+
+        .app-footer a:hover {
+            color: #0f172a;
+            text-decoration: underline;
+        }
+
+        .upload-hero {
+            display: flex;
+            align-items: end;
+            justify-content: space-between;
+            gap: 1.5rem;
+            padding: 1.5rem 1.75rem;
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            border-radius: 1.5rem;
+            background:
+                linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.92)),
+                linear-gradient(135deg, rgba(15, 23, 42, 0.02), rgba(30, 64, 175, 0.04));
+            box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+            backdrop-filter: blur(10px);
+        }
+
+        .upload-kicker {
+            margin: 0 0 0.4rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: #0f766e;
+        }
+
+        .upload-title {
+            margin: 0;
+            font-size: clamp(2rem, 2.5vw, 2.85rem);
+            font-weight: 700;
+            letter-spacing: -0.04em;
+            line-height: 0.95;
+            color: #0f172a;
+        }
+
+        .upload-subtitle {
+            margin: 0.75rem 0 0;
+            max-width: 42rem;
+            font-size: 0.98rem;
+            color: #475569;
+        }
+
+        .upload-hero-meta {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .upload-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            padding: 0.7rem 1rem;
+            border: 1px solid rgba(148, 163, 184, 0.28);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.72);
+            font-size: 0.83rem;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .upload-chip-label {
+            color: #64748b;
+        }
+
+        .upload-stage {
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 1.5rem;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.94));
+            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+            overflow: hidden;
+        }
+
+        .upload-stage-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 1.1rem 1.4rem 1rem;
+            border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+            background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 0.88));
+        }
+
+        .upload-eyebrow {
+            display: block;
+            margin-bottom: 0.2rem;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #64748b;
+        }
+
+        .upload-section-title {
+            margin: 0;
+            font-size: 1.1rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: #0f172a;
+        }
+
+        .upload-section-copy {
+            margin: 0.35rem 0 0;
+            font-size: 0.9rem;
+            color: #64748b;
+        }
+
+        .upload-stage-body {
+            padding: 1.35rem 1.4rem 1.5rem;
+        }
+
+        .upload-form-panel {
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            border-radius: 1.25rem;
+            background: rgba(255, 255, 255, 0.72);
+            padding: 1.1rem 1.15rem 1.2rem;
+        }
+
+        .upload-form-panel .form-label {
+            font-size: 0.84rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #475569;
+        }
+
+        .upload-form-panel .form-control {
+            border-radius: 1rem;
+            padding: 0.85rem 1rem;
+            border-color: rgba(148, 163, 184, 0.35);
+            box-shadow: none;
+        }
+
+        .upload-primary-btn {
+            border-radius: 999px;
+            padding: 0.85rem 1rem;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+        }
+
+        .upload-status-panel {
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            border-radius: 1.25rem;
+            background: rgba(248, 250, 252, 0.92);
+            padding: 1rem 1.05rem 1.05rem;
+        }
+
+        .upload-phase-card {
+            padding: 0.85rem 1rem;
+            border-radius: 1rem;
+            background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.92));
+            color: #f8fafc;
+        }
+
+        .upload-phase-label {
+            display: block;
+            margin-bottom: 0.2rem;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: rgba(226, 232, 240, 0.72);
+        }
+
+        .upload-progress-block {
+            margin-top: 1rem;
+        }
+
+        .upload-progress-block .progress {
+            height: 0.72rem;
+            border-radius: 999px;
+            background: rgba(226, 232, 240, 0.85);
+        }
+
+        #response .alert {
+            border-radius: 1rem;
+        }
+
+        @media (max-width: 991.98px) {
+            .upload-hero {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .upload-hero-meta {
+                justify-content: flex-start;
+            }
+        }
+    </style>
 </head>
 
-<body class="bg-light">
+<body class="upload-page">
 
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container">
+    <nav class="navbar navbar-expand-lg navbar-dark app-topbar">
+        <div class="container-fluid px-3 px-xl-4">
             <span class="navbar-brand">Workout Dashboard</span>
 
             <div class="ms-auto d-flex align-items-center gap-3">
-                <span class="text-white">
+                <span class="app-topbar-user">
                     <%= userInfo.username || userInfo.email %>
                 </span>
 
@@ -35,72 +305,109 @@
         </div>
     </nav>
 
-    <div class="container py-5">
-        <div class="row justify-content-center">
-            <div class="col-lg-6">
+    <div class="container-fluid px-3 px-xl-4 py-4">
+        <div class="upload-shell">
+            <section class="upload-hero">
+                <div>
+                    <p class="upload-kicker">Import Workspace</p>
+                    <h1 class="upload-title">FIT Upload</h1>
+                    <p class="upload-subtitle">
+                        Lade einzelne FIT-Dateien oder ganze ZIP-Batches hoch und beobachte Upload und Verarbeitung
+                        in einer klaren, ruhigen Statusansicht.
+                    </p>
+                </div>
 
-                <div class="card shadow-sm">
-                    <div class="card-header">
-                        <h5 class="mb-0">FIT- oder ZIP-Datei hochladen</h5>
-                    </div>
+                <div class="upload-hero-meta">
+                    <span class="upload-chip">
+                        <span class="upload-chip-label">Formats</span>
+                        <span>FIT · ZIP</span>
+                    </span>
+                    <span class="upload-chip">
+                        <span class="upload-chip-label">Flow</span>
+                        <span>Upload · Parse · Persist</span>
+                    </span>
+                </div>
+            </section>
 
-                    <div class="card-body">
-
-                        <form id="uploadForm">
-                            <div class="mb-3">
-                                <label for="file" class="form-label">
-                                    FIT- oder ZIP-Dateien auswählen
-                                </label>
-                                <input type="file" class="form-control" id="file" name="files" multiple required>
-                            </div>
-
-                            <div class="d-grid">
-                                <button type="submit" id="submitButton" class="btn btn-primary">
-                                    Upload starten
-                                </button>
-                            </div>
-                        </form>
-
-                        <div id="statusArea" class="mt-4 d-none">
-                            <div class="mb-3">
-                                <div class="small text-muted mb-1">Aktuelle Phase</div>
-                                <div id="phaseText" class="fw-semibold">Bereit</div>
-                            </div>
-
-                            <div class="mb-3">
-                                <div class="d-flex justify-content-between">
-                                    <span>Upload</span>
-                                    <span id="uploadPercentText">0%</span>
-                                </div>
-                                <div class="progress">
-                                    <div id="uploadProgressBar" class="progress-bar" role="progressbar"
-                                        style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
-                                    </div>
-                                </div>
-                                <div id="uploadDetailText" class="small text-muted mt-1"></div>
-                            </div>
-
-                            <div class="mb-3">
-                                <div class="d-flex justify-content-between">
-                                    <span>Verarbeitung</span>
-                                    <span id="processingPercentText">0%</span>
-                                </div>
-                                <div class="progress">
-                                    <div id="processingProgressBar" class="progress-bar bg-success" role="progressbar"
-                                        style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
-                                    </div>
-                                </div>
-                                <div id="processingDetailText" class="small text-muted mt-1"></div>
-                            </div>
-                        </div>
-
-                        <div id="response" class="mt-3"></div>
-
+            <section class="upload-stage">
+                <div class="upload-stage-header">
+                    <div>
+                        <span class="upload-eyebrow">Import Runner</span>
+                        <h2 class="upload-section-title">FIT- oder ZIP-Datei hochladen</h2>
+                        <p class="upload-section-copy">
+                            Wähle einen oder mehrere Uploads aus und starte den Import. Fortschritt und Verarbeitungsstand
+                            werden darunter live angezeigt.
+                        </p>
                     </div>
                 </div>
 
-            </div>
+                <div class="upload-stage-body">
+                    <div class="row g-4">
+                        <div class="col-lg-6">
+                            <div class="upload-form-panel h-100">
+                                <form id="uploadForm">
+                                    <div class="mb-3">
+                                        <label for="file" class="form-label">
+                                            FIT- oder ZIP-Dateien auswählen
+                                        </label>
+                                        <input type="file" class="form-control" id="file" name="files" multiple required>
+                                    </div>
+
+                                    <div class="d-grid">
+                                        <button type="submit" id="submitButton" class="btn btn-primary upload-primary-btn">
+                                            Upload starten
+                                        </button>
+                                    </div>
+                                </form>
+
+                                <div id="response" class="mt-3"></div>
+                            </div>
+                        </div>
+
+                        <div class="col-lg-6">
+                            <div id="statusArea" class="upload-status-panel d-none h-100">
+                                <div class="upload-phase-card">
+                                    <span class="upload-phase-label">Aktuelle Phase</span>
+                                    <div id="phaseText" class="fw-semibold">Bereit</div>
+                                </div>
+
+                                <div class="upload-progress-block">
+                                    <div class="d-flex justify-content-between">
+                                        <span>Upload</span>
+                                        <span id="uploadPercentText">0%</span>
+                                    </div>
+                                    <div class="progress">
+                                        <div id="uploadProgressBar" class="progress-bar" role="progressbar"
+                                            style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                        </div>
+                                    </div>
+                                    <div id="uploadDetailText" class="small text-muted mt-1"></div>
+                                </div>
+
+                                <div class="upload-progress-block">
+                                    <div class="d-flex justify-content-between">
+                                        <span>Verarbeitung</span>
+                                        <span id="processingPercentText">0%</span>
+                                    </div>
+                                    <div class="progress">
+                                        <div id="processingProgressBar" class="progress-bar bg-success" role="progressbar"
+                                            style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                        </div>
+                                    </div>
+                                    <div id="processingDetailText" class="small text-muted mt-1"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
         </div>
+
+        <footer class="app-footer pb-4">
+            <a href="/impressum">Impressum</a>
+            <span class="mx-2">·</span>
+            <a href="/datenschutz">Datenschutz</a>
+        </footer>
     </div>
 
     <script type="module" src="/js/upload.js"></script>

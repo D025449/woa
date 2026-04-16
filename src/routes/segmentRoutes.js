@@ -90,6 +90,42 @@ function computeTrackSpacingStats(track) {
   };
 }
 
+function computeTrackDistanceMeters(track) {
+  if (!Array.isArray(track) || track.length < 2) {
+    return 0;
+  }
+
+  let total = 0;
+  for (let i = 1; i < track.length; i++) {
+    total += haversineMeters(track[i - 1], track[i]);
+  }
+
+  return total;
+}
+
+function computeTrackAscent(track) {
+  if (!Array.isArray(track) || track.length < 2) {
+    return 0;
+  }
+
+  let total = 0;
+  for (let i = 1; i < track.length; i++) {
+    const prev = track[i - 1]?.ele;
+    const current = track[i]?.ele;
+
+    if (typeof prev !== "number" || typeof current !== "number") {
+      continue;
+    }
+
+    const delta = current - prev;
+    if (delta > 0) {
+      total += delta;
+    }
+  }
+
+  return total;
+}
+
 function bearingDegrees(from, to) {
   const toRad = (value) => (value * Math.PI) / 180;
   const toDeg = (value) => (value * 180) / Math.PI;
@@ -314,6 +350,106 @@ router.post("/track-lookup", authMiddleware, async (req, res, next) => {
       error: err.message
     });
     console.error("POST /files/track-lookup failed:", err);
+    next(err);
+  }
+});
+
+router.post("/track-lookup-v2", authMiddleware, async (req, res, next) => {
+  const timing = createStepLogger("segments.track-lookup-v2");
+
+  try {
+    const { track } = req.body;
+    const uid = req.user?.id;
+
+    if (!Array.isArray(track) || track.length < 2) {
+      return res.status(400).json({
+        error: "track with at least two points required"
+      });
+    }
+
+    const normalizedTrack = track.map((point) => ({
+      lat: Number(point.lat),
+      lng: Number(point.lng),
+      ele: point.ele != null ? Number(point.ele) : null
+    }));
+
+    const hasInvalidPoint = normalizedTrack.some((point) =>
+      !Number.isFinite(point.lat) || !Number.isFinite(point.lng)
+    );
+
+    if (hasInvalidPoint) {
+      return res.status(400).json({
+        error: "track contains invalid lat/lng values"
+      });
+    }
+
+    const start = normalizedTrack[0];
+    const end = normalizedTrack[normalizedTrack.length - 1];
+
+    const trackSpacing = computeTrackSpacingStats(normalizedTrack);
+    timing.mark("track-spacing", trackSpacing);
+
+    const startLocation = await reverseGeocode(start.lat, start.lng);
+    timing.mark("reverse-start");
+
+    await sleep(1000);
+    timing.mark("reverse-gap-wait");
+
+    const endLocation = await reverseGeocode(end.lat, end.lng);
+    timing.mark("reverse-end");
+
+    const label_start = MapSegment.formatLocation(startLocation.address, "full");
+    const label_end = MapSegment.formatLocation(endLocation.address, "full");
+
+    const temp_seg = {
+      ok: true,
+      distance: computeTrackDistanceMeters(normalizedTrack),
+      duration: null,
+      track: normalizedTrack,
+      ascent: computeTrackAscent(normalizedTrack),
+      start: {
+        lat: start.lat,
+        lng: start.lng,
+        name: label_start,
+        altitude: start.ele
+      },
+      end: {
+        lat: end.lat,
+        lng: end.lng,
+        name: label_end,
+        altitude: end.ele
+      },
+      bestEffortsStatus: "queued"
+    };
+
+    const segments_inserted = await SegmentDBService.insertGpsSegmentsBulk(uid, [temp_seg]);
+    timing.mark("insert-segment", {
+      insertedCount: segments_inserted.length
+    });
+
+    await enqueueSegmentBestEfforts({
+      uid,
+      segmentIds: segments_inserted.map((segment) => segment.id)
+    });
+    timing.mark("enqueue-best-efforts");
+
+    const updated = segments_inserted.map((seg) => ({
+      ...SegmentDBService.mapSegment(seg),
+      rowstate: "DB"
+    }));
+
+    timing.flush({
+      status: 201,
+      segmentId: updated[0]?.id
+    });
+
+    res.status(201).json(updated[0]);
+  } catch (err) {
+    timing.flush({
+      status: 500,
+      error: err.message
+    });
+    console.error("POST /segments/track-lookup-v2 failed:", err);
     next(err);
   }
 });

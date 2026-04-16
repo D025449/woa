@@ -109,7 +109,7 @@ export default class Workout {
             const hr = r.heart_rate ?? 0;
             const cad = r.cadence ?? 0;
             const speed = r.speed != null ? Math.round(r.speed * 10) : 0;
-            const alt = Math.round((r.altitude ?? 0)*1000);
+            const alt = Math.round((r.altitude ?? 0) * 1000);
 
             pSum += p;
             hrSum += hr;
@@ -159,6 +159,22 @@ export default class Workout {
     _getSeriesValueAt(cumArray, i) {
         if (i === 0) return cumArray[0];
         return cumArray[i] - cumArray[i - 1];
+    }
+
+    _assertValidIndex(i) {
+        if (!Number.isInteger(i) || i < 0 || i >= this.length) {
+            throw new RangeError(`Invalid workout index: ${i}`);
+        }
+    }
+
+    _assertValidRange(start, endExclusive) {
+        if (!Number.isInteger(start) || !Number.isInteger(endExclusive)) {
+            throw new RangeError(`Invalid workout range: ${start}..${endExclusive}`);
+        }
+
+        if (start < 0 || endExclusive < start || endExclusive > this.length) {
+            throw new RangeError(`Invalid workout range: ${start}..${endExclusive}`);
+        }
     }
 
     _getRangeAverageFromCum(cumArray, startIdx, endIdxInclusive) {
@@ -265,6 +281,38 @@ export default class Workout {
         };
     }
 
+    getCumBetween(start, end) {
+        const s = Math.floor(start);
+        const e = Math.floor(end);
+        const duration = end - start;
+
+        if (duration <= 0) throw new Error("Invalid range");
+
+        const fracStart = start - s;
+        const fracEnd = end - e;
+
+        const calc = (cum) => {
+            let sum = cum[e] - cum[s];
+
+            const valStart = s > 0 ? cum[s] - cum[s - 1] : cum[0];
+            const valEnd = cum[e] - cum[e - 1];
+
+            sum -= valStart * fracStart;
+            sum += valEnd * fracEnd;
+
+            return sum;
+        };
+
+        return {
+            power: calc(this.cumPower),
+            hr: calc(this.cumHr),
+            cadence: calc(this.cumCadence),
+            speed: calc(this.cumSpeed) / 10,
+            altitude: calc(this.cumAltitude)
+        };
+
+    }
+
     // =============================
     // ABSOLUTE VALUES
     // =============================
@@ -286,6 +334,70 @@ export default class Workout {
     getPower() { return this.toAbsolute(this.cumPower); }
     getHr() { return this.toAbsolute(this.cumHr); }
     getCadence() { return this.toAbsolute(this.cumCadence); }
+
+    getPowerAt(i) {
+        this._assertValidIndex(i);
+        return this._getSeriesValueAt(this.cumPower, i);
+    }
+
+    getHrAt(i) {
+        this._assertValidIndex(i);
+        return this._getSeriesValueAt(this.cumHr, i);
+    }
+
+    getCadenceAt(i) {
+        this._assertValidIndex(i);
+        return this._getSeriesValueAt(this.cumCadence, i);
+    }
+
+    getSpeedAt(i) {
+        this._assertValidIndex(i);
+        return this._getSeriesValueAt(this.cumSpeed, i) / 10;
+    }
+
+    getAltitudeAt(i) {
+        this._assertValidIndex(i);
+        return this._getSeriesValueAt(this.cumAltitude, i);
+    }
+
+    getMetricsAt(i) {
+        this._assertValidIndex(i);
+        return {
+            power: this._getSeriesValueAt(this.cumPower, i),
+            hr: this._getSeriesValueAt(this.cumHr, i),
+            cadence: this._getSeriesValueAt(this.cumCadence, i),
+            speed: this._getSeriesValueAt(this.cumSpeed, i) / 10,
+            altitude: this._getSeriesValueAt(this.cumAltitude, i)
+        };
+    }
+
+    getMetricsForRange(start, endExclusive) {
+        this._assertValidRange(start, endExclusive);
+
+        const length = endExclusive - start;
+
+        return {
+            start,
+            endExclusive,
+            length,
+            power: this._sliceAbsoluteSeries(this.cumPower, start, endExclusive),
+            hr: this._sliceAbsoluteSeries(this.cumHr, start, endExclusive),
+            cadence: this._sliceAbsoluteSeries(this.cumCadence, start, endExclusive),
+            speed: this._sliceAbsoluteSeries(this.cumSpeed, start, endExclusive, 10),
+            altitude: this._sliceAbsoluteSeries(this.cumAltitude, start, endExclusive)
+        };
+    }
+
+    _sliceAbsoluteSeries(cumArray, start, endExclusive, scale = 1) {
+        const length = endExclusive - start;
+        const result = new Array(length);
+
+        for (let sourceIndex = start, targetIndex = 0; sourceIndex < endExclusive; sourceIndex++, targetIndex++) {
+            result[targetIndex] = this._getSeriesValueAt(cumArray, sourceIndex) / scale;
+        }
+
+        return result;
+    }
 
     getSpeed() {
         const raw = this.toAbsolute(this.cumSpeed);
@@ -377,37 +489,74 @@ export default class Workout {
         throw new Error("Decompression not supported");
     }
 
-// =============================
-// STRIDE ARRAY EXPORT (mit Index)
-// =============================
-getAsStrideArray(options = {}) {
-    const n = this.length;
-    const smoothing = options?.smoothing ?? {};
+    // =============================
+    // STRIDE ARRAY EXPORT (mit Index)
+    // =============================
+    getAsStrideArray(options = {}) {
+        const n = this.length;
+        const smoothing = options?.smoothing ?? {};
 
-    const powers = this.smoothSeriesCentered(this.cumPower, smoothing.power ?? 10);
-    const heartRates = this.smoothSeriesCentered(this.cumHr, smoothing.hr ?? 10);
-    const cadences = this.smoothSeriesCentered(this.cumCadence, smoothing.cadence ?? 30);
-    const speeds = this.smoothSeriesCentered(this.cumSpeed, smoothing.speed ?? 30, 10);
-    const altitudes = this.smoothSeriesCentered(this.cumAltitude, smoothing.altitude ?? 10);
+        const powers = this.smoothSeriesCentered(this.cumPower, smoothing.power ?? 10);
+        const heartRates = this.smoothSeriesCentered(this.cumHr, smoothing.hr ?? 10);
+        const cadences = this.smoothSeriesCentered(this.cumCadence, smoothing.cadence ?? 30);
+        const speeds = this.smoothSeriesCentered(this.cumSpeed, smoothing.speed ?? 30, 10);
+        const altitudes = this.smoothSeriesCentered(this.cumAltitude, smoothing.altitude ?? 10);
 
-    const strideSize = 6; // index + 5 Werte
-    const result = new Int32Array(n * strideSize);
+        const strideSize = 6; // index + 5 Werte
+        const result = new Int32Array(n * strideSize);
 
-    let offset = 0;
+        let offset = 0;
 
-    for (let i = 0; i < n; i++) {
-        result[offset++] = i;      // 👈 Index zuerst
-        result[offset++] = powers[i] | 0;
-        result[offset++] = heartRates[i] | 0;
-        result[offset++] = cadences[i] | 0;
-        result[offset++] = speeds[i] | 0;
-        result[offset++] = altitudes[i] | 0;
+        for (let i = 0; i < n; i++) {
+            result[offset++] = i;      // 👈 Index zuerst
+            result[offset++] = powers[i] | 0;
+            result[offset++] = heartRates[i] | 0;
+            result[offset++] = cadences[i] | 0;
+            result[offset++] = speeds[i] | 0;
+            result[offset++] = altitudes[i] | 0;
+        }
+
+        return {
+            data: result,
+            rowCount: n + 1
+        };
     }
 
-    return {
-        data: result,
-        rowCount: n + 1
-    };
-}
+
+
+    createNewSegment(startEnd, segmenttype = 'manual') {
+
+
+
+        let startIndex = startEnd.startIndex;
+        let endIndex = startEnd.endIndex;
+        if (endIndex < startIndex) {
+            const aaa = endIndex;
+            endIndex = startIndex;
+            startIndex = aaa;
+        }
+        if ((endIndex - startIndex) < 2) {
+            return null;
+        }
+        const duration = endIndex - startIndex;
+
+        const avgs = this.getAverages(startIndex, endIndex);
+        const cum = this.getCumBetween(startIndex, endIndex);
+        return {
+            id: globalThis.crypto.randomUUID(),
+            start_offset: startIndex,
+            end_offset: endIndex,
+            duration: duration,
+            avg_power: Math.round(avgs.power),
+            avg_heart_rate: Math.round(avgs.hr),
+            avg_cadence: Math.round(avgs.cadence),
+            avg_speed: Math.round(avgs.speed*10)/10,
+            altimeters: Math.round(cum.altimeters),
+            segmenttype: segmenttype,
+            rowstate: 'CRE',
+            segmentname: ''
+        };
+    }
+
 
 }

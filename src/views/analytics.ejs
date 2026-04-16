@@ -15,22 +15,270 @@
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
+    <style>
+        body.analytics-page {
+            background:
+                radial-gradient(circle at top left, rgba(30, 64, 175, 0.08), transparent 28%),
+                radial-gradient(circle at top right, rgba(13, 148, 136, 0.10), transparent 22%),
+                linear-gradient(180deg, #f5f7fb 0%, #edf2f7 100%);
+            color: #10233b;
+        }
+
+        .app-topbar {
+            background: linear-gradient(180deg, #0f172a 0%, #172235 100%) !important;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+            box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
+        }
+
+        .app-topbar .navbar-brand {
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: #f8fafc;
+        }
+
+        .app-topbar-user {
+            color: rgba(226, 232, 240, 0.82);
+            font-size: 0.92rem;
+            font-weight: 500;
+        }
+
+        .app-topbar .btn {
+            border-radius: 999px;
+            padding-inline: 0.9rem;
+            font-weight: 600;
+            border-color: rgba(148, 163, 184, 0.28);
+        }
+
+        .app-topbar .btn-outline-light {
+            color: #e2e8f0;
+            border-color: rgba(148, 163, 184, 0.3);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .app-topbar .btn-outline-light:hover {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(226, 232, 240, 0.36);
+        }
+
+        .app-topbar .btn-outline-danger {
+            color: #fecaca;
+            border-color: rgba(248, 113, 113, 0.32);
+            background: rgba(127, 29, 29, 0.18);
+        }
+
+        .app-topbar .btn-outline-danger:hover {
+            color: #fff1f2;
+            background: rgba(220, 38, 38, 0.28);
+            border-color: rgba(248, 113, 113, 0.45);
+        }
+
+        .analytics-shell {
+            display: grid;
+            gap: 1.5rem;
+        }
+
+        .app-footer {
+            margin-top: 1.5rem;
+            text-align: center;
+            color: #64748b;
+            font-size: 0.88rem;
+        }
+
+        .app-footer a {
+            color: #475569;
+            text-decoration: none;
+        }
+
+        .app-footer a:hover {
+            color: #0f172a;
+            text-decoration: underline;
+        }
+
+        .analytics-hero {
+            display: flex;
+            align-items: end;
+            justify-content: space-between;
+            gap: 1.5rem;
+            padding: 1.5rem 1.75rem;
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            border-radius: 1.5rem;
+            background:
+                linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.92)),
+                linear-gradient(135deg, rgba(15, 23, 42, 0.02), rgba(30, 64, 175, 0.04));
+            box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+            backdrop-filter: blur(10px);
+        }
+
+        .analytics-kicker {
+            margin: 0 0 0.4rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: #0f766e;
+        }
+
+        .analytics-title {
+            margin: 0;
+            font-size: clamp(2rem, 2.5vw, 2.85rem);
+            font-weight: 700;
+            letter-spacing: -0.04em;
+            line-height: 0.95;
+            color: #0f172a;
+        }
+
+        .analytics-subtitle {
+            margin: 0.75rem 0 0;
+            max-width: 48rem;
+            font-size: 0.98rem;
+            color: #475569;
+        }
+
+        .analytics-hero-meta {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .analytics-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            padding: 0.7rem 1rem;
+            border: 1px solid rgba(148, 163, 184, 0.28);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.72);
+            font-size: 0.83rem;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .analytics-chip-label {
+            color: #64748b;
+        }
+
+        .analytics-surface {
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 1.5rem;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.94));
+            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+            overflow: hidden;
+        }
+
+        .analytics-section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 1.1rem 1.4rem 1rem;
+            border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+            background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 0.88));
+        }
+
+        .analytics-eyebrow {
+            display: block;
+            margin-bottom: 0.2rem;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #64748b;
+        }
+
+        .analytics-section-title {
+            margin: 0;
+            font-size: 1.1rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: #0f172a;
+        }
+
+        .analytics-section-copy {
+            margin: 0.35rem 0 0;
+            font-size: 0.9rem;
+            color: #64748b;
+        }
+
+        .analytics-toggle-group .btn {
+            border-radius: 999px !important;
+            font-weight: 600;
+            padding-inline: 0.85rem;
+        }
+
+        .analytics-body {
+            padding: 0;
+        }
+
+        .analytics-chart-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 1.5rem;
+        }
+
+        .analytics-focus-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.7fr) minmax(340px, 1fr);
+            gap: 1.5rem;
+            align-items: stretch;
+        }
+
+        #ctl-chart,
+        #ftp-chart,
+        #cp-chart {
+            height: 400px !important;
+        }
+
+        #workout-chart {
+            height: 560px !important;
+        }
+
+        #workout-map {
+            height: 560px !important;
+        }
+
+        @media (max-width: 1199.98px) {
+            .analytics-chart-grid,
+            .analytics-focus-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 991.98px) {
+            .analytics-hero {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .analytics-hero-meta {
+                justify-content: flex-start;
+            }
+
+            #workout-chart,
+            #workout-map {
+                height: 460px !important;
+            }
+        }
+    </style>
+
 </head>
 
-<body class="bg-light">
+<body class="analytics-page">
 
     <% if (isAuthenticated) { %>
 
         <!-- Navbar -->
 
-        <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <nav class="navbar navbar-expand-lg navbar-dark app-topbar">
             <div class="container-fluid px-3 px-xl-4">
 
                 <span class="navbar-brand">Workout Analysis</span>
 
                 <div class="ms-auto d-flex align-items-center gap-3">
 
-                    <span class="text-white">
+                    <span class="app-topbar-user">
                         <%= userInfo.username %>
                     </span>
 
@@ -53,16 +301,42 @@
         </nav>
         <!-- Content -->
         <div class="container-fluid px-3 px-xl-4 py-4">
-            <div class="row g-4">
-                <!-- Workout Table -->
-                
-                <div class="col-12">
-                    <div class="card shadow-sm">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0">CTL-ATL-TSB Analytics</h5>
-                            <!-- Grouping Toggle -->
-                            <div class="btn-group" role="group">
+            <div class="analytics-shell">
 
+                <section class="analytics-hero">
+                    <div>
+                        <p class="analytics-kicker">Training Analytics Console</p>
+                        <h1 class="analytics-title">Workout Analysis</h1>
+                        <p class="analytics-subtitle">
+                            Beobachte Trainingslast, FTP-Entwicklung und Critical-Power-Trends in einer ruhigen,
+                            datengetriebenen Analyseoberfläche mit direktem Drill-down in Workout und Karte.
+                        </p>
+                    </div>
+
+                    <div class="analytics-hero-meta">
+                        <span class="analytics-chip">
+                            <span class="analytics-chip-label">Focus</span>
+                            <span>Trend · Interpretation · Drill-down</span>
+                        </span>
+                        <span class="analytics-chip">
+                            <span class="analytics-chip-label">Workspace</span>
+                            <span>Analytics-first Desktop View</span>
+                        </span>
+                    </div>
+                </section>
+
+                <section class="analytics-chart-grid">
+                    <article class="analytics-surface">
+                        <div class="analytics-section-header">
+                            <div>
+                                <span class="analytics-eyebrow">Load Model</span>
+                                <h2 class="analytics-section-title">CTL-ATL-TSB Analytics</h2>
+                                <p class="analytics-section-copy">
+                                    Tages- und Aggregationssicht auf Trainingslast, Frische und Ermüdung.
+                                </p>
+                            </div>
+
+                            <div class="btn-group analytics-toggle-group" role="group">
                                 <input type="radio" class="btn-check" name="grouping1" id="g-date1" value="date" checked>
                                 <label class="btn btn-outline-primary btn-sm" for="g-date1">Date</label>
 
@@ -74,22 +348,22 @@
                             </div>
                         </div>
 
-                        <div class="card-body">
-
-                            <div id="ctl-chart" style="height:400px;"></div>
-
+                        <div class="analytics-body">
+                            <div id="ctl-chart"></div>
                         </div>
+                    </article>
 
+                    <article class="analytics-surface">
+                        <div class="analytics-section-header">
+                            <div>
+                                <span class="analytics-eyebrow">Threshold Trend</span>
+                                <h2 class="analytics-section-title">FTP Analytics</h2>
+                                <p class="analytics-section-copy">
+                                    Entwicklung der funktionalen Schwellenleistung über längere Zeiträume.
+                                </p>
+                            </div>
 
-                    </div>
-                </div>
-                <div class="col-12">
-                    <div class="card shadow-sm">
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0">FTP Analytics</h5>
-                            <!-- Grouping Toggle -->
-                            <div class="btn-group" role="group">
-
+                            <div class="btn-group analytics-toggle-group" role="group">
                                 <input type="radio" class="btn-check" name="grouping0" id="g-week0" value="week">
                                 <label class="btn btn-outline-primary btn-sm" for="g-week0">Week</label>
 
@@ -99,71 +373,88 @@
                                 <input type="radio" class="btn-check" name="grouping0" id="g-quarter0" value="quarter">
                                 <label class="btn btn-outline-primary btn-sm" for="g-quarter0">Quarter</label>
 
-                                <input type="radio" class="btn-check" name="grouping0" id="g-year0" value="year"
-                                    checked>
+                                <input type="radio" class="btn-check" name="grouping0" id="g-year0" value="year" checked>
                                 <label class="btn btn-outline-primary btn-sm" for="g-year0">Year</label>
                             </div>
                         </div>
 
-                        <div class="card-body">
-
-                            <div id="ftp-chart" style="height:400px;"></div>
-
+                        <div class="analytics-body">
+                            <div id="ftp-chart"></div>
                         </div>
+                    </article>
 
+                    <article class="analytics-surface">
+                        <div class="analytics-section-header">
+                            <div>
+                                <span class="analytics-eyebrow">Power Curve</span>
+                                <h2 class="analytics-section-title">Critical Power Analytics</h2>
+                                <p class="analytics-section-copy">
+                                    Vergleich von Leistungsprofilen und Zeitreihen über verschiedene Aggregationen.
+                                </p>
+                            </div>
 
-                    </div>
-                </div>                
-                <div class="col-12">
-                    <div class="card shadow-sm">
-
-                        <div class="card-header d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0">Critical Power Analytics</h5>
-                            <!-- Grouping Toggle -->
-                            <div class="btn-group" role="group">
-
+                            <div class="btn-group analytics-toggle-group" role="group">
                                 <input type="radio" class="btn-check" name="grouping" id="g-week" value="year_week">
                                 <label class="btn btn-outline-primary btn-sm" for="g-week">Week</label>
 
                                 <input type="radio" class="btn-check" name="grouping" id="g-month" value="year_month">
                                 <label class="btn btn-outline-primary btn-sm" for="g-month">Month</label>
 
-                                <input type="radio" class="btn-check" name="grouping" id="g-quarter"
-                                    value="year_quarter">
+                                <input type="radio" class="btn-check" name="grouping" id="g-quarter" value="year_quarter">
                                 <label class="btn btn-outline-primary btn-sm" for="g-quarter">Quarter</label>
 
                                 <input type="radio" class="btn-check" name="grouping" id="g-year" value="year" checked>
                                 <label class="btn btn-outline-primary btn-sm" for="g-year">Year</label>
                             </div>
                         </div>
-                        <div class="card-body">
-                            <div id="cp-chart" style="height:400px;"></div>
-                        </div>
-                    </div>
-                </div>
-                <!-- Chart -->
-                <div class="col-12">
-                    <div class="card shadow-sm">
-                        <div class="card-header">
-                            <h5 class="mb-0">Workout Data</h5>
-                        </div>
-                        <div class="card-body">
-                            <div id="workout-chart" style="height:500px;"></div>
-                        </div>
-                    </div>
 
-                    <div class="card shadow-sm mt-4">
-                        <div class="card-header">
-                            <h5 class="mb-0">Route Map</h5>
+                        <div class="analytics-body">
+                            <div id="cp-chart"></div>
                         </div>
-                        <div class="card-body p-0">
-                            <div id="workout-map" style="height:400px;"></div>
+                    </article>
+                </section>
+
+                <section class="analytics-focus-grid">
+                    <article class="analytics-surface">
+                        <div class="analytics-section-header">
+                            <div>
+                                <span class="analytics-eyebrow">Workout Context</span>
+                                <h2 class="analytics-section-title">Workout Data</h2>
+                                <p class="analytics-section-copy">
+                                    Drill-down in das ausgewählte Workout, sobald ein Analysepunkt angeklickt wird.
+                                </p>
+                            </div>
                         </div>
-                    </div>
-                </div>
+
+                        <div class="analytics-body">
+                            <div id="workout-chart"></div>
+                        </div>
+                    </article>
+
+                    <aside class="analytics-surface">
+                        <div class="analytics-section-header">
+                            <div>
+                                <span class="analytics-eyebrow">Spatial Context</span>
+                                <h2 class="analytics-section-title">Route Map</h2>
+                                <p class="analytics-section-copy">
+                                    Kartenansicht als räumliche Ergänzung zum gewählten Workout aus der Analyse.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="analytics-body">
+                            <div id="workout-map"></div>
+                        </div>
+                    </aside>
+                </section>
             </div>
         </div>
-        </div>
+
+        <footer class="app-footer pb-4">
+            <a href="/impressum">Impressum</a>
+            <span class="mx-2">·</span>
+            <a href="/datenschutz">Datenschutz</a>
+        </footer>
 
         <% } else { %>
 
