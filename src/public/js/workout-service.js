@@ -60,6 +60,9 @@ export default class WorkoutService {
 
       const trackRow = await trackResonse.json();
 
+
+  
+
       //console.timeEnd("fetchWO");
 
 
@@ -88,6 +91,9 @@ export default class WorkoutService {
       };
 
       //console.timeEnd("fetchOld");
+
+
+
 
       await SegmentService.fetchSegments(workout);
 

@@ -147,6 +147,28 @@ export default class MapSegment {
     return res.json();
   }
 
+  static async getSegmentById(segmentId) {
+    const res = await fetch(`/segments/${segmentId}`, {
+      method: "GET",
+      credentials: "include"
+    });
+
+    if (res.status === 401) {
+      window.location.href = "/login";
+      return null;
+    }
+
+    if (res.status === 404) {
+      return null;
+    }
+
+    if (!res.ok) {
+      throw new Error("Failed to load segment");
+    }
+
+    return res.json();
+  }
+
   static formatLocation(address, mode = "medium") {
     if (!address) return null;
 

@@ -29,11 +29,16 @@ export default class TableView {
       ajaxConfig: "GET",
       layout: "fitColumns",
       height: "300px",
+      rowHeight: 58,
       sortMode: "remote",
       filterMode: "remote",
       paginationSize: 20,
       progressiveLoad: "scroll",
       progressiveLoadScrollMargin: 100,
+      columnDefaults: {
+        headerHozAlign: "left",
+        vertAlign: "middle"
+      },
 
       paginationDataSent: {
         page: "page",
@@ -60,80 +65,98 @@ export default class TableView {
         title: "ID",
         field: "id",
         sorter: "number",
-        headerFilter: "number",
-        formatter: (cell) => cell.getValue()
+        width: 72,
+        hozAlign: "right",
+        headerHozAlign: "right",
+        formatter: (cell) => `<span class="dashboard-table-number">#${cell.getValue()}</span>`
       },      
       {
-        title: "Start On",
+        title: "Workout",
         field: "start_time",
         sorter: "datetime",
-        formatter: (cell) => new Date(cell.getValue()).toLocaleString()
+        minWidth: 180,
+        formatter: (cell) => {
+          const value = cell.getValue();
+          if (!value) {
+            return `<div class="dashboard-table-primary">–</div>`;
+          }
+
+          const date = new Date(value);
+          return `
+            <div class="dashboard-table-primary">${date.toLocaleDateString()}</div>
+            <div class="dashboard-table-secondary">${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+          `;
+        }
       },
       {
         title: "Duration",
         field: "total_timer_time",
         sorter: "number",
-        formatter: (cell) => Utils.formatDuration(cell.getValue())
+        width: 118,
+        hozAlign: "right",
+        headerHozAlign: "right",
+        formatter: (cell) => `<span class="dashboard-table-number">${Utils.formatDuration(cell.getValue())}</span>`
       },
       {
-        title: "Distance (km)",
+        title: "Distanz",
         field: "total_distance",
         sorter: "number",
         headerFilter: "input",
         headerFilterFunc: ">=",
-        formatter: (cell) => cell.getValue().toFixed(2)
+        width: 110,
+        hozAlign: "right",
+        headerHozAlign: "right",
+        formatter: (cell) => `<span class="dashboard-table-number">${cell.getValue()?.toFixed(2) ?? "–"}</span>`
       },
       {
-        title: "Avg Speed (km/h)",
+        title: "Ø Speed",
         field: "avg_speed",
         sorter: "number",
         headerFilter: "input",
         headerFilterFunc: ">=",
-        formatter: (cell) => cell.getValue().toFixed(1)
+        width: 108,
+        hozAlign: "right",
+        headerHozAlign: "right",
+        formatter: (cell) => `<span class="dashboard-table-number">${cell.getValue()?.toFixed(1) ?? "–"}</span>`
       },
       {
-        title: "Avg Power",
+        title: "Ø Power",
         field: "avg_power",
         sorter: "number",
         headerFilter: "input",
         headerFilterFunc: ">=",
-        formatter: (cell) => cell.getValue().toFixed(0)
+        width: 108,
+        hozAlign: "right",
+        headerHozAlign: "right",
+        formatter: (cell) => `<span class="dashboard-table-number">${cell.getValue()?.toFixed(0) ?? "–"}</span>`
       },
       {
-        title: "Avg Hr",
+        title: "Ø HR",
         field: "avg_heart_rate",
         sorter: "number",
         headerFilter: "input",
         headerFilterFunc: ">=",
-        formatter: (cell) => cell.getValue().toFixed(0)
+        width: 96,
+        hozAlign: "right",
+        headerHozAlign: "right",
+        formatter: (cell) => `<span class="dashboard-table-number">${cell.getValue()?.toFixed(0) ?? "–"}</span>`
       },
       {
-        title: "Norm Power",
+        title: "NP",
         field: "avg_normalized_power",
         sorter: "number",
         headerFilter: "input",
         headerFilterFunc: ">=",
-        formatter: (cell) => cell.getValue().toFixed(0)
-      },
-      {
-        title: "FTP",
-        field: "ftp",
-        sorter: false,
-        headerSort: false,
-        headerFilter: false,
-        formatter: (cell) => cell.getValue()?.toFixed(0)
-      },
-      {
-        title: "TSS",
-        field: "TSS",
-        sorter: false,
-        headerSort: false,
-        headerFilter: false,
-        formatter: (cell) => cell.getValue()?.toFixed(0)
+        width: 92,
+        hozAlign: "right",
+        headerHozAlign: "right",
+        formatter: (cell) => `<span class="dashboard-table-number">${cell.getValue()?.toFixed(0) ?? "–"}</span>`
       },
       {
         title: "Actions",
-        width: 160,
+        width: 132,
+        hozAlign: "right",
+        headerHozAlign: "right",
         formatter: () =>
           `<button class="btn btn-sm btn-danger delete-btn">Delete</button>`,
         cellClick: async (e, cell) => {

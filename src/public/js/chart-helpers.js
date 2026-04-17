@@ -27,12 +27,18 @@ export function buildMarkAreas(workout) {
         {
           xAxis: s.start_offset,
           segmentId: s.id,
+          sid: s.sid,
+          isGPSSegment: !!s.isGPSSegment,
           itemStyle: getSegmentStyle(s),
           label: {
-            show: true,
+            show: false,
             position: "insideTop",
             distance: 8,
-            formatter: Utils.formatSegment(s)
+            color: "#0f172a",
+            fontSize: 11,
+            fontWeight: 600,
+            lineHeight: 14,
+            formatter: Utils.formatSegmentLabel(s)
           }
         },
         {
@@ -80,11 +86,16 @@ export function buildMarkAreasSegment(segment) {
   areas[0] = [
     {
       xAxis: segment.start_offset,
+      segmentId: segment.id,
       label: {
-        show: true,
+        show: false,
         position: "insideTop",
         distance: 8,
-        formatter: `${Utils.formatDuration(segment.end_offset + 1 - segment.start_offset)}\n${segment.avg_power}W\n${segment.avg_heart_rate}bpm`
+        color: "#0f172a",
+        fontSize: 11,
+        fontWeight: 600,
+        lineHeight: 14,
+        formatter: Utils.formatSegmentLabel(segment)
       }
     },
     {

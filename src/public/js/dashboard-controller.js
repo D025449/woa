@@ -6,6 +6,13 @@ import WorkoutService from "./workout-service.js";
 export default class Controller {
 
   constructor() {
+    this.toastElement = document.getElementById("dashboard-toast");
+    this.toastBodyElement = document.getElementById("dashboard-toast-body");
+    this.toast = this.toastElement && globalThis.bootstrap
+      ? new globalThis.bootstrap.Toast(this.toastElement, {
+          delay: 2800
+        })
+      : null;
     this.initViews();
     this.registerEvents();
   }
@@ -33,6 +40,10 @@ export default class Controller {
       onUpdateWorkout: (workout) => {
         this.chartView.updateWorkout(workout);
         this.mapView.renderTrack(workout);
+      },
+
+      onToast: (message) => {
+        this.showToast(message);
       }
     });
 
@@ -69,6 +80,15 @@ export default class Controller {
   // -----------------------------
   registerEvents() {
     window.addEventListener("resize", () => this.onResize());
+  }
+
+  showToast(message) {
+    if (!this.toast || !this.toastBodyElement) {
+      return;
+    }
+
+    this.toastBodyElement.innerHTML = message;
+    this.toast.show();
   }
 
   onResize() {

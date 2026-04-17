@@ -182,6 +182,7 @@ export default class MapView {
   async loadSegmentsForViewport(bounds) {
     const newSegs = await MapSegment.loadSegments(this.controller, bounds);
     this.renderAllSegments(newSegs);
+    await this.controller.tryFocusRequestedSegment?.();
   }
 
   /*async load() {
@@ -265,6 +266,14 @@ export default class MapView {
       lineJoin: "round"
     }).addTo(this.lookupResultLayer);
 
+    polyline.bindTooltip(this.buildSegmentTooltip(segment), {
+      sticky: true,
+      direction: "top",
+      offset: [0, -6],
+      opacity: 0.96,
+      className: "segment-map-tooltip"
+    });
+
     // -------------------
     // Start Marker
     // -------------------
@@ -276,6 +285,13 @@ export default class MapView {
       fillOpacity: 1
     }).addTo(this.lookupResultLayer);
 
+    startMarker.bindTooltip(this.buildEndpointTooltip("Start", segment.start), {
+      sticky: true,
+      direction: "top",
+      offset: [0, -8],
+      opacity: 0.96,
+      className: "segment-map-tooltip"
+    });
     startMarker.bindPopup(`Start<br>${segment.id}: ${segment.start.name}<br>Altitude ${segment.start.altitude}`);
     //startMarker.bindPopup(`Start:<br>${start.name || ""}`);
 
@@ -290,6 +306,13 @@ export default class MapView {
       fillOpacity: 1
     }).addTo(this.lookupResultLayer);
 
+    endMarker.bindTooltip(this.buildEndpointTooltip("Ziel", segment.end), {
+      sticky: true,
+      direction: "top",
+      offset: [0, -8],
+      opacity: 0.96,
+      className: "segment-map-tooltip"
+    });
     endMarker.bindPopup(`End<br>${segment.id}: ${segment.end.name}<br>Altitude ${segment.end.altitude}`);
 
     this.segmentLayers.set(segment.id, {
@@ -323,6 +346,98 @@ export default class MapView {
   selectSegment(segment) {
     this.selectedSegmentId = segment?.id ?? null;
     this.refreshSegments();
+  }
+
+  focusSegment(segment) {
+    if (!segment?.track?.length) {
+      return;
+    }
+
+    const latlngs = segment.track.map((point) => [point.lat, point.lng]);
+    const bounds = L.latLngBounds(latlngs);
+    this.map.fitBounds(bounds, { padding: [28, 28] });
+  }
+
+  formatSegmentDistance(distanceMeters) {
+    if (typeof distanceMeters !== "number" || Number.isNaN(distanceMeters)) {
+      return "–";
+    }
+
+    return `${(distanceMeters / 1000).toFixed(2)} km`;
+  }
+
+  formatSegmentAltitudeRange(segment) {
+    const startAltitude = segment?.start?.altitude;
+    const endAltitude = segment?.end?.altitude;
+
+    if (typeof startAltitude !== "number" || typeof endAltitude !== "number") {
+      return "–";
+    }
+
+    return `${Math.round(startAltitude)} bis ${Math.round(endAltitude)} m`;
+  }
+
+  formatSegmentAverageGrade(segment) {
+    const distance = segment?.distance;
+    const ascent = segment?.ascent;
+
+    if (
+      typeof distance !== "number" ||
+      Number.isNaN(distance) ||
+      distance <= 0 ||
+      typeof ascent !== "number" ||
+      Number.isNaN(ascent)
+    ) {
+      return "–";
+    }
+
+    return `${((ascent / distance) * 100).toFixed(1)}%`;
+  }
+
+  buildSegmentTooltip(segment) {
+    const startName = segment?.start?.name || "–";
+    const endName = segment?.end?.name || "–";
+    const distance = this.formatSegmentDistance(segment?.distance);
+    const altitudeRange = this.formatSegmentAltitudeRange(segment);
+    const avgGrade = this.formatSegmentAverageGrade(segment);
+
+    return `
+      <div style="min-width: 220px;">
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 4px;">Segment</div>
+        <div style="font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 8px;">#${segment.id} · ${distance}</div>
+        <div style="display:flex; justify-content:space-between; gap:12px; margin:2px 0;">
+          <span style="color:#64748b;">Start</span>
+          <span style="font-weight:600; color:#0f172a; text-align:right;">${startName}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; gap:12px; margin:2px 0;">
+          <span style="color:#64748b;">Ziel</span>
+          <span style="font-weight:600; color:#0f172a; text-align:right;">${endName}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; gap:12px; margin:2px 0;">
+          <span style="color:#64748b;">Höhenprofil</span>
+          <span style="font-weight:600; color:#0f172a; text-align:right;">${altitudeRange}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; gap:12px; margin:2px 0;">
+          <span style="color:#64748b;">Ø Steigung</span>
+          <span style="font-weight:600; color:#0f172a; text-align:right;">${avgGrade}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  buildEndpointTooltip(label, point) {
+    const name = point?.name || "–";
+    const altitude = typeof point?.altitude === "number"
+      ? `${Math.round(point.altitude)} m`
+      : "–";
+
+    return `
+      <div style="min-width: 180px;">
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 4px;">${label}</div>
+        <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 4px;">${name}</div>
+        <div style="font-size: 12px; color: #475569;">Höhe: <span style="font-weight:600; color:#0f172a;">${altitude}</span></div>
+      </div>
+    `;
   }
 
   // -----------------------------

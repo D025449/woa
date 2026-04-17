@@ -12,6 +12,9 @@ export default class Controller {
     this.uiState = new UIStateManager("segmentController");
     this.selectedSegment = null;
     this.mapSegments = [];
+    this.focusSegmentId = new URLSearchParams(window.location.search).get("focusSegmentId");
+    this.restoredSegmentId = this.uiState.get("selectedSegmentId");
+    this.focusApplied = false;
     this.initViews();
     this.registerEvents();
   }
@@ -113,6 +116,7 @@ export default class Controller {
 
   selectSegment(segment) {
     this.selectedSegment = segment;
+    this.uiState.set("selectedSegmentId", segment?.id ?? null);
     this.mapView.selectSegment(segment);
     this.elevationView.updateSegment(segment);
     this.updateDeleteButton();
@@ -120,6 +124,7 @@ export default class Controller {
 
   clearSelectedSegment() {
     this.selectedSegment = null;
+    this.uiState.remove("selectedSegmentId");
     this.tableView.clear();
     this.elevationView.hide();
     if (this.segmentHeader) {
@@ -159,5 +164,46 @@ export default class Controller {
       console.error(err);
       window.alert("Failed to delete segment");
     }
+  }
+
+  async tryFocusRequestedSegment() {
+    const targetSegmentId = this.focusSegmentId || this.restoredSegmentId;
+
+    if (!targetSegmentId || this.focusApplied) {
+      return;
+    }
+
+    let segment = this.mapSegments.find(
+      (entry) => String(entry.id) === String(targetSegmentId)
+    );
+
+    if (!segment) {
+      segment = await MapSegment.getSegmentById(targetSegmentId);
+      if (!segment) {
+        if (!this.focusSegmentId) {
+          this.uiState.remove("selectedSegmentId");
+        }
+        this.focusApplied = true;
+        return;
+      }
+
+      const alreadyPresent = this.mapSegments.some(
+        (entry) => String(entry.id) === String(segment.id)
+      );
+
+      if (!alreadyPresent) {
+        this.mapSegments.push(segment);
+        this.mapView.renderSegment(segment);
+      }
+    }
+
+    this.focusApplied = true;
+    this.selectSegment(segment);
+    this.mapView.focusSegment(segment);
+    await this.tableView.loadSegment({ type: "focus" }, segment);
+
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.delete("focusSegmentId");
+    window.history.replaceState({}, "", `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
   }
 }

@@ -9,13 +9,16 @@ export default class SegmentService {
 
         seg.rowstate = 'DEL';
         try {
-            const res = await fetch(`/files/workouts/${workout.id}/segments`, {
+            
+            const endPoint = (seg?.isGPSSegment) ?  `/files/segments/delete/${workout.id}`: `/files/workouts/${workout.id}/segments`;
+            
+            const res = await fetch(endPoint, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    segments: [seg]
+                    segment: seg
                 })
             });
 
@@ -124,7 +127,7 @@ export default class SegmentService {
 
         const json = await res.json();
         const backendSegments = json.data.map(s => ({
-            rowstate: 'DB', ...s
+            rowstate: 'DB', isGPSSegment: false, ...s
         })); // <- wichtig
 
 
@@ -134,6 +137,22 @@ export default class SegmentService {
             .filter(s => !existingIds.has(s.id));
 
         workout.segments.push(...mapped);
+
+        const beResponse = await fetch(`/segments/workout-gps-seg-best-effort/${workout.id}/data`);
+        if (beResponse.status === 401) {
+            window.location.href = '/login';
+            return;
+        }
+        const beRows = await beResponse.json();
+        const backendSegments2 = beRows.map(s => ({
+            rowstate: 'DB', isGPSSegment: true,  ...s
+        })); // <- wichtig
+
+
+        workout.segments.push(...backendSegments2);
+
+
+
 
     }
 

@@ -295,6 +295,33 @@ export default class SegmentDBService {
   }
   */
 
+  static async getGPSSegmentByWorkout(uid, wid){
+    const dataQuery = `
+    SELECT 
+      id, 
+      sid,
+      wid,
+      uid,
+      start_time, 
+      duration, 
+      start_offset, 
+      end_offset, 
+      avg_power, 
+      avg_heart_rate, 
+      avg_cadence, 
+      avg_speed
+    FROM v_gps_segment_best_efforts
+    WHERE uid = $1 and wid = $2
+
+  `;
+
+    const dataParams = [
+      uid, wid
+    ];
+
+    const dataResult = await pool.query(dataQuery, dataParams);
+    return dataResult;
+  }
 
   static async getBestEffortsBySegment(uid, segid, page, size, sort, filter) {
 

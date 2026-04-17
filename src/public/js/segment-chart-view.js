@@ -5,7 +5,8 @@ import Utils from "../../shared/Utils.js";
 export default class ChartView {
 
   constructor(containerId, handlers = {}) {
-    this.chart = echarts.init(document.getElementById(containerId));
+    this.container = document.getElementById(containerId);
+    this.chart = echarts.init(this.container);
 
     this.handlers = handlers;
 
@@ -15,10 +16,12 @@ export default class ChartView {
     this.editMode = "";
     this.currentSegment = null;
     this.currentSegment = null;
+    this.isHoveringSegmentArea = false;
 
     this.editor = document.getElementById('segment-editor');
     this.input = document.getElementById('segment-name-input');
 
+    this.initSegmentHoverTooltip();
     this.initUI();
     this.initChart();
     this.registerInteractions();
@@ -228,6 +231,46 @@ export default class ChartView {
       this.handlers.onUpdateWorkout?.(this.currentWorkout);
       this.selectionStart = null;
     });
+
+    this.chart.on("mouseover", (params) => {
+      if (params.componentType !== "markArea") {
+        return;
+      }
+
+      const seg = this.getSegmentFromMarkAreaParams(params);
+      if (!seg) {
+        return;
+      }
+
+      this.isHoveringSegmentArea = true;
+      this.chart.dispatchAction({ type: "hideTip" });
+      this.showSegmentHoverTooltip(seg, params.event?.event);
+    });
+
+    this.chart.on("mousemove", (params) => {
+      if (params.componentType !== "markArea" || !this.isHoveringSegmentArea) {
+        return;
+      }
+
+      const seg = this.getSegmentFromMarkAreaParams(params);
+      if (!seg) {
+        return;
+      }
+
+      this.showSegmentHoverTooltip(seg, params.event?.event);
+    });
+
+    this.chart.on("mouseout", (params) => {
+      if (params.componentType !== "markArea") {
+        return;
+      }
+
+      this.hideSegmentHoverTooltip();
+    });
+
+    this.chart.on("globalout", () => {
+      this.hideSegmentHoverTooltip();
+    });
   }
 
   // -----------------------------
@@ -264,6 +307,10 @@ export default class ChartView {
   }
 
   formatTooltip(params) {
+    if (this.isHoveringSegmentArea) {
+      return "";
+    }
+
     const p = params?.[0];
     if (!p) return "";
 
@@ -273,6 +320,87 @@ export default class ChartView {
       ❤️ ${row[2] ?? "-"} bpm<br/>
       🔁 ${row[3] ?? "-"} rpm
     `;
+  }
+
+  initSegmentHoverTooltip() {
+    this.segmentHoverTooltip = document.createElement("div");
+    this.segmentHoverTooltip.style.position = "fixed";
+    this.segmentHoverTooltip.style.zIndex = "2000";
+    this.segmentHoverTooltip.style.pointerEvents = "none";
+    this.segmentHoverTooltip.style.opacity = "0";
+    this.segmentHoverTooltip.style.transform = "translate3d(0, 0, 0)";
+    this.segmentHoverTooltip.style.transition = "opacity 120ms ease";
+    this.segmentHoverTooltip.style.background = "rgba(255, 255, 255, 0.97)";
+    this.segmentHoverTooltip.style.border = "1px solid rgba(148, 163, 184, 0.35)";
+    this.segmentHoverTooltip.style.borderRadius = "14px";
+    this.segmentHoverTooltip.style.boxShadow = "0 18px 44px rgba(15, 23, 42, 0.16)";
+    this.segmentHoverTooltip.style.padding = "12px 14px";
+    this.segmentHoverTooltip.style.backdropFilter = "blur(10px)";
+    this.segmentHoverTooltip.style.maxWidth = "280px";
+    this.segmentHoverTooltip.style.fontSize = "12px";
+    this.segmentHoverTooltip.style.lineHeight = "1.4";
+    document.body.appendChild(this.segmentHoverTooltip);
+  }
+
+  getSegmentFromMarkAreaParams(params) {
+    const segmentId = params?.data?.segmentId;
+    if (segmentId == null) {
+      return this.currentSegment ?? null;
+    }
+
+    return this.currentWorkout?.segments?.find((segment) => segment.id === segmentId)
+      ?? this.currentSegment
+      ?? null;
+  }
+
+  showSegmentHoverTooltip(segment, nativeEvent) {
+    if (!this.segmentHoverTooltip) {
+      return;
+    }
+
+    this.segmentHoverTooltip.innerHTML = Utils.formatSegmentTooltip(segment);
+    this.segmentHoverTooltip.style.opacity = "1";
+    this.positionSegmentHoverTooltip(nativeEvent);
+  }
+
+  positionSegmentHoverTooltip(nativeEvent) {
+    if (!this.segmentHoverTooltip || !nativeEvent) {
+      return;
+    }
+
+    const margin = 18;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const rect = this.segmentHoverTooltip.getBoundingClientRect();
+    const clientX = nativeEvent.clientX ?? 0;
+    const clientY = nativeEvent.clientY ?? 0;
+
+    let left = clientX + margin;
+    let top = clientY + margin;
+
+    if (left + rect.width > viewportWidth - 12) {
+      left = clientX - rect.width - margin;
+    }
+
+    if (top + rect.height > viewportHeight - 12) {
+      top = clientY - rect.height - margin;
+    }
+
+    left = Math.max(12, left);
+    top = Math.max(12, top);
+
+    this.segmentHoverTooltip.style.left = `${left}px`;
+    this.segmentHoverTooltip.style.top = `${top}px`;
+  }
+
+  hideSegmentHoverTooltip() {
+    this.isHoveringSegmentArea = false;
+
+    if (!this.segmentHoverTooltip) {
+      return;
+    }
+
+    this.segmentHoverTooltip.style.opacity = "0";
   }
 
   resize() { this.chart.resize(); }

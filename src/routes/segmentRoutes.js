@@ -217,11 +217,12 @@ function createStepLogger(scope, meta = {}) {
 }
 
 
+
 router.post("/track-lookup", authMiddleware, async (req, res, next) => {
   const timing = createStepLogger("segments.track-lookup");
   try {
     const { start, end } = req.body;
-    const uid = req.user?.id;    
+    const uid = req.user?.id;
 
     if (!start || !end) {
       return res.status(400).json({
@@ -492,7 +493,7 @@ router.post("/save/:id/segments", authMiddleware, async (req, res, next) => {
       rowstate: 'DB'
     }));
 
-     //const data = segments_inserted.map(r => SegmentDBService.mapSegment(r));
+    //const data = segments_inserted.map(r => SegmentDBService.mapSegment(r));
 
 
 
@@ -520,12 +521,26 @@ router.post("/query", authMiddleware, async (req, res, next) => {
     const data = result.rows.map(r => SegmentDBService.mapSegment(r));
 
     res.json({ data });
-  } 
-  catch (err) 
-  {
+  }
+  catch (err) {
     console.error("POST /query", err);
     next(err);
   }
+});
+
+router.get("/workout-gps-seg-best-effort/:id/data", authMiddleware, async (req, res, next) => {
+  try {
+    const wid = req.params.id;
+    const uid = req.user?.id;
+
+    const result = await SegmentDBService.getGPSSegmentByWorkout(uid, wid);
+    res.json(result.rows);
+
+  } catch (err) {
+    console.log(err);
+    next(err);
+  }
+
 });
 
 
@@ -555,6 +570,29 @@ router.get("/bestefforts/:id/data", authMiddleware, async (req, res, next) => {
 
   } catch (err) {
     console.log(err);
+    next(err);
+  }
+});
+
+router.get("/:id", authMiddleware, async (req, res, next) => {
+  try {
+    const segmentId = req.params.id;
+    const uid = req.user?.id;
+
+    const segment = await SegmentDBService.getSegmentById(uid, segmentId);
+
+    if (!segment) {
+      return res.status(404).json({
+        error: "Segment not found"
+      });
+    }
+
+    res.json({
+      ...segment,
+      rowstate: "DB"
+    });
+  } catch (err) {
+    console.error("GET /segments/:id failed:", err);
     next(err);
   }
 });
