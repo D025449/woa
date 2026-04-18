@@ -289,37 +289,12 @@
 
     <% if (isAuthenticated) { %>
 
-        <!-- Navbar -->
-
-        <nav class="navbar navbar-expand-lg navbar-dark app-topbar">
-            <div class="container-fluid px-3 px-xl-4">
-
-                <span class="navbar-brand">Segments</span>
-
-                <div class="ms-auto d-flex align-items-center gap-3">
-
-                    <span class="app-topbar-user">
-                        <%= userInfo.username %>
-                    </span>
-
-                    <a class="btn btn-outline-light btn-sm" href="/files/uploadUI">
-                        Upload
-                    </a>
-                    <a class="btn btn-outline-light btn-sm" href="/analytics">
-                        Analytics
-                    </a>
-                    <a class="btn btn-outline-light btn-sm" href="/dashboard">
-                        Dashboard
-                    </a>
-
-                    <a class="btn btn-outline-danger btn-sm" href="/logout">
-                        Logout
-                    </a>
-
-                </div>
-
-            </div>
-        </nav>
+        <%- include("partials/app-topbar", {
+            title: "Segments",
+            currentPage: "segments",
+            userInfo,
+            showDashboardNewLink: true
+        }) %>
 
         <!-- Content -->
 
@@ -456,11 +431,7 @@
 
         </div>
 
-        <footer class="app-footer pb-4">
-            <a href="/impressum">Impressum</a>
-            <span class="mx-2">·</span>
-            <a href="/datenschutz">Datenschutz</a>
-        </footer>
+        <%- include("partials/app-footer") %>
 
         <% } else { %>
 

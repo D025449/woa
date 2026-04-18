@@ -1,14 +1,18 @@
 import MapView from "./map-view.js";
 import ChartView from "./chart-view.js";
-import TableView from "./table-view.js";
 import WorkoutService from "./workout-service.js";
 import UIStateManager from "./UIStateManager.js";
+import WorkoutLibraryView from "./workout-library-view.js";
 
 export default class Controller {
 
   constructor() {
-    this.uiState = new UIStateManager("dashboardController");
+    this.uiState = new UIStateManager("dashboardNewController");
     this.currentWorkoutId = this.uiState.get("selectedWorkoutId");
+    this.libraryState = this.uiState.get("workoutLibraryState", {
+      search: "",
+      sort: "newest"
+    });
     this.toastElement = document.getElementById("dashboard-toast");
     this.toastBodyElement = document.getElementById("dashboard-toast-body");
     this.toast = this.toastElement && globalThis.bootstrap
@@ -18,7 +22,7 @@ export default class Controller {
       : null;
     this.initViews();
     this.registerEvents();
-    this.restoreSelectedWorkout();
+    this.boot();
   }
 
   // -----------------------------
@@ -51,33 +55,34 @@ export default class Controller {
       }
     });
 
-    this.tableView = new TableView("#file-table", {
-
-      onRowOpen: async (e, row) => {
-        if (e.target.closest("button")) return;
-
-        const workoutId = row.getData().id;
+    this.libraryView = new WorkoutLibraryView("#workout-library", {
+      headerElementId: "files_header",
+      searchInputId: "workout-library-search",
+      sortSelectId: "workout-library-sort",
+      initialSearch: this.libraryState?.search || "",
+      initialSort: this.libraryState?.sort || "newest",
+      onWorkoutOpen: async (workoutId) => {
         this.currentWorkoutId = workoutId;
         this.uiState.set("selectedWorkoutId", workoutId);
         await this.openWorkout(workoutId);
       },
+      onStateChange: (state) => {
+        this.libraryState = state;
+        this.uiState.set("workoutLibraryState", state);
+      },
+      onWorkoutDelete: async (workout) => {
+        await WorkoutService.deleteWorkoutByRow({
+          getData: () => workout,
+          delete: async () => {}
+        });
 
-      onRowDelete: async (row) => {
-        const deletedWorkoutId = row.getData()?.id;
-        await WorkoutService.deleteWorkoutByRow(row);
-
-        if (String(deletedWorkoutId) === String(this.currentWorkoutId)) {
+        if (String(workout.id) === String(this.currentWorkoutId)) {
           this.currentWorkoutId = null;
           this.uiState.remove("selectedWorkoutId");
         }
-      },
 
-      onDataLoaded: () => {
-        if (this.currentWorkoutId) {
-          this.tableView.highlightRowByWorkoutId(this.currentWorkoutId);
-        }
+        this.libraryView.removeWorkout(workout.id);
       }
-
     });
   }
 
@@ -86,6 +91,16 @@ export default class Controller {
   // -----------------------------
   registerEvents() {
     window.addEventListener("resize", () => this.onResize());
+  }
+
+  async boot() {
+    try {
+      await this.libraryView.initialize();
+      await this.restoreSelectedWorkout();
+    } catch (err) {
+      console.error(err);
+      this.showToast("Workout-Library konnte nicht geladen werden.");
+    }
   }
 
   async openWorkout(workoutId) {
@@ -100,6 +115,7 @@ export default class Controller {
       if (!workout) {
         this.uiState.remove("selectedWorkoutId");
         this.currentWorkoutId = null;
+        this.libraryView.setSelectedWorkout(null);
         return;
       }
 
@@ -107,7 +123,7 @@ export default class Controller {
       this.uiState.set("selectedWorkoutId", workout.id);
       this.chartView.updateWorkout(workout);
       this.mapView.renderTrack(workout);
-      this.tableView.highlightRowByWorkoutId(workout.id);
+      this.libraryView.setSelectedWorkout(workout.id);
     } catch (err) {
       console.error(err);
     } finally {

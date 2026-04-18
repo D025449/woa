@@ -280,30 +280,12 @@
 
 <body class="upload-page">
 
-    <nav class="navbar navbar-expand-lg navbar-dark app-topbar">
-        <div class="container-fluid px-3 px-xl-4">
-            <span class="navbar-brand">Workout Dashboard</span>
-
-            <div class="ms-auto d-flex align-items-center gap-3">
-                <span class="app-topbar-user">
-                    <%= userInfo.username || userInfo.email %>
-                </span>
-
-                <a class="btn btn-outline-light btn-sm" href="/dashboard">
-                    Dashboard
-                </a>
-                <a class="btn btn-outline-light btn-sm" href="/analytics">
-                    Analytics
-                </a>
-                <a class="btn btn-outline-light btn-sm" href="/segments">
-                    Segments
-                </a>
-                <a class="btn btn-outline-danger btn-sm" href="/logout">
-                    Logout
-                </a>
-            </div>
-        </div>
-    </nav>
+    <%- include("partials/app-topbar", {
+        title: "Workout Dashboard",
+        currentPage: "upload",
+        userInfo,
+        showDashboardNewLink: true
+    }) %>
 
     <div class="container-fluid px-3 px-xl-4 py-4">
         <div class="upload-shell">
@@ -403,11 +385,7 @@
             </section>
         </div>
 
-        <footer class="app-footer pb-4">
-            <a href="/impressum">Impressum</a>
-            <span class="mx-2">·</span>
-            <a href="/datenschutz">Datenschutz</a>
-        </footer>
+    <%- include("partials/app-footer") %>
     </div>
 
     <script type="module" src="/js/upload.js"></script>

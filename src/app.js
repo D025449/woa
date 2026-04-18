@@ -102,21 +102,27 @@ export async function createApp() {
         const token = req.cookies.accessToken;
 
         if (!token) {
-            return res.redirect("/login");
+            return res.render("home", {
+                isAuthenticated: false,
+                userInfo: null
+            });
         }
 
         try {
 
             const payload = await verifier.verify(token);
 
-            res.render("dashboard", {
+            res.render("home", {
                 isAuthenticated: true,
                 userInfo: payload
             });
 
         } catch (err) {
 
-            res.redirect("/login");
+            res.render("home", {
+                isAuthenticated: false,
+                userInfo: null
+            });
 
         }
 
@@ -179,8 +185,19 @@ export async function createApp() {
     });
 
 
-    app.get("/login", (req, res) => {
+    app.get("/login", async (req, res) => {
         const redirect = req.query.redirect || "";
+        const token = req.cookies.accessToken;
+
+        if (token) {
+            try {
+                await verifier.verify(token);
+                return res.redirect("/");
+            } catch {
+                // absichtlich leer: dann normale Login-Seite rendern
+            }
+        }
+
         res.render("login", {
             redirect
         });
@@ -216,7 +233,7 @@ export async function createApp() {
                 secure: true
             });
 
-            const save_redirect = redirect || "/dashboard";
+            const save_redirect = redirect || "/";
 
             return res.redirect(save_redirect);
 
@@ -254,7 +271,7 @@ export async function createApp() {
     app.get("/logout", (req, res) => {
         res.clearCookie("accessToken")
         res.clearCookie("refreshToken")
-        res.redirect("/login")
+        res.redirect("/")
     });
 
     app.get("/impressum", (req, res) => {
@@ -274,6 +291,20 @@ export async function createApp() {
         }
 
         res.render("dashboard", {
+            userInfo: req.user,
+            isAuthenticated: true
+        });
+
+    });
+
+    app.get("/dashboard-new", checkAuth, (req, res) => {
+
+        if (!req?.user?.id) {
+            const redirectUrl = encodeURIComponent(req.originalUrl);
+            return res.redirect(`/login?redirect=${redirectUrl}`);
+        }
+
+        res.render("dashboard-new", {
             userInfo: req.user,
             isAuthenticated: true
         });

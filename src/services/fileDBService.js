@@ -4,6 +4,23 @@ import pgPromise from "pg-promise";
 
 class FileDBService {
 
+  static normalizeQueryArray(value) {
+    if (Array.isArray(value)) {
+      return value;
+    }
+
+    if (typeof value === "string" && value.trim()) {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    return [];
+  }
+
   static createStepLogger(scope, meta = {}) {
     const startedAt = Date.now();
     let lastAt = startedAt;
@@ -175,6 +192,8 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
 
 
   static buildQueryParts(allowedColumns, numericColumns, sort = [], filter = []) {
+    const normalizedSort = FileDBService.normalizeQueryArray(sort);
+    const normalizedFilter = FileDBService.normalizeQueryArray(filter);
 
     let whereParts = [];
     let orderParts = [];
@@ -183,7 +202,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     // --------------------
     // FILTER
     // --------------------
-    (filter || []).forEach(f => {
+    normalizedFilter.forEach(f => {
 
       if (!allowedColumns.includes(f.field)) return;
 
@@ -238,7 +257,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     // --------------------
     // SORT
     // --------------------
-    (sort || []).forEach(s => {
+    normalizedSort.forEach(s => {
 
       if (!allowedColumns.includes(s.field)) return;
 

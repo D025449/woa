@@ -315,10 +315,27 @@ export default class ChartView {
     if (!p) return "";
 
     const row = p.data;
+    const timeValue = Utils.formatSeconds(row[0] ?? 0);
+    const rows = [
+      ["Leistung", Number.isFinite(row[1]) ? `${Math.round(row[1])} W` : "–"],
+      ["Herzfrequenz", Number.isFinite(row[2]) ? `${Math.round(row[2])} bpm` : "–"],
+      ["Kadenz", Number.isFinite(row[3]) ? `${Math.round(row[3])} rpm` : "–"],
+      ["Speed", Number.isFinite(row[4]) ? `${Number(row[4]).toFixed(1)} km/h` : "–"],
+      ["Höhe", Number.isFinite(row[5]) ? `${Math.round(row[5])} m` : "–"]
+    ];
+
     return `
-      ⚡ ${row[1] ?? "-"} W<br/>
-      ❤️ ${row[2] ?? "-"} bpm<br/>
-      🔁 ${row[3] ?? "-"} rpm
+      <div style="min-width: 220px;">
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 4px;">Workout</div>
+        <div style="font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 2px;">${timeValue}</div>
+        <div style="font-size: 12px; font-weight: 600; color: #334155; margin-bottom: 8px;">Momentaufnahme entlang des Tracks</div>
+        ${rows.map(([label, value]) => `
+          <div style="display:flex; justify-content:space-between; gap:12px; margin:2px 0;">
+            <span style="color:#64748b;">${label}</span>
+            <span style="font-weight:600; color:#0f172a;">${value}</span>
+          </div>
+        `).join("")}
+      </div>
     `;
   }
 

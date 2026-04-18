@@ -15,6 +15,23 @@ const checkAuth = (req, res, next) => {
   next();
 };
 
+function normalizeArrayParam(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
 
 // POST /files/upload
 /*router.post(
@@ -74,8 +91,8 @@ router.get("/workouts", authMiddleware, async (req, res, next) => {
     console.log("QUERY:", req.query);
     const page = parseInt(req.query.page || req.body.page) || 1;
     const size = parseInt(req.query.size || req.body.size) || 20;
-    const sort = req.query.sort || [];
-    const filters = req.query.filter || [];
+    const sort = normalizeArrayParam(req.query.sort);
+    const filters = normalizeArrayParam(req.query.filter);
     const uid = req.user?.id;
 
     const result = await FileDBService.getWorkoutsByUser(

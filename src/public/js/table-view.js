@@ -30,6 +30,7 @@ export default class TableView {
       layout: "fitColumns",
       height: "300px",
       rowHeight: 58,
+      selectableRows: 1,
       sortMode: "remote",
       filterMode: "remote",
       paginationSize: 20,
@@ -178,6 +179,10 @@ export default class TableView {
     this.table.on("rowClick", (e, row) =>
       this.handlers.onRowOpen?.(e, row)
     );
+
+    this.table.on("dataLoaded", () => {
+      this.handlers.onDataLoaded?.();
+    });
   }
 
   // -----------------------------
@@ -193,6 +198,20 @@ export default class TableView {
 
   clear() {
     this.table.clearData();
+  }
+
+  highlightRowByWorkoutId(workoutId) {
+    const rows = this.table.getRows();
+    const target = rows.find((row) => String(row.getData()?.id) === String(workoutId));
+
+    this.table.deselectRow();
+
+    if (!target) {
+      return;
+    }
+
+    target.select();
+    target.scrollTo();
   }
 }
 
