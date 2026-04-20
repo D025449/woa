@@ -139,6 +139,59 @@
             padding: 0.85rem 1rem;
             font-weight: 700;
         }
+
+        .auth-divider {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+            margin: 1rem 0;
+            color: #94a3b8;
+            font-size: 0.8rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
+        .auth-divider::before,
+        .auth-divider::after {
+            content: "";
+            flex: 1;
+            height: 1px;
+            background: rgba(203, 213, 225, 0.9);
+        }
+
+        .auth-google-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.7rem;
+            width: 100%;
+            border-radius: 999px;
+            padding: 0.82rem 1rem;
+            font-weight: 700;
+            border: 1px solid rgba(203, 213, 225, 0.95);
+            background: #ffffff;
+            color: #0f172a;
+            text-decoration: none;
+            transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+        }
+
+        .auth-google-btn:hover {
+            color: #0f172a;
+            border-color: rgba(59, 130, 246, 0.3);
+            box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+            transform: translateY(-1px);
+            text-decoration: none;
+        }
+
+        .auth-google-icon {
+            width: 1.15rem;
+            height: 1.15rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+        }
     </style>
 
 </head>
@@ -203,6 +256,16 @@
 
                                     </form>
 
+                                    <div class="auth-divider">oder</div>
+
+                                    <a
+                                        class="auth-google-btn"
+                                        href="/auth/google<%= redirect ? `?redirect=${encodeURIComponent(redirect)}` : '' %>"
+                                    >
+                                        <span class="auth-google-icon">G</span>
+                                        <span>Weiter mit Google</span>
+                                    </a>
+
                                     <div class="text-center mt-3">
 
                                         <a href="/signup">
@@ -218,9 +281,9 @@
             </div>
 
             <div class="text-center text-muted small mt-4">
-                <a href="/impressum" class="text-decoration-none">Impressum</a>
+                <a href="/impressum?<%= new URLSearchParams({ returnTo: currentUrl || "/login" }).toString() %>" class="text-decoration-none">Impressum</a>
                 <span class="mx-2">·</span>
-                <a href="/datenschutz" class="text-decoration-none">Datenschutz</a>
+                <a href="/datenschutz?<%= new URLSearchParams({ returnTo: currentUrl || "/login" }).toString() %>" class="text-decoration-none">Datenschutz</a>
             </div>
         </div>
     </div>

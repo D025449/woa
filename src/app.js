@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import url from "url";
+import crypto from "crypto";
 
 import { createSessionMiddleware } from "./services/sessionService.js";
 import fileRoutes from "./routes/fileRoutes.js";
@@ -41,6 +42,10 @@ export async function createApp() {
     app.use(express.json());
     app.use(cookieParser());
     app.use(authGlobal);
+    app.use((req, res, next) => {
+        res.locals.currentUrl = req.originalUrl;
+        next();
+    });
 
     app.use("/files", fileRoutes);
     app.use("/workouts", workoutRoutes);
@@ -95,37 +100,152 @@ export async function createApp() {
         next();
     };
 
+    const oauthCallbackPath = (() => {
+        try {
+            return new URL(process.env.COGNITO_REDIRECT_URI).pathname || "/auth/callback";
+        } catch {
+            return "/auth/callback";
+        }
+    })();
+
+    const renderLogin = (res, redirect = "", error = null) => {
+        res.render("login", {
+            redirect,
+            error
+        });
+    };
+
+    const isSecureCookie = process.env.NODE_ENV === "production";
+
+    const clearAuthCookies = (res) => {
+        res.clearCookie("accessToken");
+        res.clearCookie("refreshToken");
+        res.clearCookie("idToken");
+    };
+
+    const normalizeReturnTo = (returnTo, fallback = "/") => {
+        if (typeof returnTo !== "string" || !returnTo.startsWith("/") || returnTo.startsWith("//")) {
+            return fallback;
+        }
+
+        return returnTo;
+    };
+
+    const decodeJwtPayload = (token) => {
+        if (!token) {
+            return null;
+        }
+
+        try {
+            const [, payload] = token.split(".");
+
+            if (!payload) {
+                return null;
+            }
+
+            const normalized = payload
+                .replace(/-/g, "+")
+                .replace(/_/g, "/");
+            const padded = normalized.padEnd(
+                normalized.length + ((4 - normalized.length % 4) % 4),
+                "="
+            );
+
+            return JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
+        } catch (err) {
+            console.warn("JWT decode failed:", err.message);
+            return null;
+        }
+    };
+
+    const pickInterestingClaims = (claims) => {
+        if (!claims) {
+            return null;
+        }
+
+        return {
+            sub: claims.sub,
+            email: claims.email,
+            email_verified: claims.email_verified,
+            cognito_username: claims["cognito:username"],
+            identities: claims.identities,
+            name: claims.name,
+            given_name: claims.given_name,
+            family_name: claims.family_name
+        };
+    };
+
+    const logAuthTokenClaims = (label, accessToken, idToken) => {
+        console.log(`[auth] ${label}`, {
+            accessToken: pickInterestingClaims(decodeJwtPayload(accessToken)),
+            idToken: pickInterestingClaims(decodeJwtPayload(idToken))
+        });
+    };
+
+    const buildGoogleAuthorizeUrl = (state, nonce) => {
+        const params = new URLSearchParams({
+            identity_provider: "Google",
+            redirect_uri: process.env.COGNITO_REDIRECT_URI,
+            response_type: "code",
+            client_id: process.env.COGNITO_CLIENT_ID,
+            scope: "openid email",
+            state,
+            nonce
+        });
+
+        return `${process.env.COGNITO_DOMAIN}/oauth2/authorize?${params.toString()}`;
+    };
+
+    const exchangeCodeForTokens = async (code) => {
+        const tokenUrl = `${process.env.COGNITO_DOMAIN}/oauth2/token`;
+        const body = new URLSearchParams({
+            grant_type: "authorization_code",
+            code,
+            redirect_uri: process.env.COGNITO_REDIRECT_URI
+        });
+
+        const headers = {
+            "Content-Type": "application/x-www-form-urlencoded"
+        };
+
+        if (process.env.COGNITO_CLIENT_SECRET) {
+            const basicAuth = Buffer
+                .from(`${process.env.COGNITO_CLIENT_ID}:${process.env.COGNITO_CLIENT_SECRET}`)
+                .toString("base64");
+            headers.Authorization = `Basic ${basicAuth}`;
+        } else {
+            body.set("client_id", process.env.COGNITO_CLIENT_ID);
+        }
+
+        const response = await fetch(tokenUrl, {
+            method: "POST",
+            headers,
+            body
+        });
+
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text || `Token exchange failed (${response.status})`);
+        }
+
+        return response.json();
+    };
+
 
     // ---- Routes ----
 
     app.get("/", async (req, res) => {
-        const token = req.cookies.accessToken;
-
-        if (!token) {
+        if (!req.user?.id) {
             return res.render("home", {
                 isAuthenticated: false,
                 userInfo: null
             });
         }
 
-        try {
-
-            const payload = await verifier.verify(token);
-
-            res.render("home", {
-                isAuthenticated: true,
-                userInfo: payload
-            });
-
-        } catch (err) {
-
-            res.render("home", {
-                isAuthenticated: false,
-                userInfo: null
-            });
-
-        }
-
+        res.render("home", {
+            isAuthenticated: true,
+            userInfo: req.user
+        });
     });
 
     app.post("/confirm", async (req, res) => {
@@ -198,10 +318,87 @@ export async function createApp() {
             }
         }
 
-        res.render("login", {
-            redirect
+        renderLogin(res, redirect);
+    });
+
+    app.get("/auth/google", (req, res, next) => {
+        const redirect = req.query.redirect || "/";
+        const state = crypto.randomUUID();
+        const nonce = generators.nonce();
+
+        clearAuthCookies(res);
+
+        req.session.regenerate((err) => {
+            if (err) {
+                return next(err);
+            }
+
+            req.session.oauthState = state;
+            req.session.oauthNonce = nonce;
+            req.session.postLoginRedirect = redirect;
+
+            req.session.save((saveErr) => {
+                if (saveErr) {
+                    return next(saveErr);
+                }
+
+                return res.redirect(buildGoogleAuthorizeUrl(state, nonce));
+            });
         });
     });
+
+    const handleOAuthCallback = async (req, res) => {
+        const { code, state } = req.query;
+        const expectedState = req.session.oauthState;
+        const redirect = req.session.postLoginRedirect || "/";
+
+        if (!code || !state || !expectedState || state !== expectedState) {
+            return renderLogin(res, redirect, "Google login failed");
+        }
+
+        try {
+            const tokens = await exchangeCodeForTokens(code);
+            logAuthTokenClaims("google-login", tokens.access_token, tokens.id_token);
+            clearAuthCookies(res);
+
+            req.session.regenerate((sessionErr) => {
+                if (sessionErr) {
+                    console.error(sessionErr);
+                    return renderLogin(res, redirect, "Google login failed");
+                }
+
+                res.cookie("accessToken", tokens.access_token, {
+                    httpOnly: true,
+                    secure: isSecureCookie
+                });
+
+                if (tokens.refresh_token) {
+                    res.cookie("refreshToken", tokens.refresh_token, {
+                        httpOnly: true,
+                        secure: isSecureCookie
+                    });
+                }
+
+                if (tokens.id_token) {
+                    res.cookie("idToken", tokens.id_token, {
+                        httpOnly: true,
+                        secure: isSecureCookie
+                    });
+                }
+
+                return res.redirect(redirect);
+            });
+        } catch (err) {
+            console.error(err);
+            return renderLogin(res, redirect, "Google login failed");
+        }
+    };
+
+    app.get("/auth/callback", handleOAuthCallback);
+
+    if (oauthCallbackPath !== "/auth/callback") {
+        app.get(oauthCallbackPath, handleOAuthCallback);
+    }
 
 
     app.post("/login", async (req, res) => {
@@ -222,20 +419,35 @@ export async function createApp() {
             const response = await cognito.send(command);
 
             const tokens = response.AuthenticationResult;
-
-            res.cookie("accessToken", tokens.AccessToken, {
-                httpOnly: true,
-                secure: true
-            });
-
-            res.cookie("refreshToken", tokens.RefreshToken, {
-                httpOnly: true,
-                secure: true
-            });
-
+            logAuthTokenClaims("password-login", tokens.AccessToken, tokens.IdToken);
             const save_redirect = redirect || "/";
+            clearAuthCookies(res);
 
-            return res.redirect(save_redirect);
+            req.session.regenerate((sessionErr) => {
+                if (sessionErr) {
+                    console.error(sessionErr);
+                    return renderLogin(res, redirect, "Login failed");
+                }
+
+                res.cookie("accessToken", tokens.AccessToken, {
+                    httpOnly: true,
+                    secure: isSecureCookie
+                });
+
+                res.cookie("refreshToken", tokens.RefreshToken, {
+                    httpOnly: true,
+                    secure: isSecureCookie
+                });
+
+                if (tokens.IdToken) {
+                    res.cookie("idToken", tokens.IdToken, {
+                        httpOnly: true,
+                        secure: isSecureCookie
+                    });
+                }
+
+                return res.redirect(save_redirect);
+            });
 
             // hier redirect
             //res.redirect("/");
@@ -247,9 +459,7 @@ export async function createApp() {
         catch (err) {
             console.error(err);
 
-            res.render("login", {
-                error: "Login failed"
-            });
+            renderLogin(res, redirect, "Login failed");
         }
 
     });
@@ -269,17 +479,25 @@ export async function createApp() {
 
 
     app.get("/logout", (req, res) => {
-        res.clearCookie("accessToken")
-        res.clearCookie("refreshToken")
-        res.redirect("/")
+        res.clearCookie("accessToken");
+        res.clearCookie("refreshToken");
+        res.clearCookie("idToken");
+
+        req.session.destroy(() => {
+            res.redirect("/");
+        });
     });
 
     app.get("/impressum", (req, res) => {
-        res.render("impressum");
+        res.render("impressum", {
+            returnTo: normalizeReturnTo(req.query.returnTo, req.user?.id ? "/" : "/login")
+        });
     });
 
     app.get("/datenschutz", (req, res) => {
-        res.render("datenschutz");
+        res.render("datenschutz", {
+            returnTo: normalizeReturnTo(req.query.returnTo, req.user?.id ? "/" : "/login")
+        });
     });
 
 

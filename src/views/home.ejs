@@ -25,6 +25,69 @@
             box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
         }
 
+        .app-topbar .navbar-brand,
+        .home-topbar .navbar-brand {
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            color: #f8fafc;
+        }
+
+        .app-topbar .nav-link {
+            color: rgba(226, 232, 240, 0.82);
+            font-weight: 600;
+            padding: 0.35rem 0.25rem;
+            border-bottom: 2px solid transparent;
+        }
+
+        .app-topbar .nav-link:hover,
+        .app-topbar .nav-link.active {
+            color: #ffffff;
+            border-bottom-color: rgba(226, 232, 240, 0.8);
+        }
+
+        .app-topbar-profile {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 2.3rem;
+            height: 2.3rem;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            background: rgba(255, 255, 255, 0.04);
+            color: #e2e8f0;
+            transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+        }
+
+        .app-topbar-profile:hover {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(226, 232, 240, 0.36);
+        }
+
+        .app-topbar-profile__icon {
+            width: 1rem;
+            height: 1rem;
+        }
+
+        .app-topbar .btn {
+            border-radius: 999px;
+            padding-inline: 0.9rem;
+            font-weight: 600;
+            border-color: rgba(148, 163, 184, 0.28);
+        }
+
+        .app-topbar .btn-outline-danger {
+            color: #fecaca;
+            border-color: rgba(248, 113, 113, 0.32);
+            background: rgba(127, 29, 29, 0.18);
+        }
+
+        .app-topbar .btn-outline-danger:hover {
+            color: #fff1f2;
+            background: rgba(220, 38, 38, 0.28);
+            border-color: rgba(248, 113, 113, 0.45);
+        }
+
         .home-topbar .navbar-brand {
             font-weight: 700;
             letter-spacing: -0.02em;
@@ -32,9 +95,38 @@
         }
 
         .home-topbar .btn {
-            border-radius: 999px;
+            border-radius: 999px !important;
             padding-inline: 0.95rem;
             font-weight: 600;
+            border-width: 1px;
+        }
+
+        .home-topbar .btn-outline-light {
+            color: #e2e8f0;
+            border-color: rgba(148, 163, 184, 0.3);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .home-topbar .btn-outline-light:hover {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(226, 232, 240, 0.36);
+        }
+
+        .home-topbar .btn-light {
+            color: #e2e8f0;
+            border-color: rgba(148, 163, 184, 0.3);
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .home-topbar .btn-light:hover {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(226, 232, 240, 0.36);
+        }
+
+        .home-auth-card__body .btn {
+            border-radius: 999px !important;
         }
 
         .home-shell {
@@ -278,7 +370,7 @@
 <body class="home-page">
     <% if (isAuthenticated) { %>
         <%- include("partials/app-topbar", {
-            title: "Workout Home",
+            title: "Home",
             currentPage: "home",
             userInfo,
             showDashboardNewLink: true
@@ -299,7 +391,7 @@
                     <div class="home-chip-group">
                         <span class="home-chip">
                             <span class="home-chip-label">User</span>
-                            <span><%= userInfo.username || userInfo.email %></span>
+                            <span><%= userInfo.display_name || userInfo.email || userInfo.username %></span>
                         </span>
                         <span class="home-chip">
                             <span class="home-chip-label">Mode</span>
@@ -311,20 +403,11 @@
                 <section class="home-tile-grid">
                     <a class="home-tile" href="/dashboard-new">
                         <span class="home-tile__eyebrow">Workout Library</span>
-                        <h2 class="home-tile__title">Dashboard New</h2>
+                        <h2 class="home-tile__title">Workouts</h2>
                         <p class="home-tile__copy">
                             Neue edle Workout-Library mit direktem Zugriff auf Chart und Karte.
                         </p>
                         <span class="home-tile__cta">Zur Analyseansicht</span>
-                    </a>
-
-                    <a class="home-tile" href="/dashboard">
-                        <span class="home-tile__eyebrow">Classic Workspace</span>
-                        <h2 class="home-tile__title">Dashboard Classic</h2>
-                        <p class="home-tile__copy">
-                            Bewährte tabellarische Analyseansicht für schnellen Zugriff auf bestehende Flows.
-                        </p>
-                        <span class="home-tile__cta">Zum klassischen Dashboard</span>
                     </a>
 
                     <a class="home-tile" href="/segments">

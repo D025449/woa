@@ -353,7 +353,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       max_heart_rate,
       avg_cadence,
       max_cadence,
-      validGps`
+      validgps`
   }
 
 

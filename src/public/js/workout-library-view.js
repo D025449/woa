@@ -244,6 +244,7 @@ export default class WorkoutLibraryView {
 
   renderWorkoutCard(workout) {
     const isSelected = String(workout.id) === this.selectedWorkoutId;
+    const hasValidGps = workout.validGps ?? workout.validgps ?? false;
     const startedAt = workout.start_time ? new Date(workout.start_time) : null;
     const dayLabel = startedAt
       ? startedAt.toLocaleDateString("de-DE", { day: "2-digit", month: "short", year: "numeric" })
@@ -285,11 +286,11 @@ export default class WorkoutLibraryView {
             <span class="workout-library-stat"><span class="workout-library-stat__label">Ø Power</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_power)} W</span></span>
             <span class="workout-library-stat"><span class="workout-library-stat__label">NP</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_normalized_power)} W</span></span>
             <span class="workout-library-stat"><span class="workout-library-stat__label">Ø HR</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_heart_rate)} bpm</span></span>
-            <span class="workout-library-stat"><span class="workout-library-stat__label">hm</span><span class="workout-library-stat__value">${this.formatInt(workout.total_ascent)} m</span></span>
+            <span class="workout-library-stat"><span class="workout-library-stat__label">hm</span><span class="workout-library-stat__value">${this.formatAscentMeters(workout.total_ascent)}</span></span>
           </div>
           <div class="workout-library-card__footer">
             <div class="workout-library-tags">
-              <span class="workout-library-tag">${workout.validGps ? "GPS" : "No GPS"}</span>
+              <span class="workout-library-tag">${hasValidGps ? "GPS" : "No GPS"}</span>
               <span class="workout-library-tag">${workout.avg_power ? "Power" : "Basic"}</span>
             </div>
             <button class="btn btn-sm btn-outline-danger" type="button" data-workout-delete="${workout.id}">
@@ -311,5 +312,13 @@ export default class WorkoutLibraryView {
 
   formatInt(value) {
     return Number.isFinite(value) ? `${Math.round(value)}` : "–";
+  }
+
+  formatAscentMeters(value) {
+    if (!Number.isFinite(value)) {
+      return "–";
+    }
+
+    return `${Math.round(Number(value) * 1000)} m`;
   }
 }

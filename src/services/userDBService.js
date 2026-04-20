@@ -8,9 +8,9 @@ export default class UserDBService {
   static async ensureUserExists(userInfo) {
 
     const sub = userInfo.sub;
-    const email = userInfo.username;
-    const email_verified = true;
-    const name = userInfo.username;
+    const email = userInfo.email || userInfo.username;
+    const email_verified = userInfo.email_verified ?? false;
+    const name = userInfo.name || userInfo.email || userInfo.username;
 
     const result = await pool.query(`
     INSERT INTO users (auth_sub, email, email_verified, display_name)
@@ -30,4 +30,3 @@ export default class UserDBService {
 
 
 }
-

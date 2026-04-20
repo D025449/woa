@@ -209,9 +209,9 @@
             </div>
 
             <div class="text-center text-muted small mt-4">
-                <a href="/impressum" class="text-decoration-none">Impressum</a>
+                <a href="/impressum?<%= new URLSearchParams({ returnTo: currentUrl || "/confirm" }).toString() %>" class="text-decoration-none">Impressum</a>
                 <span class="mx-2">·</span>
-                <a href="/datenschutz" class="text-decoration-none">Datenschutz</a>
+                <a href="/datenschutz?<%= new URLSearchParams({ returnTo: currentUrl || "/confirm" }).toString() %>" class="text-decoration-none">Datenschutz</a>
             </div>
         </div>
     </div>

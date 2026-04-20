@@ -1,5 +1,5 @@
 <footer class="app-footer pb-4">
-    <a href="/impressum">Impressum</a>
+    <a href="/impressum?<%= new URLSearchParams({ returnTo: currentUrl || "/" }).toString() %>">Impressum</a>
     <span class="mx-2">·</span>
-    <a href="/datenschutz">Datenschutz</a>
+    <a href="/datenschutz?<%= new URLSearchParams({ returnTo: currentUrl || "/" }).toString() %>">Datenschutz</a>
 </footer>

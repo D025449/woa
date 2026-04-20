@@ -1,20 +1,29 @@
 import { CognitoJwtVerifier } from "aws-jwt-verify";
+import UserDBService from "../services/userDBService.js";
 
-let verifier;/* = CognitoJwtVerifier.create({
-  userPoolId: process.env.COGNITO_USER_POOL_ID,
-  tokenUse: "access", // oder "access oder id"
-  clientId: process.env.COGNITO_CLIENT_ID,
-});*/
+let accessVerifier;
+let idVerifier;
 
-function getVerifier() {
-  if (!verifier) {
-    verifier = CognitoJwtVerifier.create({
+function getAccessVerifier() {
+  if (!accessVerifier) {
+    accessVerifier = CognitoJwtVerifier.create({
       userPoolId: process.env.COGNITO_USER_POOL_ID,
       tokenUse: "access",
       clientId: process.env.COGNITO_CLIENT_ID,
     });
   }
-  return verifier;
+  return accessVerifier;
+}
+
+function getIdVerifier() {
+  if (!idVerifier) {
+    idVerifier = CognitoJwtVerifier.create({
+      userPoolId: process.env.COGNITO_USER_POOL_ID,
+      tokenUse: "id",
+      clientId: process.env.COGNITO_CLIENT_ID,
+    });
+  }
+  return idVerifier;
 }
 
 
@@ -31,33 +40,35 @@ export default async function authMiddleware(req, res, next) {
     }
 
     const token = req.cookies.accessToken;
+    const idToken = req.cookies.idToken;
 
     if (!token) {
       res.locals.user = null;
       return next();
     }
 
-    //const token = authHeader.split(" ")[1];
-    verifier = getVerifier();
-
-    const payload = await verifier.verify(token);
+    const accessPayload = await getAccessVerifier().verify(token);
+    const idPayload = idToken
+      ? await getIdVerifier().verify(idToken).catch(() => null)
+      : null;
 
     const user = {
-      sub: payload.sub,
-      email: payload.email,
-      username: payload.username
+      sub: accessPayload.sub,
+      email: idPayload?.email || accessPayload.email,
+      email_verified: idPayload?.email_verified,
+      username: idPayload?.["cognito:username"] || accessPayload.username,
+      name: idPayload?.name || idPayload?.given_name
     };
 
-    // 🔥 3. DB Lookup NUR wenn keine Session
     const dbuser = await UserDBService.ensureUserExists(user);
 
 
-    // WICHTIG:
     req.user = {
       id: dbuser.id,
-      sub: payload.sub,
-      email: payload.email,
-      username: payload.username
+      sub: accessPayload.sub,
+      email: dbuser.email,
+      username: user.username,
+      display_name: dbuser.display_name
     };
 
     next();

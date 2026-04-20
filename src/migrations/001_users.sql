@@ -10,7 +10,7 @@ CREATE TABLE users (
     -- Auth0 / Cognito / OIDC Sub
     auth_sub VARCHAR(255) NOT NULL UNIQUE,
 
-    email VARCHAR(255) NOT NULL UNIQUE,
+    email VARCHAR(255) NOT NULL,
     email_verified BOOLEAN DEFAULT FALSE,
 
     display_name VARCHAR(100),
