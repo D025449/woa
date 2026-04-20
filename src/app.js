@@ -408,6 +408,13 @@ export async function createApp() {
 
             const { email, password } = req.body;
 
+            console.log("[login] password-flow payload", {
+                email,
+                hasPassword: !!password,
+                passwordLength: typeof password === "string" ? password.length : 0,
+                redirect
+            });
+
             const command = new InitiateAuthCommand({
                 AuthFlow: "USER_PASSWORD_AUTH",
                 ClientId: process.env.COGNITO_CLIENT_ID,
