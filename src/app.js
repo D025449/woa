@@ -402,10 +402,11 @@ export async function createApp() {
 
 
     app.post("/login", async (req, res) => {
+        const redirect = req.body?.redirect || "";
 
         try {
 
-            const { email, password, redirect } = req.body;
+            const { email, password } = req.body;
 
             const command = new InitiateAuthCommand({
                 AuthFlow: "USER_PASSWORD_AUTH",
