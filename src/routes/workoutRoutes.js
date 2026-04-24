@@ -8,8 +8,64 @@ import CollaborationDBService from "../services/collaborationDBService.js";
 import WorkoutSharingService from "../services/workoutSharingService.js";
 import SegmentDBService from "../services/segmentDBService.js";
 import { enqueueSegmentBestEfforts } from "../services/segment-best-efforts-service.js";
+import FitExportService from "../services/fitExportService.js";
 
 const router = express.Router();
+
+router.get("/:id/export.fit", authMiddleware, async (req, res) => {
+  try {
+    const workoutId = Number(req.params.id);
+    const uid = req.user?.id;
+
+    if (!Number.isFinite(workoutId) || workoutId <= 0) {
+      return res.status(400).json({ error: "Invalid workout id" });
+    }
+
+    const accessInfo = await WorkoutSharingService.getAccessibleWorkout(uid, workoutId);
+    if (!accessInfo?.is_owner) {
+      return res.status(403).json({ error: "Only workout owners can export FIT files." });
+    }
+
+    const workout = await WorkoutDBService.getWorkout(workoutId);
+    const workoutTrack = await WorkoutDBService.getTrack(workoutId, uid);
+    const geoJsonCoordinates = Array.isArray(workoutTrack?.track?.coordinates)
+      ? workoutTrack.track.coordinates
+      : [];
+    const gpsCoordinates = geoJsonCoordinates
+      .filter((point) => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]))
+      .map((point) => [Number(point[1]), Number(point[0])]); // GeoJSON [lng, lat] -> [lat, lng]
+    const hasValidGps = typeof workout.isValidGps === "function"
+      ? !!workout.isValidGps()
+      : !!workout.validGps;
+
+    if (hasValidGps) {
+      console.log("[fit-export] gps mapping", {
+        workoutId,
+        points: gpsCoordinates.length,
+        sampleRateGps: workoutTrack?.samplerategps ?? null,
+        firstPoint: gpsCoordinates[0] || null,
+        lastPoint: gpsCoordinates[gpsCoordinates.length - 1] || null
+      });
+    }
+
+    const fitBuffer = FitExportService.buildFitFromWorkout(workout, {
+      serialNumber: workoutId,
+      sampleRateGps: workoutTrack?.samplerategps,
+      gpsCoordinates,
+      includeGps: hasValidGps
+    });
+
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="workout-${workoutId}.fit"`);
+    res.setHeader("Cache-Control", "no-store");
+    return res.send(fitBuffer);
+  } catch (err) {
+    console.error("GET /workouts/:id/export.fit failed:", err);
+    return res.status(err.statusCode || 500).json({
+      error: err.message || "Failed to export workout as FIT"
+    });
+  }
+});
 
 router.get("/:id/sharing", authMiddleware, async (req, res) => {
   try {

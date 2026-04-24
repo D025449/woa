@@ -5,6 +5,7 @@ import SegmentElevationView from "./segment-elevation-view.js";
 import WorkoutService from "./workout-service.js";
 import MapSegment from "../../shared/MapSegment.js";
 import UIStateManager from "./UIStateManager.js"
+import confirmModal from "./confirm-modal.js";
 
 export default class Controller {
 
@@ -465,7 +466,13 @@ export default class Controller {
     if (!segment) return;
 
     const label = `${segment.start?.name ?? "Start"} - ${segment.end?.name ?? "End"}`;
-    const ok = window.confirm(`Segment wirklich loeschen?\n\n${label}`);
+    const ok = await confirmModal({
+      title: "Segment löschen",
+      message: `Segment wirklich loeschen?\n\n${label}`,
+      acceptLabel: "Segment löschen",
+      cancelLabel: "Abbrechen",
+      acceptClass: "btn-danger"
+    });
     if (!ok) return;
 
     try {

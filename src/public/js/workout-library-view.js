@@ -299,6 +299,20 @@ export default class WorkoutLibraryView {
       });
     });
 
+    this.container.querySelectorAll("[data-workout-export]").forEach((element) => {
+      element.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const workoutId = element.getAttribute("data-workout-export");
+        const workout = this.items.find((entry) => String(entry.id) === String(workoutId));
+        if (!workout?.is_owned) {
+          event.preventDefault();
+          return;
+        }
+
+        await this.handlers.onWorkoutExport?.(workout, element);
+      });
+    });
+
     this.container.querySelectorAll("[data-workout-share-toggle]").forEach((element) => {
       element.addEventListener("click", async (event) => {
         event.stopPropagation();
@@ -504,6 +518,13 @@ export default class WorkoutLibraryView {
             </div>
             <div class="workout-library-actions">
               ${isOwned ? `
+                <a
+                  class="btn btn-sm btn-outline-primary"
+                  href="/workouts/${workout.id}/export.fit"
+                  data-workout-export="${workout.id}"
+                  download="workout-${workout.id}.fit">
+                  Export FIT
+                </a>
                 <button class="btn btn-sm btn-outline-secondary" type="button" data-workout-share-toggle="${workout.id}">
                   Share
                 </button>

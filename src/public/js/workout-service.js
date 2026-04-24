@@ -2,6 +2,7 @@
 import TypedArrayHelpers from "/shared/TypedArrayHelpers.js";
 import SegmentService from "../../shared/SegmentService.js";
 import Workout from "../../shared/Workout.js";
+import confirmModal from "./confirm-modal.js";
 
 export default class WorkoutService {
 
@@ -13,7 +14,13 @@ export default class WorkoutService {
     const workoutId = data.id;
     const filename = `Workout ${workoutId}`;
 
-    const ok = window.confirm(`Workout wirklich löschen?\n\n${filename}`);
+    const ok = await confirmModal({
+      title: "Workout löschen",
+      message: `Workout wirklich löschen?\n\n${filename}`,
+      acceptLabel: "Workout löschen",
+      cancelLabel: "Abbrechen",
+      acceptClass: "btn-danger"
+    });
     if (!ok) return;
 
     const response = await fetch(`/files/workouts/${workoutId}`, {
