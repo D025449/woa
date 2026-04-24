@@ -128,19 +128,11 @@ run_rebuild() {
 }
 
 reload_services() {
-  log "Deploying app"
-  if pm2 describe "${APP_NAME}" >/dev/null 2>&1; then
-    pm2 restart "${APP_NAME}" --update-env
-  else
-    pm2 start "${ECOSYSTEM_FILE}" --only "${APP_NAME}" --env "${NODE_ENV}"
-  fi
+  log "Deploying app (reload env from ${ECOSYSTEM_FILE})"
+  pm2 start "${ECOSYSTEM_FILE}" --only "${APP_NAME}" --env "${NODE_ENV}" --update-env
 
-  log "Deploying import worker"
-  if pm2 describe "${WORKER_NAME}" >/dev/null 2>&1; then
-    pm2 restart "${WORKER_NAME}" --update-env
-  else
-    pm2 start "${ECOSYSTEM_FILE}" --only "${WORKER_NAME}" --env "${NODE_ENV}"
-  fi
+  log "Deploying import worker (reload env from ${ECOSYSTEM_FILE})"
+  pm2 start "${ECOSYSTEM_FILE}" --only "${WORKER_NAME}" --env "${NODE_ENV}" --update-env
 
   pm2 save
 }
