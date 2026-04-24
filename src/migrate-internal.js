@@ -66,8 +66,9 @@ async function runMigrations() {
   try {
     const pool = await getPool();
     const forcedOrder = new Map([
-      // import_jobs depends on users.uid FK, so it must run after users table creation.
-      ["000_import_jobs.sql", 150]
+      // import_jobs depends on users.uid FK, so it must run after users
+      // and before later import_jobs ALTER migrations.
+      ["000_import_jobs.sql", 6]
     ]);
 
     const migrationFiles = fs
