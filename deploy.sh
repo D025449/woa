@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="${1:-full}" # full | migrate | rebuild-db
+MODE="${1:-full}" # full | code-only | migrate | rebuild-db
 APP_DIR="${APP_DIR:-/home/ec2-user/woa}"
 ECOSYSTEM_FILE="${ECOSYSTEM_FILE:-ecosystem.config.cjs}"
 APP_NAME="${APP_NAME:-cwa24}"
@@ -27,6 +27,7 @@ Usage: ./deploy.sh [mode]
 
 Modes:
   full         Pull + install + migrate + reload app/worker
+  code-only    Pull + install + reload app/worker (no DB migration)
   migrate      Pull + install + migrate only
   rebuild-db   Pull + install + destructive db rebuild + reload app/worker
 
@@ -149,6 +150,9 @@ main() {
   run_pull_and_install
 
   case "${MODE}" in
+    code-only)
+      reload_services
+      ;;
     migrate)
       run_migrate
       ;;
