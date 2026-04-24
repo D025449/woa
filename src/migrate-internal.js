@@ -65,9 +65,23 @@ async function runMigrations() {
 
   try {
     const pool = await getPool();
+    const forcedOrder = new Map([
+      // import_jobs depends on users.uid FK, so it must run after users table creation.
+      ["000_import_jobs.sql", 150]
+    ]);
+
     const migrationFiles = fs
       .readdirSync(path.join(__dirname, "migrations"))
-      .sort();
+      .sort((a, b) => {
+        const aRank = forcedOrder.has(a) ? forcedOrder.get(a) : Number.parseInt(a, 10);
+        const bRank = forcedOrder.has(b) ? forcedOrder.get(b) : Number.parseInt(b, 10);
+
+        if (aRank !== bRank) {
+          return aRank - bRank;
+        }
+
+        return a.localeCompare(b);
+      });
 
     for (const file of migrationFiles) {
       const sql = fs.readFileSync(
