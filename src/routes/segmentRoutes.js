@@ -9,6 +9,7 @@ import MapSegment from "../shared/MapSegment.js"
 import SegmentDBService from "../services/segmentDBService.js";
 import ElevationService from "../services/ElevationService.js";
 import { enqueueSegmentBestEfforts } from "../services/segment-best-efforts-service.js";
+import CollaborationDBService from "../services/collaborationDBService.js";
 
 import pool from "../services/database.js";
 
@@ -308,6 +309,7 @@ router.post("/track-lookup", authMiddleware, async (req, res, next) => {
     timing.mark("insert-segment", {
       insertedCount: segments_inserted.length
     });
+
     await enqueueSegmentBestEfforts({
       uid,
       segmentIds: segments_inserted.map((segment) => segment.id)
@@ -477,6 +479,7 @@ router.post("/save/:id/segments", authMiddleware, async (req, res, next) => {
       bestEffortsStatus: segment.bestEffortsStatus ?? "queued"
     }));
     const segments_inserted = await SegmentDBService.insertGpsSegmentsBulk(uid, segmentsWithStatus);
+
     await enqueueSegmentBestEfforts({
       uid,
       segmentIds: segments_inserted.map((segment) => segment.id)
@@ -509,14 +512,44 @@ router.post("/save/:id/segments", authMiddleware, async (req, res, next) => {
   }
 });
 
+router.get("/:id/sharing", authMiddleware, async (req, res, next) => {
+  try {
+    const uid = req.user?.id;
+    const segmentId = Number(req.params.id);
+    const data = await SegmentDBService.getSegmentSharing(uid, segmentId);
+    res.json({ data });
+  } catch (err) {
+    console.error("GET /segments/:id/sharing failed:", err);
+    next(err);
+  }
+});
+
+router.put("/:id/sharing", authMiddleware, async (req, res, next) => {
+  try {
+    const uid = req.user?.id;
+    const segmentId = Number(req.params.id);
+    const data = await SegmentDBService.updateSegmentSharing(uid, segmentId, req.body);
+    if (Array.isArray(data.newlyPublishedGroupIds) && data.newlyPublishedGroupIds.length > 0) {
+      await enqueueSegmentBestEfforts({
+        uid,
+        segmentIds: [segmentId]
+      });
+    }
+    res.json({ data });
+  } catch (err) {
+    console.error("PUT /segments/:id/sharing failed:", err);
+    next(err);
+  }
+});
+
 router.post("/query", authMiddleware, async (req, res, next) => {
   try {
     const uid = req.user.id
-    const { bounds, excludeIds } = req.body;
+    const { bounds, excludeIds, scope } = req.body;
     //const excludeIdsArray = excludeIds;
     const limit = parseInt(req.body.limit) || 100;
 
-    const result = await SegmentDBService.querySegmentsByBounds(uid, bounds, excludeIds, limit);
+    const result = await SegmentDBService.querySegmentsByBounds(uid, bounds, excludeIds, limit, scope);
 
     const data = result.rows.map(r => SegmentDBService.mapSegment(r));
 
@@ -554,6 +587,7 @@ router.get("/bestefforts/:id/data", authMiddleware, async (req, res, next) => {
     const size = parseInt(req.query.size || req.body.size) || 20;
     const sort = req.query.sort || [];
     const filters = req.query.filter || [];
+    const scope = req.query.scope || req.body.scope || "mine";
 
 
     const result = await SegmentDBService.getBestEffortsBySegment(
@@ -562,7 +596,8 @@ router.get("/bestefforts/:id/data", authMiddleware, async (req, res, next) => {
       page,
       size,
       sort,
-      filters
+      filters,
+      scope
     );
 
 

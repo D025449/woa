@@ -1,0 +1,55 @@
+<section class="<%= surfaceClass %>">
+    <div class="<%= headerClass %>">
+        <div>
+            <h2 class="<%= titleClass %>"><%= title %></h2>
+            <p class="<%= copyClass %>"><%= copy %></p>
+        </div>
+
+        <div class="<%= toolbarClass %>">
+            <div class="<%= toggleClass %>" role="group" aria-label="Aktivitätsfilter">
+                <button
+                    class="btn btn-sm btn-outline-secondary <%= defaultRange === '1d' ? 'active' : '' %>"
+                    type="button"
+                    id="<%= idPrefix %>-feed-filter-1d"
+                    data-feed-filter-value="1d">
+                    Letzter Tag
+                </button>
+                <button
+                    class="btn btn-sm btn-outline-secondary <%= defaultRange === '7d' ? 'active' : '' %>"
+                    type="button"
+                    id="<%= idPrefix %>-feed-filter-7d"
+                    data-feed-filter-value="7d">
+                    Letzte 7 Tage
+                </button>
+                <button
+                    class="btn btn-sm btn-outline-secondary <%= defaultRange === 'all' ? 'active' : '' %>"
+                    type="button"
+                    id="<%= idPrefix %>-feed-filter-all"
+                    data-feed-filter-value="all">
+                    Alle
+                </button>
+            </div>
+
+            <div class="<%= toggleClass %>" role="group" aria-label="Aktivitätsquellen">
+                <button
+                    class="btn btn-sm btn-outline-secondary <%= defaultActorScope !== 'others' ? 'active' : '' %>"
+                    type="button"
+                    id="<%= idPrefix %>-feed-actor-all"
+                    data-feed-actor-value="all">
+                    Alle Personen
+                </button>
+                <button
+                    class="btn btn-sm btn-outline-secondary <%= defaultActorScope === 'others' ? 'active' : '' %>"
+                    type="button"
+                    id="<%= idPrefix %>-feed-actor-others"
+                    data-feed-actor-value="others">
+                    Nur andere
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="<%= bodyClass %>">
+        <div id="<%= idPrefix %>-feed-list"></div>
+    </div>
+</section>

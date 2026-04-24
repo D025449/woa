@@ -43,7 +43,8 @@ export default class MapSegment {
           minLng: bounds.getWest(),
           maxLng: bounds.getEast()
         },
-        excludeIds: (controller.mapSegments || []).filter(f => f.rowstate === 'DB').map(m => m.id)
+        excludeIds: (controller.mapSegments || []).filter(f => f.rowstate === 'DB').map(m => m.id),
+        scope: controller.segmentScope || "mine"
         //excludeIds: Array.from(controller.mapSegments.filter(f=>f.rowstate === 'DB').map(m => m.id))
       })
     });

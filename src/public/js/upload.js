@@ -1,15 +1,29 @@
-import { uploadFilesAndStartImport } from './upload-api.js';
+import { fetchShareableGroups, uploadFilesAndStartImport } from './upload-api.js';
 import { pollImportStatus } from './import-polling.js';
 import { createUploadUI } from './upload-ui.js';
 
 const ui = createUploadUI();
 
+initializeShareGroups();
 ui.elements.form.addEventListener('submit', handleUploadSubmit);
+
+async function initializeShareGroups() {
+    try {
+        const groups = await fetchShareableGroups();
+        ui.setShareGroups(groups);
+        ui.syncSharePanel();
+    } catch (error) {
+        console.error(error);
+        ui.setError(error.message || 'Gruppen fuer die Freigabe konnten nicht geladen werden.');
+    }
+}
 
 async function handleUploadSubmit(event) {
     event.preventDefault();
 
     const files = ui.getSelectedFiles();
+    const shareMode = ui.getSelectedShareMode();
+    const groupIds = ui.getSelectedGroupIds();
 
     ui.clearMessage();
 
@@ -29,6 +43,11 @@ async function handleUploadSubmit(event) {
         }
     }
 
+    if (shareMode === 'groups' && groupIds.length === 0) {
+        ui.setError('Waehle mindestens eine Gruppe aus oder lade privat hoch.');
+        return;
+    }
+
     try {
         ui.setLoading(true);
         ui.showStatusArea();
@@ -40,6 +59,8 @@ async function handleUploadSubmit(event) {
 
         const importResult = await uploadFilesAndStartImport({
             files,
+            shareMode,
+            groupIds,
             onProgress: ({ loaded, total, percent }) => {
                 ui.setUploadProgress(
                     percent,
@@ -51,7 +72,11 @@ async function handleUploadSubmit(event) {
         const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
         ui.setUploadProgress(100, `${files.length} Dateien, ${formatBytes(totalBytes)} hochgeladen`);
         ui.setPhase('Import wird gestartet');
-        ui.setInfo('Datei wurde hochgeladen. Import-Job wird gestartet ...');
+        ui.setInfo(
+            shareMode === 'groups'
+                ? 'Datei wurde hochgeladen. Import und Gruppenfreigabe werden vorbereitet ...'
+                : 'Datei wurde hochgeladen. Import-Job wird gestartet ...'
+        );
 
         ui.setPhase('Verarbeitung läuft');
         ui.setInfo(`Import läuft (Job-ID: ${importResult.jobId})`);

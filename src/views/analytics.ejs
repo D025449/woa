@@ -322,6 +322,10 @@
 
                     <div class="analytics-hero-meta">
                         <span class="analytics-chip">
+                            <span class="analytics-chip-label">User</span>
+                            <span><%= ((typeof userInfo !== "undefined" && userInfo) ? (userInfo.display_name || userInfo.email) : "Unknown") %></span>
+                        </span>
+                        <span class="analytics-chip">
                             <span class="analytics-chip-label">Focus</span>
                             <span>Trend · Interpretation · Drill-down</span>
                         </span>

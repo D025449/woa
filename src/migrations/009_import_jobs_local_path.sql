@@ -1,9 +1,0 @@
-BEGIN;
-
-ALTER TABLE import_jobs
-  ADD COLUMN IF NOT EXISTS local_path text;
-
-ALTER TABLE import_jobs
-  ALTER COLUMN s3_key DROP NOT NULL;
-
-COMMIT;

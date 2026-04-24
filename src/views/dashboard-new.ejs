@@ -246,6 +246,29 @@
             color: #64748b;
         }
 
+        .dashboard-shared-meta {
+            margin-top: 0.55rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            padding: 0.42rem 0.72rem;
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            border-radius: 999px;
+            background: rgba(248, 250, 252, 0.92);
+            color: #334155;
+            font-size: 0.82rem;
+            font-weight: 600;
+        }
+
+        .dashboard-shared-meta__eyebrow {
+            color: #64748b;
+            font-size: 0.74rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
         .dashboard-toolbar {
             display: flex;
             flex-wrap: wrap;
@@ -286,6 +309,29 @@
             gap: 0.8rem;
             flex-wrap: wrap;
             margin-bottom: 1rem;
+        }
+
+        .workout-library-scope-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.28rem;
+            border: 1px solid rgba(148, 163, 184, 0.28);
+            border-radius: 999px;
+            background: rgba(248, 250, 252, 0.92);
+        }
+
+        .workout-library-scope-toggle .btn {
+            border-radius: 999px;
+            padding-inline: 0.85rem;
+            font-weight: 700;
+            border-color: transparent;
+        }
+
+        .workout-library-scope-toggle .btn.active {
+            background: #0f172a;
+            color: #f8fafc;
+            border-color: #0f172a;
         }
 
         .workout-library-input,
@@ -384,6 +430,13 @@
             color: #64748b;
         }
 
+        .workout-library-card__owner {
+            margin-top: 0.28rem;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: #334155;
+        }
+
         .workout-library-card__primary-metrics {
             display: flex;
             align-items: stretch;
@@ -454,6 +507,12 @@
             margin-top: 0.9rem;
         }
 
+        .workout-library-actions {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+        }
+
         .workout-library-tags {
             display: flex;
             flex-wrap: wrap;
@@ -476,6 +535,62 @@
         .workout-library-card .btn {
             border-radius: 999px;
             padding-inline: 0.9rem;
+            font-weight: 600;
+        }
+
+        .workout-share-inline {
+            margin-top: 0.95rem;
+            padding: 0.95rem 1rem;
+            border: 1px solid rgba(226, 232, 240, 0.95);
+            border-radius: 1rem;
+            background: rgba(248, 250, 252, 0.95);
+            display: grid;
+            gap: 0.8rem;
+        }
+
+        .workout-share-inline__row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .workout-share-inline__groups {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+        }
+
+        .workout-share-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            padding: 0.45rem 0.72rem;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.28);
+            background: rgba(255, 255, 255, 0.95);
+            color: #334155;
+            font-size: 0.82rem;
+            font-weight: 600;
+        }
+
+        .workout-share-chip input {
+            margin: 0;
+        }
+
+        .workout-share-inline__actions {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .workout-share-inline__status {
+            min-height: 1.2rem;
+            color: #b45309;
+            font-size: 0.82rem;
             font-weight: 600;
         }
 
@@ -586,6 +701,10 @@
 
                     <div class="dashboard-hero-meta">
                         <span class="dashboard-chip">
+                            <span class="dashboard-chip-label">User</span>
+                            <span><%= ((typeof userInfo !== "undefined" && userInfo) ? (userInfo.display_name || userInfo.email) : "Unknown") %></span>
+                        </span>
+                        <span class="dashboard-chip">
                             <span class="dashboard-chip-label">Ansicht</span>
                             <span>Workout Library</span>
                         </span>
@@ -611,6 +730,29 @@
 
                             <div class="dashboard-table-body">
                                 <div class="workout-library-toolbar">
+                                    <div class="workout-library-scope-toggle" role="group" aria-label="Workout-Filter">
+                                        <button
+                                            id="workout-library-scope-mine"
+                                            class="btn btn-sm btn-outline-secondary active"
+                                            type="button"
+                                            data-workout-scope="mine">
+                                            Meine
+                                        </button>
+                                        <button
+                                            id="workout-library-scope-shared"
+                                            class="btn btn-sm btn-outline-secondary"
+                                            type="button"
+                                            data-workout-scope="shared">
+                                            Geteilte
+                                        </button>
+                                        <button
+                                            id="workout-library-scope-all"
+                                            class="btn btn-sm btn-outline-secondary"
+                                            type="button"
+                                            data-workout-scope="all">
+                                            Alle
+                                        </button>
+                                    </div>
                                     <input
                                         id="workout-library-search"
                                         class="form-control workout-library-input"
@@ -619,6 +761,7 @@
                                     >
                                     <select id="workout-library-sort" class="form-select workout-library-select">
                                         <option value="newest">Neueste zuerst</option>
+                                        <option value="uploaded">Zuletzt hochgeladen</option>
                                         <option value="oldest">Älteste zuerst</option>
                                         <option value="distance">Größte Distanz</option>
                                         <option value="duration">Längste Dauer</option>
@@ -643,9 +786,13 @@
                             <div>
                                 <span class="dashboard-eyebrow">Primary Analysis</span>
                                 <h2 class="dashboard-section-title">Workout Data</h2>
-                                <p class="dashboard-section-copy">
+                                <p id="dashboard-detail-copy" class="dashboard-section-copy">
                                     Leistung, Herzfrequenz, Kadenz, Speed und Höhe mit direkter Segment-Interaktion.
                                 </p>
+                                <div id="dashboard-shared-meta" class="dashboard-shared-meta d-none">
+                                    <span class="dashboard-shared-meta__eyebrow">Shared Workout</span>
+                                    <span id="dashboard-shared-meta-text"></span>
+                                </div>
                             </div>
 
                             <div class="dashboard-toolbar">

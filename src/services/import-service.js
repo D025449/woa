@@ -5,7 +5,9 @@ export async function createAndEnqueueImport({
     localPaths = null,
     originalFileNames = null,
     sizeBytes,
-    uid
+    uid,
+    shareMode = "private",
+    groupIds = []
 })
 {
     const job = await createImportJob({
@@ -18,7 +20,9 @@ export async function createAndEnqueueImport({
     await importQueue.add(
         'process-zip-import',
         {
-            jobId: job.id
+            jobId: job.id,
+            shareMode,
+            groupIds
         },
         {
             attempts: 3,

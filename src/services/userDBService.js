@@ -19,7 +19,8 @@ export default class UserDBService {
     DO UPDATE SET
       email = EXCLUDED.email,
       email_verified = EXCLUDED.email_verified,
-      display_name = EXCLUDED.display_name RETURNING *
+      display_name = COALESCE(NULLIF(users.display_name, ''), EXCLUDED.display_name)
+    RETURNING *
   `, [sub, email, email_verified, name]);
 
     return result.rows[0];

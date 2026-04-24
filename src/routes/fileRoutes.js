@@ -7,6 +7,7 @@ import authMiddleware from "../middleware/authMiddleware.js";
 
 
 import { FileDBService } from "../services/fileDBService.js";
+import CollaborationDBService from "../services/collaborationDBService.js";
 
 const router = express.Router();
 
@@ -93,6 +94,7 @@ router.get("/workouts", authMiddleware, async (req, res, next) => {
     const size = parseInt(req.query.size || req.body.size) || 20;
     const sort = normalizeArrayParam(req.query.sort);
     const filters = normalizeArrayParam(req.query.filter);
+    const scope = String(req.query.scope || "mine");
     const uid = req.user?.id;
 
     const result = await FileDBService.getWorkoutsByUser(
@@ -100,7 +102,8 @@ router.get("/workouts", authMiddleware, async (req, res, next) => {
       page,
       size,
       sort,
-      filters
+      filters,
+      scope
     );
 
 
@@ -299,7 +302,7 @@ router.post("/workouts/:id/segments", authMiddleware, async (req, res, next) => 
     const workoutId = req.params.id;
     const uid = req.user?.id;
 
-    const segments = req.body.segment ? [req.body.segment]: reg.body.segments;
+    const segments = req.body.segment ? [req.body.segment]: req.body.segments;
 
     if (!Array.isArray(segments) || segments.length === 0) {
       return res.status(400).json({
@@ -328,11 +331,19 @@ router.post("/workouts/:id/segments", authMiddleware, async (req, res, next) => 
       segments
     );
 
-    const result = await FileDBService.upsertSegmentsBulk(
+    const inserted = await FileDBService.insertSegmentsBulk(
       uid,
       workoutId,
       segments
     );
+
+    const updated = await FileDBService.updateSegmentsBulk(
+      uid,
+      workoutId,
+      segments
+    );
+
+    const result = [...inserted, ...updated];
 
     res.status(201).json({
       ok: true,

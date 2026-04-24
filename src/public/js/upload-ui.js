@@ -2,6 +2,10 @@ export function createUploadUI() {
     const elements = {
         form: document.getElementById('uploadForm'),
         fileInput: document.getElementById('file'),
+        shareModeInputs: Array.from(document.querySelectorAll('input[name="shareMode"]')),
+        groupSharePanel: document.getElementById('groupSharePanel'),
+        groupShareHint: document.getElementById('groupShareHint'),
+        groupShareList: document.getElementById('groupShareList'),
         submitButton: document.getElementById('submitButton'),
         response: document.getElementById('response'),
 
@@ -63,6 +67,60 @@ export function createUploadUI() {
         return Array.from(elements.fileInput.files || []);
     }
 
+    function getSelectedShareMode() {
+        const selectedInput = elements.shareModeInputs.find((input) => input.checked);
+        return selectedInput?.value || 'private';
+    }
+
+    function getSelectedGroupIds() {
+        return Array.from(
+            elements.groupShareList?.querySelectorAll('input[type="checkbox"]:checked') || []
+        ).map((input) => Number(input.value)).filter((value) => Number.isInteger(value) && value > 0);
+    }
+
+    function setShareGroups(groups = []) {
+        if (!elements.groupShareList) {
+            return;
+        }
+
+        if (!groups.length) {
+            elements.groupShareList.innerHTML = '';
+            if (elements.groupShareHint) {
+                elements.groupShareHint.textContent = 'Du bist aktuell in keiner Gruppe. Uploads bleiben deshalb privat.';
+            }
+            return;
+        }
+
+        if (elements.groupShareHint) {
+            elements.groupShareHint.textContent = 'Diese Freigabe gilt fuer alle Workouts dieses Upload-Jobs.';
+        }
+
+        elements.groupShareList.innerHTML = groups.map((group) => `
+            <label class="upload-share-option">
+                <input type="checkbox" value="${group.id}">
+                <span>
+                    <strong>${group.name}</strong>
+                    <small>${group.role || 'Member'} · ${group.member_count || 0} Mitglieder</small>
+                </span>
+            </label>
+        `).join('');
+    }
+
+    function syncSharePanel() {
+        if (!elements.groupSharePanel) {
+            return;
+        }
+
+        const mode = getSelectedShareMode();
+        elements.groupSharePanel.classList.toggle('d-none', mode !== 'groups');
+    }
+
+    elements.shareModeInputs.forEach((input) => {
+        input.addEventListener('change', syncSharePanel);
+    });
+
+    syncSharePanel();
+
     return {
         elements,
         showStatusArea,
@@ -74,6 +132,10 @@ export function createUploadUI() {
         setSuccess,
         setInfo,
         clearMessage,
-        getSelectedFiles
+        getSelectedFiles,
+        getSelectedShareMode,
+        getSelectedGroupIds,
+        setShareGroups,
+        syncSharePanel
     };
 }

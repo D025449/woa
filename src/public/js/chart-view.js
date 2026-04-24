@@ -133,7 +133,9 @@ export default class ChartView {
   // -----------------------------
   updateWorkout(workout) {
     this.currentWorkout = workout;
-    if (!workout?.validGps && this.mode === "gps-create") {
+    if (!this.isWorkoutEditable() && this.mode) {
+      this.setMode("");
+    } else if (!workout?.validGps && this.mode === "gps-create") {
       this.setMode("");
     } else {
       this.syncModeButtons();
@@ -155,7 +157,9 @@ export default class ChartView {
 
   updateWorkoutCP(workout, cpview) {
     this.currentWorkout = workout;
-    if (!workout?.validGps && this.mode === "gps-create") {
+    if (!this.isWorkoutEditable() && this.mode) {
+      this.setMode("");
+    } else if (!workout?.validGps && this.mode === "gps-create") {
       this.setMode("");
     } else {
       this.syncModeButtons();
@@ -190,6 +194,10 @@ export default class ChartView {
       }
 
       if (this.mode === "delete") {
+        if (!this.isWorkoutEditable()) {
+          return;
+        }
+
         if (isGpsSegment) {
           this.handlers.onToast?.(
             `GPS-Segmente können hier nicht gelöscht werden. <a href="/segments?focusSegmentId=${encodeURIComponent(seg.sid)}" class="fw-semibold text-decoration-underline">Zur Segments-Seite</a>`
@@ -214,6 +222,7 @@ export default class ChartView {
     });
 
     this.chart.getZr().on('mousedown', (e) => {
+      if (!this.isWorkoutEditable()) return;
       if (this.mode !== "create" && this.mode !== "gps-create") return;
 
       const data = this.chart.convertFromPixel({ seriesIndex: 0 }, [e.offsetX, e.offsetY]);
@@ -221,6 +230,11 @@ export default class ChartView {
     });
 
     this.chart.getZr().on('mouseup', async (e) => {
+      if (!this.isWorkoutEditable()) {
+        this.selectionStart = null;
+        return;
+      }
+
       if (this.mode !== "create" && this.mode !== "gps-create") {
         this.selectionStart = null;
         return;
@@ -289,23 +303,33 @@ export default class ChartView {
   // -----------------------------
   // UI HELPERS
   // -----------------------------
+  isWorkoutEditable() {
+    const access = this.currentWorkout?.access;
+    return access == null || access.isOwner !== false;
+  }
+
   setMode(mode) {
     this.mode = mode;
     this.selectionStart = null;
-    this.setDrawingMode(mode === "create");
+    this.setDrawingMode(mode === "create" || mode === "gps-create");
     this.syncModeButtons();
   }
 
   syncModeButtons() {
     const canCreateGps = !!this.currentWorkout?.validGps;
+    const isEditable = this.isWorkoutEditable();
 
     if (this.createButton) {
       const isCreate = this.mode === "create";
+      this.createButton.classList.toggle("d-none", !isEditable);
+      this.createButton.disabled = !isEditable;
       this.createButton.classList.toggle('btn-primary', isCreate);
       this.createButton.classList.toggle('btn-outline-primary', !isCreate);
       this.createButton.setAttribute(
         "title",
-        isCreate
+        !isEditable
+          ? "Geteilte Workouts sind schreibgeschützt."
+          : isCreate
           ? "Create-Segment-Modus aktiv. Ziehe im Chart einen Bereich auf, um ein neues Segment anzulegen."
           : "Create-Segment-Modus aktivieren."
       );
@@ -317,12 +341,15 @@ export default class ChartView {
 
     if (this.createGpsButton) {
       const isGpsCreate = this.mode === "gps-create";
-      this.createGpsButton.disabled = !canCreateGps;
+      this.createGpsButton.classList.toggle("d-none", !isEditable);
+      this.createGpsButton.disabled = !isEditable || !canCreateGps;
       this.createGpsButton.classList.toggle('btn-success', isGpsCreate);
       this.createGpsButton.classList.toggle('btn-outline-success', !isGpsCreate);
       this.createGpsButton.setAttribute(
         "title",
-        canCreateGps
+        !isEditable
+          ? "Geteilte Workouts sind schreibgeschützt."
+          : canCreateGps
           ? (
               isGpsCreate
                 ? "Create-GPS-Segment-Modus aktiv. Ziehe im Chart einen Bereich auf, um ein GPS-Segment zu erzeugen."
@@ -338,11 +365,15 @@ export default class ChartView {
 
     if (this.deleteButton) {
       const isDelete = this.mode === "delete";
+      this.deleteButton.classList.toggle("d-none", !isEditable);
+      this.deleteButton.disabled = !isEditable;
       this.deleteButton.classList.toggle('btn-danger', isDelete);
       this.deleteButton.classList.toggle('btn-outline-danger', !isDelete);
       this.deleteButton.setAttribute(
         "title",
-        isDelete
+        !isEditable
+          ? "Geteilte Workouts sind schreibgeschützt."
+          : isDelete
           ? "Delete-Segment-Modus aktiv. Klicke auf ein vorhandenes Segment, um es zu löschen."
           : "Delete-Segment-Modus aktivieren."
       );

@@ -1,5 +1,6 @@
 import pool from "./database.js";
 import pgPromise from "pg-promise";
+import WorkoutSharingService from "./workoutSharingService.js";
 
 
 class FileDBService {
@@ -50,6 +51,7 @@ class FileDBService {
 
   static allowedColumns = [
     "start_time",
+    "uploaded_at",
     "uid",
     "id",
     "total_distance",
@@ -115,8 +117,24 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       ST_AsGeoJSON(w.geom)::json AS wgeom
     FROM workouts w
     WHERE
-      w.uid = $1
+      (
+        w.uid = $1
+        OR EXISTS (
+          SELECT 1
+          FROM workout_group_shares wgs
+          INNER JOIN gps_segment_group_shares sgs
+            ON sgs.group_id = wgs.group_id
+          WHERE wgs.workout_id = w.id
+            AND sgs.segment_id = $6
+        )
+      )
       AND w.bounds && ST_MakeEnvelope($2, $3, $4, $5, 4326)
+      AND NOT EXISTS (
+        SELECT 1
+        FROM gps_segment_best_efforts sbe
+        WHERE sbe.sid = $6
+          AND sbe.wid = w.id
+      )
   `;
 
   const result = await pool.query(
@@ -126,7 +144,8 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       bounds.minLng,
       bounds.minLat,
       bounds.maxLng,
-      bounds.maxLat
+      bounds.maxLat,
+      segmentId
     ]
   );
 
@@ -284,6 +303,20 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     };
   }
 
+  static qualifySqlColumns(sqlFragment = "", columns = [], qualifier = "") {
+    if (!sqlFragment || !qualifier || !Array.isArray(columns) || columns.length === 0) {
+      return sqlFragment;
+    }
+
+    let qualified = sqlFragment;
+    for (const column of columns) {
+      const pattern = new RegExp(`(?<![\\w.])${column}(?![\\w])`, "g");
+      qualified = qualified.replace(pattern, `${qualifier}.${column}`);
+    }
+
+    return qualified;
+  }
+
   static async getWorkoutRecordsPreSignedUrl() {
     throw new Error("Legacy workout data endpoint is no longer supported");
   }
@@ -326,62 +359,106 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
   }
 
   static getFileDefaultColumns() {
-    return `id,
-      uid,
-      start_time,
-      end_time,
-      year,
-      month,
-      week,
-      year_quarter,
-      year_month,
-      year_week,
-      total_elapsed_time,
-      total_timer_time,
-      total_distance,
-      total_cycles,
-      total_work,
-      total_calories,
-      total_ascent,
-      total_descent,
-      avg_speed,
-      max_speed,
-      avg_normalized_power,
-      avg_power,
-      max_power,
-      avg_heart_rate,
-      max_heart_rate,
-      avg_cadence,
-      max_cadence,
-      validgps`
+    return `workouts.id,
+      workouts.uid,
+      workouts.uploaded_at,
+      workouts.start_time,
+      workouts.end_time,
+      workouts.year,
+      workouts.month,
+      workouts.week,
+      workouts.year_quarter,
+      workouts.year_month,
+      workouts.year_week,
+      workouts.total_elapsed_time,
+      workouts.total_timer_time,
+      workouts.total_distance,
+      workouts.total_cycles,
+      workouts.total_work,
+      workouts.total_calories,
+      workouts.total_ascent,
+      workouts.total_descent,
+      workouts.avg_speed,
+      workouts.max_speed,
+      workouts.avg_normalized_power,
+      workouts.avg_power,
+      workouts.max_power,
+      workouts.avg_heart_rate,
+      workouts.max_heart_rate,
+      workouts.avg_cadence,
+      workouts.max_cadence,
+      workouts.validgps,
+      owner.display_name AS owner_display_name,
+      owner.email AS owner_email,
+      (workouts.uid = $1)::boolean AS is_owned,
+      (
+        SELECT COUNT(*)
+        FROM workout_group_shares wgs
+        WHERE wgs.workout_id = workouts.id
+      )::int AS share_group_count`
   }
 
 
-  static async getWorkoutsByUser(uid, page, size, sort, filter) {
+  static async getWorkoutsByUser(uid, page, size, sort, filter, scope = "mine") {
 
     const offset = (page - 1) * size;
 
-    const filter_all = [];
-    filter_all.push({ field: 'uid', type: '=', value: uid });
-    filter_all.push(...filter);
-
-
-
     const { whereSQL, orderSQL, params } =
-      FileDBService.buildQueryParts(FileDBService.allowedColumns, FileDBService.numericFields, sort, filter_all);
+      FileDBService.buildQueryParts(FileDBService.allowedColumns, FileDBService.numericFields, sort, filter);
 
     // -----------------------------------
     // BASE WHERE (User Filter + Tabulator Filter)
     // -----------------------------------
 
-    let baseWhere = "WHERE ";
-    let sqlParams = params;
+    const normalizedScope = ["mine", "shared", "all"].includes(String(scope).toLowerCase())
+      ? String(scope).toLowerCase()
+      : "mine";
+
+    let accessPredicate = `workouts.uid = $1`;
+
+    if (normalizedScope === "shared") {
+      accessPredicate = `
+        workouts.uid <> $1
+        AND EXISTS (
+          SELECT 1
+          FROM workout_group_shares wgs
+          INNER JOIN group_members gm
+            ON gm.group_id = wgs.group_id
+          WHERE wgs.workout_id = workouts.id
+            AND gm.user_id = $1
+        )
+      `;
+    } else if (normalizedScope === "all") {
+      accessPredicate = `
+        workouts.uid = $1
+        OR EXISTS (
+          SELECT 1
+          FROM workout_group_shares wgs
+          INNER JOIN group_members gm
+            ON gm.group_id = wgs.group_id
+          WHERE wgs.workout_id = workouts.id
+            AND gm.user_id = $1
+        )
+      `;
+    }
+
+    let baseWhere = `WHERE (${accessPredicate})`;
+    let sqlParams = [uid, ...params];
     if (whereSQL) {
-      baseWhere += whereSQL.replace("WHERE ", "");
-      // sqlParams = [params];
+      const adjustedWhere = FileDBService.qualifySqlColumns(
+        whereSQL.replace(/\$(\d+)/g, (_, index) => `$${Number(index) + 1}`),
+        FileDBService.allowedColumns,
+        "workouts"
+      );
+      baseWhere += ` AND (${adjustedWhere.replace("WHERE ", "")})`;
     }
 
     const colums = FileDBService.getFileDefaultColumns();
+    const qualifiedOrderSQL = FileDBService.qualifySqlColumns(
+      orderSQL,
+      FileDBService.allowedColumns,
+      "workouts"
+    );
 
     // -----------------------------------
     // DATA QUERY
@@ -392,8 +469,10 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     const dataQuery = `
     SELECT ${colums} 
     FROM workouts
+    INNER JOIN users owner
+      ON owner.id = workouts.uid
     ${baseWhere}
-    ${orderSQL}
+    ${qualifiedOrderSQL}
     LIMIT $${sqlParams.length + 1}
     OFFSET $${sqlParams.length + 2}
   `;
@@ -413,6 +492,8 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     const countQuery = `
     SELECT COUNT(*) AS total
     FROM workouts
+    INNER JOIN users owner
+      ON owner.id = workouts.uid
     ${baseWhere}
   `;
 
@@ -1061,16 +1142,17 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
   }
 
   static async getSegmentsByWorkout(uid, workoutId) {
+    await WorkoutSharingService.getAccessibleWorkout(uid, workoutId);
+
     const query = `
     SELECT
    *
     FROM workout_segments
     WHERE wid = $1
-      AND uid = $2
     ORDER BY start_offset ASC
   `;
 
-    const values = [workoutId, uid];
+    const values = [workoutId];
 
     const result = await pool.query(query, values);
 

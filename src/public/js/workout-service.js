@@ -44,6 +44,9 @@ export default class WorkoutService {
         window.location.href = '/login';
         return;
       }
+      if (!streamResponse.ok) {
+        throw new Error(`Workout stream fetch failed (${streamResponse.status})`);
+      }
       const buffer = await streamResponse.arrayBuffer();
       const workoutObject = Workout.fromBuffer(buffer);
 
@@ -86,7 +89,8 @@ export default class WorkoutService {
         workoutObject,
         validGps: workoutObject.isValidGps(),
         sampleRateGPS: trackRow?.samplerategps ?? trackRow?.sampleRateGPS ?? 1,
-        track: this.parseGeoJsonTrack(trackRow?.track)
+        track: this.parseGeoJsonTrack(trackRow?.track),
+        access: trackRow?.access || null
         //...WorkoutService.parseWorkoutBuffer(buffer)
       };
 
@@ -104,6 +108,59 @@ export default class WorkoutService {
       console.error("Parsing fehlgeschlagen:", err.message);
     }
 
+  }
+
+  static async getWorkoutSharing(workoutId) {
+    const response = await fetch(`/workouts/${workoutId}/sharing`, {
+      method: "GET",
+      credentials: "include"
+    });
+
+    if (response.status === 401) {
+      window.location.href = "/login";
+      return null;
+    }
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || `Workout sharing load failed (${response.status})`);
+    }
+
+    const result = await response.json();
+    return result.data;
+  }
+
+  static async updateWorkoutSharing(workoutId, payload) {
+    const response = await fetch(`/workouts/${workoutId}/sharing`, {
+      method: "PUT",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload || {})
+    });
+
+    if (response.status === 401) {
+      window.location.href = "/login";
+      return null;
+    }
+
+    if (!response.ok) {
+      let message = `Workout sharing update failed (${response.status})`;
+      try {
+        const result = await response.json();
+        message = result.error || message;
+      } catch {
+        const text = await response.text();
+        if (text) {
+          message = text;
+        }
+      }
+      throw new Error(message);
+    }
+
+    const result = await response.json();
+    return result.data;
   }
 
   static parseGeoJsonTrack(trackGeoJson) {

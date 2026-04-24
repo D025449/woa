@@ -233,6 +233,29 @@
             color: #64748b;
         }
 
+        .segments-shared-meta {
+            margin-top: 0.55rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            padding: 0.42rem 0.72rem;
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            border-radius: 999px;
+            background: rgba(248, 250, 252, 0.92);
+            color: #334155;
+            font-size: 0.82rem;
+            font-weight: 600;
+        }
+
+        .segments-shared-meta__eyebrow {
+            color: #64748b;
+            font-size: 0.74rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+
         .segments-toolbar {
             display: flex;
             flex-wrap: wrap;
@@ -245,6 +268,65 @@
             padding-inline: 0.9rem;
             font-weight: 600;
             box-shadow: none;
+        }
+
+        .segments-scope-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.28rem;
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.72);
+        }
+
+        .segments-scope-toggle .btn {
+            border-radius: 999px;
+            padding-inline: 0.95rem;
+        }
+
+        .segment-share-inline {
+            display: none;
+            align-items: center;
+            gap: 0.65rem;
+            padding: 0.55rem 0.75rem;
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 1rem;
+            background: rgba(248, 250, 252, 0.82);
+        }
+
+        .segment-share-inline.is-open {
+            display: flex;
+        }
+
+        .segment-share-inline__groups {
+            display: none;
+            align-items: center;
+            gap: 0.45rem;
+            flex-wrap: wrap;
+            max-width: 420px;
+        }
+
+        .segment-share-inline__groups.is-visible {
+            display: flex;
+        }
+
+        .segment-share-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.28rem 0.6rem;
+            border: 1px solid rgba(148, 163, 184, 0.26);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.92);
+            font-size: 0.82rem;
+            color: #334155;
+        }
+
+        .segment-share-status {
+            font-size: 0.82rem;
+            color: #64748b;
+            white-space: nowrap;
         }
 
         .segments-body {
@@ -279,6 +361,37 @@
             letter-spacing: 0.12em;
             text-transform: uppercase;
             color: #64748b;
+        }
+
+        .segments-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            margin-bottom: 0.85rem;
+        }
+
+        .segments-panel-header .segments-panel-title {
+            margin: 0;
+        }
+
+        .segment-bestefforts-scope-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.28rem;
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.72);
+        }
+
+        .segment-bestefforts-scope-toggle .btn {
+            border-radius: 999px;
+            padding-inline: 0.8rem;
+        }
+
+        .segment-bestefforts-scope-toggle.is-hidden {
+            display: none;
         }
 
         #workout-map,
@@ -316,7 +429,7 @@
 
 </head>
 
-<body class="segments-page">
+<body class="segments-page" data-current-user-id="<%= userInfo?.id || '' %>">
 
     <% if (isAuthenticated) { %>
 
@@ -344,6 +457,21 @@
                     </div>
 
                     <div class="segments-hero-meta">
+                        <div class="segments-scope-toggle" role="group" aria-label="Segment-Scope">
+                            <button id="segments-scope-mine" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="mine">
+                                Meine
+                            </button>
+                            <button id="segments-scope-shared" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="shared">
+                                Geteilte
+                            </button>
+                            <button id="segments-scope-all" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="all">
+                                Alle
+                            </button>
+                        </div>
+                        <span class="segments-chip">
+                            <span class="segments-chip-label">User</span>
+                            <span><%= ((typeof userInfo !== "undefined" && userInfo) ? (userInfo.display_name || userInfo.email) : "Unknown") %></span>
+                        </span>
                         <span class="segments-chip">
                             <span class="segments-chip-label">Workflow</span>
                             <span>Create · Lookup · Compare</span>
@@ -393,9 +521,26 @@
                                 Vergleiche Best Efforts und nutze das Höhenprofil des aktuell ausgewählten Segments als
                                 zweite Lesart zur Karte.
                             </p>
+                            <div id="segment-shared-meta" class="segments-shared-meta d-none">
+                                <span class="segments-shared-meta__eyebrow">Shared Segment</span>
+                                <span id="segment-shared-meta-text"></span>
+                            </div>
                         </div>
 
                         <div class="segments-toolbar">
+                            <button id="share-segment-toggle" class="btn btn-sm btn-outline-secondary d-none" type="button">
+                                Share
+                            </button>
+                            <div id="segment-share-inline" class="segment-share-inline">
+                                <span class="small text-muted">Sichtbarkeit</span>
+                                <select id="segment-share-mode" class="form-select form-select-sm" style="width: 130px;">
+                                    <option value="private">Privat</option>
+                                    <option value="groups">Gruppen</option>
+                                </select>
+                                <div id="segment-share-groups" class="segment-share-inline__groups"></div>
+                                <span id="segment-share-status" class="segment-share-status"></span>
+                                <button id="segment-share-save" class="btn btn-sm btn-primary" type="button">Übernehmen</button>
+                            </div>
                             <button id="delete-selected-segment" class="btn btn-sm btn-outline-danger d-none">
                                 Delete Segment
                             </button>
@@ -404,7 +549,20 @@
 
                     <div class="segments-detail-grid">
                         <div class="segments-panel">
-                            <h3 class="segments-panel-title">Best Efforts</h3>
+                            <div class="segments-panel-header">
+                                <h3 class="segments-panel-title">Best Efforts</h3>
+                                <div class="segment-bestefforts-scope-toggle" role="group" aria-label="Best-Efforts-Scope">
+                                    <button id="segment-bestefforts-scope-mine" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-scope="mine">
+                                        Meine
+                                    </button>
+                                    <button id="segment-bestefforts-scope-shared" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-scope="shared">
+                                        Geteilte
+                                    </button>
+                                    <button id="segment-bestefforts-scope-all" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-scope="all">
+                                        Alle
+                                    </button>
+                                </div>
+                            </div>
                             <div id="segment-table"></div>
                         </div>
 

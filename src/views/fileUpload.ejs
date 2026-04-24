@@ -251,6 +251,66 @@
             box-shadow: none;
         }
 
+        .upload-share-shell {
+            display: grid;
+            gap: 0.9rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(226, 232, 240, 0.85);
+        }
+
+        .upload-share-choice {
+            display: grid;
+            gap: 0.65rem;
+        }
+
+        .upload-share-option {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.7rem;
+            padding: 0.75rem 0.85rem;
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            border-radius: 1rem;
+            background: rgba(248, 250, 252, 0.86);
+            cursor: pointer;
+        }
+
+        .upload-share-option input {
+            margin-top: 0.2rem;
+        }
+
+        .upload-share-option strong {
+            display: block;
+            font-size: 0.92rem;
+            color: #0f172a;
+        }
+
+        .upload-share-option small {
+            display: block;
+            margin-top: 0.1rem;
+            color: #64748b;
+        }
+
+        .upload-share-panel {
+            display: grid;
+            gap: 0.7rem;
+            padding: 0.95rem 1rem;
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 1rem;
+            background: rgba(255, 255, 255, 0.7);
+        }
+
+        .upload-share-hint {
+            margin: 0;
+            font-size: 0.88rem;
+            color: #64748b;
+        }
+
+        .upload-share-list {
+            display: grid;
+            gap: 0.6rem;
+        }
+
         .upload-primary-btn {
             border-radius: 999px;
             padding: 0.85rem 1rem;
@@ -332,6 +392,10 @@
 
                 <div class="upload-hero-meta">
                     <span class="upload-chip">
+                        <span class="upload-chip-label">User</span>
+                        <span><%= ((typeof userInfo !== "undefined" && userInfo) ? (userInfo.display_name || userInfo.email) : "Unknown") %></span>
+                    </span>
+                    <span class="upload-chip">
                         <span class="upload-chip-label">Formats</span>
                         <span>FIT · ZIP</span>
                     </span>
@@ -364,6 +428,35 @@
                                             FIT- oder ZIP-Dateien auswählen
                                         </label>
                                         <input type="file" class="form-control" id="file" name="files" multiple required>
+                                    </div>
+
+                                    <div class="upload-share-shell">
+                                        <div>
+                                            <label class="form-label">Sichtbarkeit fuer diesen Upload</label>
+                                            <div class="upload-share-choice">
+                                                <label class="upload-share-option">
+                                                    <input type="radio" name="shareMode" value="private" checked>
+                                                    <span>
+                                                        <strong>Privat</strong>
+                                                        <small>Nur du kannst die importierten Workouts sehen.</small>
+                                                    </span>
+                                                </label>
+                                                <label class="upload-share-option">
+                                                    <input type="radio" name="shareMode" value="groups">
+                                                    <span>
+                                                        <strong>Mit Gruppen teilen</strong>
+                                                        <small>Alle Workouts dieses Upload-Jobs werden fuer die ausgewaehlten Gruppen freigegeben.</small>
+                                                    </span>
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        <div id="groupSharePanel" class="upload-share-panel d-none">
+                                            <p id="groupShareHint" class="upload-share-hint">
+                                                Diese Freigabe gilt fuer alle Workouts dieses Upload-Jobs.
+                                            </p>
+                                            <div id="groupShareList" class="upload-share-list"></div>
+                                        </div>
                                     </div>
 
                                     <div class="d-grid">

@@ -2,11 +2,64 @@ import express from "express";
 
 import authMiddleware from "../middleware/authMiddleware.js";
 import pool from "../services/database.js";
-
-
+import { FileDBService } from "../services/fileDBService.js";
 import WorkoutDBService from "../services/workoutDBService.js";
+import CollaborationDBService from "../services/collaborationDBService.js";
+import WorkoutSharingService from "../services/workoutSharingService.js";
+import SegmentDBService from "../services/segmentDBService.js";
+import { enqueueSegmentBestEfforts } from "../services/segment-best-efforts-service.js";
 
 const router = express.Router();
+
+router.get("/:id/sharing", authMiddleware, async (req, res) => {
+  try {
+    const workoutId = Number(req.params.id);
+    const uid = req.user.id;
+    const data = await WorkoutSharingService.getSharingForWorkout(uid, workoutId);
+    return res.json({ data });
+  } catch (err) {
+    console.error("GET /workouts/:id/sharing failed:", err);
+    return res.status(err.statusCode || 500).json({ error: err.message || "Failed to load workout sharing" });
+  }
+});
+
+router.put("/:id/sharing", authMiddleware, async (req, res) => {
+  try {
+    const workoutId = Number(req.params.id);
+    const uid = req.user.id;
+    const data = await WorkoutSharingService.updateSharingForWorkout(uid, workoutId, req.body || {});
+    if (Array.isArray(data.newlyPublishedGroupIds) && data.newlyPublishedGroupIds.length > 0) {
+      const targets = await SegmentDBService.getSharedSegmentRescanTargetsForWorkout(
+        workoutId,
+        uid,
+        data.newlyPublishedGroupIds
+      );
+
+      const groupedTargets = targets.reduce((acc, target) => {
+        const ownerId = String(target.uid);
+        if (!acc.has(ownerId)) {
+          acc.set(ownerId, []);
+        }
+        acc.get(ownerId).push(target.id);
+        return acc;
+      }, new Map());
+
+      await Promise.all(
+        [...groupedTargets.entries()].map(([ownerId, segmentIds]) =>
+          enqueueSegmentBestEfforts({
+            uid: Number(ownerId),
+            segmentIds
+          })
+        )
+      );
+    }
+    return res.json({ ok: true, data });
+  } catch (err) {
+    console.error("PUT /workouts/:id/sharing failed:", err);
+    return res.status(err.statusCode || 500).json({ error: err.message || "Failed to update workout sharing" });
+  }
+});
+
 // GET /api/workouts/:id/stream
 router.get("/:id/stream", authMiddleware, async (req, res) => {
   try {
@@ -30,7 +83,7 @@ router.get("/:id/stream", authMiddleware, async (req, res) => {
 
   } catch (err) {
     console.error("Stream load error:", err);
-    return res.status(500).json({ error: "Internal server error" });
+    return res.status(err.statusCode || 500).json({ error: err.message || "Internal server error" });
   }
 });
 
@@ -43,6 +96,7 @@ router.get("/:id/track", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Missing workout id" });
     }
 
+    const accessInfo = await WorkoutSharingService.getAccessibleWorkout(uid, id);
     const row = await WorkoutDBService.getTrack(id, uid);
 
     //res.setHeader("Content-Type", "application/octet-stream");
@@ -52,11 +106,18 @@ router.get("/:id/track", authMiddleware, async (req, res) => {
     // optional extra safety
     //res.setHeader("Pragma", "no-cache");
     //res.setHeader("Expires", "0");
-    return res.json(row);
+    return res.json({
+      ...row,
+      access: {
+        isOwner: !!accessInfo.is_owner,
+        ownerDisplayName: accessInfo.owner_display_name || null,
+        ownerEmail: accessInfo.owner_email || null
+      }
+    });
 
   } catch (err) {
     console.error("Track load error:", err);
-    return res.status(500).json({ error: "Internal server error" });
+    return res.status(err.statusCode || 500).json({ error: err.message || "Internal server error" });
   }
 });
 
@@ -316,11 +377,19 @@ router.post("/workouts/:id/segments", authMiddleware, async (req, res, next) => 
       segments
     );
 
-    const result = await FileDBService.upsertSegmentsBulk(
+    const inserted = await FileDBService.insertSegmentsBulk(
       uid,
       workoutId,
       segments
     );
+
+    const updated = await FileDBService.updateSegmentsBulk(
+      uid,
+      workoutId,
+      segments
+    );
+
+    const result = [...inserted, ...updated];
 
     res.status(201).json({
       ok: true,

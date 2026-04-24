@@ -2,6 +2,7 @@ import pool from "./database.js";
 import Workout from "../shared/Workout.js";
 import S3Service from "./s3Service.js";
 import pgPromise from "pg-promise";
+import WorkoutSharingService from "./workoutSharingService.js";
 
 
 export default class WorkoutDBService {
@@ -31,14 +32,16 @@ export default class WorkoutDBService {
   ];*/
 
   static async getTrack(id, uid) {
+    await WorkoutSharingService.getAccessibleWorkout(uid, id);
+
     const result = await pool.query(
       `SELECT 
         id,
         sampleRateGPS, 
         ST_AsGeoJSON(geom)::json AS track 
         FROM workouts 
-        WHERE id = $1 and uid = $2`,
-      [id, uid]
+        WHERE id = $1`,
+      [id]
     );
 
     if (result.rowCount === 0) {
@@ -50,9 +53,11 @@ export default class WorkoutDBService {
 
 
   static async getStream(id, uid) {
+    await WorkoutSharingService.getAccessibleWorkout(uid, id);
+
     const result = await pool.query(
-      `SELECT stream FROM workouts WHERE id = $1 and uid = $2`,
-      [id, uid]
+      `SELECT stream FROM workouts WHERE id = $1`,
+      [id]
     );
 
     if (result.rowCount === 0) {
@@ -103,4 +108,3 @@ export default class WorkoutDBService {
 
 
 } // class
-

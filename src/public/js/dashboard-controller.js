@@ -46,6 +46,34 @@ export default class Controller {
         this.mapView.renderTrack(workout);
       },
 
+      onGpsSegmentCreated: (gpsSegment) => {
+        if (!gpsSegment || !this.chartView.currentWorkout) {
+          return;
+        }
+
+        const workout = this.chartView.currentWorkout;
+        workout.segments ??= [];
+
+        const normalizedSegment = {
+          rowstate: "DB",
+          isGPSSegment: true,
+          ...gpsSegment
+        };
+
+        const existingIndex = workout.segments.findIndex(
+          (segment) => String(segment.id) === String(normalizedSegment.id)
+        );
+
+        if (existingIndex >= 0) {
+          workout.segments[existingIndex] = normalizedSegment;
+        } else {
+          workout.segments.push(normalizedSegment);
+        }
+
+        this.chartView.updateWorkout(workout);
+        this.mapView.renderTrack(workout);
+      },
+
       onToast: (message) => {
         this.showToast(message);
       }

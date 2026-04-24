@@ -2,6 +2,8 @@ import pool from "./database.js";
 import { FileDBService } from "./fileDBService.js";
 import SegmentMatcher from "./SegmentMatcher.js";
 import WorkoutDBService from "./workoutDBService.js";
+import CollaborationDBService from "./collaborationDBService.js";
+import WorkoutSharingService from "./workoutSharingService.js";
 
 
 
@@ -220,14 +222,36 @@ export default class SegmentDBService {
 
   }
 
-  static async getMatchingSegmentCandidatesV2(bounds, uid) {
+  static async getMatchingSegmentCandidatesV2(bounds, uid, workoutId = null) {
     const sql = `SELECT
       s.id,
       ST_AsGeoJSON(s.geom)::json AS geom
       FROM gps_segments s
       WHERE
-        s.uid = $1
-        AND s.bounds && ST_MakeEnvelope($2, $3, $4, $5, 4326);`;
+        (
+          s.uid = $1
+          OR (
+            $6::bigint IS NOT NULL
+            AND EXISTS (
+              SELECT 1
+              FROM gps_segment_group_shares sgs
+              INNER JOIN workout_group_shares wgs
+                ON wgs.group_id = sgs.group_id
+              WHERE sgs.segment_id = s.id
+                AND wgs.workout_id = $6
+            )
+          )
+        )
+        AND s.bounds && ST_MakeEnvelope($2, $3, $4, $5, 4326)
+        AND (
+          $6::bigint IS NULL
+          OR NOT EXISTS (
+            SELECT 1
+            FROM gps_segment_best_efforts sbe
+            WHERE sbe.wid = $6
+              AND sbe.sid = s.id
+          )
+        );`;
 
     const result = await pool.query(
       sql,
@@ -235,7 +259,8 @@ export default class SegmentDBService {
       bounds.minLng,
       bounds.minLat,
       bounds.maxLng,
-      bounds.maxLat]
+      bounds.maxLat,
+      workoutId]
     );
 
     return result.rows;
@@ -244,33 +269,273 @@ export default class SegmentDBService {
   static async getSegmentById(uid, segmentId) {
     const result = await pool.query(`
       SELECT
-        id,
-        uid,
-        distance,
-        duration,
-        start_lat,
-        start_lng,
-        start_name,
-        start_altitude,
-        end_lat,
-        end_lng,
-        end_name,
-        end_altitude,
-        ascent,
-        altitudes,
-        points_count,
-        best_efforts_status,
-        ST_AsGeoJSON(geom)::json AS geom_geojson,
-        ST_YMin(bounds) AS min_lat,
-        ST_YMax(bounds) AS max_lat,
-        ST_XMin(bounds) AS min_lng,
-        ST_XMax(bounds) AS max_lng
-      FROM gps_segments
-      WHERE id = $1
-        AND uid = $2
+        s.id,
+        s.uid,
+        s.distance,
+        s.duration,
+        s.start_lat,
+        s.start_lng,
+        s.start_name,
+        s.start_altitude,
+        s.end_lat,
+        s.end_lng,
+        s.end_name,
+        s.end_altitude,
+        s.ascent,
+        s.altitudes,
+        s.points_count,
+        s.best_efforts_status,
+        (
+          SELECT COUNT(*)
+          FROM gps_segment_group_shares sgs
+          WHERE sgs.segment_id = s.id
+        )::int AS share_group_count,
+        owner.display_name AS owner_display_name,
+        owner.email AS owner_email,
+        ST_AsGeoJSON(s.geom)::json AS geom_geojson,
+        ST_YMin(s.bounds) AS min_lat,
+        ST_YMax(s.bounds) AS max_lat,
+        ST_XMin(s.bounds) AS min_lng,
+        ST_XMax(s.bounds) AS max_lng
+      FROM gps_segments s
+      LEFT JOIN users owner
+        ON owner.id = s.uid
+      WHERE s.id = $1
+        AND s.uid = $2
     `, [segmentId, uid]);
 
     return result.rows[0] ? SegmentDBService.mapSegment(result.rows[0]) : null;
+  }
+
+  static async getSegmentSharing(uid, segmentId) {
+    const segmentResult = await pool.query(`
+      SELECT id, uid
+      FROM gps_segments
+      WHERE id = $1
+        AND uid = $2
+      LIMIT 1
+    `, [segmentId, uid]);
+
+    if (segmentResult.rowCount === 0) {
+      throw new Error("Segment not found");
+    }
+
+    const sharesResult = await pool.query(`
+      SELECT
+        sgs.group_id,
+        g.name AS group_name
+      FROM gps_segment_group_shares sgs
+      INNER JOIN groups g
+        ON g.id = sgs.group_id
+      WHERE sgs.segment_id = $1
+      ORDER BY lower(g.name) ASC, sgs.group_id ASC
+    `, [segmentId]);
+
+    const groupIds = sharesResult.rows.map((row) => Number(row.group_id));
+
+    return {
+      shareMode: groupIds.length > 0 ? "groups" : "private",
+      groupIds,
+      groups: sharesResult.rows
+    };
+  }
+
+  static async updateSegmentSharing(uid, segmentId, payload = {}) {
+    const shareMode = String(payload.shareMode || "private").toLowerCase() === "groups"
+      ? "groups"
+      : "private";
+    let newlyPublishedGroupIds = [];
+
+    const requestedGroupIds = [...new Set(
+      (Array.isArray(payload.groupIds) ? payload.groupIds : [])
+        .map((groupId) => Number(groupId))
+        .filter((groupId) => Number.isInteger(groupId) && groupId > 0)
+    )];
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const segmentResult = await client.query(`
+        SELECT
+          id,
+          uid,
+          distance,
+          duration,
+          start_name,
+          end_name
+        FROM gps_segments
+        WHERE id = $1
+          AND uid = $2
+        LIMIT 1
+      `, [segmentId, uid]);
+
+      if (segmentResult.rowCount === 0) {
+        throw new Error("Segment not found");
+      }
+
+      const previousSharesResult = await client.query(`
+        SELECT group_id
+        FROM gps_segment_group_shares
+        WHERE segment_id = $1
+      `, [segmentId]);
+
+      const previousGroupIds = previousSharesResult.rows.map((row) => Number(row.group_id));
+
+      await client.query(`
+        DELETE FROM gps_segment_group_shares
+        WHERE segment_id = $1
+      `, [segmentId]);
+
+      if (shareMode === "groups") {
+        if (requestedGroupIds.length === 0) {
+          throw new Error("Bitte mindestens eine Gruppe auswaehlen.");
+        }
+
+        const groupsResult = await client.query(`
+          SELECT group_id
+          FROM group_members
+          WHERE user_id = $1
+            AND group_id = ANY($2::bigint[])
+        `, [uid, requestedGroupIds]);
+
+        const allowedGroupIds = groupsResult.rows.map((row) => Number(row.group_id));
+
+        if (allowedGroupIds.length !== requestedGroupIds.length) {
+          throw new Error("Mindestens eine Gruppe ist fuer dieses Segment nicht erlaubt.");
+        }
+
+        await client.query(`
+          INSERT INTO gps_segment_group_shares (segment_id, group_id, shared_by_user_id)
+          SELECT
+            $1,
+            gm.group_id,
+            $2
+          FROM group_members gm
+          WHERE gm.user_id = $2
+            AND gm.group_id = ANY($3::bigint[])
+          ON CONFLICT (segment_id, group_id) DO NOTHING
+        `, [segmentId, uid, allowedGroupIds]);
+
+        newlyPublishedGroupIds = allowedGroupIds.filter((groupId) => !previousGroupIds.includes(groupId));
+
+        if (newlyPublishedGroupIds.length > 0) {
+          await CollaborationDBService.createSegmentPublishedFeedEvents({
+            groupIds: newlyPublishedGroupIds,
+            actorUserId: uid,
+            segmentId,
+            payload: {
+              segmentType: "gps",
+              distance: segmentResult.rows[0].distance ?? null,
+              duration: segmentResult.rows[0].duration ?? null,
+              startName: segmentResult.rows[0].start_name || null,
+              endName: segmentResult.rows[0].end_name || null
+            }
+          });
+        }
+      }
+
+      await client.query("COMMIT");
+
+      const sharing = await SegmentDBService.getSegmentSharing(uid, segmentId);
+      return {
+        ...sharing,
+        newlyPublishedGroupIds
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  static async bulkPublishSegmentsToGroup(uid, groupId) {
+    const normalizedGroupId = Number(groupId);
+    if (!Number.isInteger(normalizedGroupId) || normalizedGroupId <= 0) {
+      const error = new Error("Ungueltige Gruppe.");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const membershipResult = await pool.query(`
+      SELECT group_id
+      FROM group_members
+      WHERE user_id = $1
+        AND group_id = $2
+      LIMIT 1
+    `, [uid, normalizedGroupId]);
+
+    if (membershipResult.rowCount === 0) {
+      const error = new Error("Gruppe fuer dieses Segment nicht erlaubt.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const insertResult = await client.query(`
+        WITH candidates AS (
+          SELECT
+            s.id,
+            s.distance,
+            s.duration,
+            s.start_name,
+            s.end_name
+          FROM gps_segments s
+          WHERE s.uid = $1
+            AND NOT EXISTS (
+              SELECT 1
+              FROM gps_segment_group_shares sgs
+              WHERE sgs.segment_id = s.id
+                AND sgs.group_id = $2
+            )
+        )
+        INSERT INTO gps_segment_group_shares (segment_id, group_id, shared_by_user_id)
+        SELECT
+          c.id,
+          $2,
+          $1
+        FROM candidates c
+        RETURNING segment_id
+      `, [uid, normalizedGroupId]);
+
+      const segmentIds = insertResult.rows.map((row) => Number(row.segment_id));
+      let segments = [];
+
+      if (segmentIds.length > 0) {
+        const segmentsResult = await client.query(`
+          SELECT
+            id,
+            distance,
+            duration,
+            start_name,
+            end_name
+          FROM gps_segments
+          WHERE id = ANY($1::bigint[])
+        `, [segmentIds]);
+
+        segments = segmentsResult.rows;
+      }
+
+      await client.query("COMMIT");
+
+      return {
+        groupId: normalizedGroupId,
+        segmentIds,
+        segments,
+        publishedCount: segmentIds.length
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   /*
@@ -296,6 +561,8 @@ export default class SegmentDBService {
   */
 
   static async getGPSSegmentByWorkout(uid, wid){
+    await WorkoutSharingService.getAccessibleWorkout(uid, wid);
+
     const dataQuery = `
     SELECT 
       id, 
@@ -311,19 +578,19 @@ export default class SegmentDBService {
       avg_cadence, 
       avg_speed
     FROM v_gps_segment_best_efforts
-    WHERE uid = $1 and wid = $2
+    WHERE wid = $1
 
   `;
 
     const dataParams = [
-      uid, wid
+      wid
     ];
 
     const dataResult = await pool.query(dataQuery, dataParams);
     return dataResult;
   }
 
-  static async getBestEffortsBySegment(uid, segid, page, size, sort, filter) {
+  static async getBestEffortsBySegment(uid, segid, page, size, sort, filter, scope = "mine") {
 
     const offset = (page - 1) * size;
 
@@ -337,15 +604,47 @@ export default class SegmentDBService {
     const { whereSQL, orderSQL, params } =
       FileDBService.buildQueryParts(SegmentDBService.allowedColumns, SegmentDBService.numericFields, sort, filter_all);
 
+    const normalizedScope = ["mine", "shared", "all"].includes(String(scope).toLowerCase())
+      ? String(scope).toLowerCase()
+      : "mine";
+
+    let accessPredicate = `v.uid = $1`;
+
+    if (normalizedScope === "shared") {
+      accessPredicate = `
+        v.uid <> $1
+        AND EXISTS (
+          SELECT 1
+          FROM workout_group_shares wgs
+          INNER JOIN group_members gm
+            ON gm.group_id = wgs.group_id
+          WHERE wgs.workout_id = v.wid
+            AND gm.user_id = $1
+        )
+      `;
+    } else if (normalizedScope === "all") {
+      accessPredicate = `
+        v.uid = $1
+        OR EXISTS (
+          SELECT 1
+          FROM workout_group_shares wgs
+          INNER JOIN group_members gm
+            ON gm.group_id = wgs.group_id
+          WHERE wgs.workout_id = v.wid
+            AND gm.user_id = $1
+        )
+      `;
+    }
+
     // -----------------------------------
     // BASE WHERE (User Filter + Tabulator Filter)
     // -----------------------------------
 
-    let baseWhere = "WHERE ";
-    let sqlParams = params;
+    let baseWhere = `WHERE (${accessPredicate})`;
+    let sqlParams = [uid, ...params];
     if (whereSQL) {
-      baseWhere += whereSQL.replace("WHERE ", "");
-      // sqlParams = [params];
+      const adjustedWhere = whereSQL.replace(/\$(\d+)/g, (_, index) => `$${Number(index) + 1}`);
+      baseWhere += ` AND (${adjustedWhere.replace("WHERE ", "")})`;
     }
 
     // -----------------------------------
@@ -354,23 +653,27 @@ export default class SegmentDBService {
 
     const dataQuery = `
     SELECT 
-      id, 
-      sid,
-      wid,
-      uid,
-      start_time, 
-      duration, 
-      start_offset, 
-      end_offset, 
-      avg_power, 
-      avg_heart_rate, 
-      avg_cadence, 
+      v.id, 
+      v.sid,
+      v.wid,
+      v.uid,
+      v.start_time, 
+      v.duration, 
+      v.start_offset, 
+      v.end_offset, 
+      v.avg_power, 
+      v.avg_heart_rate, 
+      v.avg_cadence, 
+      owner.display_name AS owner_display_name,
+      owner.email AS owner_email,
       avg_speed,
       ROW_NUMBER() OVER (
         PARTITION BY sid
         ORDER BY duration ASC
       ) AS rn
-    FROM v_gps_segment_best_efforts
+    FROM v_gps_segment_best_efforts v
+    LEFT JOIN users owner
+      ON owner.id = v.uid
     ${baseWhere}
     ${orderSQL}
     LIMIT $${sqlParams.length + 1}
@@ -391,7 +694,7 @@ export default class SegmentDBService {
 
     const countQuery = `
     SELECT COUNT(*) AS total
-    FROM gps_segment_best_efforts
+    FROM v_gps_segment_best_efforts v
     ${baseWhere}
   `;
 
@@ -425,42 +728,80 @@ export default class SegmentDBService {
 
 
 
-  static async querySegmentsByBounds(uid, bounds, excludeIds, limit) {
+  static async querySegmentsByBounds(uid, bounds, excludeIds, limit, scope = "mine") {
+    const normalizedScope = ["mine", "shared", "all"].includes(String(scope).toLowerCase())
+      ? String(scope).toLowerCase()
+      : "mine";
 
+    let accessPredicate = `s.uid = $1`;
 
+    if (normalizedScope === "shared") {
+      accessPredicate = `
+        s.uid <> $1
+        AND EXISTS (
+          SELECT 1
+          FROM gps_segment_group_shares sgs
+          INNER JOIN group_members gm
+            ON gm.group_id = sgs.group_id
+          WHERE sgs.segment_id = s.id
+            AND gm.user_id = $1
+        )
+      `;
+    } else if (normalizedScope === "all") {
+      accessPredicate = `
+        s.uid = $1
+        OR EXISTS (
+          SELECT 1
+          FROM gps_segment_group_shares sgs
+          INNER JOIN group_members gm
+            ON gm.group_id = sgs.group_id
+          WHERE sgs.segment_id = s.id
+            AND gm.user_id = $1
+        )
+      `;
+    }
 
     const result = await pool.query(`
   SELECT
-    id,
-    uid,
-    distance,
-    duration,
-    start_lat,
-    start_lng,
-    start_name,
-    start_altitude,
-    end_lat,
-    end_lng,
-    end_name,
-    end_altitude,
-    ascent,
-    altitudes,
-    points_count,
-    best_efforts_status,
-    ST_AsGeoJSON(geom)::json AS geom_geojson,
-    ST_YMin(bounds) AS min_lat,
-    ST_YMax(bounds) AS max_lat,
-    ST_XMin(bounds) AS min_lng,
-    ST_XMax(bounds) AS max_lng
-  FROM gps_segments
-  WHERE uid = $1
+    s.id,
+    s.uid,
+    s.created_at,
+    s.distance,
+    s.duration,
+    s.start_lat,
+    s.start_lng,
+    s.start_name,
+    s.start_altitude,
+    s.end_lat,
+    s.end_lng,
+    s.end_name,
+    s.end_altitude,
+    s.ascent,
+    s.altitudes,
+    s.points_count,
+    s.best_efforts_status,
+    (
+      SELECT COUNT(*)
+      FROM gps_segment_group_shares sgs
+      WHERE sgs.segment_id = s.id
+    )::int AS share_group_count,
+    owner.display_name AS owner_display_name,
+    owner.email AS owner_email,
+    ST_AsGeoJSON(s.geom)::json AS geom_geojson,
+    ST_YMin(s.bounds) AS min_lat,
+    ST_YMax(s.bounds) AS max_lat,
+    ST_XMin(s.bounds) AS min_lng,
+    ST_XMax(s.bounds) AS max_lng
+  FROM gps_segments s
+  LEFT JOIN users owner
+    ON owner.id = s.uid
+  WHERE (${accessPredicate})
     AND (
       $2::int[] IS NULL
-      OR NOT (id = ANY($2))
+      OR NOT (s.id = ANY($2))
     )
-    AND bounds && ST_MakeEnvelope($3, $4, $5, $6, 4326)
-
-  ORDER BY created_at DESC
+    AND s.bounds && ST_MakeEnvelope($3, $4, $5, $6, 4326)
+  ORDER BY s.created_at DESC
   LIMIT $7
 `, [
       uid,
@@ -470,7 +811,6 @@ export default class SegmentDBService {
       bounds.maxLng,
       bounds.maxLat,
       limit
-
     ]);
 
     return result;
@@ -636,6 +976,119 @@ export default class SegmentDBService {
     }
 
     console.timeEnd("scanWorkoutsForSegment");
+    return matches;
+  }
+
+  static async getSharedSegmentRescanTargetsForWorkout(workoutId, workoutOwnerId, groupIds = []) {
+    const normalizedGroupIds = [...new Set(
+      (Array.isArray(groupIds) ? groupIds : [])
+        .map((groupId) => Number(groupId))
+        .filter((groupId) => Number.isInteger(groupId) && groupId > 0)
+    )];
+
+    if (!workoutId || normalizedGroupIds.length === 0) {
+      return [];
+    }
+
+    const result = await pool.query(`
+      SELECT DISTINCT
+        s.id,
+        s.uid
+      FROM workouts w
+      INNER JOIN gps_segment_group_shares sgs
+        ON sgs.group_id = ANY($3::bigint[])
+      INNER JOIN gps_segments s
+        ON s.id = sgs.segment_id
+      WHERE w.id = $1
+        AND w.uid = $2
+        AND s.uid <> $2
+        AND s.bounds && w.bounds
+    `, [workoutId, workoutOwnerId, normalizedGroupIds]);
+
+    return result.rows.map((row) => ({
+      id: Number(row.id),
+      uid: Number(row.uid)
+    }));
+  }
+
+  static async getSharedSegmentRescanTargetsForGroup(groupId) {
+    const normalizedGroupId = Number(groupId);
+    if (!Number.isInteger(normalizedGroupId) || normalizedGroupId <= 0) {
+      return [];
+    }
+
+    const result = await pool.query(`
+      SELECT DISTINCT
+        s.id,
+        s.uid
+      FROM gps_segments s
+      INNER JOIN gps_segment_group_shares sgs
+        ON sgs.segment_id = s.id
+      WHERE sgs.group_id = $1
+      ORDER BY s.uid, s.id
+    `, [normalizedGroupId]);
+
+    return result.rows.map((row) => ({
+      id: Number(row.id),
+      uid: Number(row.uid)
+    }));
+  }
+
+  static async rescanSegmentBestEffortsForWorkout(uid, workoutId) {
+    const workoutRowResult = await pool.query(`
+      SELECT
+        id,
+        samplerategps,
+        ST_AsGeoJSON(geom)::json AS track_geojson
+      FROM workouts
+      WHERE id = $1
+        AND uid = $2
+      LIMIT 1
+    `, [workoutId, uid]);
+
+    if (workoutRowResult.rowCount === 0) {
+      return [];
+    }
+
+    const workoutRow = workoutRowResult.rows[0];
+    const coordinates = workoutRow.track_geojson?.coordinates || [];
+    const track = coordinates.map(([lng, lat]) => ({ lat, lng }));
+
+    if (track.length === 0) {
+      return [];
+    }
+
+    const bounds = track.reduce((acc, point) => ({
+      minLat: Math.min(acc.minLat, point.lat),
+      maxLat: Math.max(acc.maxLat, point.lat),
+      minLng: Math.min(acc.minLng, point.lng),
+      maxLng: Math.max(acc.maxLng, point.lng)
+    }), {
+      minLat: Infinity,
+      maxLat: -Infinity,
+      minLng: Infinity,
+      maxLng: -Infinity
+    });
+
+    const candidates = await SegmentDBService.getMatchingSegmentCandidatesV2(bounds, uid, workoutId);
+
+    if (candidates.length === 0) {
+      return [];
+    }
+
+    const workout = {
+      id: workoutId,
+      track,
+      sampleRate: workoutRow.samplerategps
+    };
+
+    const matches = SegmentDBService.matchSegments(workout, candidates);
+    if (matches.length === 0) {
+      return [];
+    }
+
+    const workoutObject = await WorkoutDBService.getWorkout(workoutId);
+    await SegmentDBService.storeSegmentBestEfforts(matches, workoutObject);
     return matches;
   }
 
@@ -854,11 +1307,15 @@ export default class SegmentDBService {
     return {
 
       id: row.id,
+      uid: row.uid,
+      ownerDisplayName: row.owner_display_name || null,
+      ownerEmail: row.owner_email || null,
       distance: row.distance,
       duration: row.duration,
       ascent: row.ascent,
       points_count: row.points_count,
       bestEffortsStatus: row.best_efforts_status,
+      shareGroupCount: Number(row.share_group_count || 0),
 
       start: {
         lat: row.start_lat,

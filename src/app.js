@@ -7,6 +7,9 @@ import { createSessionMiddleware } from "./services/sessionService.js";
 import fileRoutes from "./routes/fileRoutes.js";
 import workoutRoutes from "./routes/workoutRoutes.js"
 import segmentRoutes from "./routes/segmentRoutes.js";
+import collaborationRoutes from "./routes/collaborationRoutes.js";
+import profileRoutes from "./routes/profileRoutes.js";
+import paymentsRoutes from "./routes/paymentsRoutes.js";
 
 import { Issuer, generators } from "openid-client";
 import { InitiateAuthCommand } from "@aws-sdk/client-cognito-identity-provider";
@@ -51,6 +54,9 @@ export async function createApp() {
     app.use("/workouts", workoutRoutes);
 
     app.use('/segments', segmentRoutes);
+    app.use('/collaboration', collaborationRoutes);
+    app.use('/api/profile', profileRoutes);
+    app.use('/api/payments', paymentsRoutes);
 
     app.use('/api/uploads', uploadsRouter);
     app.use('/api/imports', importsRouter);
@@ -551,6 +557,20 @@ export async function createApp() {
 
     });    
 
+    app.get("/groups", checkAuth, (req, res) => {
+
+        if (!req?.user?.id) {
+            const redirectUrl = encodeURIComponent(req.originalUrl);
+            return res.redirect(`/login?redirect=${redirectUrl}`);
+        }
+
+        res.render("groups", {
+            userInfo: req.user,
+            isAuthenticated: true
+        });
+
+    });
+
     app.get("/segments", checkAuth, (req, res) => {
 
         if (!req?.user?.id) {
@@ -559,6 +579,20 @@ export async function createApp() {
         }
 
         res.render("segments", {
+            userInfo: req.user,
+            isAuthenticated: true
+        });
+
+    });
+
+    app.get("/profile", checkAuth, (req, res) => {
+
+        if (!req?.user?.id) {
+            const redirectUrl = encodeURIComponent(req.originalUrl);
+            return res.redirect(`/login?redirect=${redirectUrl}`);
+        }
+
+        res.render("profile", {
             userInfo: req.user,
             isAuthenticated: true
         });

@@ -15,6 +15,7 @@ import {
 
 import { FileDBService } from "../services/fileDBService.js";
 import SegmentDBService from "../services/segmentDBService.js";
+import WorkoutSharingService from "../services/workoutSharingService.js";
 
 import { redisConnection } from "../queue/connection.js";
 import S3Service from "../services/s3Service.js";
@@ -22,6 +23,7 @@ import {
   getImportJobById,
   updateImportJob
 } from "../db/import-jobs-repo.js";
+import CollaborationDBService from "../services/collaborationDBService.js";
 
 export async function createApp() {
   const LOCAL_BATCH_FIT_CONCURRENCY = 2;
@@ -63,6 +65,8 @@ export async function createApp() {
       processFitRecordsMs: 0,
       mapAggregatedRowMs: 0,
       insertFileMs: 0,
+      shareWorkoutMs: 0,
+      createFeedEventsMs: 0,
       getMatchingSegmentCandidatesMs: 0,
       matchSegmentsMs: 0,
       storeSegmentBestEffortsMs: 0
@@ -124,7 +128,7 @@ export async function createApp() {
   }
 
 
-  async function processFitJson(fitJsonObject,uid) {
+  async function processFitJson(fitJsonObject, uid, shareConfig = null, context = {}) {
     const timing = createStepLogger("worker.process-fit-json", {
       uid
     });
@@ -147,10 +151,39 @@ export async function createApp() {
         workoutId: dbrow?.id
       });
 
+      if (dbrow?.id && shareConfig?.shareMode === "groups" && Array.isArray(shareConfig.groupIds) && shareConfig.groupIds.length > 0) {
+        const sharedGroupIds = await WorkoutSharingService.createSharesForWorkout({
+          workoutId: dbrow.id,
+          sharedByUserId: uid,
+          groupIds: shareConfig.groupIds
+        });
+        timing.mark("share-workout", {
+          shareGroupCount: sharedGroupIds.length
+        });
+
+        if (sharedGroupIds.length > 0) {
+          await CollaborationDBService.createWorkoutUploadedFeedEvents({
+            groupIds: sharedGroupIds,
+            actorUserId: uid,
+            workoutId: dbrow.id,
+            payload: {
+              originalFileName: context.entryName || null,
+              startTime: fileRow.start_time,
+              totalDistance: fileRow.total_distance,
+              totalTimerTime: fileRow.total_timer_time
+            }
+          });
+          timing.mark("create-feed-events", {
+            shareGroupCount: sharedGroupIds.length
+          });
+        }
+      }
+
       if (gps_track.validGps) {
         const candidates = await SegmentDBService.getMatchingSegmentCandidatesV2(
           gps_track.bbox,
-          dbrow.uid
+          dbrow.uid,
+          dbrow.id
         );
         timing.mark("get-matching-segment-candidates", {
           candidateCount: candidates.length
@@ -182,7 +215,7 @@ export async function createApp() {
 
   }
 
-  async function processFitJsonWithMetrics(fitJsonObject, uid, batchTrace) {
+  async function processFitJsonWithMetrics(fitJsonObject, uid, batchTrace, shareConfig = null, context = {}) {
     const processFitRecordsStartedAt = Date.now();
     const { aggregated, segments, gps_track, workoutObject } = processFitRecords(fitJsonObject);
     batchTrace?.add("processFitRecordsMs", Date.now() - processFitRecordsStartedAt);
@@ -199,11 +232,38 @@ export async function createApp() {
     const dbrow = await FileDBService.insertFile(fileRow, segments, gps_track, workoutObject);
     batchTrace?.add("insertFileMs", Date.now() - insertStartedAt);
 
+    if (dbrow?.id && shareConfig?.shareMode === "groups" && Array.isArray(shareConfig.groupIds) && shareConfig.groupIds.length > 0) {
+      const shareStartedAt = Date.now();
+      const sharedGroupIds = await WorkoutSharingService.createSharesForWorkout({
+        workoutId: dbrow.id,
+        sharedByUserId: uid,
+        groupIds: shareConfig.groupIds
+      });
+      batchTrace?.add("shareWorkoutMs", Date.now() - shareStartedAt);
+
+      if (sharedGroupIds.length > 0) {
+        const feedStartedAt = Date.now();
+        await CollaborationDBService.createWorkoutUploadedFeedEvents({
+          groupIds: sharedGroupIds,
+          actorUserId: uid,
+          workoutId: dbrow.id,
+          payload: {
+            originalFileName: context.entryName || null,
+            startTime: fileRow.start_time,
+            totalDistance: fileRow.total_distance,
+            totalTimerTime: fileRow.total_timer_time
+          }
+        });
+        batchTrace?.add("createFeedEventsMs", Date.now() - feedStartedAt);
+      }
+    }
+
     if (gps_track.validGps) {
       const candidatesStartedAt = Date.now();
       const candidates = await SegmentDBService.getMatchingSegmentCandidatesV2(
         gps_track.bbox,
-        dbrow.uid
+        dbrow.uid,
+        dbrow.id
       );
       batchTrace?.add("getMatchingSegmentCandidatesMs", Date.now() - candidatesStartedAt);
 
@@ -251,7 +311,7 @@ export async function createApp() {
     // - Duplikate prüfen
     const filename = path.basename(context.entryName);
 
-    await processFitJson(parsedData, context.uid);
+    await processFitJson(parsedData, context.uid, context.shareConfig, context);
     const hasData = !!parsedData;
     if (hasData === false) {
       console.log("Persist workout", {
@@ -267,7 +327,7 @@ export async function createApp() {
 
 
 
-  async function processSingleLocalFitFile(jobId, filePath, uid, originalFileName) {
+  async function processSingleLocalFitFile(jobId, filePath, uid, originalFileName, shareConfig = null) {
     await updateImportJob(jobId, {
       status: "processing",
       stage: "parsing_fit_files",
@@ -284,7 +344,8 @@ export async function createApp() {
       await persistParsedWorkout(parsed, {
         importJobId: jobId,
         uid,
-        entryName: originalFileName || path.basename(filePath)
+        entryName: originalFileName || path.basename(filePath),
+        shareConfig
       });
 
       await updateImportJob(jobId, {
@@ -300,19 +361,20 @@ export async function createApp() {
     }
   }
 
-  async function processFitFileAtPath(filePath, uid, originalFileName) {
+  async function processFitFileAtPath(filePath, uid, originalFileName, shareConfig = null) {
     const buffer = await fs.promises.readFile(filePath);
     const parsed = await parseFitBuffer(buffer);
 
     await persistParsedWorkout(parsed, {
       uid,
-      entryName: originalFileName || path.basename(filePath)
+      entryName: originalFileName || path.basename(filePath),
+      shareConfig
     });
   }
 
 
 
-  async function processLocalZipFile(jobId, zipPath, uid) {
+  async function processLocalZipFile(jobId, zipPath, uid, shareConfig = null) {
     const batchTrace = createBatchTrace("worker.process-local-zip", {
       jobId,
       uid,
@@ -361,7 +423,8 @@ export async function createApp() {
           await persistParsedWorkout(parsed, {
             importJobId: jobId,
             entryName: entry.path,
-            uid
+            uid,
+            shareConfig
           });
           batchTrace.add("persistWorkoutMs", Date.now() - persistStartedAt);
 
@@ -449,7 +512,7 @@ export async function createApp() {
     return 0;
   }
 
-  async function processLocalBatch(jobId, files, uid, originalFileNames = []) {
+  async function processLocalBatch(jobId, files, uid, originalFileNames = [], shareConfig = null) {
     const batchTrace = createBatchTrace("worker.process-local-batch", {
       jobId,
       uid,
@@ -493,7 +556,9 @@ export async function createApp() {
           batchTrace.add("parseFitMs", Date.now() - persistStartedAt);
 
           const processStartedAt = Date.now();
-          await processFitJsonWithMetrics(parsed, uid, batchTrace);
+          await processFitJsonWithMetrics(parsed, uid, batchTrace, shareConfig, {
+            entryName: originalFileName
+          });
           batchTrace.add("persistWorkoutMs", Date.now() - processStartedAt);
           processedFiles += 1;
           } catch (error) {
@@ -525,7 +590,9 @@ export async function createApp() {
                 batchTrace.add("parseFitMs", Date.now() - parseStartedAt);
 
                 const persistStartedAt = Date.now();
-                await processFitJsonWithMetrics(parsed, uid, batchTrace);
+                await processFitJsonWithMetrics(parsed, uid, batchTrace, shareConfig, {
+                  entryName: entry.path
+                });
                 batchTrace.add("persistWorkoutMs", Date.now() - persistStartedAt);
 
                 processedFiles += 1;
@@ -634,7 +701,7 @@ export async function createApp() {
     }
   }
 
-  async function processImportJob(importJobId) {
+  async function processImportJob(importJobId, shareConfig = null) {
     const importJob = await getImportJobById(importJobId);
 
     if (!importJob) {
@@ -650,17 +717,17 @@ export async function createApp() {
 
     try {
       if (localPaths?.length) {
-        await processLocalBatch(importJobId, localPaths, uid, originalFileNames || []);
+        await processLocalBatch(importJobId, localPaths, uid, originalFileNames || [], shareConfig);
         return;
       }
 
       if (lowerLocalPath?.endsWith(".fit")) {
-        await processSingleLocalFitFile(importJobId, localPath, uid, originalFileName);
+        await processSingleLocalFitFile(importJobId, localPath, uid, originalFileName, shareConfig);
         return;
       }
 
       if (lowerLocalPath?.endsWith(".zip")) {
-        await processLocalZipFile(importJobId, localPath, uid);
+        await processLocalZipFile(importJobId, localPath, uid, shareConfig);
         return;
       }
 
@@ -679,13 +746,20 @@ export async function createApp() {
   const worker = new Worker(
     "fit-imports",
     async (job) => {
-      const { jobId } = job.data;
+      const {
+        jobId,
+        shareMode = "private",
+        groupIds = []
+      } = job.data ?? {};
 
       if (!jobId) {
         throw new Error("Queue job has no jobId");
       }
 
-      await processImportJob(jobId);
+      await processImportJob(jobId, {
+        shareMode,
+        groupIds
+      });
     },
     {
       connection: redisConnection,

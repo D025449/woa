@@ -332,6 +332,155 @@
             font-weight: 700;
         }
 
+        .home-activity-panel {
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 1.5rem;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.94));
+            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+            overflow: hidden;
+        }
+
+        .home-collab-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1.2rem;
+            align-items: start;
+        }
+
+        .home-section-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 1rem;
+            align-items: center;
+            padding: 1.2rem 1.3rem 1rem;
+            border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+        }
+
+        .home-section-title {
+            margin: 0;
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .home-section-copy {
+            margin: 0.3rem 0 0;
+            font-size: 0.9rem;
+            color: #64748b;
+        }
+
+        .home-section-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .home-filter-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.28rem;
+            border: 1px solid rgba(148, 163, 184, 0.28);
+            border-radius: 999px;
+            background: rgba(248, 250, 252, 0.92);
+        }
+
+        .home-filter-toggle .btn {
+            border-radius: 999px;
+            padding-inline: 0.85rem;
+            font-weight: 700;
+            border-color: transparent;
+        }
+
+        .home-filter-toggle .btn.active {
+            background: #0f172a;
+            color: #f8fafc;
+            border-color: #0f172a;
+        }
+
+        .home-surface-body {
+            padding: 1.1rem 1.25rem 1.25rem;
+        }
+
+        .home-surface-body .groups-empty,
+        .home-surface-body .groups-preview-card,
+        .home-surface-body .groups-preview-kicker,
+        .home-surface-body .groups-preview-title,
+        .home-surface-body .groups-preview-copy,
+        .home-surface-body .groups-preview-actions {
+            all: revert;
+        }
+
+        .home-surface-body .groups-empty {
+            display: block;
+            border: 1px dashed rgba(148, 163, 184, 0.35);
+            border-radius: 1.15rem;
+            padding: 1rem 1.05rem;
+            background: rgba(248, 250, 252, 0.92);
+            color: #64748b;
+        }
+
+        .home-surface-body .groups-empty strong {
+            color: #0f172a;
+        }
+
+        .home-surface-body .groups-preview-card {
+            display: block;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 1.15rem;
+            padding: 1rem 1.05rem;
+            background: rgba(255, 255, 255, 0.88);
+        }
+
+        .home-surface-body #home-feed-list {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .home-surface-body #home-group-invites-list {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .home-surface-body .groups-preview-kicker {
+            display: block;
+            margin-bottom: 0.3rem;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #64748b;
+        }
+
+        .home-surface-body .groups-preview-title {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .home-surface-body .groups-preview-copy {
+            margin: 0.45rem 0 0;
+            font-size: 0.9rem;
+            color: #475569;
+            line-height: 1.55;
+        }
+
+        .home-surface-body .groups-preview-actions {
+            display: flex;
+            gap: 0.65rem;
+            flex-wrap: wrap;
+            margin-top: 0.95rem;
+        }
+
+        .home-surface-body .groups-preview-actions .btn {
+            border-radius: 999px;
+            font-weight: 700;
+            padding-inline: 0.85rem;
+        }
+
         .app-footer {
             margin-top: 1.5rem;
             text-align: center;
@@ -360,6 +509,7 @@
             }
 
             .home-tile-grid,
+            .home-collab-grid,
             .home-auth-grid {
                 grid-template-columns: 1fr;
             }
@@ -437,10 +587,43 @@
                         <span class="home-tile__cta">Zum Upload</span>
                     </a>
                 </section>
+
+                <section class="home-collab-grid">
+                    <%- include("partials/activity-feed-panel", {
+                        idPrefix: "home",
+                        surfaceClass: "home-activity-panel",
+                        headerClass: "home-section-header",
+                        titleClass: "home-section-title",
+                        copyClass: "home-section-copy",
+                        toolbarClass: "home-section-toolbar",
+                        toggleClass: "home-filter-toggle",
+                        bodyClass: "home-surface-body",
+                        title: "Aktivität",
+                        copy: "Neue geteilte Workouts und GPS-Segmente aus deinen Gruppen.",
+                        defaultRange: "7d",
+                        defaultActorScope: "all"
+                    }) %>
+
+                    <section class="home-activity-panel">
+                        <div class="home-section-header">
+                            <div>
+                                <h2 class="home-section-title">Meine Einladungen</h2>
+                                <p class="home-section-copy">
+                                    Eingehende Gruppen-Einladungen, die du annehmen oder ablehnen kannst.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="home-surface-body">
+                            <div id="home-group-invites-list"></div>
+                        </div>
+                    </section>
+                </section>
             </div>
         </div>
 
         <%- include("partials/app-footer") %>
+        <script type="module" src="/js/home-ui.js"></script>
     <% } else { %>
         <nav class="navbar navbar-dark home-topbar">
             <div class="container-fluid px-3 px-xl-4">

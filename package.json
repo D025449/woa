@@ -8,6 +8,7 @@
     "start": "node src/index.js",
     "worker": "node src/workers/import-worker.js",
     "migrate": "node src/migrate.js",
+    "db:rebuild": "node src/db-rebuild.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

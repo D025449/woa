@@ -1,9 +1,11 @@
-export function uploadFilesAndStartImport({ files, onProgress }) {
+export function uploadFilesAndStartImport({ files, onProgress, shareMode = "private", groupIds = [] }) {
     return new Promise((resolve, reject) => {
         const formData = new FormData();
         for (const file of files) {
             formData.append('files', file);
         }
+        formData.append('shareMode', shareMode);
+        formData.append('groupIds', JSON.stringify(groupIds));
 
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/api/uploads');
@@ -47,6 +49,25 @@ export function uploadFilesAndStartImport({ files, onProgress }) {
 
         xhr.send(formData);
     });
+}
+
+export async function fetchShareableGroups() {
+    const response = await fetch('/collaboration/groups', {
+        credentials: 'include'
+    });
+
+    if (response.status === 401) {
+        window.location.href = '/login';
+        return [];
+    }
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        throw new Error(data.error || 'Gruppen konnten nicht geladen werden');
+    }
+
+    return data.data || [];
 }
 
 export async function getImportStatus(jobId) {

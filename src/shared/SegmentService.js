@@ -83,7 +83,24 @@ export default class SegmentService {
             throw new Error("GPS segment lookup failed");
         }
 
-        return res.json();
+        const persistedSegment = await res.json();
+
+        return {
+            ...newSeg,
+            ...persistedSegment,
+            id: persistedSegment?.id ?? newSeg.id,
+            sid: persistedSegment?.id ?? newSeg.id,
+            rowstate: 'DB',
+            isGPSSegment: true,
+            segmenttype: 'gps',
+            start_offset: newSeg.start_offset,
+            end_offset: newSeg.end_offset,
+            avg_power: newSeg.avg_power,
+            avg_heart_rate: newSeg.avg_heart_rate,
+            avg_cadence: newSeg.avg_cadence,
+            avg_speed: newSeg.avg_speed,
+            segmentname: newSeg.segmentname ?? ''
+        };
     }
 
 

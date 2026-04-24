@@ -8,8 +8,15 @@ export default class TableView {
     this.currentSegment = null;
     this.pollTimer = null;
     this.pollAttempt = 0;
+    this.scopeValue = handlers.initialScope ?? "mine";
+    this.scopeMineButton = document.getElementById(handlers.scopeMineButtonId || "segment-bestefforts-scope-mine");
+    this.scopeSharedButton = document.getElementById(handlers.scopeSharedButtonId || "segment-bestefforts-scope-shared");
+    this.scopeAllButton = document.getElementById(handlers.scopeAllButtonId || "segment-bestefforts-scope-all");
+    this.scopeToggle = document.querySelector(handlers.scopeToggleSelector || ".segment-bestefforts-scope-toggle");
 
     this.table = this.initTable();
+    this.updateScopeButtons();
+    this.setScopeVisibility(false);
     this.registerEvents();
   }
 
@@ -25,7 +32,7 @@ export default class TableView {
         console.log(response);
         const hdr = document.getElementById("segment-header");
         if (hdr) {
-          hdr.innerText = `📍➡️📍 ${THAT.currentSegment.id}: ${THAT.currentSegment.start.name} - ${THAT.currentSegment.end.name}: ${(THAT.currentSegment.distance / 1000).toFixed(2)} km ${THAT.currentSegment.ascent} hm: ${response.total_records} Matches`;
+          hdr.innerText = THAT.formatSegmentHeader(THAT.currentSegment, response.total_records);
         }
 
 
@@ -103,7 +110,30 @@ export default class TableView {
         title: "Workout ID",
         field: "wid",
         sorter: "number",
-        formatter: (cell) => cell.getValue()
+        formatter: (cell) => {
+          const workoutId = cell.getValue();
+          if (!workoutId) {
+            return "";
+          }
+
+          return `<a href="/dashboard-new?workoutId=${encodeURIComponent(workoutId)}" class="fw-semibold text-decoration-underline">#${workoutId}</a>`;
+        }
+      },
+      {
+        title: "Owner",
+        field: "owner_display_name",
+        sorter: false,
+        formatter: (cell) => {
+          const rowd = cell.getRow().getData();
+          const ownerId = rowd.uid == null ? "" : String(rowd.uid);
+          const currentUserId = this.handlers.currentUserId == null ? "" : String(this.handlers.currentUserId);
+
+          if (ownerId !== "" && ownerId === currentUserId) {
+            return "";
+          }
+
+          return rowd.owner_display_name || rowd.owner_email || "";
+        }
       },       
       {
         title: "Start On",
@@ -191,9 +221,24 @@ export default class TableView {
   // EVENTS
   // -----------------------------
   registerEvents() {
-    this.table.on("rowClick", (e, row) =>
-      this.handlers.onRowOpen?.(e, row)
-    );
+    this.table.on("rowClick", (e, row) => {
+      if (e.target.closest("a")) {
+        return;
+      }
+
+      this.handlers.onRowOpen?.(e, row);
+    });
+
+    [this.scopeMineButton, this.scopeSharedButton, this.scopeAllButton].forEach((button) => {
+      button?.addEventListener("click", async () => {
+        this.scopeValue = button.dataset.segmentBesteffortsScope || "mine";
+        this.updateScopeButtons();
+        this.handlers.onScopeChange?.(this.scopeValue);
+        if (this.currentSegment) {
+          await this.loadSegmentBestEfforts(this.currentSegment);
+        }
+      });
+    });
   }
 
   async loadSegment(e, segment) {
@@ -201,7 +246,7 @@ export default class TableView {
     this.stopBestEffortsPolling();
     const hdr = document.getElementById("segment-header");
     if (hdr) {
-      hdr.innerText = `📍➡️📍 #${segment}:  ${segment.start.name} - ${segment.end.name}: ${(segment.distance / 1000).toFixed(2)} km`;
+      hdr.innerText = this.formatSegmentHeader(segment);
     }
     await this.loadSegmentBestEfforts(segment);
 
@@ -213,7 +258,7 @@ export default class TableView {
   async loadSegmentBestEfforts(segment) {
     //const segid 
 
-    await this.table.setData(`/segments/bestefforts/${segment.id}/data`);
+    await this.table.setData(`/segments/bestefforts/${segment.id}/data?scope=${encodeURIComponent(this.scopeValue || "mine")}`);
 
     if (this.shouldPollBestEfforts(segment)) {
       this.startBestEffortsPolling(segment.id);
@@ -253,7 +298,7 @@ export default class TableView {
         this.currentSegment.bestEffortsStatus = data.status;
 
         if (data.status === "completed" || data.status === "failed") {
-          await this.table.setData(`/segments/bestefforts/${segmentId}/data`);
+          await this.table.setData(`/segments/bestefforts/${segmentId}/data?scope=${encodeURIComponent(this.scopeValue || "mine")}`);
           this.stopBestEffortsPolling();
           return;
         }
@@ -278,6 +323,28 @@ export default class TableView {
       window.clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
+  }
+
+  updateScopeButtons() {
+    this.scopeMineButton?.classList.toggle("active", this.scopeValue === "mine");
+    this.scopeSharedButton?.classList.toggle("active", this.scopeValue === "shared");
+    this.scopeAllButton?.classList.toggle("active", this.scopeValue === "all");
+  }
+
+  setScopeVisibility(visible) {
+    this.scopeToggle?.classList.toggle("is-hidden", !visible);
+  }
+
+  formatSegmentHeader(segment, matchCount = null) {
+    if (!segment) {
+      return "Segments";
+    }
+
+    const ownerLabel = segment.ownerDisplayName || segment.ownerEmail || null;
+    const ownerPart = ownerLabel ? ` · Owner: ${ownerLabel}` : "";
+    const matchPart = Number.isFinite(matchCount) ? ` · ${matchCount} Matches` : "";
+
+    return `📍➡️📍 #${segment.id}: ${segment.start.name} - ${segment.end.name}: ${(segment.distance / 1000).toFixed(2)} km ${segment.ascent} hm${ownerPart}${matchPart}`;
   }
 
 

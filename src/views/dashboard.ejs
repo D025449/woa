@@ -448,6 +448,10 @@
 
                     <div class="dashboard-hero-meta">
                         <span class="dashboard-chip">
+                            <span class="dashboard-chip-label">User</span>
+                            <span><%= ((typeof userInfo !== "undefined" && userInfo) ? (userInfo.display_name || userInfo.email) : "Unknown") %></span>
+                        </span>
+                        <span class="dashboard-chip">
                             <span class="dashboard-chip-label">Ansicht</span>
                             <span>Desktop Focus</span>
                         </span>
