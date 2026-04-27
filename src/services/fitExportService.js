@@ -148,7 +148,6 @@ function summarizeRecords(records) {
   let maxCad = 0;
   let asc = 0;
   let desc = 0;
-  let speedSum = 0;
   let powerSum = 0;
   let hrSum = 0;
   let cadSum = 0;
@@ -161,7 +160,6 @@ function summarizeRecords(records) {
     maxHr = Math.max(maxHr, r.heartRate || 0);
     maxCad = Math.max(maxCad, r.cadence || 0);
 
-    speedSum += r.speedMps || 0;
     powerSum += r.power || 0;
     hrSum += r.heartRate || 0;
     cadSum += r.cadence || 0;
@@ -184,7 +182,6 @@ function summarizeRecords(records) {
   return {
     totalDistanceM,
     maxSpeed,
-    avgSpeed: speedSum / count,
     maxPower,
     avgPower: powerSum / count,
     maxHr,
@@ -207,10 +204,14 @@ function normalizeRecords(workout, options = {}) {
     ? Math.max(1, Math.round(sampleRateGpsRaw))
     : 1;
   let distanceM = 0;
+  const hasDistanceSeries = typeof workout.hasDistanceSeries === "function" && workout.hasDistanceSeries();
 
   for (let i = 0; i < length; i += 1) {
-    const speedMps = Number(workout.getSpeedAt(i) || 0);
-    if (i > 0) {
+    const speedKmh = Number(workout.getSpeedAt(i) || 0);
+    const speedMps = speedKmh / 3.6;
+    if (hasDistanceSeries && typeof workout.getDistanceAt === "function") {
+      distanceM = Number(workout.getDistanceAt(i) || 0);
+    } else if (i > 0) {
       distanceM += Math.max(0, speedMps);
     }
 
@@ -284,6 +285,9 @@ export default class FitExportService {
     const lastTs = fitTimestampFromMs(records[records.length - 1].timestampMs);
     const totalSeconds = Math.max(0, records.length - 1);
     const summary = summarizeRecords(records);
+    const avgSpeedFromDistance = totalSeconds > 0
+      ? (summary.totalDistanceM / totalSeconds)
+      : 0;
 
     const msg = new FitMessageBuilder();
 
@@ -326,8 +330,22 @@ export default class FitExportService {
     ];
 
     const SESSION_FIELDS = [
-      ...LAP_FIELDS,
-      { num: 5, size: 1, type: FIT_BASE_TYPES.enum }      // sport
+      { num: 2, size: 4, type: FIT_BASE_TYPES.uint32 },   // start_time
+      { num: 5, size: 1, type: FIT_BASE_TYPES.enum },     // sport
+      { num: 7, size: 4, type: FIT_BASE_TYPES.uint32 },   // total_elapsed_time
+      { num: 8, size: 4, type: FIT_BASE_TYPES.uint32 },   // total_timer_time
+      { num: 9, size: 4, type: FIT_BASE_TYPES.uint32 },   // total_distance
+      { num: 14, size: 2, type: FIT_BASE_TYPES.uint16 },  // avg_speed
+      { num: 15, size: 2, type: FIT_BASE_TYPES.uint16 },  // max_speed
+      { num: 16, size: 1, type: FIT_BASE_TYPES.uint8 },   // avg_hr
+      { num: 17, size: 1, type: FIT_BASE_TYPES.uint8 },   // max_hr
+      { num: 18, size: 1, type: FIT_BASE_TYPES.uint8 },   // avg_cadence
+      { num: 19, size: 1, type: FIT_BASE_TYPES.uint8 },   // max_cadence
+      { num: 20, size: 2, type: FIT_BASE_TYPES.uint16 },  // avg_power
+      { num: 21, size: 2, type: FIT_BASE_TYPES.uint16 },  // max_power
+      { num: 22, size: 2, type: FIT_BASE_TYPES.uint16 },  // total_ascent
+      { num: 23, size: 2, type: FIT_BASE_TYPES.uint16 },  // total_descent
+      { num: 253, size: 4, type: FIT_BASE_TYPES.uint32 }  // timestamp
     ];
 
     const ACTIVITY_FIELDS = [
@@ -367,7 +385,7 @@ export default class FitExportService {
       7: fitDurationValue(totalSeconds),
       8: fitDurationValue(totalSeconds),
       9: fitDistanceValue(summary.totalDistanceM),
-      13: fitSpeedValue(summary.avgSpeed),
+      13: fitSpeedValue(avgSpeedFromDistance),
       14: fitSpeedValue(summary.maxSpeed),
       15: clamp(Math.round(summary.avgHr), 0, 0xff),
       16: clamp(Math.round(summary.maxHr), 0, 0xff),
@@ -387,16 +405,16 @@ export default class FitExportService {
       7: fitDurationValue(totalSeconds),
       8: fitDurationValue(totalSeconds),
       9: fitDistanceValue(summary.totalDistanceM),
-      13: fitSpeedValue(summary.avgSpeed),
-      14: fitSpeedValue(summary.maxSpeed),
-      15: clamp(Math.round(summary.avgHr), 0, 0xff),
-      16: clamp(Math.round(summary.maxHr), 0, 0xff),
-      17: clamp(Math.round(summary.avgCad), 0, 0xff),
-      18: clamp(Math.round(summary.maxCad), 0, 0xff),
-      19: clamp(Math.round(summary.avgPower), 0, 0xffff),
-      20: clamp(Math.round(summary.maxPower), 0, 0xffff),
-      21: clamp(Math.round(summary.totalAscentM), 0, 0xffff),
-      22: clamp(Math.round(summary.totalDescentM), 0, 0xffff),
+      14: fitSpeedValue(avgSpeedFromDistance),
+      15: fitSpeedValue(summary.maxSpeed),
+      16: clamp(Math.round(summary.avgHr), 0, 0xff),
+      17: clamp(Math.round(summary.maxHr), 0, 0xff),
+      18: clamp(Math.round(summary.avgCad), 0, 0xff),
+      19: clamp(Math.round(summary.maxCad), 0, 0xff),
+      20: clamp(Math.round(summary.avgPower), 0, 0xffff),
+      21: clamp(Math.round(summary.maxPower), 0, 0xffff),
+      22: clamp(Math.round(summary.totalAscentM), 0, 0xffff),
+      23: clamp(Math.round(summary.totalDescentM), 0, 0xffff),
       253: lastTs
     });
 

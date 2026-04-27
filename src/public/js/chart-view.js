@@ -12,6 +12,9 @@ export default class ChartView {
 
     this.selectionStart = null;
     this.currentWorkout = null;
+    this.xAxisMode = "time";
+    this.distanceAxisToggle = null;
+    this.distanceKmByIndex = null;
     this.mode = "";
     this.isHoveringSegmentArea = false;
     this.createButton = document.getElementById('draw-segment-toggle');
@@ -42,7 +45,51 @@ export default class ChartView {
       this.setMode(this.mode === "delete" ? "" : "delete");
     });
 
+    this.initAxisModeToggle();
     this.syncModeButtons();
+  }
+
+  initAxisModeToggle() {
+    const toolbar = this.createButton?.closest(".dashboard-toolbar")
+      || this.deleteButton?.closest(".dashboard-toolbar")
+      || this.createGpsButton?.closest(".dashboard-toolbar")
+      || null;
+
+    if (!toolbar) {
+      return;
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "btn-group btn-group-sm";
+    wrapper.setAttribute("role", "group");
+    wrapper.setAttribute("aria-label", "X-Achse");
+
+    const timeButton = document.createElement("button");
+    timeButton.type = "button";
+    timeButton.className = "btn btn-outline-dark";
+    timeButton.textContent = "Zeit";
+    timeButton.dataset.xAxisMode = "time";
+
+    const distanceButton = document.createElement("button");
+    distanceButton.type = "button";
+    distanceButton.className = "btn btn-outline-dark";
+    distanceButton.textContent = "Distanz";
+    distanceButton.dataset.xAxisMode = "distance";
+    distanceButton.disabled = true;
+    distanceButton.title = "Nur verfügbar, wenn Distanzdaten vorhanden sind.";
+
+    wrapper.appendChild(timeButton);
+    wrapper.appendChild(distanceButton);
+    toolbar.appendChild(wrapper);
+    this.distanceAxisToggle = { wrapper, timeButton, distanceButton };
+
+    wrapper.addEventListener("click", (event) => {
+      const target = event.target?.closest?.("button[data-x-axis-mode]");
+      if (!target || target.disabled) {
+        return;
+      }
+      this.setXAxisMode(target.dataset.xAxisMode || "time");
+    });
   }
 
   initChart() {
@@ -72,7 +119,7 @@ export default class ChartView {
       dataset: {
         dimensions: [
           "x", "Power", "Heartrate", "Cadence",
-          "Speed", "Altitude"
+          "Speed", "Altitude", "DistanceKm"
           //, "PowerS5", "PowerS15",
           //"SpeedS5", "AltitudeS7"
         ],
@@ -133,6 +180,7 @@ export default class ChartView {
   // -----------------------------
   updateWorkout(workout) {
     this.currentWorkout = workout;
+    this.distanceKmByIndex = null;
     if (!this.isWorkoutEditable() && this.mode) {
       this.setMode("");
     } else if (!workout?.validGps && this.mode === "gps-create") {
@@ -141,22 +189,41 @@ export default class ChartView {
       this.syncModeButtons();
     }
     const obj = workout.workoutObject;
+    this.syncXAxisModeButtons();
+    if (this.xAxisMode === "distance" && !this.hasDistanceXAxis()) {
+      this.xAxisMode = "time";
+    }
     const result = obj.getAsStrideArray({ smoothing: { power: 10, speed: 30, cadence: 30 } });
+    const source = result.data;
     const sd = obj.getStartTime();
+    const xRange = this.getXAxisRange(result.rowCount, workout);
+    const xField = this.getXAxisField();
 
     this.chart.setOption({
       title: { text: new Date(sd).toDateString() },
-      xAxis: { min: 0, max: result.rowCount },
-      dataset: { source: result.data }, //workout.series },
-      series: [{
-        name: "Power",
-        markArea: { data: buildMarkAreas(workout) }
-      }]
+      xAxis: {
+        min: xRange.min,
+        max: xRange.max,
+        axisLabel: { formatter: (value) => this.formatXAxisLabel(value) }
+      },
+      dataset: { source }, //workout.series },
+      series: [
+        {
+          name: "Power",
+          encode: { x: xField, y: "Power" },
+          markArea: { data: this.buildMarkAreasForMode(workout) }
+        },
+        { name: "Heartrate", encode: { x: xField, y: "Heartrate" } },
+        { name: "Cadence", encode: { x: xField, y: "Cadence" } },
+        { name: "Speed", encode: { x: xField, y: "Speed" } },
+        { name: "Altitude", encode: { x: xField, y: "Altitude" } }
+      ]
     });
   }
 
   updateWorkoutCP(workout, cpview) {
     this.currentWorkout = workout;
+    this.distanceKmByIndex = null;
     if (!this.isWorkoutEditable() && this.mode) {
       this.setMode("");
     } else if (!workout?.validGps && this.mode === "gps-create") {
@@ -164,18 +231,36 @@ export default class ChartView {
     } else {
       this.syncModeButtons();
     }
+    this.syncXAxisModeButtons();
+    if (this.xAxisMode === "distance" && !this.hasDistanceXAxis()) {
+      this.xAxisMode = "time";
+    }
     const obj = workout.workoutObject;
     const result = obj.getAsStrideArray();
+    const source = result.data;
+    const xRange = this.getXAxisRange(result.rowCount, workout);
     const sd = obj.getStartTime();
+    const xField = this.getXAxisField();
 
     this.chart.setOption({
       title: { text: new Date(cpview.startTime).toDateString() },
-      xAxis: { min: 0, max: result.rowCount },
-      dataset: { source: result.data }, //workout.series },
-      series: [{
-        name: "Power",
-        markArea: { data: buildMarkAreasCP(cpview) }
-      }]
+      xAxis: {
+        min: xRange.min,
+        max: xRange.max,
+        axisLabel: { formatter: (value) => this.formatXAxisLabel(value) }
+      },
+      dataset: { source }, //workout.series },
+      series: [
+        {
+          name: "Power",
+          encode: { x: xField, y: "Power" },
+          markArea: { data: this.buildMarkAreasCPForMode(cpview) }
+        },
+        { name: "Heartrate", encode: { x: xField, y: "Heartrate" } },
+        { name: "Cadence", encode: { x: xField, y: "Cadence" } },
+        { name: "Speed", encode: { x: xField, y: "Speed" } },
+        { name: "Altitude", encode: { x: xField, y: "Altitude" } }
+      ]
     });
   }
 
@@ -210,15 +295,15 @@ export default class ChartView {
         this.handlers.onUpdateWorkout?.(this.currentWorkout);
       } else {
         this.handlers.onZoomSegment?.(
-          params.data.coord[0][0],
-          params.data.coord[1][0]
+          this.xValueToIndex(params.data.coord[0][0]),
+          this.xValueToIndex(params.data.coord[1][0])
         );
       }
     });
 
     this.chart.getZr().on("mousemove", (p) => {
       const x = this.chart.convertFromPixel({ xAxisIndex: 0 }, p.offsetX);
-      if (!isNaN(x)) this.handlers.onChartHoverIndex?.(Math.round(x));
+      if (!isNaN(x)) this.handlers.onChartHoverIndex?.(this.xValueToIndex(x));
     });
 
     this.chart.getZr().on('mousedown', (e) => {
@@ -226,7 +311,7 @@ export default class ChartView {
       if (this.mode !== "create" && this.mode !== "gps-create") return;
 
       const data = this.chart.convertFromPixel({ seriesIndex: 0 }, [e.offsetX, e.offsetY]);
-      this.selectionStart = data[0];
+      this.selectionStart = this.xValueToIndex(data[0]);
     });
 
     this.chart.getZr().on('mouseup', async (e) => {
@@ -246,7 +331,7 @@ export default class ChartView {
 
       const startEnd = {
         startIndex: Math.round(this.selectionStart),
-        endIndex: Math.round(data[0])
+        endIndex: this.xValueToIndex(data[0])
       };
 
       if (this.mode === "gps-create") {
@@ -384,6 +469,165 @@ export default class ChartView {
     }
   }
 
+  setXAxisMode(mode) {
+    const normalized = mode === "distance" ? "distance" : "time";
+    if (normalized === "distance" && !this.hasDistanceXAxis()) {
+      return;
+    }
+    if (this.xAxisMode === normalized) {
+      return;
+    }
+    this.xAxisMode = normalized;
+    this.syncXAxisModeButtons();
+    if (this.currentWorkout) {
+      this.updateWorkout(this.currentWorkout);
+    }
+  }
+
+  syncXAxisModeButtons() {
+    if (!this.distanceAxisToggle) {
+      return;
+    }
+
+    const hasDistance = this.hasDistanceXAxis();
+    const { timeButton, distanceButton } = this.distanceAxisToggle;
+    distanceButton.disabled = !hasDistance;
+    if (!hasDistance && this.xAxisMode === "distance") {
+      this.xAxisMode = "time";
+    }
+
+    timeButton.classList.toggle("btn-dark", this.xAxisMode === "time");
+    timeButton.classList.toggle("btn-outline-dark", this.xAxisMode !== "time");
+    distanceButton.classList.toggle("btn-dark", this.xAxisMode === "distance");
+    distanceButton.classList.toggle("btn-outline-dark", this.xAxisMode !== "distance");
+  }
+
+  hasDistanceXAxis() {
+    const obj = this.currentWorkout?.workoutObject;
+    return !!(obj && typeof obj.hasDistanceSeries === "function" && obj.hasDistanceSeries());
+  }
+
+  getXAxisField() {
+    if (this.xAxisMode === "distance" && this.hasDistanceXAxis()) {
+      return "DistanceKm";
+    }
+    return "x";
+  }
+
+  getDistanceKmByIndex() {
+    if (Array.isArray(this.distanceKmByIndex)) {
+      return this.distanceKmByIndex;
+    }
+
+    const obj = this.currentWorkout?.workoutObject;
+    if (!obj || typeof obj.getDistanceAt !== "function") {
+      this.distanceKmByIndex = [];
+      return this.distanceKmByIndex;
+    }
+
+    const out = new Array(obj.length);
+    for (let i = 0; i < obj.length; i++) {
+      const distanceM = obj.getDistanceAt(i);
+      out[i] = Number.isFinite(distanceM) ? distanceM / 1000 : i;
+    }
+    this.distanceKmByIndex = out;
+    return out;
+  }
+
+  getXAxisRange(rowCount, workout) {
+    if (this.xAxisMode !== "distance" || !this.hasDistanceXAxis()) {
+      return { min: 0, max: rowCount };
+    }
+
+    const distances = this.getDistanceKmByIndex();
+    const max = distances.length > 0
+      ? distances[distances.length - 1]
+      : rowCount;
+
+    return { min: 0, max };
+  }
+
+  formatXAxisLabel(value) {
+    if (this.xAxisMode === "distance" && this.hasDistanceXAxis()) {
+      return `${Number(value).toFixed(1)} km`;
+    }
+    return Utils.formatSeconds(value);
+  }
+
+  xValueToIndex(xValue) {
+    if (this.xAxisMode !== "distance" || !this.hasDistanceXAxis()) {
+      return Math.max(0, Math.round(xValue));
+    }
+
+    const values = this.getDistanceKmByIndex();
+    if (values.length === 0) {
+      return Math.max(0, Math.round(xValue));
+    }
+
+    let lo = 0;
+    let hi = values.length - 1;
+
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (values[mid] < xValue) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+
+    const right = lo;
+    const left = Math.max(0, right - 1);
+    const nearest = Math.abs(values[right] - xValue) < Math.abs(values[left] - xValue)
+      ? right
+      : left;
+    return nearest;
+  }
+
+  xIndexToValue(index) {
+    if (this.xAxisMode !== "distance" || !this.hasDistanceXAxis()) {
+      return index;
+    }
+    const values = this.getDistanceKmByIndex();
+    return values[index] ?? index;
+  }
+
+  buildMarkAreasForMode(workout) {
+    const areas = buildMarkAreas(workout);
+    if (this.xAxisMode !== "distance" || !this.hasDistanceXAxis()) {
+      return areas;
+    }
+
+    return areas.map((area) => ([
+      {
+        ...area[0],
+        xAxis: this.xIndexToValue(area[0].xAxis)
+      },
+      {
+        ...area[1],
+        xAxis: this.xIndexToValue(area[1].xAxis)
+      }
+    ]));
+  }
+
+  buildMarkAreasCPForMode(cpview) {
+    const areas = buildMarkAreasCP(cpview);
+    if (this.xAxisMode !== "distance" || !this.hasDistanceXAxis()) {
+      return areas;
+    }
+
+    return areas.map((area) => ([
+      {
+        ...area[0],
+        xAxis: this.xIndexToValue(area[0].xAxis)
+      },
+      {
+        ...area[1],
+        xAxis: this.xIndexToValue(area[1].xAxis)
+      }
+    ]));
+  }
+
   setDrawingMode(enabled) {
     this.chart.getZr().setCursorStyle(enabled ? "crosshair" : "default");
     this.chart.setOption({
@@ -398,8 +642,8 @@ export default class ChartView {
   zoomToSegment(start, end) {
     this.chart.dispatchAction({
       type: "dataZoom",
-      startValue: start,
-      endValue: end
+      startValue: this.xIndexToValue(start),
+      endValue: this.xIndexToValue(end)
     });
   }
 
@@ -412,7 +656,16 @@ export default class ChartView {
     if (!p) return "";
 
     const row = p.data;
-    const timeValue = Utils.formatSeconds(row[0] ?? 0);
+    const index = Number.isFinite(p.dataIndex) ? p.dataIndex : 0;
+    const axisValue = this.getXAxisField() === "DistanceKm"
+      ? (row[6] ?? 0)
+      : (row[0] ?? 0);
+    const headline = this.xAxisMode === "distance" && this.hasDistanceXAxis()
+      ? `${Number(axisValue).toFixed(2)} km`
+      : Utils.formatSeconds(axisValue);
+    const subline = this.xAxisMode === "distance" && this.hasDistanceXAxis()
+      ? `Zeit: ${Utils.formatSeconds(index)}`
+      : "Momentaufnahme entlang des Tracks";
     const rows = [
       ["Leistung", Number.isFinite(row[1]) ? `${Math.round(row[1])} W` : "–"],
       ["Herzfrequenz", Number.isFinite(row[2]) ? `${Math.round(row[2])} bpm` : "–"],
@@ -424,8 +677,8 @@ export default class ChartView {
     return `
       <div style="min-width: 220px;">
         <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 4px;">Workout</div>
-        <div style="font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 2px;">${timeValue}</div>
-        <div style="font-size: 12px; font-weight: 600; color: #334155; margin-bottom: 8px;">Momentaufnahme entlang des Tracks</div>
+        <div style="font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 2px;">${headline}</div>
+        <div style="font-size: 12px; font-weight: 600; color: #334155; margin-bottom: 8px;">${subline}</div>
         ${rows.map(([label, value]) => `
           <div style="display:flex; justify-content:space-between; gap:12px; margin:2px 0;">
             <span style="color:#64748b;">${label}</span>

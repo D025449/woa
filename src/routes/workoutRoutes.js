@@ -12,6 +12,23 @@ import FitExportService from "../services/fitExportService.js";
 
 const router = express.Router();
 
+function formatFitExportFileName(startTimeValue, fallbackId) {
+  const date = new Date(startTimeValue);
+  if (Number.isNaN(date.getTime())) {
+    return `workout-${fallbackId}.fit`;
+  }
+
+  const pad = (value) => String(value).padStart(2, "0");
+  const yyyy = date.getFullYear();
+  const MM = pad(date.getMonth() + 1);
+  const dd = pad(date.getDate());
+  const HH = pad(date.getHours());
+  const mm = pad(date.getMinutes());
+  const ss = pad(date.getSeconds());
+
+  return `${yyyy}-${MM}-${dd}-${HH}-${mm}-${ss}.fit`;
+}
+
 router.get("/:id/export.fit", authMiddleware, async (req, res) => {
   try {
     const workoutId = Number(req.params.id);
@@ -54,9 +71,13 @@ router.get("/:id/export.fit", authMiddleware, async (req, res) => {
       gpsCoordinates,
       includeGps: hasValidGps
     });
+    const fileName = formatFitExportFileName(
+      typeof workout.getStartTime === "function" ? workout.getStartTime() : null,
+      workoutId
+    );
 
     res.setHeader("Content-Type", "application/octet-stream");
-    res.setHeader("Content-Disposition", `attachment; filename="workout-${workoutId}.fit"`);
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
     res.setHeader("Cache-Control", "no-store");
     return res.send(fitBuffer);
   } catch (err) {

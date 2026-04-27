@@ -107,7 +107,11 @@ export default class TableView {
         width: 110,
         hozAlign: "right",
         headerHozAlign: "right",
-        formatter: (cell) => `<span class="dashboard-table-number">${cell.getValue()?.toFixed(2) ?? "–"}</span>`
+        formatter: (cell) => {
+          const value = cell.getValue();
+          const km = Number.isFinite(value) ? (Number(value) / 1000) : null;
+          return `<span class="dashboard-table-number">${km != null ? km.toFixed(2) : "–"}</span>`;
+        }
       },
       {
         title: "Ø Speed",

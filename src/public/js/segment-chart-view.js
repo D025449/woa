@@ -94,7 +94,7 @@ export default class ChartView {
       dataset: {
         dimensions: [
           "x", "Power", "Heartrate", "Cadence",
-          "Speed", "Altitude"
+          "Speed", "Altitude", "DistanceKm"
         ],
         source: []
       },

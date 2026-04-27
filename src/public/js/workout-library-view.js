@@ -522,7 +522,7 @@ export default class WorkoutLibraryView {
                   class="btn btn-sm btn-outline-primary"
                   href="/workouts/${workout.id}/export.fit"
                   data-workout-export="${workout.id}"
-                  download="workout-${workout.id}.fit">
+                  download>
                   Export FIT
                 </a>
                 <button class="btn btn-sm btn-outline-secondary" type="button" data-workout-share-toggle="${workout.id}">
@@ -578,7 +578,7 @@ export default class WorkoutLibraryView {
   }
 
   formatDistance(value) {
-    return Number.isFinite(value) ? `${Number(value).toFixed(1)} km` : "–";
+    return Number.isFinite(value) ? `${(Number(value) / 1000).toFixed(1)} km` : "–";
   }
 
   formatSpeed(value) {
@@ -594,6 +594,6 @@ export default class WorkoutLibraryView {
       return "–";
     }
 
-    return `${Math.round(Number(value) * 1000)} m`;
+    return `${Math.round(Number(value))} m`;
   }
 }

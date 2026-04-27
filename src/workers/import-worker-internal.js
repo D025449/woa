@@ -284,8 +284,8 @@ export async function createApp() {
     return new Promise((resolve, reject) => {
       const parser = new FitParser({
         force: true,
-        speedUnit: "km/h",
-        lengthUnit: "km",
+        speedUnit: "m/s",
+        lengthUnit: "m",
         temperatureUnit: "celsius",
         elapsedRecordField: true,
         mode: "list"

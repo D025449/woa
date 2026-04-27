@@ -74,6 +74,13 @@ export default class FitProcessor {
   }
 
   static mapAggregatedToFileRow(aggregated, fileMeta, normalized_power) {
+    const speedMsToKmh = (value) => {
+      if (!Number.isFinite(value)) {
+        return 0;
+      }
+      return value * 3.6;
+    };
+
     const d = new Date(aggregated.start_time);
 
     const year = d.getUTCFullYear();
@@ -101,8 +108,8 @@ export default class FitProcessor {
       total_ascent: aggregated.total_ascent,
       total_descent: aggregated.total_descent,
 
-      avg_speed: aggregated.avg_speed,
-      max_speed: aggregated.max_speed,
+      avg_speed: speedMsToKmh(aggregated.avg_speed),
+      max_speed: speedMsToKmh(aggregated.max_speed),
 
       avg_power: aggregated.avg_power,
       avg_normalized_power: Math.round(normalized_power),
@@ -226,6 +233,9 @@ export default class FitProcessor {
       filledRecordCount: records.length
     });
 
+    FitProcessor.cleanAltitude(records);
+    timing.mark("clean-altitude");
+
     const gps_track = FitProcessor.cleanGPSAndBuildTrack(records, { sampleRate: 5 });
     timing.mark("clean-gps-build-track", {
       gpsPointCount: gps_track?.track?.length ?? 0,
@@ -269,6 +279,79 @@ export default class FitProcessor {
       gps_track,
       workoutObject
     };
+  }
+
+  // -----------------------------
+  // ALTITUDE CLEANING
+  // -----------------------------
+  static cleanAltitude(records, options = {}) {
+    const {
+      minAltitude = -500,
+      maxAltitude = 9000,
+      maxStepPerSecond = 25
+    } = options;
+
+    const toFinite = (value) => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    for (let i = 0; i < records.length; i++) {
+      const alt = toFinite(records[i]?.altitude);
+      records[i].altitude = (alt == null || alt < minAltitude || alt > maxAltitude) ? null : alt;
+    }
+
+    for (let i = 1; i < records.length - 1; i++) {
+      const prev = records[i - 1]?.altitude;
+      const cur = records[i]?.altitude;
+      const next = records[i + 1]?.altitude;
+
+      if (!Number.isFinite(prev) || !Number.isFinite(cur) || !Number.isFinite(next)) {
+        continue;
+      }
+
+      const prevDelta = Math.abs(cur - prev);
+      const nextDelta = Math.abs(cur - next);
+      const neighborDelta = Math.abs(next - prev);
+
+      if (
+        prevDelta > maxStepPerSecond &&
+        nextDelta > maxStepPerSecond &&
+        neighborDelta <= maxStepPerSecond
+      ) {
+        records[i].altitude = null;
+      }
+    }
+
+    for (let i = 0; i < records.length; i++) {
+      if (Number.isFinite(records[i]?.altitude)) {
+        continue;
+      }
+
+      let prevIdx = i - 1;
+      while (prevIdx >= 0 && !Number.isFinite(records[prevIdx]?.altitude)) {
+        prevIdx -= 1;
+      }
+
+      let nextIdx = i + 1;
+      while (nextIdx < records.length && !Number.isFinite(records[nextIdx]?.altitude)) {
+        nextIdx += 1;
+      }
+
+      const prevAlt = prevIdx >= 0 ? records[prevIdx].altitude : null;
+      const nextAlt = nextIdx < records.length ? records[nextIdx].altitude : null;
+
+      if (Number.isFinite(prevAlt) && Number.isFinite(nextAlt)) {
+        const t = (i - prevIdx) / (nextIdx - prevIdx);
+        records[i].altitude = prevAlt + ((nextAlt - prevAlt) * t);
+      } else if (Number.isFinite(prevAlt)) {
+        records[i].altitude = prevAlt;
+      } else if (Number.isFinite(nextAlt)) {
+        records[i].altitude = nextAlt;
+      } else {
+        records[i].altitude = 0;
+      }
+    }
   }
 
   // -----------------------------

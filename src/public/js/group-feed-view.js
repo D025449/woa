@@ -78,7 +78,7 @@ function describeEvent(item) {
       title: `${actor} hat ein Workout hochgeladen`,
       meta: [
         item.payload?.originalFileName || null,
-        formatDistanceKm(item.payload?.totalDistance, "km"),
+        formatDistanceKm(item.payload?.totalDistance, "m"),
         formatDurationSeconds(item.payload?.totalTimerTime)
       ].filter(Boolean).join(" · "),
       linkHref: item.entity_id ? `/dashboard-new?workoutId=${encodeURIComponent(item.entity_id)}` : null,

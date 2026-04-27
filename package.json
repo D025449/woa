@@ -9,6 +9,8 @@
     "worker": "node src/workers/import-worker.js",
     "migrate": "node src/migrate.js",
     "db:rebuild": "node src/db-rebuild.js",
+    "bench:persistence": "node src/scripts/benchmark-workout-persistence.js",
+    "migrate:workout-streams:absolute": "node src/scripts/migrate-workout-streams-to-absolute.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
