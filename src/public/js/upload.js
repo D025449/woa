@@ -66,13 +66,19 @@ async function handleUploadSubmit(event) {
             onProgress: ({ loaded, total, percent }) => {
                 ui.setUploadProgress(
                     percent,
-                    `${formatBytes(loaded)} of ${formatBytes(total)} uploaded`
+                    t("detailUploadedBytes", {
+                        loaded: formatBytes(loaded),
+                        total: formatBytes(total)
+                    })
                 );
             }
         });
 
         const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
-        ui.setUploadProgress(100, `${files.length} files, ${formatBytes(totalBytes)} uploaded`);
+        ui.setUploadProgress(100, t("detailFilesUploaded", {
+            count: files.length,
+            total: formatBytes(totalBytes)
+        }));
         ui.setPhase(t("phaseStartingImport"));
         ui.setInfo(
             shareMode === 'groups'
@@ -81,7 +87,7 @@ async function handleUploadSubmit(event) {
         );
 
         ui.setPhase(t("phaseProcessing"));
-        ui.setInfo(`Import in progress (Job ID: ${importResult.jobId})`);
+        ui.setInfo(t("infoImportInProgress", { jobId: importResult.jobId }));
 
         pollImportStatus(importResult.jobId, {
             onUpdate(job) {
@@ -89,21 +95,29 @@ async function handleUploadSubmit(event) {
 
                 const progressPercent = Number(job.progressPercent || 0);
 
-                let detailText = `${Math.round(progressPercent)}% processed`;
+                let detailText = t("detailProcessedPercent", {
+                    percent: Math.round(progressPercent)
+                });
 
                 if (job.totalFiles) {
-                    detailText = `${job.processedFiles} / ${job.totalFiles} files processed`;
+                    detailText = t("detailFilesProcessed", {
+                        processed: job.processedFiles,
+                        total: job.totalFiles
+                    });
                     if (job.failedFiles) {
-                        detailText += `, ${job.failedFiles} failed`;
+                        detailText += t("detailFilesFailedSuffix", {
+                            failed: job.failedFiles
+                        });
                     }
                 }
 
                 ui.setProcessingProgress(progressPercent, detailText);
 
                 if (job.status === 'completed') {
-                    ui.setSuccess(
-                        `Import completed. ${job.processedFiles} files processed, ${job.failedFiles} failed.`
-                    );
+                    ui.setSuccess(t("successImportCompleted", {
+                        processed: job.processedFiles,
+                        failed: job.failedFiles
+                    }));
                     ui.setLoading(false);
                 }
 
@@ -113,7 +127,7 @@ async function handleUploadSubmit(event) {
                 }
             },
             onError(error) {
-                ui.setError(`Polling error: ${error.message}`);
+                ui.setError(t("errorPolling", { message: error.message }));
                 ui.setLoading(false);
             },
             intervalMs: 1500

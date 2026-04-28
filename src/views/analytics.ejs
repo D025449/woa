@@ -348,13 +348,13 @@
 
                             <div class="btn-group analytics-toggle-group" role="group">
                                 <input type="radio" class="btn-check" name="grouping1" id="g-date1" value="date" checked>
-                                <label class="btn btn-outline-primary btn-sm" for="g-date1">Date</label>
+                                <label class="btn btn-outline-primary btn-sm" for="g-date1"><%= t("analyticsPage.toggleDate") %></label>
 
                                 <input type="radio" class="btn-check" name="grouping1" id="g-week1" value="week">
-                                <label class="btn btn-outline-primary btn-sm" for="g-week1">Week</label>
+                                <label class="btn btn-outline-primary btn-sm" for="g-week1"><%= t("analyticsPage.toggleWeek") %></label>
 
                                 <input type="radio" class="btn-check" name="grouping1" id="g-month1" value="month">
-                                <label class="btn btn-outline-primary btn-sm" for="g-month1">Month</label>
+                                <label class="btn btn-outline-primary btn-sm" for="g-month1"><%= t("analyticsPage.toggleMonth") %></label>
                             </div>
                         </div>
 
@@ -375,16 +375,16 @@
 
                             <div class="btn-group analytics-toggle-group" role="group">
                                 <input type="radio" class="btn-check" name="grouping0" id="g-week0" value="week">
-                                <label class="btn btn-outline-primary btn-sm" for="g-week0">Week</label>
+                                <label class="btn btn-outline-primary btn-sm" for="g-week0"><%= t("analyticsPage.toggleWeek") %></label>
 
                                 <input type="radio" class="btn-check" name="grouping0" id="g-month0" value="month">
-                                <label class="btn btn-outline-primary btn-sm" for="g-month0">Month</label>
+                                <label class="btn btn-outline-primary btn-sm" for="g-month0"><%= t("analyticsPage.toggleMonth") %></label>
 
                                 <input type="radio" class="btn-check" name="grouping0" id="g-quarter0" value="quarter">
-                                <label class="btn btn-outline-primary btn-sm" for="g-quarter0">Quarter</label>
+                                <label class="btn btn-outline-primary btn-sm" for="g-quarter0"><%= t("analyticsPage.toggleQuarter") %></label>
 
                                 <input type="radio" class="btn-check" name="grouping0" id="g-year0" value="year" checked>
-                                <label class="btn btn-outline-primary btn-sm" for="g-year0">Year</label>
+                                <label class="btn btn-outline-primary btn-sm" for="g-year0"><%= t("analyticsPage.toggleYear") %></label>
                             </div>
                         </div>
 
@@ -405,16 +405,16 @@
 
                             <div class="btn-group analytics-toggle-group" role="group">
                                 <input type="radio" class="btn-check" name="grouping" id="g-week" value="year_week">
-                                <label class="btn btn-outline-primary btn-sm" for="g-week">Week</label>
+                                <label class="btn btn-outline-primary btn-sm" for="g-week"><%= t("analyticsPage.toggleWeek") %></label>
 
                                 <input type="radio" class="btn-check" name="grouping" id="g-month" value="year_month">
-                                <label class="btn btn-outline-primary btn-sm" for="g-month">Month</label>
+                                <label class="btn btn-outline-primary btn-sm" for="g-month"><%= t("analyticsPage.toggleMonth") %></label>
 
                                 <input type="radio" class="btn-check" name="grouping" id="g-quarter" value="year_quarter">
-                                <label class="btn btn-outline-primary btn-sm" for="g-quarter">Quarter</label>
+                                <label class="btn btn-outline-primary btn-sm" for="g-quarter"><%= t("analyticsPage.toggleQuarter") %></label>
 
                                 <input type="radio" class="btn-check" name="grouping" id="g-year" value="year" checked>
-                                <label class="btn btn-outline-primary btn-sm" for="g-year">Year</label>
+                                <label class="btn btn-outline-primary btn-sm" for="g-year"><%= t("analyticsPage.toggleYear") %></label>
                             </div>
                         </div>
 
@@ -480,6 +480,9 @@
                 <!-- Charts -->
 
                 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+                <script>
+                    window.__I18N = <%- JSON.stringify(i18n || { locale: "en", messages: {} }) %>;
+                </script>
                 <script type="module" src="/js/analytics-ui.js"></script>
                 <!--script type="module" src="/js/dashboard-table.js"></script-->
 

@@ -520,7 +520,7 @@
 <body class="home-page">
     <% if (isAuthenticated) { %>
         <%- include("partials/app-topbar", {
-            title: "Home",
+            title: t("home.title"),
             currentPage: "home",
             userInfo,
             showDashboardNewLink: true

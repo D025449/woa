@@ -1,9 +1,12 @@
 import MapSegment from "../../shared/MapSegment.js"
+import { createTranslator, getCurrentLocale } from "./i18n.js";
 
 export default class MapView {
 
   constructor(containerId, controller, handlers = {}) {
     this.controller = controller;
+    this.t = createTranslator("segmentsPage.map");
+    this.locale = getCurrentLocale();
     this.SEMI_TO_DEG = 18000 / 2147483648;
     this.handlers = handlers;
 
@@ -192,7 +195,7 @@ export default class MapView {
 
   async handleLookUpClick() {
     if (this.lookupPoints.length !== 2) {
-      console.warn("Please set 2 points first");
+      console.warn(this.t("warnTwoPoints"));
       return;
     }
 
@@ -212,7 +215,7 @@ export default class MapView {
 
       const data = await res.json();
 
-      console.log("Lookup result:", data);
+      console.log(this.t("lookupResult"), data);
 
       if (data?.track) {
         await this.controller.mapSegments.push(data);
@@ -222,7 +225,7 @@ export default class MapView {
       this.resetLookupSelection();
 
     } catch (err) {
-      console.error("Lookup failed:", err);
+      console.error(this.t("lookupFailed"), err);
     }
   }
 
@@ -285,14 +288,14 @@ export default class MapView {
       fillOpacity: 1
     }).addTo(this.lookupResultLayer);
 
-    startMarker.bindTooltip(this.buildEndpointTooltip("Start", segment.start), {
+    startMarker.bindTooltip(this.buildEndpointTooltip(this.t("start"), segment.start), {
       sticky: true,
       direction: "top",
       offset: [0, -8],
       opacity: 0.96,
       className: "segment-map-tooltip"
     });
-    startMarker.bindPopup(`Start<br>${segment.id}: ${segment.start.name}<br>Altitude ${segment.start.altitude}`);
+    startMarker.bindPopup(`${this.t("start")}<br>${segment.id}: ${segment.start.name}<br>${this.t("altitude")} ${segment.start.altitude}`);
     //startMarker.bindPopup(`Start:<br>${start.name || ""}`);
 
     // -------------------
@@ -306,14 +309,14 @@ export default class MapView {
       fillOpacity: 1
     }).addTo(this.lookupResultLayer);
 
-    endMarker.bindTooltip(this.buildEndpointTooltip("Ziel", segment.end), {
+    endMarker.bindTooltip(this.buildEndpointTooltip(this.t("end"), segment.end), {
       sticky: true,
       direction: "top",
       offset: [0, -8],
       opacity: 0.96,
       className: "segment-map-tooltip"
     });
-    endMarker.bindPopup(`End<br>${segment.id}: ${segment.end.name}<br>Altitude ${segment.end.altitude}`);
+    endMarker.bindPopup(`${this.t("end")}<br>${segment.id}: ${segment.end.name}<br>${this.t("altitude")} ${segment.end.altitude}`);
 
     this.segmentLayers.set(segment.id, {
       polyline,
@@ -360,7 +363,7 @@ export default class MapView {
 
   formatSegmentDistance(distanceMeters) {
     if (typeof distanceMeters !== "number" || Number.isNaN(distanceMeters)) {
-      return "–";
+      return this.t("na");
     }
 
     return `${(distanceMeters / 1000).toFixed(2)} km`;
@@ -371,10 +374,10 @@ export default class MapView {
     const endAltitude = segment?.end?.altitude;
 
     if (typeof startAltitude !== "number" || typeof endAltitude !== "number") {
-      return "–";
+      return this.t("na");
     }
 
-    return `${Math.round(startAltitude)} to ${Math.round(endAltitude)} m`;
+    return this.t("altitudeRangeValue", { start: Math.round(startAltitude), end: Math.round(endAltitude) });
   }
 
   formatSegmentAverageGrade(segment) {
@@ -388,37 +391,37 @@ export default class MapView {
       typeof ascent !== "number" ||
       Number.isNaN(ascent)
     ) {
-      return "–";
+      return this.t("na");
     }
 
     return `${((ascent / distance) * 100).toFixed(1)}%`;
   }
 
   buildSegmentTooltip(segment) {
-    const startName = segment?.start?.name || "–";
-    const endName = segment?.end?.name || "–";
+    const startName = segment?.start?.name || this.t("na");
+    const endName = segment?.end?.name || this.t("na");
     const distance = this.formatSegmentDistance(segment?.distance);
     const altitudeRange = this.formatSegmentAltitudeRange(segment);
     const avgGrade = this.formatSegmentAverageGrade(segment);
 
     return `
       <div style="min-width: 220px;">
-        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 4px;">Segment</div>
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 4px;">${this.t("segment")}</div>
         <div style="font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 8px;">#${segment.id} · ${distance}</div>
         <div style="display:flex; justify-content:space-between; gap:12px; margin:2px 0;">
-          <span style="color:#64748b;">Start</span>
+          <span style="color:#64748b;">${this.t("start")}</span>
           <span style="font-weight:600; color:#0f172a; text-align:right;">${startName}</span>
         </div>
         <div style="display:flex; justify-content:space-between; gap:12px; margin:2px 0;">
-          <span style="color:#64748b;">End</span>
+          <span style="color:#64748b;">${this.t("end")}</span>
           <span style="font-weight:600; color:#0f172a; text-align:right;">${endName}</span>
         </div>
         <div style="display:flex; justify-content:space-between; gap:12px; margin:2px 0;">
-          <span style="color:#64748b;">Altitude range</span>
+          <span style="color:#64748b;">${this.t("altitudeRange")}</span>
           <span style="font-weight:600; color:#0f172a; text-align:right;">${altitudeRange}</span>
         </div>
         <div style="display:flex; justify-content:space-between; gap:12px; margin:2px 0;">
-          <span style="color:#64748b;">Avg. grade</span>
+          <span style="color:#64748b;">${this.t("avgGrade")}</span>
           <span style="font-weight:600; color:#0f172a; text-align:right;">${avgGrade}</span>
         </div>
       </div>
@@ -426,16 +429,16 @@ export default class MapView {
   }
 
   buildEndpointTooltip(label, point) {
-    const name = point?.name || "–";
+    const name = point?.name || this.t("na");
     const altitude = typeof point?.altitude === "number"
       ? `${Math.round(point.altitude)} m`
-      : "–";
+      : this.t("na");
 
     return `
       <div style="min-width: 180px;">
         <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 4px;">${label}</div>
         <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 4px;">${name}</div>
-        <div style="font-size: 12px; color: #475569;">Altitude: <span style="font-weight:600; color:#0f172a;">${altitude}</span></div>
+        <div style="font-size: 12px; color: #475569;">${this.t("altitude")}: <span style="font-weight:600; color:#0f172a;">${altitude}</span></div>
       </div>
     `;
   }
@@ -483,7 +486,7 @@ export default class MapView {
           this.setMap(latitude, longitude);
         },
         async (err) => {
-          console.warn("Geolocation abgelehnt → fallback");
+          console.warn(this.t("geoDenied"));
 
           // 2. Fallback via IP
           try {
@@ -492,7 +495,7 @@ export default class MapView {
 
             this.setMap(data.latitude, data.longitude, 10);
           } catch (e) {
-            console.error("Fallback failed", e);
+            console.error(this.t("fallbackFailed"), e);
 
             // 3. Hard fallback (z. B. Frankfurt)
             this.setMap(50.1109, 8.6821, 10);
@@ -500,7 +503,7 @@ export default class MapView {
         }
       );
     } else {
-      console.warn("Kein Geolocation Support → fallback");
+      console.warn(this.t("geoUnsupported"));
 
       try {
         const res = await fetch("https://ipapi.co/json/");
@@ -514,7 +517,7 @@ export default class MapView {
   }
   setMap(lat, lng, zoom = 13) {
     this.map.setView([lat, lng], zoom);
-    L.marker([lat, lng]).addTo(this.map).bindPopup("Dein Standort").openPopup();
+    L.marker([lat, lng]).addTo(this.map).bindPopup(this.t("yourLocation")).openPopup();
   }
 
 

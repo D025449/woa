@@ -1,8 +1,10 @@
 import Utils from "../../shared/Utils.js";
+import { createTranslator } from "./i18n.js";
 
 export default class TableView {
 
   constructor(containerSelector, handlers = {}) {
+    this.t = createTranslator("segmentsPage");
     this.containerSelector = containerSelector;
     this.handlers = handlers;
     this.currentSegment = null;
@@ -95,19 +97,19 @@ export default class TableView {
   buildColumns() {
     return [
       {
-        title: "Rank",
+        title: this.t("table.rank"),
         field: "rn",
         sorter: false,
         formatter: (cell) => cell.getValue()
       },
       {
-        title: "Duration",
+        title: this.t("table.duration"),
         field: "duration",
         sorter: "number",
         formatter: (cell) => Utils.formatDuration(cell.getValue())
       },
       {
-        title: "Workout ID",
+        title: this.t("table.workoutId"),
         field: "wid",
         sorter: "number",
         formatter: (cell) => {
@@ -120,7 +122,7 @@ export default class TableView {
         }
       },
       {
-        title: "Owner",
+        title: this.t("table.owner"),
         field: "owner_display_name",
         sorter: false,
         formatter: (cell) => {
@@ -136,7 +138,7 @@ export default class TableView {
         }
       },       
       {
-        title: "Start On",
+        title: this.t("table.startOn"),
         field: "start_time",
         sorter: "datetime",
         formatter: (cell) =>  {
@@ -153,7 +155,7 @@ export default class TableView {
         formatter: (cell) => cell.getValue().toFixed(2)
       },*/
       {
-        title: "Avg Speed (km/h)",
+        title: this.t("table.avgSpeed"),
         field: "avg_speed",
         sorter: "number",
         headerFilter: "input",
@@ -161,7 +163,7 @@ export default class TableView {
         formatter: (cell) => (cell.getValue()).toFixed(1)
       },
       {
-        title: "Avg Power",
+        title: this.t("table.avgPower"),
         field: "avg_power",
         sorter: "number",
         headerFilter: "input",
@@ -169,7 +171,7 @@ export default class TableView {
         formatter: (cell) => cell.getValue().toFixed(0)
       },
       {
-        title: "Avg Hr",
+        title: this.t("table.avgHr"),
         field: "avg_heart_rate",
         sorter: "number",
         headerFilter: "input",
@@ -291,7 +293,7 @@ export default class TableView {
       try {
         const res = await fetch(`/segments/${segmentId}/best-efforts-status`);
         if (!res.ok) {
-          throw new Error("Failed to fetch best-efforts status");
+          throw new Error(this.t("messages.failedBestEffortsStatus"));
         }
 
         const data = await res.json();
@@ -337,13 +339,12 @@ export default class TableView {
 
   formatSegmentHeader(segment, matchCount = null) {
     if (!segment) {
-      return "Segments";
+      return this.t("insightsTitle");
     }
 
     const ownerLabel = segment.ownerDisplayName || segment.ownerEmail || null;
-    const ownerPart = ownerLabel ? ` · Owner: ${ownerLabel}` : "";
-    const matchPart = Number.isFinite(matchCount) ? ` · ${matchCount} Matches` : "";
-
+    const ownerPart = ownerLabel ? ` · ${this.t("table.ownerShort")}: ${ownerLabel}` : "";
+    const matchPart = Number.isFinite(matchCount) ? ` · ${this.t("table.matches", { count: matchCount })}` : "";
     return `📍➡️📍 #${segment.id}: ${segment.start.name} - ${segment.end.name}: ${(segment.distance / 1000).toFixed(2)} km ${segment.ascent} hm${ownerPart}${matchPart}`;
   }
 

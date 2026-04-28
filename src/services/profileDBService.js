@@ -1,4 +1,5 @@
 import pool from "./database.js";
+import { normalizeSupportedLocale } from "../i18n/index.js";
 
 function toNullableString(value, maxLen = 255) {
   if (value == null) {
@@ -106,7 +107,7 @@ export default class ProfileDBService {
     const postalCode = toNullableString(payload.postalCode, 20);
     const city = toNullableString(payload.city, 120);
     const country = toNullableString(payload.country, 120);
-    const language = normalizeEnum(payload.language, ["en", "de"], "en");
+    const language = normalizeSupportedLocale(payload.language, "en");
     const distanceUnit = normalizeEnum(payload.distanceUnit, ["km", "mi"], "km");
     const speedUnit = normalizeEnum(payload.speedUnit, ["kmh", "mph"], "kmh");
     const defaultWorkoutScope = normalizeEnum(payload.defaultWorkoutScope, ["mine", "shared", "all"], "mine");

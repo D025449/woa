@@ -1,5 +1,6 @@
 import { CognitoJwtVerifier } from "aws-jwt-verify";
 import UserDBService from "../services/userDBService.js"
+import { normalizeSupportedLocale } from "../i18n/index.js";
 
 let accessVerifier;
 let idVerifier;
@@ -64,7 +65,7 @@ export default async function authGlobal(req, res, next) {
 
     const dbuser = await UserDBService.ensureUserExists(user);
     const language = await UserDBService.getUserLanguage(dbuser.id);
-    const normalizedLanguage = String(language || "en").toLowerCase() === "de" ? "de" : "en";
+    const normalizedLanguage = normalizeSupportedLocale(language, "en");
 
     // Keep locale cookie aligned with the authenticated user's preference.
     res.cookie("lang", normalizedLanguage, {

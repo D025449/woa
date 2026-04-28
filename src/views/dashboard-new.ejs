@@ -693,10 +693,7 @@
                     <div>
                         <p class="dashboard-kicker"><%= t("dashboardNewPage.kicker") %></p>
                         <h1 class="dashboard-title"><%= t("dashboardNewPage.titleMain") %></h1>
-                        <p class="dashboard-subtitle">
-                            A refined workout list with a clear KPI hierarchy, compact search,
-                            and direct entry into chart and map analysis.
-                        </p>
+                        <p class="dashboard-subtitle"><%= t("dashboardNewPage.subtitle") %></p>
                     </div>
 
                     <div class="dashboard-hero-meta">
@@ -709,8 +706,8 @@
                             <span><%= t("dashboardNewPage.chipModeValue") %></span>
                         </span>
                         <span class="dashboard-chip">
-                            <span class="dashboard-chip-label">Workflow</span>
-                            <span>Search · Sort · Analyse</span>
+                            <span class="dashboard-chip-label"><%= t("dashboardNewPage.chipWorkflowLabel") %></span>
+                            <span><%= t("dashboardNewPage.chipWorkflowValue") %></span>
                         </span>
                     </div>
                 </section>
@@ -757,23 +754,23 @@
                                         id="workout-library-search"
                                         class="form-control workout-library-input"
                                         type="search"
-                                        placeholder="Search by workout, date, or metric ..."
+                                        placeholder="<%= t('dashboardNewPage.searchPlaceholder') %>"
                                     >
                                     <select id="workout-library-sort" class="form-select workout-library-select">
-                                        <option value="newest">Newest first</option>
-                                        <option value="uploaded">Most recently uploaded</option>
-                                        <option value="oldest">Oldest first</option>
-                                        <option value="distance">Longest distance</option>
-                                        <option value="duration">Longest duration</option>
-                                        <option value="power">Highest avg power</option>
-                                        <option value="np">Highest NP</option>
+                                        <option value="newest"><%= t("dashboardNewPage.sortNewest") %></option>
+                                        <option value="uploaded"><%= t("dashboardNewPage.sortUploaded") %></option>
+                                        <option value="oldest"><%= t("dashboardNewPage.sortOldest") %></option>
+                                        <option value="distance"><%= t("dashboardNewPage.sortDistance") %></option>
+                                        <option value="duration"><%= t("dashboardNewPage.sortDuration") %></option>
+                                        <option value="power"><%= t("dashboardNewPage.sortPower") %></option>
+                                        <option value="np"><%= t("dashboardNewPage.sortNp") %></option>
                                     </select>
                                 </div>
 
                                 <div class="workout-library-scroll">
                                     <div id="workout-library" class="workout-library-grid"></div>
                                     <div id="workout-library-load-more" class="workout-library-load-more d-none">
-                                        <button class="btn btn-outline-primary" type="button">Load more</button>
+                                        <button class="btn btn-outline-primary" type="button"><%= t("dashboardNewPage.loadMore") %></button>
                                     </div>
                                 </div>
                             </div>
@@ -784,10 +781,10 @@
                         <article class="dashboard-surface">
                         <div class="dashboard-section-header">
                             <div>
-                                <span class="dashboard-eyebrow">Primary Analysis</span>
+                                <span class="dashboard-eyebrow"><%= t("dashboardNewPage.primaryEyebrow") %></span>
                                 <h2 class="dashboard-section-title"><%= t("dashboardNewPage.workoutDataTitle") %></h2>
                                 <p id="dashboard-detail-copy" class="dashboard-section-copy">
-                                    Power, heart rate, cadence, speed, and altitude with direct segment interaction.
+                                    <%= t("dashboardNewPage.messages.ownedWorkoutDetailCopy") %>
                                 </p>
                                 <div id="dashboard-shared-meta" class="dashboard-shared-meta d-none">
                                     <span class="dashboard-shared-meta__eyebrow"><%= t("dashboardNewPage.sharedWorkoutEyebrow") %></span>
@@ -818,11 +815,9 @@
                         <aside class="dashboard-surface">
                             <div class="dashboard-section-header">
                                 <div>
-                                    <span class="dashboard-eyebrow">Spatial Context</span>
+                                    <span class="dashboard-eyebrow"><%= t("dashboardNewPage.spatialEyebrow") %></span>
                                     <h2 class="dashboard-section-title"><%= t("dashboardNewPage.routeMapTitle") %></h2>
-                                    <p class="dashboard-section-copy">
-                                        Track, segment ranges, and map context as a complementary analysis surface.
-                                    </p>
+                                    <p class="dashboard-section-copy"><%= t("dashboardNewPage.mapCopy") %></p>
                                 </div>
                             </div>
 
@@ -861,6 +856,9 @@
                 <!-- Charts -->
 
                 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+                <script>
+                    window.__I18N = <%- JSON.stringify(i18n || { locale: "en", messages: {} }) %>;
+                </script>
 
                 <script type="module" src="/js/dashboard-new-ui.js"></script>
 

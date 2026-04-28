@@ -3,10 +3,12 @@ import ChartView from "./chart-view.js";
 import WorkoutService from "./workout-service.js";
 import UIStateManager from "./UIStateManager.js";
 import WorkoutLibraryView from "./workout-library-view.js";
+import { createTranslator } from "./i18n.js";
 
 export default class Controller {
 
   constructor() {
+    this.t = createTranslator("dashboardNewPage");
     this.uiState = new UIStateManager("dashboardNewController");
     this.currentWorkoutId = this.readInitialWorkoutId() || this.uiState.get("selectedWorkoutId");
     this.libraryState = this.uiState.get("workoutLibraryState", {
@@ -122,7 +124,7 @@ export default class Controller {
       },
       onWorkoutShareSave: async (workout, payload) => {
         const data = await WorkoutService.updateWorkoutSharing(workout.id, payload);
-        this.showToast("Workout-Freigabe aktualisiert.");
+        this.showToast(this.t("messages.workoutShareUpdated"));
         return data;
       }
     });
@@ -142,7 +144,7 @@ export default class Controller {
       await this.restoreSelectedWorkout();
     } catch (err) {
       console.error(err);
-      this.showToast("Workout library could not be loaded.");
+      this.showToast(this.t("messages.workoutLibraryLoadFailed"));
     }
   }
 
@@ -170,7 +172,7 @@ export default class Controller {
       this.updateWorkoutMeta(workout);
     } catch (err) {
       console.error(err);
-      this.showToast("Workout could not be loaded or is not shared.");
+      this.showToast(this.t("messages.workoutOpenFailed"));
     } finally {
       this.chartView.hideLoading();
     }
@@ -190,18 +192,18 @@ export default class Controller {
     }
 
     const access = workout?.access || null;
-    const ownerLabel = access?.ownerDisplayName || access?.ownerEmail || "another user";
+    const ownerLabel = access?.ownerDisplayName || access?.ownerEmail || this.t("messages.anotherUser");
 
     if (access?.isOwner) {
       this.sharedMetaElement.classList.add("d-none");
       this.sharedMetaTextElement.textContent = "";
-      this.detailCopyElement.textContent = "Power, heart rate, cadence, speed, and altitude with direct segment interaction.";
+      this.detailCopyElement.textContent = this.t("messages.ownedWorkoutDetailCopy");
       return;
     }
 
     this.sharedMetaElement.classList.remove("d-none");
-    this.sharedMetaTextElement.textContent = `Shared by ${ownerLabel}`;
-    this.detailCopyElement.textContent = "Power, heart rate, cadence, speed, and altitude of the shared workout with direct segment interaction.";
+    this.sharedMetaTextElement.textContent = this.t("messages.sharedBy", { owner: ownerLabel });
+    this.detailCopyElement.textContent = this.t("messages.sharedWorkoutDetailCopy");
   }
 
   readInitialWorkoutId() {
@@ -226,7 +228,7 @@ export default class Controller {
     }
 
     if (!response.ok) {
-      throw new Error(`Failed to load groups (${response.status})`);
+      throw new Error(this.t("messages.failedLoadGroups", { status: response.status }));
     }
 
     const result = await response.json();

@@ -2,6 +2,7 @@ import express from "express";
 
 import authMiddleware from "../middleware/authMiddleware.js";
 import ProfileDBService from "../services/profileDBService.js";
+import { normalizeSupportedLocale } from "../i18n/index.js";
 
 const router = express.Router();
 
@@ -28,7 +29,7 @@ router.put("/", authMiddleware, async (req, res, next) => {
       req.session.user.language = data.language || req.session.user.language;
     }
 
-    const normalizedLanguage = String(data.language || "en").toLowerCase() === "de" ? "de" : "en";
+    const normalizedLanguage = normalizeSupportedLocale(data.language, "en");
     res.cookie("lang", normalizedLanguage, {
       httpOnly: false,
       sameSite: "lax",

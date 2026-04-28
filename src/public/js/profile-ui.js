@@ -1,5 +1,7 @@
 class ProfileUI {
   constructor() {
+    this.messages = window.profileMessages || {};
+    this.planDescriptions = window.profilePlanDescriptions || {};
     this.form = document.getElementById("profile-form");
     this.submitButton = document.getElementById("profile-submit");
     this.errorEl = document.getElementById("profile-error");
@@ -35,7 +37,7 @@ class ProfileUI {
   }
 
   async load() {
-    this.setLoading(true, "Loading ...");
+    this.setLoading(true, this.t("loading", "Loading ..."));
     this.hideProfileMessages();
 
     try {
@@ -58,9 +60,9 @@ class ProfileUI {
       this.fillForm(result.data || {});
     } catch (err) {
       console.error(err);
-      this.showError(err.message || "Could not load profile.");
+      this.showError(err.message || this.t("loadProfileError", "Could not load profile."));
     } finally {
-      this.setLoading(false, "Save");
+      this.setLoading(false, this.t("save", "Save"));
     }
   }
 
@@ -104,7 +106,7 @@ class ProfileUI {
       return;
     }
 
-    this.setLoading(true, "Saving ...");
+    this.setLoading(true, this.t("saving", "Saving ..."));
     this.hideProfileMessages();
 
     const formData = new FormData(this.form);
@@ -148,20 +150,20 @@ class ProfileUI {
       }
 
       this.fillForm(result.data || {});
-      this.showSuccess("Profile saved.");
+      this.showSuccess(this.t("profileSaved", "Profile saved."));
 
       const nextLanguage = String(result.data?.language || payload.language || "en").toLowerCase();
       if (nextLanguage !== previousLanguage) {
-        this.showSuccess("Language updated. Reloading ...");
+        this.showSuccess(this.t("languageUpdatedReloading", "Language updated. Reloading ..."));
         setTimeout(() => {
           window.location.reload();
         }, 250);
       }
     } catch (err) {
       console.error(err);
-      this.showError(err.message || "Could not save profile.");
+      this.showError(err.message || this.t("saveProfileError", "Could not save profile."));
     } finally {
-      this.setLoading(false, "Save");
+      this.setLoading(false, this.t("save", "Save"));
     }
   }
 
@@ -227,11 +229,11 @@ class ProfileUI {
     }
 
     if (!this.membership?.plan?.name) {
-      this.membershipSummaryEl.textContent = "No active paid subscription.";
+      this.membershipSummaryEl.textContent = this.t("noActiveSubscription", "No active paid subscription.");
       return;
     }
 
-    this.membershipSummaryEl.textContent = `Current plan: ${this.membership.plan.name} (${this.membership.plan.price.toFixed(2)} ${this.membership.plan.currency})`;
+    this.membershipSummaryEl.textContent = `${this.t("currentPlan", "Current plan")}: ${this.membership.plan.name} (${this.membership.plan.price.toFixed(2)} ${this.membership.plan.currency})`;
   }
 
   async loadPlans() {
@@ -260,7 +262,7 @@ class ProfileUI {
       this.updateMembershipSummary();
     } catch (err) {
       console.error(err);
-      this.showPaymentsError(err.message || "Could not load plans.");
+      this.showPaymentsError(err.message || this.t("loadPlansError", "Could not load plans."));
       this.plans = [];
       this.renderPlans();
       this.updateMembershipSummary();
@@ -273,7 +275,7 @@ class ProfileUI {
     }
 
     if (!Array.isArray(this.plans) || this.plans.length === 0) {
-      this.plansGridEl.innerHTML = "<div class=\"text-muted\">No plans available.</div>";
+      this.plansGridEl.innerHTML = `<div class="text-muted">${this.t("noPlansAvailable", "No plans available.")}</div>`;
       return;
     }
 
@@ -282,11 +284,12 @@ class ProfileUI {
     this.plansGridEl.innerHTML = this.plans.map((plan) => {
       const isCurrent = currentPlanCode && currentPlanCode === plan.code;
 
+      const localizedDescription = this.getPlanDescription(plan);
       return `
         <article class="profile-plan-card ${isCurrent ? "is-current" : ""}">
           <h3 class="profile-plan-name">${plan.name}</h3>
           <p class="profile-plan-price">${Number(plan.price).toFixed(2)} ${plan.currency}</p>
-          <p class="profile-plan-copy">${plan.description || ""}</p>
+          <p class="profile-plan-copy">${localizedDescription}</p>
           <div class="profile-plan-actions">
             <button
               type="button"
@@ -294,7 +297,7 @@ class ProfileUI {
               data-action="upgrade-plan"
               data-plan-code="${plan.code}"
               ${isCurrent ? "disabled" : ""}>
-              ${isCurrent ? "Active" : "Upgrade with PayPal"}
+              ${isCurrent ? this.t("active", "Active") : this.t("upgradeWithPayPal", "Upgrade with PayPal")}
             </button>
           </div>
         </article>
@@ -317,7 +320,7 @@ class ProfileUI {
 
     const originalLabel = button.textContent;
     button.disabled = true;
-    button.textContent = "Starting ...";
+    button.textContent = this.t("starting", "Starting ...");
 
     try {
       const response = await fetch("/api/payments/checkout/order", {
@@ -342,13 +345,13 @@ class ProfileUI {
 
       const approvalUrl = result?.data?.approvalUrl;
       if (!approvalUrl) {
-        throw new Error("Missing PayPal approvalUrl.");
+        throw new Error(this.t("missingApprovalUrl", "Missing PayPal approvalUrl."));
       }
 
       window.location.href = approvalUrl;
     } catch (err) {
       console.error(err);
-      this.showPaymentsError(err.message || "Could not start PayPal checkout.");
+      this.showPaymentsError(err.message || this.t("startCheckoutError", "Could not start PayPal checkout."));
       button.disabled = false;
       button.textContent = originalLabel;
     }
@@ -364,13 +367,13 @@ class ProfileUI {
     }
 
     if (paymentState === "cancel") {
-      this.showPaymentsInfo("Checkout was canceled.");
+      this.showPaymentsInfo(this.t("checkoutCanceled", "Checkout was canceled."));
       this.stripPaymentQueryParams();
       return;
     }
 
     if (paymentState !== "success" || !providerOrderId) {
-      this.showPaymentsError("Incomplete PayPal return parameters.");
+      this.showPaymentsError(this.t("incompleteReturnParameters", "Incomplete PayPal return parameters."));
       this.stripPaymentQueryParams();
       return;
     }
@@ -391,10 +394,10 @@ class ProfileUI {
         throw new Error(result.error || `Capture failed (${response.status})`);
       }
 
-      this.showPaymentsInfo("Payment processed successfully.");
+      this.showPaymentsInfo(this.t("paymentSuccess", "Payment processed successfully."));
     } catch (err) {
       console.error(err);
-      this.showPaymentsError(err.message || "Could not confirm payment.");
+      this.showPaymentsError(err.message || this.t("paymentConfirmError", "Could not confirm payment."));
     } finally {
       this.stripPaymentQueryParams();
     }
@@ -406,6 +409,20 @@ class ProfileUI {
     url.searchParams.delete("token");
     url.searchParams.delete("PayerID");
     window.history.replaceState({}, "", url.toString());
+  }
+
+  t(key, fallback) {
+    const value = this.messages?.[key];
+    return typeof value === "string" && value.trim() ? value : fallback;
+  }
+
+  getPlanDescription(plan) {
+    const code = String(plan?.code || "").toLowerCase();
+    const localized = this.planDescriptions?.[code];
+    if (typeof localized === "string" && localized.trim()) {
+      return localized;
+    }
+    return plan?.description || "";
   }
 }
 

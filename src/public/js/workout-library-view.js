@@ -1,8 +1,11 @@
 import Utils from "../../shared/Utils.js";
+import { createTranslator, getCurrentLocale } from "./i18n.js";
 
 export default class WorkoutLibraryView {
 
   constructor(containerSelector, handlers = {}) {
+    this.t = createTranslator("dashboardNewPage.library");
+    this.locale = getCurrentLocale();
     this.container = document.querySelector(containerSelector);
     this.handlers = handlers;
     this.headerElement = document.getElementById(handlers.headerElementId || "files_header");
@@ -114,7 +117,7 @@ export default class WorkoutLibraryView {
     }
 
     if (!response.ok) {
-      throw new Error(`Failed to load workouts (${response.status})`);
+      throw new Error(this.t("failedLoadWorkouts", { status: response.status }));
     }
 
     const result = await response.json();
@@ -192,7 +195,7 @@ export default class WorkoutLibraryView {
       return;
     }
 
-    this.headerElement.textContent = `${this.totalRecords} Workouts`;
+    this.headerElement.textContent = this.t("workoutCount", { count: this.totalRecords });
   }
 
   updateLoadMoreButton() {
@@ -259,7 +262,7 @@ export default class WorkoutLibraryView {
     if (this.items.length === 0) {
       this.container.innerHTML = `
         <div class="workout-library-empty">
-          Keine Workouts gefunden.
+          ${this.t("empty")}
         </div>
       `;
       return;
@@ -402,7 +405,7 @@ export default class WorkoutLibraryView {
       }
     } catch (err) {
       console.error(err);
-      this.shareErrors.set(workoutId, err.message || "Could not load sharing.");
+      this.shareErrors.set(workoutId, err.message || this.t("couldNotLoadSharing"));
     } finally {
       this.loadingShareWorkoutId = null;
       this.render();
@@ -424,7 +427,7 @@ export default class WorkoutLibraryView {
 
     const draft = this.getShareDraft(workoutId);
     if (draft.shareMode === "groups" && (!Array.isArray(draft.groupIds) || draft.groupIds.length === 0)) {
-      this.shareErrors.set(String(workoutId), "Please select at least one group.");
+      this.shareErrors.set(String(workoutId), this.t("selectAtLeastOneGroup"));
       this.render();
       return;
     }
@@ -441,7 +444,7 @@ export default class WorkoutLibraryView {
       this.openShareWorkoutId = null;
     } catch (err) {
       console.error(err);
-      this.shareErrors.set(String(workoutId), err.message || "Could not save sharing.");
+      this.shareErrors.set(String(workoutId), err.message || this.t("couldNotSaveSharing"));
     } finally {
       this.savingShareWorkoutId = null;
       this.render();
@@ -458,15 +461,15 @@ export default class WorkoutLibraryView {
     const isShareSaving = this.savingShareWorkoutId === workoutId;
     const startedAt = workout.start_time ? new Date(workout.start_time) : null;
     const dayLabel = startedAt
-      ? startedAt.toLocaleDateString("de-DE", { day: "2-digit", month: "short", year: "numeric" })
-      : "–";
+      ? startedAt.toLocaleDateString(this.locale, { day: "2-digit", month: "short", year: "numeric" })
+      : this.t("na");
     const timeLabel = startedAt
-      ? startedAt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })
+      ? startedAt.toLocaleTimeString(this.locale, { hour: "2-digit", minute: "2-digit" })
       : "";
     const shareMode = workout.sharing?.shareMode || (Number(workout.share_group_count) > 0 ? "groups" : "private");
     const shareTag = shareMode === "groups"
-      ? `Shared${Number(workout.share_group_count) > 0 ? ` (${Number(workout.share_group_count)})` : ""}`
-      : "Private";
+      ? this.t("shareTagGroups", { count: Number(workout.share_group_count) || 0 })
+      : this.t("sharePrivate");
     const draft = this.getShareDraft(workoutId);
     const shareError = this.shareErrors.get(workoutId) || "";
 
@@ -479,25 +482,25 @@ export default class WorkoutLibraryView {
       >
         <div class="workout-library-card__head">
           <div>
-            <div class="workout-library-card__title">Workout #${workout.id}</div>
+            <div class="workout-library-card__title">${this.t("workoutLabel", { id: workout.id })}</div>
             <div class="workout-library-card__meta">${dayLabel}${timeLabel ? ` · ${timeLabel}` : ""}</div>
             ${workout.is_owned ? "" : `
               <div class="workout-library-card__owner">
-                By ${workout.owner_display_name || workout.owner_email || "another user"}
+                ${this.t("sharedBy", { owner: workout.owner_display_name || workout.owner_email || this.t("anotherUser") })}
               </div>
             `}
           </div>
           <div class="workout-library-card__primary-metrics">
             <div class="workout-library-kpi">
-              <span class="workout-library-kpi__label">Duration</span>
+              <span class="workout-library-kpi__label">${this.t("duration")}</span>
               <span class="workout-library-kpi__value">${Utils.formatDuration(workout.total_timer_time)}</span>
             </div>
             <div class="workout-library-kpi">
-              <span class="workout-library-kpi__label">Distance</span>
+              <span class="workout-library-kpi__label">${this.t("distance")}</span>
               <span class="workout-library-kpi__value">${this.formatDistance(workout.total_distance)}</span>
             </div>
             <div class="workout-library-kpi">
-              <span class="workout-library-kpi__label">Ø Speed</span>
+              <span class="workout-library-kpi__label">${this.t("avgSpeed")}</span>
               <span class="workout-library-kpi__value">${this.formatSpeed(workout.avg_speed)}</span>
             </div>
           </div>
@@ -505,15 +508,15 @@ export default class WorkoutLibraryView {
 
         <div class="workout-library-card__body">
           <div class="workout-library-stat-row">
-            <span class="workout-library-stat"><span class="workout-library-stat__label">Ø Power</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_power)} W</span></span>
+            <span class="workout-library-stat"><span class="workout-library-stat__label">${this.t("avgPower")}</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_power)} W</span></span>
             <span class="workout-library-stat"><span class="workout-library-stat__label">NP</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_normalized_power)} W</span></span>
-            <span class="workout-library-stat"><span class="workout-library-stat__label">Ø HR</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_heart_rate)} bpm</span></span>
+            <span class="workout-library-stat"><span class="workout-library-stat__label">${this.t("avgHr")}</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_heart_rate)} bpm</span></span>
             <span class="workout-library-stat"><span class="workout-library-stat__label">hm</span><span class="workout-library-stat__value">${this.formatAscentMeters(workout.total_ascent)}</span></span>
           </div>
           <div class="workout-library-card__footer">
             <div class="workout-library-tags">
-              <span class="workout-library-tag">${hasValidGps ? "GPS" : "No GPS"}</span>
-              <span class="workout-library-tag">${workout.avg_power ? "Power" : "Basic"}</span>
+              <span class="workout-library-tag">${hasValidGps ? this.t("gps") : this.t("noGps")}</span>
+              <span class="workout-library-tag">${workout.avg_power ? this.t("power") : this.t("basic")}</span>
               <span class="workout-library-tag">${shareTag}</span>
             </div>
             <div class="workout-library-actions">
@@ -523,13 +526,13 @@ export default class WorkoutLibraryView {
                   href="/workouts/${workout.id}/export.fit"
                   data-workout-export="${workout.id}"
                   download>
-                  Export FIT
+                  ${this.t("exportFit")}
                 </a>
                 <button class="btn btn-sm btn-outline-secondary" type="button" data-workout-share-toggle="${workout.id}">
-                  Share
+                  ${this.t("share")}
                 </button>
                 <button class="btn btn-sm btn-outline-danger" type="button" data-workout-delete="${workout.id}">
-                  Delete
+                  ${this.t("delete")}
                 </button>
               ` : ""}
             </div>
@@ -537,10 +540,10 @@ export default class WorkoutLibraryView {
           ${isOwned && isShareOpen ? `
             <div class="workout-share-inline">
               <div class="workout-share-inline__row">
-                <label class="form-label mb-0">Visibility</label>
+                <label class="form-label mb-0">${this.t("visibility")}</label>
                 <select class="form-select form-select-sm" style="width: 140px;" data-workout-share-mode="${workout.id}">
-                  <option value="private" ${draft.shareMode === "private" ? "selected" : ""}>Private</option>
-                  <option value="groups" ${draft.shareMode === "groups" ? "selected" : ""}>Groups</option>
+                  <option value="private" ${draft.shareMode === "private" ? "selected" : ""}>${this.t("sharePrivate")}</option>
+                  <option value="groups" ${draft.shareMode === "groups" ? "selected" : ""}>${this.t("shareGroups")}</option>
                 </select>
               </div>
               ${draft.shareMode === "groups" ? `
@@ -560,14 +563,14 @@ export default class WorkoutLibraryView {
               ` : ""}
               <div class="workout-share-inline__actions">
                 <span class="workout-share-inline__status">
-                  ${isShareLoading ? "Loading sharing ..." : shareError || ""}
+                  ${isShareLoading ? this.t("loadingSharing") : shareError || ""}
                 </span>
                 <button
                   class="btn btn-sm btn-primary"
                   type="button"
                   data-workout-share-save="${workout.id}"
                   ${isShareLoading || isShareSaving ? "disabled" : ""}>
-                  ${isShareSaving ? "Saving ..." : "Apply"}
+                  ${isShareSaving ? this.t("saving") : this.t("apply")}
                 </button>
               </div>
             </div>
@@ -578,20 +581,20 @@ export default class WorkoutLibraryView {
   }
 
   formatDistance(value) {
-    return Number.isFinite(value) ? `${(Number(value) / 1000).toFixed(1)} km` : "–";
+    return Number.isFinite(value) ? `${(Number(value) / 1000).toFixed(1)} km` : this.t("na");
   }
 
   formatSpeed(value) {
-    return Number.isFinite(value) ? `${Number(value).toFixed(1)} km/h` : "–";
+    return Number.isFinite(value) ? `${Number(value).toFixed(1)} km/h` : this.t("na");
   }
 
   formatInt(value) {
-    return Number.isFinite(value) ? `${Math.round(value)}` : "–";
+    return Number.isFinite(value) ? `${Math.round(value)}` : this.t("na");
   }
 
   formatAscentMeters(value) {
     if (!Number.isFinite(value)) {
-      return "–";
+      return this.t("na");
     }
 
     return `${Math.round(Number(value))} m`;

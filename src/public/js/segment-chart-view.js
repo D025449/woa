@@ -1,10 +1,12 @@
 import { buildMarkAreasSegment, buildMarkAreasCP } from "./chart-helpers.js";
 import SegmentService from "../../shared/SegmentService.js";
 import Utils from "../../shared/Utils.js";
+import { createTranslator } from "./i18n.js";
 
 export default class ChartView {
 
   constructor(containerId, handlers = {}) {
+    this.t = createTranslator("segmentsPage.chart");
     this.container = document.getElementById(containerId);
     this.chart = echarts.init(this.container);
 
@@ -68,6 +70,7 @@ export default class ChartView {
   }
 
   initChart() {
+    const labels = this.getChartLabels();
     this.chart.setOption({
       title: { text: "..." },
       tooltip: {
@@ -85,12 +88,12 @@ export default class ChartView {
         minInterval: 1,
         axisLabel: { formatter: Utils.formatSeconds }
       },
-    yAxis: [
-      { type: "value", name: "Power (W)", position: "left" },
-      { type: "value", name: "HR/Cad", position: "right" },
-      { type: "value", name: "Sp", position: "left", offset: 40 },
-      { type: "value", name: "Alt", position: "right", offset: 50 }
-    ],
+      yAxis: [
+        { type: "value", name: labels.axisPower, position: "left" },
+        { type: "value", name: labels.axisHeartCadence, position: "right" },
+        { type: "value", name: labels.axisSpeed, position: "left", offset: 40 },
+        { type: "value", name: labels.axisAltitude, position: "right", offset: 50 }
+      ],
       dataset: {
         dimensions: [
           "x", "Power", "Heartrate", "Cadence",
@@ -104,7 +107,7 @@ export default class ChartView {
       ],
       series: [
         {
-          name: "Power",
+          name: labels.power,
           type: "line",
           showSymbol: false,
           sampling: "lttb",
@@ -113,7 +116,7 @@ export default class ChartView {
           encode: { x: "x", y: "Power" }
         },
         {
-          name: "Heartrate",
+          name: labels.heartRate,
           type: "line",
           showSymbol: false,
           sampling: "lttb",
@@ -121,7 +124,7 @@ export default class ChartView {
           encode: { x: "x", y: "Heartrate" }
         },
         {
-          name: "Cadence",
+          name: labels.cadence,
           type: "line",
           showSymbol: false,
           sampling: "lttb",
@@ -129,7 +132,7 @@ export default class ChartView {
           encode: { x: "x", y: "Cadence" }
         },
         {
-          name: "Speed",
+          name: labels.speed,
           type: "line",
           showSymbol: false,
           sampling: "lttb",
@@ -137,7 +140,7 @@ export default class ChartView {
           encode: { x: "x", y: "Speed" }
         },
         {
-          name: "Altitude",
+          name: labels.altitude,
           type: "line",
           showSymbol: false,
           sampling: "lttb",
@@ -157,13 +160,14 @@ export default class ChartView {
     const obj = workout.workoutObject;
     const result = obj.getAsStrideArray();
     const sd = obj.getStartTime();     
+    const labels = this.getChartLabels();
 
     this.chart.setOption({
       title: { text: new Date(sd).toDateString() },
       xAxis: { min: 0, max: result.rowCount },
       dataset: { source: result.data },
       series: [{
-        name: "Power",
+        name: labels.power,
         markArea: { data: buildMarkAreasSegment(segment) }
       }]
     });
@@ -171,6 +175,7 @@ export default class ChartView {
 
   updateWorkoutCP(workout, cpview) {
     this.currentWorkout = workout;
+    const labels = this.getChartLabels();
     
 
     this.chart.setOption({
@@ -178,7 +183,7 @@ export default class ChartView {
       xAxis: { min: 0, max: workout.recCount },
       dataset: { source: workout.series },
       series: [{
-        name: "Power",
+        name: labels.power,
         markArea: { data: buildMarkAreasCP(cpview) }
       }]
     });
@@ -317,18 +322,18 @@ export default class ChartView {
     const row = p.data;
     const timeValue = Utils.formatSeconds(row[0] ?? 0);
     const rows = [
-      ["Leistung", Number.isFinite(row[1]) ? `${Math.round(row[1])} W` : "–"],
-      ["Herzfrequenz", Number.isFinite(row[2]) ? `${Math.round(row[2])} bpm` : "–"],
-      ["Kadenz", Number.isFinite(row[3]) ? `${Math.round(row[3])} rpm` : "–"],
-      ["Speed", Number.isFinite(row[4]) ? `${Number(row[4]).toFixed(1)} km/h` : "–"],
-      ["Altitude", Number.isFinite(row[5]) ? `${Math.round(row[5])} m` : "–"]
+      [this.t("power"), Number.isFinite(row[1]) ? `${Math.round(row[1])} W` : "–"],
+      [this.t("heartRate"), Number.isFinite(row[2]) ? `${Math.round(row[2])} bpm` : "–"],
+      [this.t("cadence"), Number.isFinite(row[3]) ? `${Math.round(row[3])} rpm` : "–"],
+      [this.t("speed"), Number.isFinite(row[4]) ? `${Number(row[4]).toFixed(1)} km/h` : "–"],
+      [this.t("altitude"), Number.isFinite(row[5]) ? `${Math.round(row[5])} m` : "–"]
     ];
 
     return `
       <div style="min-width: 220px;">
-        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 4px;">Workout</div>
+        <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 4px;">${this.t("workout")}</div>
         <div style="font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 2px;">${timeValue}</div>
-        <div style="font-size: 12px; font-weight: 600; color: #334155; margin-bottom: 8px;">Momentaufnahme entlang des Tracks</div>
+        <div style="font-size: 12px; font-weight: 600; color: #334155; margin-bottom: 8px;">${this.t("snapshot")}</div>
         ${rows.map(([label, value]) => `
           <div style="display:flex; justify-content:space-between; gap:12px; margin:2px 0;">
             <span style="color:#64748b;">${label}</span>
@@ -418,6 +423,20 @@ export default class ChartView {
     }
 
     this.segmentHoverTooltip.style.opacity = "0";
+  }
+
+  getChartLabels() {
+    return {
+      power: this.t("power"),
+      heartRate: this.t("heartRate"),
+      cadence: this.t("cadence"),
+      speed: this.t("speed"),
+      altitude: this.t("altitude"),
+      axisPower: this.t("axisPower"),
+      axisHeartCadence: this.t("axisHeartCadence"),
+      axisSpeed: this.t("axisSpeed"),
+      axisAltitude: this.t("axisAltitude")
+    };
   }
 
   resize() { this.chart.resize(); }

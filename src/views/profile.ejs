@@ -365,43 +365,45 @@
 
             <section class="profile-surface">
                 <div class="profile-section-header">
-                    <h2 class="profile-section-title">Preferences</h2>
-                    <p class="profile-section-copy">Language, units, and default workout scope.</p>
+                    <h2 class="profile-section-title"><%= t("profile.preferencesTitle") %></h2>
+                    <p class="profile-section-copy"><%= t("profile.preferencesCopy") %></p>
                 </div>
                 <form id="profile-form-preferences" class="profile-form">
                     <div class="row g-3">
                         <div class="col-md-3">
-                            <label class="form-label" for="profile-language">Language</label>
+                            <label class="form-label" for="profile-language"><%= t("profile.preferences.language") %></label>
                             <select class="form-control" id="profile-language" name="language">
-                                <option value="en">English</option>
-                                <option value="de">Deutsch</option>
+                                <% const locales = Array.isArray(supportedLocales) && supportedLocales.length ? supportedLocales : ["en", "de"]; %>
+                                <% locales.forEach((localeCode) => { %>
+                                    <option value="<%= localeCode %>"><%= t(`profile.localeNames.${localeCode}`) %></option>
+                                <% }) %>
                             </select>
                         </div>
                         <div class="col-md-3">
-                            <label class="form-label" for="profile-distance-unit">Distance unit</label>
+                            <label class="form-label" for="profile-distance-unit"><%= t("profile.preferences.distanceUnit") %></label>
                             <select class="form-control" id="profile-distance-unit" name="distanceUnit">
-                                <option value="km">Kilometers (km)</option>
-                                <option value="mi">Miles (mi)</option>
+                                <option value="km"><%= t("profile.preferences.distanceUnitKm") %></option>
+                                <option value="mi"><%= t("profile.preferences.distanceUnitMi") %></option>
                             </select>
                         </div>
                         <div class="col-md-3">
-                            <label class="form-label" for="profile-speed-unit">Speed unit</label>
+                            <label class="form-label" for="profile-speed-unit"><%= t("profile.preferences.speedUnit") %></label>
                             <select class="form-control" id="profile-speed-unit" name="speedUnit">
-                                <option value="kmh">km/h</option>
-                                <option value="mph">mph</option>
+                                <option value="kmh"><%= t("profile.preferences.speedUnitKmh") %></option>
+                                <option value="mph"><%= t("profile.preferences.speedUnitMph") %></option>
                             </select>
                         </div>
                         <div class="col-md-3">
-                            <label class="form-label" for="profile-default-workout-scope">Default workouts filter</label>
+                            <label class="form-label" for="profile-default-workout-scope"><%= t("profile.preferences.defaultWorkoutScope") %></label>
                             <select class="form-control" id="profile-default-workout-scope" name="defaultWorkoutScope">
-                                <option value="mine">Mine</option>
-                                <option value="shared">Shared</option>
-                                <option value="all">All</option>
+                                <option value="mine"><%= t("profile.preferences.defaultWorkoutScopeMine") %></option>
+                                <option value="shared"><%= t("profile.preferences.defaultWorkoutScopeShared") %></option>
+                                <option value="all"><%= t("profile.preferences.defaultWorkoutScopeAll") %></option>
                             </select>
                         </div>
                     </div>
                     <div class="d-flex justify-content-end mt-4">
-                        <button id="profile-save-preferences" type="button" class="btn btn-dark">Save preferences</button>
+                        <button id="profile-save-preferences" type="button" class="btn btn-dark"><%= t("profile.preferencesSave") %></button>
                     </div>
                 </form>
             </section>
@@ -425,6 +427,35 @@
     <%- include("partials/app-footer") %>
 
     <script>
+        window.profileMessages = {
+            loading: "<%= t('profile.ui.loading') %>",
+            saving: "<%= t('profile.ui.saving') %>",
+            save: "<%= t('profile.save') %>",
+            loadProfileError: "<%= t('profile.ui.loadProfileError') %>",
+            saveProfileError: "<%= t('profile.ui.saveProfileError') %>",
+            profileSaved: "<%= t('profile.saved') %>",
+            languageUpdatedReloading: "<%= t('profile.ui.languageUpdatedReloading') %>",
+            noActiveSubscription: "<%= t('profile.ui.noActiveSubscription') %>",
+            currentPlan: "<%= t('profile.ui.currentPlan') %>",
+            loadPlansError: "<%= t('profile.ui.loadPlansError') %>",
+            noPlansAvailable: "<%= t('profile.ui.noPlansAvailable') %>",
+            active: "<%= t('profile.ui.active') %>",
+            upgradeWithPayPal: "<%= t('profile.ui.upgradeWithPayPal') %>",
+            starting: "<%= t('profile.ui.starting') %>",
+            startCheckoutError: "<%= t('profile.ui.startCheckoutError') %>",
+            checkoutCanceled: "<%= t('profile.ui.checkoutCanceled') %>",
+            incompleteReturnParameters: "<%= t('profile.ui.incompleteReturnParameters') %>",
+            paymentSuccess: "<%= t('profile.ui.paymentSuccess') %>",
+            paymentConfirmError: "<%= t('profile.ui.paymentConfirmError') %>",
+            missingApprovalUrl: "<%= t('profile.ui.missingApprovalUrl') %>"
+        };
+
+        window.profilePlanDescriptions = {
+            plus: "<%= t('profile.planDescriptions.plus') %>",
+            pro: "<%= t('profile.planDescriptions.pro') %>",
+            premium: "<%= t('profile.planDescriptions.premium') %>"
+        };
+
         // Defensive cleanup: if a previous page left a modal backdrop behind,
         // the profile page must never look like a modal overlay.
         document.body.classList.remove("modal-open");

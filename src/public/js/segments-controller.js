@@ -6,10 +6,12 @@ import WorkoutService from "./workout-service.js";
 import MapSegment from "../../shared/MapSegment.js";
 import UIStateManager from "./UIStateManager.js"
 import confirmModal from "./confirm-modal.js";
+import { createTranslator } from "./i18n.js";
 
 export default class Controller {
 
   constructor() {
+    this.t = createTranslator("segmentsPage");
     this.uiState = new UIStateManager("segmentController");
     this.selectedSegment = null;
     this.selectedSegmentSharing = null;
@@ -222,7 +224,7 @@ export default class Controller {
     this.tableView.clear();
     this.elevationView.hide();
     if (this.segmentHeader) {
-      this.segmentHeader.textContent = "Segments";
+      this.segmentHeader.textContent = this.t("insightsTitle");
     }
     this.mapView.selectSegment(null);
     this.mapView.hideMarker();
@@ -260,19 +262,19 @@ export default class Controller {
     this.segmentSharedMeta.classList.remove("d-none");
     const eyebrow = this.segmentSharedMeta.querySelector(".segments-shared-meta__eyebrow");
     if (eyebrow) {
-      eyebrow.textContent = isSharedSegment ? "Shared Segment" : "Private Segment";
+      eyebrow.textContent = isSharedSegment ? this.t("sharedSegmentEyebrow") : this.t("sharePrivate");
     }
 
     if (isSharedSegment) {
       this.segmentSharedMetaText.textContent = isOwnedByCurrentUser
-        ? "Shared with groups"
-        : `Shared by ${ownerLabel}`;
+        ? this.t("messages.sharedWithGroups")
+        : this.t("messages.sharedBy", { owner: ownerLabel });
       return;
     }
 
     this.segmentSharedMetaText.textContent = isOwnedByCurrentUser
-      ? "Visible only to you"
-      : `Private by ${ownerLabel}`;
+      ? this.t("messages.visibleOnlyToYou")
+      : this.t("messages.privateBy", { owner: ownerLabel });
   }
 
   updateBestEffortsScopeUi() {
@@ -309,7 +311,7 @@ export default class Controller {
       }
 
       if (!response.ok) {
-        throw new Error(`Failed to load groups (${response.status})`);
+        throw new Error(this.t("messages.failedLoadGroups", { status: response.status }));
       }
 
       const result = await response.json();
@@ -378,7 +380,7 @@ export default class Controller {
       }
 
       if (!response.ok) {
-        throw new Error(`Failed to load segment sharing (${response.status})`);
+        throw new Error(this.t("messages.failedLoadSegmentSharing", { status: response.status }));
       }
 
       const result = await response.json();
@@ -394,15 +396,15 @@ export default class Controller {
 
       if (this.shareStatus) {
         this.shareStatus.textContent = data.shareMode === "groups"
-          ? `${(data.groupIds || []).length} group(s) active`
-          : "Private";
+          ? this.t("messages.groupsActive", { count: (data.groupIds || []).length })
+          : this.t("sharePrivate");
       }
       this.updateBestEffortsScopeUi();
     } catch (error) {
       console.error(error);
       this.selectedSegmentSharing = null;
       if (this.shareStatus) {
-        this.shareStatus.textContent = "Could not load sharing";
+        this.shareStatus.textContent = this.t("messages.couldNotLoadSharing");
       }
       this.updateBestEffortsScopeUi();
     }
@@ -449,15 +451,15 @@ export default class Controller {
       this.selectedSegmentSharing = data;
       if (this.shareStatus) {
         this.shareStatus.textContent = data.shareMode === "groups"
-          ? `${(data.groupIds || []).length} group(s) active`
-          : "Private";
+          ? this.t("messages.groupsActive", { count: (data.groupIds || []).length })
+          : this.t("sharePrivate");
       }
       this.updateBestEffortsScopeUi();
 
       this.shareInline?.classList.remove("is-open");
     } catch (error) {
       console.error(error);
-      window.alert(error.message || "Could not save segment sharing.");
+      window.alert(error.message || this.t("messages.couldNotSaveSharing"));
     }
   }
 
@@ -465,12 +467,12 @@ export default class Controller {
     const segment = this.selectedSegment;
     if (!segment) return;
 
-    const label = `${segment.start?.name ?? "Start"} - ${segment.end?.name ?? "End"}`;
+    const label = `${segment.start?.name ?? this.t("messages.start")} - ${segment.end?.name ?? this.t("messages.end")}`;
     const ok = await confirmModal({
-      title: "Delete Segment",
-      message: `Delete this segment?\n\n${label}`,
-      acceptLabel: "Delete Segment",
-      cancelLabel: "Cancel",
+      title: this.t("deleteSegment"),
+      message: this.t("messages.deleteSegmentPrompt", { label }),
+      acceptLabel: this.t("deleteSegment"),
+      cancelLabel: this.t("messages.cancel"),
       acceptClass: "btn-danger"
     });
     if (!ok) return;
@@ -486,7 +488,7 @@ export default class Controller {
       this.clearSelectedSegment();
     } catch (err) {
       console.error(err);
-      window.alert("Failed to delete segment");
+      window.alert(this.t("messages.failedDeleteSegment"));
     }
   }
 
