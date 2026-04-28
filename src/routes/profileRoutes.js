@@ -28,6 +28,14 @@ router.put("/", authMiddleware, async (req, res, next) => {
       req.session.user.language = data.language || req.session.user.language;
     }
 
+    const normalizedLanguage = String(data.language || "en").toLowerCase() === "de" ? "de" : "en";
+    res.cookie("lang", normalizedLanguage, {
+      httpOnly: false,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 1000 * 60 * 60 * 24 * 365
+    });
+
     res.json({ data });
   } catch (err) {
     next(err);

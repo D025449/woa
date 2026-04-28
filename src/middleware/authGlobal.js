@@ -64,6 +64,15 @@ export default async function authGlobal(req, res, next) {
 
     const dbuser = await UserDBService.ensureUserExists(user);
     const language = await UserDBService.getUserLanguage(dbuser.id);
+    const normalizedLanguage = String(language || "en").toLowerCase() === "de" ? "de" : "en";
+
+    // Keep locale cookie aligned with the authenticated user's preference.
+    res.cookie("lang", normalizedLanguage, {
+      httpOnly: false,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 1000 * 60 * 60 * 24 * 365
+    });
 
     // Session immer auf den gerade verifizierten Token synchronisieren.
     req.session.user_id = dbuser.id;
@@ -72,7 +81,7 @@ export default async function authGlobal(req, res, next) {
       sub: user.sub,
       email: dbuser.email,
       display_name: dbuser.display_name,
-      language
+      language: normalizedLanguage
     };
 
     // 🔥 5. Request setzen
@@ -82,7 +91,7 @@ export default async function authGlobal(req, res, next) {
       email: dbuser.email,
       username: user.username,
       display_name: dbuser.display_name,
-      language
+      language: normalizedLanguage
     };
 
     res.locals.user = req.user;
