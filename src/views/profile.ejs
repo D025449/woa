@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Profil</title>
+    <title><%= t("profile.title") %></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body.profile-page {
@@ -266,7 +266,7 @@
 <body class="profile-page">
 
     <%- include("partials/app-topbar", {
-        title: "Profil",
+        title: t("profile.topbarTitle"),
         currentPage: "profile",
         userInfo: userInfo,
         showDashboardNewLink: true,
@@ -280,93 +280,136 @@
         <div class="profile-shell">
             <section class="profile-hero">
                 <div>
-                    <p class="profile-kicker">Account Workspace</p>
-                    <h1 class="profile-title">Profil</h1>
+                    <p class="profile-kicker"><%= t("profile.heroKicker") %></p>
+                    <h1 class="profile-title"><%= t("profile.heroTitle") %></h1>
                     <p class="profile-subtitle">
-                        Pflege deine Stammdaten für Training und Zusammenarbeit. Die E-Mail bleibt bewusst read-only.
+                        <%= t("profile.heroSubtitle") %>
                     </p>
                 </div>
                 <div class="profile-chip-group">
                     <span class="profile-chip">
-                        <span class="profile-chip-label">User</span>
-                        <span><%= ((typeof userInfo !== "undefined" && userInfo) ? (userInfo.display_name || userInfo.email) : "Unknown") %></span>
+                        <span class="profile-chip-label"><%= t("profile.chipUser") %></span>
+                        <span><%= ((typeof userInfo !== "undefined" && userInfo) ? (userInfo.display_name || userInfo.email) : t("groups.hero.unknownUser")) %></span>
                     </span>
                     <span class="profile-chip">
-                        <span class="profile-chip-label">Scope</span>
-                        <span>Account · Training</span>
+                        <span class="profile-chip-label"><%= t("profile.chipScope") %></span>
+                        <span><%= t("profile.chipScopeValue") %></span>
                     </span>
                 </div>
             </section>
 
             <section class="profile-surface">
                 <div class="profile-section-header">
-                    <h2 class="profile-section-title">Stammdaten</h2>
-                    <p class="profile-section-copy">Name, Kontakt und Trainingsprofil an einer Stelle.</p>
+                    <h2 class="profile-section-title"><%= t("profile.sectionProfileTitle") %></h2>
+                    <p class="profile-section-copy"><%= t("profile.sectionProfileCopy") %></p>
                 </div>
 
                 <form id="profile-form" class="profile-form">
                     <div id="profile-error" class="alert alert-danger d-none" role="alert"></div>
-                    <div id="profile-success" class="alert alert-success d-none" role="alert">Profil gespeichert.</div>
+                    <div id="profile-success" class="alert alert-success d-none" role="alert"><%= t("profile.saved") %></div>
 
                     <div class="row g-3">
                         <div class="col-md-6">
-                            <label class="form-label" for="profile-display-name">Anzeigename</label>
+                            <label class="form-label" for="profile-display-name"><%= t("profile.displayName") %></label>
                             <input class="form-control" id="profile-display-name" name="displayName" maxlength="100">
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label" for="profile-email">E-Mail</label>
+                            <label class="form-label" for="profile-email"><%= t("profile.email") %></label>
                             <input class="form-control" id="profile-email" name="email" readonly>
                         </div>
 
                         <div class="col-md-4">
-                            <label class="form-label" for="profile-phone">Telefon</label>
+                            <label class="form-label" for="profile-phone"><%= t("profile.phone") %></label>
                             <input class="form-control" id="profile-phone" name="phone" maxlength="50">
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label" for="profile-dob">Geburtsdatum</label>
+                            <label class="form-label" for="profile-dob"><%= t("profile.dob") %></label>
                             <input type="date" class="form-control" id="profile-dob" name="dateOfBirth">
                         </div>
                         <div class="col-md-2">
-                            <label class="form-label" for="profile-weight">Gewicht (kg)</label>
+                            <label class="form-label" for="profile-weight"><%= t("profile.weight") %></label>
                             <input type="number" step="0.1" min="0" class="form-control" id="profile-weight" name="weightKg">
                         </div>
                         <div class="col-md-2">
-                            <label class="form-label" for="profile-height">Größe (cm)</label>
+                            <label class="form-label" for="profile-height"><%= t("profile.height") %></label>
                             <input type="number" step="0.1" min="0" class="form-control" id="profile-height" name="heightCm">
                         </div>
 
                         <div class="col-12">
-                            <label class="form-label" for="profile-address1">Adresse</label>
+                            <label class="form-label" for="profile-address1"><%= t("profile.address1") %></label>
                             <input class="form-control" id="profile-address1" name="addressLine1" maxlength="255">
                         </div>
                         <div class="col-12">
-                            <label class="form-label" for="profile-address2">Adresszusatz</label>
+                            <label class="form-label" for="profile-address2"><%= t("profile.address2") %></label>
                             <input class="form-control" id="profile-address2" name="addressLine2" maxlength="255">
                         </div>
                         <div class="col-md-3">
-                            <label class="form-label" for="profile-postal">PLZ</label>
+                            <label class="form-label" for="profile-postal"><%= t("profile.postalCode") %></label>
                             <input class="form-control" id="profile-postal" name="postalCode" maxlength="20">
                         </div>
                         <div class="col-md-5">
-                            <label class="form-label" for="profile-city">Ort</label>
+                            <label class="form-label" for="profile-city"><%= t("profile.city") %></label>
                             <input class="form-control" id="profile-city" name="city" maxlength="120">
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label" for="profile-country">Land</label>
+                            <label class="form-label" for="profile-country"><%= t("profile.country") %></label>
                             <input class="form-control" id="profile-country" name="country" maxlength="120">
                         </div>
                     </div>
 
                     <div class="d-flex justify-content-end mt-4">
-                        <button id="profile-submit" type="submit" class="btn btn-dark">Speichern</button>
+                        <button id="profile-submit" type="submit" class="btn btn-dark"><%= t("profile.save") %></button>
                     </div>
                 </form>
             </section>
 
             <section class="profile-surface">
                 <div class="profile-section-header">
-                    <h2 class="profile-section-title">Account Upgrade</h2>
-                    <p class="profile-section-copy">Migrate your account to Plus, Pro oder Premium via PayPal Checkout.</p>
+                    <h2 class="profile-section-title">Preferences</h2>
+                    <p class="profile-section-copy">Language, units, and default workout scope.</p>
+                </div>
+                <form id="profile-form-preferences" class="profile-form">
+                    <div class="row g-3">
+                        <div class="col-md-3">
+                            <label class="form-label" for="profile-language">Language</label>
+                            <select class="form-control" id="profile-language" name="language">
+                                <option value="en">English</option>
+                                <option value="de">Deutsch</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="profile-distance-unit">Distance unit</label>
+                            <select class="form-control" id="profile-distance-unit" name="distanceUnit">
+                                <option value="km">Kilometers (km)</option>
+                                <option value="mi">Miles (mi)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="profile-speed-unit">Speed unit</label>
+                            <select class="form-control" id="profile-speed-unit" name="speedUnit">
+                                <option value="kmh">km/h</option>
+                                <option value="mph">mph</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label" for="profile-default-workout-scope">Default workouts filter</label>
+                            <select class="form-control" id="profile-default-workout-scope" name="defaultWorkoutScope">
+                                <option value="mine">Mine</option>
+                                <option value="shared">Shared</option>
+                                <option value="all">All</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-end mt-4">
+                        <button id="profile-save-preferences" type="button" class="btn btn-dark">Save preferences</button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="profile-surface">
+                <div class="profile-section-header">
+                    <h2 class="profile-section-title"><%= t("profile.sectionUpgradeTitle") %></h2>
+                    <p class="profile-section-copy"><%= t("profile.sectionUpgradeCopy") %></p>
                 </div>
 
                 <div class="profile-form">

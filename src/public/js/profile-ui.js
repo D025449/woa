@@ -8,8 +8,10 @@ class ProfileUI {
     this.paymentsInfoEl = document.getElementById("profile-payments-info");
     this.membershipSummaryEl = document.getElementById("profile-membership-summary");
     this.plansGridEl = document.getElementById("profile-plans-grid");
+    this.preferencesSaveButton = document.getElementById("profile-save-preferences");
     this.plans = [];
     this.membership = null;
+    this.currentLanguage = "en";
 
     this.registerEvents();
     this.boot();
@@ -18,6 +20,10 @@ class ProfileUI {
   registerEvents() {
     this.form?.addEventListener("submit", async (event) => {
       event.preventDefault();
+      await this.save();
+    });
+
+    this.preferencesSaveButton?.addEventListener("click", async () => {
       await this.save();
     });
   }
@@ -29,7 +35,7 @@ class ProfileUI {
   }
 
   async load() {
-    this.setLoading(true, "Lade ...");
+    this.setLoading(true, "Loading ...");
     this.hideProfileMessages();
 
     try {
@@ -52,9 +58,9 @@ class ProfileUI {
       this.fillForm(result.data || {});
     } catch (err) {
       console.error(err);
-      this.showError(err.message || "Profil konnte nicht geladen werden.");
+      this.showError(err.message || "Could not load profile.");
     } finally {
-      this.setLoading(false, "Speichern");
+      this.setLoading(false, "Save");
     }
   }
 
@@ -77,6 +83,20 @@ class ProfileUI {
     setValue("postalCode", data.postalCode);
     setValue("city", data.city);
     setValue("country", data.country);
+
+    const setSelect = (id, value, fallback = "") => {
+      const element = document.getElementById(id);
+      if (element) {
+        element.value = value || fallback;
+      }
+    };
+
+    setSelect("profile-language", data.language, "en");
+    setSelect("profile-distance-unit", data.distanceUnit, "km");
+    setSelect("profile-speed-unit", data.speedUnit, "kmh");
+    setSelect("profile-default-workout-scope", data.defaultWorkoutScope, "mine");
+
+    this.currentLanguage = String(data.language || "en").toLowerCase();
   }
 
   async save() {
@@ -84,7 +104,7 @@ class ProfileUI {
       return;
     }
 
-    this.setLoading(true, "Speichere ...");
+    this.setLoading(true, "Saving ...");
     this.hideProfileMessages();
 
     const formData = new FormData(this.form);
@@ -98,8 +118,13 @@ class ProfileUI {
       addressLine2: String(formData.get("addressLine2") || "").trim(),
       postalCode: String(formData.get("postalCode") || "").trim(),
       city: String(formData.get("city") || "").trim(),
-      country: String(formData.get("country") || "").trim()
+      country: String(formData.get("country") || "").trim(),
+      language: String(document.getElementById("profile-language")?.value || "en").trim(),
+      distanceUnit: String(document.getElementById("profile-distance-unit")?.value || "km").trim(),
+      speedUnit: String(document.getElementById("profile-speed-unit")?.value || "kmh").trim(),
+      defaultWorkoutScope: String(document.getElementById("profile-default-workout-scope")?.value || "mine").trim()
     };
+    const previousLanguage = this.currentLanguage;
 
     try {
       const response = await fetch("/api/profile", {
@@ -123,12 +148,20 @@ class ProfileUI {
       }
 
       this.fillForm(result.data || {});
-      this.showSuccess("Profil gespeichert.");
+      this.showSuccess("Profile saved.");
+
+      const nextLanguage = String(result.data?.language || payload.language || "en").toLowerCase();
+      if (nextLanguage !== previousLanguage) {
+        this.showSuccess("Language updated. Reloading ...");
+        setTimeout(() => {
+          window.location.reload();
+        }, 250);
+      }
     } catch (err) {
       console.error(err);
-      this.showError(err.message || "Profil konnte nicht gespeichert werden.");
+      this.showError(err.message || "Could not save profile.");
     } finally {
-      this.setLoading(false, "Speichern");
+      this.setLoading(false, "Save");
     }
   }
 
@@ -194,11 +227,11 @@ class ProfileUI {
     }
 
     if (!this.membership?.plan?.name) {
-      this.membershipSummaryEl.textContent = "Aktuell kein aktives Paid-Abo.";
+      this.membershipSummaryEl.textContent = "No active paid subscription.";
       return;
     }
 
-    this.membershipSummaryEl.textContent = `Aktueller Plan: ${this.membership.plan.name} (${this.membership.plan.price.toFixed(2)} ${this.membership.plan.currency})`;
+    this.membershipSummaryEl.textContent = `Current plan: ${this.membership.plan.name} (${this.membership.plan.price.toFixed(2)} ${this.membership.plan.currency})`;
   }
 
   async loadPlans() {
@@ -218,7 +251,7 @@ class ProfileUI {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(result.error || `Plans konnten nicht geladen werden (${response.status})`);
+        throw new Error(result.error || `Could not load plans (${response.status})`);
       }
 
       this.plans = result.data?.plans || [];
@@ -227,7 +260,7 @@ class ProfileUI {
       this.updateMembershipSummary();
     } catch (err) {
       console.error(err);
-      this.showPaymentsError(err.message || "Plans konnten nicht geladen werden.");
+      this.showPaymentsError(err.message || "Could not load plans.");
       this.plans = [];
       this.renderPlans();
       this.updateMembershipSummary();
@@ -240,7 +273,7 @@ class ProfileUI {
     }
 
     if (!Array.isArray(this.plans) || this.plans.length === 0) {
-      this.plansGridEl.innerHTML = "<div class=\"text-muted\">Keine Plans verfügbar.</div>";
+      this.plansGridEl.innerHTML = "<div class=\"text-muted\">No plans available.</div>";
       return;
     }
 
@@ -261,7 +294,7 @@ class ProfileUI {
               data-action="upgrade-plan"
               data-plan-code="${plan.code}"
               ${isCurrent ? "disabled" : ""}>
-              ${isCurrent ? "Aktiv" : "Mit PayPal upgraden"}
+              ${isCurrent ? "Active" : "Upgrade with PayPal"}
             </button>
           </div>
         </article>
@@ -284,7 +317,7 @@ class ProfileUI {
 
     const originalLabel = button.textContent;
     button.disabled = true;
-    button.textContent = "Starte ...";
+    button.textContent = "Starting ...";
 
     try {
       const response = await fetch("/api/payments/checkout/order", {
@@ -304,18 +337,18 @@ class ProfileUI {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(result.error || `Checkout konnte nicht gestartet werden (${response.status})`);
+        throw new Error(result.error || `Could not start checkout (${response.status})`);
       }
 
       const approvalUrl = result?.data?.approvalUrl;
       if (!approvalUrl) {
-        throw new Error("PayPal approvalUrl fehlt.");
+        throw new Error("Missing PayPal approvalUrl.");
       }
 
       window.location.href = approvalUrl;
     } catch (err) {
       console.error(err);
-      this.showPaymentsError(err.message || "PayPal Checkout konnte nicht gestartet werden.");
+      this.showPaymentsError(err.message || "Could not start PayPal checkout.");
       button.disabled = false;
       button.textContent = originalLabel;
     }
@@ -331,13 +364,13 @@ class ProfileUI {
     }
 
     if (paymentState === "cancel") {
-      this.showPaymentsInfo("Checkout wurde abgebrochen.");
+      this.showPaymentsInfo("Checkout was canceled.");
       this.stripPaymentQueryParams();
       return;
     }
 
     if (paymentState !== "success" || !providerOrderId) {
-      this.showPaymentsError("Unvollständige PayPal-Rückkehrparameter.");
+      this.showPaymentsError("Incomplete PayPal return parameters.");
       this.stripPaymentQueryParams();
       return;
     }
@@ -355,13 +388,13 @@ class ProfileUI {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(result.error || `Capture fehlgeschlagen (${response.status})`);
+        throw new Error(result.error || `Capture failed (${response.status})`);
       }
 
-      this.showPaymentsInfo("Zahlung erfolgreich verarbeitet.");
+      this.showPaymentsInfo("Payment processed successfully.");
     } catch (err) {
       console.error(err);
-      this.showPaymentsError(err.message || "Zahlung konnte nicht bestätigt werden.");
+      this.showPaymentsError(err.message || "Could not confirm payment.");
     } finally {
       this.stripPaymentQueryParams();
     }

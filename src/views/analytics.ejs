@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Workout Analytics</title>
+    <title><%= t("analyticsPage.title") %></title>
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
@@ -301,7 +301,7 @@
     <% if (isAuthenticated) { %>
 
         <%- include("partials/app-topbar", {
-            title: "Workout Analysis",
+            title: t("analyticsPage.topbarTitle"),
             currentPage: "analytics",
             userInfo,
             showDashboardNewLink: true
@@ -312,26 +312,25 @@
 
                 <section class="analytics-hero">
                     <div>
-                        <p class="analytics-kicker">Training Analytics Console</p>
-                        <h1 class="analytics-title">Workout Analysis</h1>
+                        <p class="analytics-kicker"><%= t("analyticsPage.kicker") %></p>
+                        <h1 class="analytics-title"><%= t("analyticsPage.mainTitle") %></h1>
                         <p class="analytics-subtitle">
-                            Beobachte Trainingslast, FTP-Entwicklung und Critical-Power-Trends in einer ruhigen,
-                            datengetriebenen Analyseoberfläche mit direktem Drill-down in Workout und Karte.
+                            <%= t("analyticsPage.subtitle") %>
                         </p>
                     </div>
 
                     <div class="analytics-hero-meta">
                         <span class="analytics-chip">
-                            <span class="analytics-chip-label">User</span>
-                            <span><%= ((typeof userInfo !== "undefined" && userInfo) ? (userInfo.display_name || userInfo.email) : "Unknown") %></span>
+                            <span class="analytics-chip-label"><%= t("analyticsPage.chipUser") %></span>
+                            <span><%= ((typeof userInfo !== "undefined" && userInfo) ? (userInfo.display_name || userInfo.email) : t("analyticsPage.chipUnknownUser")) %></span>
                         </span>
                         <span class="analytics-chip">
-                            <span class="analytics-chip-label">Focus</span>
-                            <span>Trend · Interpretation · Drill-down</span>
+                            <span class="analytics-chip-label"><%= t("analyticsPage.chipFocus") %></span>
+                            <span><%= t("analyticsPage.chipFocusValue") %></span>
                         </span>
                         <span class="analytics-chip">
-                            <span class="analytics-chip-label">Workspace</span>
-                            <span>Analytics-first Desktop View</span>
+                            <span class="analytics-chip-label"><%= t("analyticsPage.chipWorkspace") %></span>
+                            <span><%= t("analyticsPage.chipWorkspaceValue") %></span>
                         </span>
                     </div>
                 </section>
@@ -340,10 +339,10 @@
                     <article class="analytics-surface">
                         <div class="analytics-section-header">
                             <div>
-                                <span class="analytics-eyebrow">Load Model</span>
-                                <h2 class="analytics-section-title">CTL-ATL-TSB Analytics</h2>
+                                <span class="analytics-eyebrow"><%= t("analyticsPage.loadModelEyebrow") %></span>
+                                <h2 class="analytics-section-title"><%= t("analyticsPage.loadModelTitle") %></h2>
                                 <p class="analytics-section-copy">
-                                    Tages- und Aggregationssicht auf Trainingslast, Frische und Ermüdung.
+                                    <%= t("analyticsPage.loadModelCopy") %>
                                 </p>
                             </div>
 
@@ -367,10 +366,10 @@
                     <article class="analytics-surface">
                         <div class="analytics-section-header">
                             <div>
-                                <span class="analytics-eyebrow">Threshold Trend</span>
-                                <h2 class="analytics-section-title">FTP Analytics</h2>
+                                <span class="analytics-eyebrow"><%= t("analyticsPage.thresholdEyebrow") %></span>
+                                <h2 class="analytics-section-title"><%= t("analyticsPage.thresholdTitle") %></h2>
                                 <p class="analytics-section-copy">
-                                    Entwicklung der funktionalen Schwellenleistung über längere Zeiträume.
+                                    <%= t("analyticsPage.thresholdCopy") %>
                                 </p>
                             </div>
 
@@ -397,10 +396,10 @@
                     <article class="analytics-surface">
                         <div class="analytics-section-header">
                             <div>
-                                <span class="analytics-eyebrow">Power Curve</span>
-                                <h2 class="analytics-section-title">Critical Power Analytics</h2>
+                                <span class="analytics-eyebrow"><%= t("analyticsPage.powerCurveEyebrow") %></span>
+                                <h2 class="analytics-section-title"><%= t("analyticsPage.powerCurveTitle") %></h2>
                                 <p class="analytics-section-copy">
-                                    Vergleich von Leistungsprofilen und Zeitreihen über verschiedene Aggregationen.
+                                    <%= t("analyticsPage.powerCurveCopy") %>
                                 </p>
                             </div>
 
@@ -429,10 +428,10 @@
                     <article class="analytics-surface">
                         <div class="analytics-section-header">
                             <div>
-                                <span class="analytics-eyebrow">Workout Context</span>
-                                <h2 class="analytics-section-title">Workout Data</h2>
+                                <span class="analytics-eyebrow"><%= t("analyticsPage.workoutContextEyebrow") %></span>
+                                <h2 class="analytics-section-title"><%= t("analyticsPage.workoutContextTitle") %></h2>
                                 <p class="analytics-section-copy">
-                                    Drill-down in das ausgewählte Workout, sobald ein Analysepunkt angeklickt wird.
+                                    <%= t("analyticsPage.workoutContextCopy") %>
                                 </p>
                             </div>
                         </div>
@@ -445,10 +444,10 @@
                     <aside class="analytics-surface">
                         <div class="analytics-section-header">
                             <div>
-                                <span class="analytics-eyebrow">Spatial Context</span>
-                                <h2 class="analytics-section-title">Route Map</h2>
+                                <span class="analytics-eyebrow"><%= t("analyticsPage.spatialEyebrow") %></span>
+                                <h2 class="analytics-section-title"><%= t("analyticsPage.spatialTitle") %></h2>
                                 <p class="analytics-section-copy">
-                                    Kartenansicht als räumliche Ergänzung zum gewählten Workout aus der Analyse.
+                                    <%= t("analyticsPage.spatialCopy") %>
                                 </p>
                             </div>
                         </div>
@@ -467,10 +466,10 @@
 
             <div class="container py-5 text-center">
 
-                <h3 class="mb-4">Please log in</h3>
+                <h3 class="mb-4"><%= t("common.auth.pleaseSignIn") %></h3>
 
                 <a class="btn btn-primary" href="/login">
-                    Login
+                    <%= t("analyticsPage.signIn") %>
                 </a>
 
             </div>

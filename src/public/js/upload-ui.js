@@ -1,7 +1,12 @@
+import { createTranslator } from "./i18n.js";
+
 export function createUploadUI() {
+    const t = createTranslator("upload");
     const elements = {
         form: document.getElementById('uploadForm'),
         fileInput: document.getElementById('file'),
+        filePickerButton: document.getElementById('filePickerButton'),
+        filePickerLabel: document.getElementById('filePickerLabel'),
         shareModeInputs: Array.from(document.querySelectorAll('input[name="shareMode"]')),
         groupSharePanel: document.getElementById('groupSharePanel'),
         groupShareHint: document.getElementById('groupShareHint'),
@@ -86,13 +91,13 @@ export function createUploadUI() {
         if (!groups.length) {
             elements.groupShareList.innerHTML = '';
             if (elements.groupShareHint) {
-                elements.groupShareHint.textContent = 'Du bist aktuell in keiner Gruppe. Uploads bleiben deshalb privat.';
+                elements.groupShareHint.textContent = t("hintNoGroups");
             }
             return;
         }
 
         if (elements.groupShareHint) {
-            elements.groupShareHint.textContent = 'Diese Freigabe gilt fuer alle Workouts dieses Upload-Jobs.';
+            elements.groupShareHint.textContent = t("hintAppliesToAll");
         }
 
         elements.groupShareList.innerHTML = groups.map((group) => `
@@ -100,7 +105,7 @@ export function createUploadUI() {
                 <input type="checkbox" value="${group.id}">
                 <span>
                     <strong>${group.name}</strong>
-                    <small>${group.role || 'Member'} · ${group.member_count || 0} Mitglieder</small>
+                    <small>${group.role || t("memberFallback")} · ${group.member_count || 0} ${t("membersSuffix")}</small>
                 </span>
             </label>
         `).join('');
@@ -119,7 +124,37 @@ export function createUploadUI() {
         input.addEventListener('change', syncSharePanel);
     });
 
+    function updateFilePickerLabel() {
+        if (!elements.filePickerLabel || !elements.fileInput) {
+            return;
+        }
+
+        const fileCount = elements.fileInput.files?.length || 0;
+        if (fileCount === 0) {
+            elements.filePickerLabel.textContent = t("noFilesSelected");
+            return;
+        }
+
+        if (fileCount === 1) {
+            elements.filePickerLabel.textContent = elements.fileInput.files[0].name;
+            return;
+        }
+
+        elements.filePickerLabel.textContent = t("filesSelected", { count: fileCount });
+    }
+
+    if (elements.filePickerButton && elements.fileInput) {
+        elements.filePickerButton.addEventListener('click', () => {
+            elements.fileInput.click();
+        });
+    }
+
+    if (elements.fileInput) {
+        elements.fileInput.addEventListener('change', updateFilePickerLabel);
+    }
+
     syncSharePanel();
+    updateFilePickerLabel();
 
     return {
         elements,

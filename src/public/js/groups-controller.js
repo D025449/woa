@@ -6,7 +6,9 @@ import ActivityFeedController from "./activity-feed-controller.js";
 
 export default class GroupsController {
 
-  constructor() {
+  constructor({ t = (key) => key, locale = "en-US" } = {}) {
+    this.t = t;
+    this.locale = locale;
     this.uiState = new UIStateManager("groupsController");
     this.groupsFilter = this.uiState.get("groupsFilter", "all");
     this.createButton = document.getElementById("groups-create-button");
@@ -85,7 +87,7 @@ export default class GroupsController {
       onDeleteGroup: (group) => {
         this.openDeleteModal(group);
       }
-    });
+    }, this.t);
     this.groupInvitesView = new GroupInvitesView("#group-invites-list", {
       onAcceptInvite: async (invite) => {
         await this.respondToInvite(invite, "accept");
@@ -93,7 +95,7 @@ export default class GroupsController {
       onDeclineInvite: async (invite) => {
         await this.respondToInvite(invite, "decline");
       }
-    });
+    }, this.t);
     this.groupSentInvitesView = new GroupSentInvitesView("#group-sent-invites-list", {
       onRevokeInvite: async (invite) => {
         await this.revokeInvite(invite);
@@ -101,11 +103,13 @@ export default class GroupsController {
       onDismissSentInvite: async (invite) => {
         await this.dismissSentInvite(invite);
       }
-    });
+    }, this.t);
     this.activityFeedController = new ActivityFeedController({
       namespace: "groupsActivityFeed",
       idPrefix: "group",
-      listSelector: "#group-feed-list"
+      listSelector: "#group-feed-list",
+      t: this.t,
+      locale: this.locale
     });
   }
 
@@ -172,7 +176,7 @@ export default class GroupsController {
     }
 
     if (this.publishContextElement) {
-      this.publishContextElement.textContent = `Inhalte fuer ${group.name} veroeffentlichen`;
+      this.publishContextElement.textContent = this.t("messages.publishContext", { group: group.name });
     }
 
     this.updatePublishPresetUi();
@@ -218,14 +222,14 @@ export default class GroupsController {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(result.error || `Failed to publish content (${response.status})`);
+        throw new Error(result.error || this.t("messages.failedPublishContent", { status: response.status }));
       }
 
       this.publishModal?.hide();
       await this.boot();
     } catch (err) {
       console.error(err);
-      this.showPublishError(err.message || "Inhalte konnten nicht veroeffentlicht werden.");
+      this.showPublishError(err.message || this.t("messages.couldNotPublishContent"));
     } finally {
       this.setPublishSubmitting(false);
     }
@@ -238,8 +242,8 @@ export default class GroupsController {
 
     this.publishSubmitButton.disabled = isSubmitting;
     this.publishSubmitButton.textContent = isSubmitting
-      ? "Veröffentliche ..."
-      : "Veröffentlichen";
+      ? this.t("buttons.publishing")
+      : this.t("buttons.publish");
   }
 
   showPublishError(message) {
@@ -302,7 +306,7 @@ export default class GroupsController {
     }
 
     if (!response.ok) {
-      throw new Error(`Failed to load groups (${response.status})`);
+      throw new Error(this.t("messages.failedLoadGroups", { status: response.status }));
     }
 
     const result = await response.json();
@@ -341,7 +345,7 @@ export default class GroupsController {
     }
 
     if (!response.ok) {
-      throw new Error(`Failed to load invites (${response.status})`);
+      throw new Error(this.t("messages.failedLoadInvites", { status: response.status }));
     }
 
     const result = await response.json();
@@ -360,7 +364,7 @@ export default class GroupsController {
     }
 
     if (!response.ok) {
-      throw new Error(`Failed to load sent invites (${response.status})`);
+      throw new Error(this.t("messages.failedLoadSentInvites", { status: response.status }));
     }
 
     const result = await response.json();
@@ -396,14 +400,14 @@ export default class GroupsController {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(result.error || `Failed to create group (${response.status})`);
+        throw new Error(result.error || this.t("messages.failedCreateGroup", { status: response.status }));
       }
 
       this.createModal?.hide();
       await this.boot();
     } catch (err) {
       console.error(err);
-      this.showCreateError(err.message || "Group konnte nicht erstellt werden.");
+      this.showCreateError(err.message || this.t("messages.couldNotCreateGroup"));
     } finally {
       this.setCreateSubmitting(false);
     }
@@ -416,8 +420,8 @@ export default class GroupsController {
 
     this.createSubmitButton.disabled = isSubmitting;
     this.createSubmitButton.textContent = isSubmitting
-      ? "Erstelle ..."
-      : "Gruppe erstellen";
+      ? this.t("buttons.creating")
+      : this.t("buttons.createGroup");
   }
 
   showCreateError(message) {
@@ -481,7 +485,7 @@ export default class GroupsController {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(result.error || `Failed to update group (${response.status})`);
+        throw new Error(result.error || this.t("messages.failedUpdateGroup", { status: response.status }));
       }
 
       this.editModal?.hide();
@@ -489,7 +493,7 @@ export default class GroupsController {
       await this.boot();
     } catch (err) {
       console.error(err);
-      this.showEditError(err.message || "Gruppe konnte nicht aktualisiert werden.");
+      this.showEditError(err.message || this.t("messages.couldNotUpdateGroup"));
     } finally {
       this.setEditSubmitting(false);
     }
@@ -505,7 +509,7 @@ export default class GroupsController {
     this.inviteForm.elements.groupId.value = String(group.id);
 
     if (this.inviteContextElement) {
-      this.inviteContextElement.textContent = `Gruppe: ${group.name}`;
+      this.inviteContextElement.textContent = this.t("messages.inviteContext", { group: group.name });
     }
 
     this.inviteModal?.show();
@@ -520,7 +524,7 @@ export default class GroupsController {
     this.hideLeaveError();
 
     if (this.leaveContextElement) {
-      this.leaveContextElement.textContent = `Moechtest du die Gruppe "${group.name}" wirklich verlassen?`;
+      this.leaveContextElement.textContent = this.t("messages.leaveContext", { group: group.name });
     }
 
     this.leaveModal?.show();
@@ -535,7 +539,7 @@ export default class GroupsController {
     this.hideDeleteError();
 
     if (this.deleteContextElement) {
-      this.deleteContextElement.textContent = `Moechtest du die Gruppe "${group.name}" wirklich loeschen? Mitglieder, Einladungen, Feed-Eintraege und Gruppenfreigaben an Workouts werden dabei mit entfernt.`;
+      this.deleteContextElement.textContent = this.t("messages.deleteContext", { group: group.name });
     }
 
     this.deleteModal?.show();
@@ -570,14 +574,14 @@ export default class GroupsController {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(result.error || `Failed to invite user (${response.status})`);
+        throw new Error(result.error || this.t("messages.failedInviteUser", { status: response.status }));
       }
 
       this.inviteModal?.hide();
       await this.boot();
     } catch (err) {
       console.error(err);
-      this.showInviteError(err.message || "Einladung konnte nicht erstellt werden.");
+      this.showInviteError(err.message || this.t("messages.couldNotCreateInvite"));
     } finally {
       this.setInviteSubmitting(false);
     }
@@ -605,7 +609,7 @@ export default class GroupsController {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(result.error || `Failed to leave group (${response.status})`);
+        throw new Error(result.error || this.t("messages.failedLeaveGroup", { status: response.status }));
       }
 
       this.leaveModal?.hide();
@@ -613,7 +617,7 @@ export default class GroupsController {
       await this.boot();
     } catch (err) {
       console.error(err);
-      this.showLeaveError(err.message || "Gruppe konnte nicht verlassen werden.");
+      this.showLeaveError(err.message || this.t("messages.couldNotLeaveGroup"));
     } finally {
       this.setLeaveSubmitting(false);
     }
@@ -641,7 +645,7 @@ export default class GroupsController {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(result.error || `Failed to delete group (${response.status})`);
+        throw new Error(result.error || this.t("messages.failedDeleteGroup", { status: response.status }));
       }
 
       this.deleteModal?.hide();
@@ -649,7 +653,7 @@ export default class GroupsController {
       await this.boot();
     } catch (err) {
       console.error(err);
-      this.showDeleteError(err.message || "Gruppe konnte nicht geloescht werden.");
+      this.showDeleteError(err.message || this.t("messages.couldNotDeleteGroup"));
     } finally {
       this.setDeleteSubmitting(false);
     }
@@ -674,13 +678,13 @@ export default class GroupsController {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(result.error || `Failed to ${action} invite (${response.status})`);
+        throw new Error(result.error || this.t("messages.failedInviteAction", { action, status: response.status }));
       }
 
       await this.boot();
     } catch (err) {
       console.error(err);
-      window.alert(err.message || "Einladungsstatus konnte nicht aktualisiert werden.");
+      window.alert(err.message || this.t("messages.couldNotUpdateInviteStatus"));
     }
   }
 
@@ -703,13 +707,13 @@ export default class GroupsController {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(result.error || `Failed to revoke invite (${response.status})`);
+        throw new Error(result.error || this.t("messages.failedRevokeInvite", { status: response.status }));
       }
 
       await this.boot();
     } catch (err) {
       console.error(err);
-      window.alert(err.message || "Einladung konnte nicht widerrufen werden.");
+      window.alert(err.message || this.t("messages.couldNotRevokeInvite"));
     }
   }
 
@@ -732,13 +736,13 @@ export default class GroupsController {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(result.error || `Failed to dismiss sent invite (${response.status})`);
+        throw new Error(result.error || this.t("messages.failedDismissInvite", { status: response.status }));
       }
 
       await this.boot();
     } catch (err) {
       console.error(err);
-      window.alert(err.message || "Einladung konnte nicht ausgeblendet werden.");
+      window.alert(err.message || this.t("messages.couldNotDismissInvite"));
     }
   }
 
@@ -749,8 +753,8 @@ export default class GroupsController {
 
     this.inviteSubmitButton.disabled = isSubmitting;
     this.inviteSubmitButton.textContent = isSubmitting
-      ? "Sende ..."
-      : "Einladung senden";
+      ? this.t("buttons.sending")
+      : this.t("buttons.sendInvite");
   }
 
   showInviteError(message) {
@@ -778,8 +782,8 @@ export default class GroupsController {
 
     this.editSubmitButton.disabled = isSubmitting;
     this.editSubmitButton.textContent = isSubmitting
-      ? "Speichere ..."
-      : "Änderungen speichern";
+      ? this.t("buttons.saving")
+      : this.t("buttons.saveChanges");
   }
 
   showEditError(message) {
@@ -807,8 +811,8 @@ export default class GroupsController {
 
     this.leaveConfirmButton.disabled = isSubmitting;
     this.leaveConfirmButton.textContent = isSubmitting
-      ? "Verlasse ..."
-      : "Ja, Gruppe verlassen";
+      ? this.t("buttons.leaving")
+      : this.t("buttons.leaveGroupConfirm");
   }
 
   showLeaveError(message) {
@@ -836,8 +840,8 @@ export default class GroupsController {
 
     this.deleteConfirmButton.disabled = isSubmitting;
     this.deleteConfirmButton.textContent = isSubmitting
-      ? "Loesche ..."
-      : "Ja, Gruppe löschen";
+      ? this.t("buttons.deleting")
+      : this.t("buttons.deleteGroupConfirm");
   }
 
   showDeleteError(message) {

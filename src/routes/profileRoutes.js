@@ -21,9 +21,11 @@ router.put("/", authMiddleware, async (req, res, next) => {
     // Keep in-memory request/session user display_name in sync for current session UX.
     if (req.user) {
       req.user.display_name = data.displayName || req.user.display_name;
+      req.user.language = data.language || req.user.language;
     }
     if (req.session?.user) {
       req.session.user.display_name = data.displayName || req.session.user.display_name;
+      req.session.user.language = data.language || req.session.user.language;
     }
 
     res.json({ data });

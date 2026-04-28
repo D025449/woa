@@ -1,11 +1,17 @@
 import ActivityFeedController from "./activity-feed-controller.js";
 import GroupInvitesView from "./group-invites-view.js";
+import { createTranslator, getCurrentLocale } from "./i18n.js";
 
 document.addEventListener("DOMContentLoaded", async () => {
+  const t = createTranslator("groups");
+  const locale = getCurrentLocale();
+
   const controller = new ActivityFeedController({
     namespace: "homeActivityFeed",
     idPrefix: "home",
-    listSelector: "#home-feed-list"
+    listSelector: "#home-feed-list",
+    t,
+    locale
   });
 
   const invitesView = new GroupInvitesView("#home-group-invites-list", {
@@ -15,7 +21,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     onDeclineInvite: async (invite) => {
       await respondToInvite(invite, "decline");
     }
-  });
+  }, t);
 
   async function fetchInvites() {
     const response = await fetch("/collaboration/invites", {
@@ -29,7 +35,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     if (!response.ok) {
-      throw new Error(`Failed to load invites (${response.status})`);
+      throw new Error(t("messages.failedLoadInvites", { status: response.status }));
     }
 
     const result = await response.json();
@@ -54,7 +60,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const result = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(result.error || `Failed to ${action} invite (${response.status})`);
+      throw new Error(result.error || t("messages.failedInviteAction", { action, status: response.status }));
     }
 
     const invites = await fetchInvites();

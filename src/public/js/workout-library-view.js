@@ -402,7 +402,7 @@ export default class WorkoutLibraryView {
       }
     } catch (err) {
       console.error(err);
-      this.shareErrors.set(workoutId, err.message || "Freigabe konnte nicht geladen werden.");
+      this.shareErrors.set(workoutId, err.message || "Could not load sharing.");
     } finally {
       this.loadingShareWorkoutId = null;
       this.render();
@@ -424,7 +424,7 @@ export default class WorkoutLibraryView {
 
     const draft = this.getShareDraft(workoutId);
     if (draft.shareMode === "groups" && (!Array.isArray(draft.groupIds) || draft.groupIds.length === 0)) {
-      this.shareErrors.set(String(workoutId), "Bitte mindestens eine Gruppe auswaehlen.");
+      this.shareErrors.set(String(workoutId), "Please select at least one group.");
       this.render();
       return;
     }
@@ -441,7 +441,7 @@ export default class WorkoutLibraryView {
       this.openShareWorkoutId = null;
     } catch (err) {
       console.error(err);
-      this.shareErrors.set(String(workoutId), err.message || "Freigabe konnte nicht gespeichert werden.");
+      this.shareErrors.set(String(workoutId), err.message || "Could not save sharing.");
     } finally {
       this.savingShareWorkoutId = null;
       this.render();
@@ -483,17 +483,17 @@ export default class WorkoutLibraryView {
             <div class="workout-library-card__meta">${dayLabel}${timeLabel ? ` · ${timeLabel}` : ""}</div>
             ${workout.is_owned ? "" : `
               <div class="workout-library-card__owner">
-                Von ${workout.owner_display_name || workout.owner_email || "anderem User"}
+                By ${workout.owner_display_name || workout.owner_email || "another user"}
               </div>
             `}
           </div>
           <div class="workout-library-card__primary-metrics">
             <div class="workout-library-kpi">
-              <span class="workout-library-kpi__label">Dauer</span>
+              <span class="workout-library-kpi__label">Duration</span>
               <span class="workout-library-kpi__value">${Utils.formatDuration(workout.total_timer_time)}</span>
             </div>
             <div class="workout-library-kpi">
-              <span class="workout-library-kpi__label">Distanz</span>
+              <span class="workout-library-kpi__label">Distance</span>
               <span class="workout-library-kpi__value">${this.formatDistance(workout.total_distance)}</span>
             </div>
             <div class="workout-library-kpi">
@@ -537,10 +537,10 @@ export default class WorkoutLibraryView {
           ${isOwned && isShareOpen ? `
             <div class="workout-share-inline">
               <div class="workout-share-inline__row">
-                <label class="form-label mb-0">Sichtbarkeit</label>
+                <label class="form-label mb-0">Visibility</label>
                 <select class="form-select form-select-sm" style="width: 140px;" data-workout-share-mode="${workout.id}">
-                  <option value="private" ${draft.shareMode === "private" ? "selected" : ""}>Privat</option>
-                  <option value="groups" ${draft.shareMode === "groups" ? "selected" : ""}>Gruppen</option>
+                  <option value="private" ${draft.shareMode === "private" ? "selected" : ""}>Private</option>
+                  <option value="groups" ${draft.shareMode === "groups" ? "selected" : ""}>Groups</option>
                 </select>
               </div>
               ${draft.shareMode === "groups" ? `
@@ -560,14 +560,14 @@ export default class WorkoutLibraryView {
               ` : ""}
               <div class="workout-share-inline__actions">
                 <span class="workout-share-inline__status">
-                  ${isShareLoading ? "Lade aktuelle Freigabe ..." : shareError || ""}
+                  ${isShareLoading ? "Loading sharing ..." : shareError || ""}
                 </span>
                 <button
                   class="btn btn-sm btn-primary"
                   type="button"
                   data-workout-share-save="${workout.id}"
                   ${isShareLoading || isShareSaving ? "disabled" : ""}>
-                  ${isShareSaving ? "Speichert ..." : "Übernehmen"}
+                  ${isShareSaving ? "Saving ..." : "Apply"}
                 </button>
               </div>
             </div>

@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Workout Home</title>
+    <title><%= t("home.title") %></title>
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
@@ -530,61 +530,60 @@
             <div class="home-shell">
                 <section class="home-hero">
                     <div>
-                        <p class="home-kicker">App Home</p>
-                        <h1 class="home-title">Workout Console</h1>
+                        <p class="home-kicker"><%= t("home.auth.heroKicker") %></p>
+                        <h1 class="home-title"><%= t("home.auth.heroTitle") %></h1>
                         <p class="home-subtitle">
-                            Wähle deinen Einstieg in Analyse, Segmente und Upload. Diese Startseite ist bewusst
-                            ein Navigations-Hub und nicht die tiefe Analyseansicht selbst.
+                            <%= t("home.auth.heroSubtitle") %>
                         </p>
                     </div>
 
                     <div class="home-chip-group">
                         <span class="home-chip">
-                            <span class="home-chip-label">User</span>
+                            <span class="home-chip-label"><%= t("home.auth.chipUser") %></span>
                             <span><%= userInfo.display_name || userInfo.email || userInfo.username %></span>
                         </span>
                         <span class="home-chip">
-                            <span class="home-chip-label">Mode</span>
-                            <span>Workspace Hub</span>
+                            <span class="home-chip-label"><%= t("home.auth.chipMode") %></span>
+                            <span><%= t("home.auth.chipModeValue") %></span>
                         </span>
                     </div>
                 </section>
 
                 <section class="home-tile-grid">
                     <a class="home-tile" href="/dashboard-new">
-                        <span class="home-tile__eyebrow">Workout Library</span>
-                        <h2 class="home-tile__title">Workouts</h2>
+                        <span class="home-tile__eyebrow"><%= t("home.tiles.workoutEyebrow") %></span>
+                        <h2 class="home-tile__title"><%= t("home.tiles.workoutTitle") %></h2>
                         <p class="home-tile__copy">
-                            Neue edle Workout-Library mit direktem Zugriff auf Chart und Karte.
+                            <%= t("home.tiles.workoutCopy") %>
                         </p>
-                        <span class="home-tile__cta">Zur Analyseansicht</span>
+                        <span class="home-tile__cta"><%= t("home.tiles.workoutCta") %></span>
                     </a>
 
                     <a class="home-tile" href="/segments">
-                        <span class="home-tile__eyebrow">Map-first Design</span>
-                        <h2 class="home-tile__title">Segments</h2>
+                        <span class="home-tile__eyebrow"><%= t("home.tiles.segmentsEyebrow") %></span>
+                        <h2 class="home-tile__title"><%= t("home.tiles.segmentsTitle") %></h2>
                         <p class="home-tile__copy">
-                            Segmente definieren, vergleichen, Höhenprofile prüfen und Best-Efforts analysieren.
+                            <%= t("home.tiles.segmentsCopy") %>
                         </p>
-                        <span class="home-tile__cta">Zur Segmentansicht</span>
+                        <span class="home-tile__cta"><%= t("home.tiles.segmentsCta") %></span>
                     </a>
 
                     <a class="home-tile" href="/analytics">
-                        <span class="home-tile__eyebrow">Training Trends</span>
-                        <h2 class="home-tile__title">Analytics</h2>
+                        <span class="home-tile__eyebrow"><%= t("home.tiles.analyticsEyebrow") %></span>
+                        <h2 class="home-tile__title"><%= t("home.tiles.analyticsTitle") %></h2>
                         <p class="home-tile__copy">
-                            CTL, ATL, FTP und CP-Verläufe in einer dedizierten Trend-Analyse.
+                            <%= t("home.tiles.analyticsCopy") %>
                         </p>
-                        <span class="home-tile__cta">Zur Analytics-Seite</span>
+                        <span class="home-tile__cta"><%= t("home.tiles.analyticsCta") %></span>
                     </a>
 
                     <a class="home-tile" href="/files/uploadUI">
-                        <span class="home-tile__eyebrow">Import Runner</span>
-                        <h2 class="home-tile__title">Upload</h2>
+                        <span class="home-tile__eyebrow"><%= t("home.tiles.uploadEyebrow") %></span>
+                        <h2 class="home-tile__title"><%= t("home.tiles.uploadTitle") %></h2>
                         <p class="home-tile__copy">
-                            FIT- und ZIP-Dateien hochladen und die Verarbeitung in der Upload-Ansicht verfolgen.
+                            <%= t("home.tiles.uploadCopy") %>
                         </p>
-                        <span class="home-tile__cta">Zum Upload</span>
+                        <span class="home-tile__cta"><%= t("home.tiles.uploadCta") %></span>
                     </a>
                 </section>
 
@@ -598,8 +597,17 @@
                         toolbarClass: "home-section-toolbar",
                         toggleClass: "home-filter-toggle",
                         bodyClass: "home-surface-body",
-                        title: "Aktivität",
-                        copy: "Neue geteilte Workouts und GPS-Segmente aus deinen Gruppen.",
+                        title: t("home.auth.activityTitle"),
+                        copy: t("home.auth.activityCopy"),
+                        feedLabels: {
+                            rangeAria: t("groups.filters.activityRangeAria"),
+                            sourceAria: t("groups.filters.activitySourceAria"),
+                            lastDay: t("groups.filters.lastDay"),
+                            last7Days: t("groups.filters.last7Days"),
+                            all: t("groups.filters.all"),
+                            allUsers: t("groups.filters.allUsers"),
+                            othersOnly: t("groups.filters.othersOnly")
+                        },
                         defaultRange: "7d",
                         defaultActorScope: "all"
                     }) %>
@@ -607,9 +615,9 @@
                     <section class="home-activity-panel">
                         <div class="home-section-header">
                             <div>
-                                <h2 class="home-section-title">Meine Einladungen</h2>
+                                <h2 class="home-section-title"><%= t("home.auth.myInvitesTitle") %></h2>
                                 <p class="home-section-copy">
-                                    Eingehende Gruppen-Einladungen, die du annehmen oder ablehnen kannst.
+                                    <%= t("home.auth.myInvitesCopy") %>
                                 </p>
                             </div>
                         </div>
@@ -623,14 +631,17 @@
         </div>
 
         <%- include("partials/app-footer") %>
+        <script>
+            window.__I18N = <%- JSON.stringify(i18n || { locale: "en", messages: {} }) %>;
+        </script>
         <script type="module" src="/js/home-ui.js"></script>
     <% } else { %>
         <nav class="navbar navbar-dark home-topbar">
             <div class="container-fluid px-3 px-xl-4">
-                <span class="navbar-brand">Workout Dashboard</span>
+                <span class="navbar-brand"><%= t("home.guest.brand") %></span>
                 <div class="d-flex align-items-center gap-2">
-                    <a class="btn btn-outline-light btn-sm" href="/login">Login</a>
-                    <a class="btn btn-light btn-sm" href="/signup">Sign up</a>
+                    <a class="btn btn-outline-light btn-sm" href="/login"><%= t("home.guest.login") %></a>
+                    <a class="btn btn-light btn-sm" href="/signup"><%= t("home.guest.signUp") %></a>
                 </div>
             </div>
         </nav>
@@ -639,56 +650,53 @@
             <div class="home-shell">
                 <section class="home-hero">
                     <div>
-                        <p class="home-kicker">Welcome</p>
-                        <h1 class="home-title">Training Analysis Workspace</h1>
+                        <p class="home-kicker"><%= t("home.guest.heroKicker") %></p>
+                        <h1 class="home-title"><%= t("home.guest.heroTitle") %></h1>
                         <p class="home-subtitle">
-                            Lade Workouts hoch, analysiere Leistung und Segmente und bewege dich zwischen
-                            Karte, Verlauf und Trainingsdaten in einer konsistenten Oberfläche.
+                            <%= t("home.guest.heroSubtitle") %>
                         </p>
                     </div>
 
                     <div class="home-chip-group">
                         <span class="home-chip">
-                            <span class="home-chip-label">Focus</span>
-                            <span>Analyse · Segmente · Upload</span>
+                            <span class="home-chip-label"><%= t("home.guest.chipFocus") %></span>
+                            <span><%= t("home.guest.chipFocusValue") %></span>
                         </span>
                     </div>
                 </section>
 
                 <section class="home-auth-grid">
                     <div class="home-auth-panel">
-                        <p class="home-kicker">Platform</p>
-                        <h2 class="home-title" style="font-size: clamp(1.7rem, 2.2vw, 2.3rem);">Ein echter Einstieg statt Direkt-Redirect</h2>
+                        <p class="home-kicker"><%= t("home.guest.platformKicker") %></p>
+                        <h2 class="home-title" style="font-size: clamp(1.7rem, 2.2vw, 2.3rem);"><%= t("home.guest.platformTitle") %></h2>
                         <p class="home-subtitle" style="max-width:none;">
-                            Wenn du noch nicht angemeldet bist, kommst du jetzt auf eine kleine Startseite statt
-                            sofort auf eine tiefe Analyseansicht. Von hier aus kannst du dich anmelden oder ein
-                            Konto anlegen.
+                            <%= t("home.guest.platformCopy") %>
                         </p>
 
                         <div class="home-auth-features">
                             <div class="home-auth-feature">
-                                <h3 class="home-auth-feature__title">Workout Upload</h3>
-                                <p class="home-auth-feature__copy">FIT- und ZIP-Dateien importieren und die Verarbeitung verfolgen.</p>
+                                <h3 class="home-auth-feature__title"><%= t("home.guest.featureUploadTitle") %></h3>
+                                <p class="home-auth-feature__copy"><%= t("home.guest.featureUploadCopy") %></p>
                             </div>
                             <div class="home-auth-feature">
-                                <h3 class="home-auth-feature__title">Segment Analysis</h3>
-                                <p class="home-auth-feature__copy">Kartenbasierte Segmentdefinition, Höhenprofile und Best-Efforts.</p>
+                                <h3 class="home-auth-feature__title"><%= t("home.guest.featureSegmentsTitle") %></h3>
+                                <p class="home-auth-feature__copy"><%= t("home.guest.featureSegmentsCopy") %></p>
                             </div>
                             <div class="home-auth-feature">
-                                <h3 class="home-auth-feature__title">Analytics</h3>
-                                <p class="home-auth-feature__copy">FTP-, CP- und Load-Trends in einer separaten Analyseansicht.</p>
+                                <h3 class="home-auth-feature__title"><%= t("home.guest.featureAnalyticsTitle") %></h3>
+                                <p class="home-auth-feature__copy"><%= t("home.guest.featureAnalyticsCopy") %></p>
                             </div>
                         </div>
                     </div>
 
                     <div class="home-auth-card">
                         <div class="home-auth-card__header">
-                            <h2 class="home-auth-card__title">Weiter zur App</h2>
+                            <h2 class="home-auth-card__title"><%= t("home.guest.continueTitle") %></h2>
                         </div>
                         <div class="home-auth-card__body">
                             <div class="d-grid gap-3">
-                                <a class="btn btn-primary" href="/login">Login</a>
-                                <a class="btn btn-outline-primary" href="/signup">Create account</a>
+                                <a class="btn btn-primary" href="/login"><%= t("home.guest.login") %></a>
+                                <a class="btn btn-outline-primary" href="/signup"><%= t("home.guest.createAccount") %></a>
                             </div>
                         </div>
                     </div>

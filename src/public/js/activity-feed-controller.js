@@ -7,6 +7,8 @@ export default class ActivityFeedController {
     namespace,
     idPrefix,
     listSelector,
+    t = (key) => key,
+    locale = "en-US",
     defaultRange = "7d",
     defaultActorScope = "all"
   }) {
@@ -19,11 +21,12 @@ export default class ActivityFeedController {
     this.feedFilterAllButton = document.getElementById(`${idPrefix}-feed-filter-all`);
     this.feedActorAllButton = document.getElementById(`${idPrefix}-feed-actor-all`);
     this.feedActorOthersButton = document.getElementById(`${idPrefix}-feed-actor-others`);
+    this.t = t;
     this.feedView = new GroupFeedView(listSelector, {
       onDismissFeedEvent: async (item) => {
         await this.dismissFeedEvent(item);
       }
-    });
+    }, t, locale);
   }
 
   registerEvents() {
@@ -74,7 +77,7 @@ export default class ActivityFeedController {
     }
 
     if (!response.ok) {
-      throw new Error(`Failed to load group feed (${response.status})`);
+      throw new Error(this.t("messages.failedLoadFeed", { status: response.status }));
     }
 
     const result = await response.json();
@@ -139,13 +142,13 @@ export default class ActivityFeedController {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(result.error || `Failed to dismiss feed event (${response.status})`);
+        throw new Error(result.error || this.t("messages.failedDismissFeed", { status: response.status }));
       }
 
       await this.boot();
     } catch (err) {
       console.error(err);
-      window.alert(err.message || "Feed-Eintrag konnte nicht ausgeblendet werden.");
+      window.alert(err.message || this.t("messages.couldNotDismissFeed"));
     }
   }
 }

@@ -147,15 +147,28 @@ router.get("/:id/stream", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Missing workout id" });
     }
 
-    const stream = await WorkoutDBService.getStream(id, uid);
+    const streamRow = await WorkoutDBService.getStream(id, uid);
+    const stream = streamRow.stream;
+    const uploadedAtIso = streamRow.uploaded_at
+      ? new Date(streamRow.uploaded_at).toISOString()
+      : "";
+    const streamSize = Number(streamRow.stream_size || stream?.length || 0);
+    const etag = `"workout-stream-${id}-${uploadedAtIso}-${streamSize}"`;
+
+    const ifNoneMatch = req.headers["if-none-match"];
+    const clientEtags = typeof ifNoneMatch === "string"
+      ? ifNoneMatch.split(",").map((v) => v.trim())
+      : [];
+
+    res.setHeader("ETag", etag);
+    res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
+
+    if (clientEtags.includes(etag) || clientEtags.includes("*")) {
+      return res.status(304).end();
+    }
 
     res.setHeader("Content-Type", "application/octet-stream");
     res.setHeader("Content-Encoding", "br");
-    res.setHeader("Cache-Control", "no-store");
-
-    // optional extra safety
-    res.setHeader("Pragma", "no-cache");
-    res.setHeader("Expires", "0");
     return res.send(stream);
 
   } catch (err) {

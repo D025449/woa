@@ -321,7 +321,7 @@ export default class ChartView {
       ["Herzfrequenz", Number.isFinite(row[2]) ? `${Math.round(row[2])} bpm` : "–"],
       ["Kadenz", Number.isFinite(row[3]) ? `${Math.round(row[3])} rpm` : "–"],
       ["Speed", Number.isFinite(row[4]) ? `${Number(row[4]).toFixed(1)} km/h` : "–"],
-      ["Höhe", Number.isFinite(row[5]) ? `${Math.round(row[5])} m` : "–"]
+      ["Altitude", Number.isFinite(row[5]) ? `${Math.round(row[5])} m` : "–"]
     ];
 
     return `

@@ -23,6 +23,7 @@ import fs from "fs";
 
 import uploadsRouter from './routes/uploads.js';
 import importsRouter from './routes/imports.js';
+import { createI18nMiddleware } from "./i18n/index.js";
 
 let client;
 
@@ -45,6 +46,7 @@ export async function createApp() {
     app.use(express.json());
     app.use(cookieParser());
     app.use(authGlobal);
+    app.use(createI18nMiddleware());
     app.use((req, res, next) => {
         res.locals.currentUrl = req.originalUrl;
         next();

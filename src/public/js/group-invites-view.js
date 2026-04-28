@@ -1,9 +1,10 @@
 export default class GroupInvitesView {
 
-  constructor(containerSelector, handlers = {}) {
+  constructor(containerSelector, handlers = {}, t = (key) => key) {
     this.container = document.querySelector(containerSelector);
     this.handlers = handlers;
     this.items = [];
+    this.t = t;
   }
 
   render(items = []) {
@@ -16,8 +17,8 @@ export default class GroupInvitesView {
     if (!items.length) {
       this.container.innerHTML = `
         <div class="groups-empty">
-          <strong>Keine eingegangenen Einladungen.</strong><br>
-          Hier erscheinen nur Gruppen-Einladungen, die an dich adressiert sind.
+          <strong>${this.t("view.emptyInvitesTitle")}</strong><br>
+          ${this.t("view.emptyInvitesBody")}
         </div>
       `;
       return;
@@ -25,7 +26,7 @@ export default class GroupInvitesView {
 
     this.container.innerHTML = items.map((invite) => `
       <div class="groups-preview-card">
-        <span class="groups-preview-kicker">${invite.status || "Pending"}</span>
+        <span class="groups-preview-kicker">${invite.status || this.t("view.statusPending")}</span>
         <h3 class="groups-preview-title">${invite.group_name}</h3>
         <p class="groups-preview-copy">${invite.message || invite.group_description || ""}</p>
         ${String(invite.status || "").toLowerCase() === "pending" ? `
@@ -35,14 +36,14 @@ export default class GroupInvitesView {
               class="btn btn-success btn-sm"
               data-action="accept-invite"
               data-invite-id="${invite.id}">
-              Accept
+              ${this.t("buttons.accept")}
             </button>
             <button
               type="button"
               class="btn btn-outline-secondary btn-sm"
               data-action="decline-invite"
               data-invite-id="${invite.id}">
-              Decline
+              ${this.t("buttons.decline")}
             </button>
           </div>
         ` : ""}

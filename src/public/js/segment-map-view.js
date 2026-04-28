@@ -171,7 +171,7 @@ export default class MapView {
 
     L.marker([lat, lng])
       .addTo(this.lookupMarkers)
-      .bindPopup(`Punkt ${this.lookupPoints.length}`)
+      .bindPopup(`Point ${this.lookupPoints.length}`)
       .openPopup();
 
 
@@ -192,7 +192,7 @@ export default class MapView {
 
   async handleLookUpClick() {
     if (this.lookupPoints.length !== 2) {
-      console.warn("Bitte zuerst 2 Punkte setzen");
+      console.warn("Please set 2 points first");
       return;
     }
 
@@ -374,7 +374,7 @@ export default class MapView {
       return "–";
     }
 
-    return `${Math.round(startAltitude)} bis ${Math.round(endAltitude)} m`;
+    return `${Math.round(startAltitude)} to ${Math.round(endAltitude)} m`;
   }
 
   formatSegmentAverageGrade(segment) {
@@ -410,15 +410,15 @@ export default class MapView {
           <span style="font-weight:600; color:#0f172a; text-align:right;">${startName}</span>
         </div>
         <div style="display:flex; justify-content:space-between; gap:12px; margin:2px 0;">
-          <span style="color:#64748b;">Ziel</span>
+          <span style="color:#64748b;">End</span>
           <span style="font-weight:600; color:#0f172a; text-align:right;">${endName}</span>
         </div>
         <div style="display:flex; justify-content:space-between; gap:12px; margin:2px 0;">
-          <span style="color:#64748b;">Höhenprofil</span>
+          <span style="color:#64748b;">Altitude range</span>
           <span style="font-weight:600; color:#0f172a; text-align:right;">${altitudeRange}</span>
         </div>
         <div style="display:flex; justify-content:space-between; gap:12px; margin:2px 0;">
-          <span style="color:#64748b;">Ø Steigung</span>
+          <span style="color:#64748b;">Avg. grade</span>
           <span style="font-weight:600; color:#0f172a; text-align:right;">${avgGrade}</span>
         </div>
       </div>
@@ -435,7 +435,7 @@ export default class MapView {
       <div style="min-width: 180px;">
         <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 4px;">${label}</div>
         <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 4px;">${name}</div>
-        <div style="font-size: 12px; color: #475569;">Höhe: <span style="font-weight:600; color:#0f172a;">${altitude}</span></div>
+        <div style="font-size: 12px; color: #475569;">Altitude: <span style="font-weight:600; color:#0f172a;">${altitude}</span></div>
       </div>
     `;
   }

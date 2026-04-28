@@ -1,3 +1,14 @@
+<%
+    const tr = typeof t === "function" ? t : ((key) => key);
+    const labels = feedLabels || {};
+    const rangeAriaLabel = labels.rangeAria || tr("groups.filters.activityRangeAria");
+    const sourceAriaLabel = labels.sourceAria || tr("groups.filters.activitySourceAria");
+    const lastDayLabel = labels.lastDay || tr("groups.filters.lastDay");
+    const last7DaysLabel = labels.last7Days || tr("groups.filters.last7Days");
+    const allLabel = labels.all || tr("groups.filters.all");
+    const allUsersLabel = labels.allUsers || tr("groups.filters.allUsers");
+    const othersOnlyLabel = labels.othersOnly || tr("groups.filters.othersOnly");
+%>
 <section class="<%= surfaceClass %>">
     <div class="<%= headerClass %>">
         <div>
@@ -6,44 +17,44 @@
         </div>
 
         <div class="<%= toolbarClass %>">
-            <div class="<%= toggleClass %>" role="group" aria-label="Aktivitätsfilter">
+            <div class="<%= toggleClass %>" role="group" aria-label="<%= rangeAriaLabel %>">
                 <button
                     class="btn btn-sm btn-outline-secondary <%= defaultRange === '1d' ? 'active' : '' %>"
                     type="button"
                     id="<%= idPrefix %>-feed-filter-1d"
                     data-feed-filter-value="1d">
-                    Letzter Tag
+                    <%= lastDayLabel %>
                 </button>
                 <button
                     class="btn btn-sm btn-outline-secondary <%= defaultRange === '7d' ? 'active' : '' %>"
                     type="button"
                     id="<%= idPrefix %>-feed-filter-7d"
                     data-feed-filter-value="7d">
-                    Letzte 7 Tage
+                    <%= last7DaysLabel %>
                 </button>
                 <button
                     class="btn btn-sm btn-outline-secondary <%= defaultRange === 'all' ? 'active' : '' %>"
                     type="button"
                     id="<%= idPrefix %>-feed-filter-all"
                     data-feed-filter-value="all">
-                    Alle
-                </button>
+                    <%= allLabel %>
+            </button>
             </div>
 
-            <div class="<%= toggleClass %>" role="group" aria-label="Aktivitätsquellen">
+            <div class="<%= toggleClass %>" role="group" aria-label="<%= sourceAriaLabel %>">
                 <button
                     class="btn btn-sm btn-outline-secondary <%= defaultActorScope !== 'others' ? 'active' : '' %>"
                     type="button"
                     id="<%= idPrefix %>-feed-actor-all"
                     data-feed-actor-value="all">
-                    Alle Personen
+                    <%= allUsersLabel %>
                 </button>
                 <button
                     class="btn btn-sm btn-outline-secondary <%= defaultActorScope === 'others' ? 'active' : '' %>"
                     type="button"
                     id="<%= idPrefix %>-feed-actor-others"
                     data-feed-actor-value="others">
-                    Nur andere
+                    <%= othersOnlyLabel %>
                 </button>
             </div>
         </div>

@@ -28,14 +28,14 @@ export function uploadFilesAndStartImport({ files, onProgress, shareMode = "priv
             try {
                 data = xhr.responseText ? JSON.parse(xhr.responseText) : {};
             } catch (_error) {
-                reject(new Error('Antwort vom Server konnte nicht gelesen werden'));
+                reject(new Error('Could not parse server response'));
                 return;
             }
 
             if (xhr.status >= 200 && xhr.status < 300) {
                 resolve(data);
             } else {
-                reject(new Error(data.error || `Upload fehlgeschlagen (${xhr.status})`));
+                reject(new Error(data.error || `Upload failed (${xhr.status})`));
             }
         };
 
@@ -44,7 +44,7 @@ export function uploadFilesAndStartImport({ files, onProgress, shareMode = "priv
         };
 
         xhr.onabort = () => {
-            reject(new Error('Upload wurde abgebrochen'));
+            reject(new Error('Upload was canceled'));
         };
 
         xhr.send(formData);
@@ -64,7 +64,7 @@ export async function fetchShareableGroups() {
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-        throw new Error(data.error || 'Gruppen konnten nicht geladen werden');
+        throw new Error(data.error || 'Could not load groups');
     }
 
     return data.data || [];
@@ -75,7 +75,7 @@ export async function getImportStatus(jobId) {
     const data = await response.json();
 
     if (!response.ok) {
-        throw new Error(data.error || 'Importstatus konnte nicht geladen werden');
+        throw new Error(data.error || 'Could not load import status');
     }
 
     return data;

@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FIT Upload</title>
+    <title><%= t("uploadPage.title") %></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
     <style>
@@ -372,7 +372,7 @@
 <body class="upload-page">
 
     <%- include("partials/app-topbar", {
-        title: "Workout Dashboard",
+        title: t("uploadPage.topbarTitle"),
         currentPage: "upload",
         userInfo,
         showDashboardNewLink: true
@@ -382,26 +382,25 @@
         <div class="upload-shell">
             <section class="upload-hero">
                 <div>
-                    <p class="upload-kicker">Import Workspace</p>
-                    <h1 class="upload-title">FIT Upload</h1>
+                    <p class="upload-kicker"><%= t("uploadPage.heroKicker") %></p>
+                    <h1 class="upload-title"><%= t("uploadPage.heroTitle") %></h1>
                     <p class="upload-subtitle">
-                        Lade einzelne FIT-Dateien oder ganze ZIP-Batches hoch und beobachte Upload und Verarbeitung
-                        in einer klaren, ruhigen Statusansicht.
+                        <%= t("uploadPage.heroSubtitle") %>
                     </p>
                 </div>
 
                 <div class="upload-hero-meta">
                     <span class="upload-chip">
-                        <span class="upload-chip-label">User</span>
-                        <span><%= ((typeof userInfo !== "undefined" && userInfo) ? (userInfo.display_name || userInfo.email) : "Unknown") %></span>
+                        <span class="upload-chip-label"><%= t("uploadPage.chipUser") %></span>
+                        <span><%= ((typeof userInfo !== "undefined" && userInfo) ? (userInfo.display_name || userInfo.email) : t("uploadPage.chipUnknownUser")) %></span>
                     </span>
                     <span class="upload-chip">
-                        <span class="upload-chip-label">Formats</span>
+                        <span class="upload-chip-label"><%= t("uploadPage.chipFormats") %></span>
                         <span>FIT · ZIP</span>
                     </span>
                     <span class="upload-chip">
-                        <span class="upload-chip-label">Flow</span>
-                        <span>Upload · Parse · Persist</span>
+                        <span class="upload-chip-label"><%= t("uploadPage.chipFlow") %></span>
+                        <span><%= t("uploadPage.chipFlowValue") %></span>
                     </span>
                 </div>
             </section>
@@ -409,11 +408,10 @@
             <section class="upload-stage">
                 <div class="upload-stage-header">
                     <div>
-                        <span class="upload-eyebrow">Import Runner</span>
-                        <h2 class="upload-section-title">FIT- oder ZIP-Datei hochladen</h2>
+                        <span class="upload-eyebrow"><%= t("uploadPage.headerEyebrow") %></span>
+                        <h2 class="upload-section-title"><%= t("uploadPage.headerTitle") %></h2>
                         <p class="upload-section-copy">
-                            Wähle einen oder mehrere Uploads aus und starte den Import. Fortschritt und Verarbeitungsstand
-                            werden darunter live angezeigt.
+                            <%= t("uploadPage.headerCopy") %>
                         </p>
                     </div>
                 </div>
@@ -425,27 +423,31 @@
                                 <form id="uploadForm">
                                     <div class="mb-3">
                                         <label for="file" class="form-label">
-                                            FIT- oder ZIP-Dateien auswählen
+                                            <%= t("uploadPage.selectFiles") %>
                                         </label>
-                                        <input type="file" class="form-control" id="file" name="files" multiple required>
+                                        <input type="file" class="d-none" id="file" name="files" multiple required>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <button type="button" id="filePickerButton" class="btn btn-outline-secondary btn-sm"><%= t("uploadPage.chooseFiles") %></button>
+                                            <span id="filePickerLabel" class="small text-muted"><%= t("uploadPage.noFilesSelected") %></span>
+                                        </div>
                                     </div>
 
                                     <div class="upload-share-shell">
                                         <div>
-                                            <label class="form-label">Sichtbarkeit fuer diesen Upload</label>
+                                            <label class="form-label"><%= t("uploadPage.visibilityLabel") %></label>
                                             <div class="upload-share-choice">
                                                 <label class="upload-share-option">
                                                     <input type="radio" name="shareMode" value="private" checked>
                                                     <span>
-                                                        <strong>Privat</strong>
-                                                        <small>Nur du kannst die importierten Workouts sehen.</small>
+                                                        <strong><%= t("uploadPage.private") %></strong>
+                                                        <small><%= t("uploadPage.privateCopy") %></small>
                                                     </span>
                                                 </label>
                                                 <label class="upload-share-option">
                                                     <input type="radio" name="shareMode" value="groups">
                                                     <span>
-                                                        <strong>Mit Gruppen teilen</strong>
-                                                        <small>Alle Workouts dieses Upload-Jobs werden fuer die ausgewaehlten Gruppen freigegeben.</small>
+                                                        <strong><%= t("uploadPage.shareWithGroups") %></strong>
+                                                        <small><%= t("uploadPage.shareWithGroupsCopy") %></small>
                                                     </span>
                                                 </label>
                                             </div>
@@ -453,7 +455,7 @@
 
                                         <div id="groupSharePanel" class="upload-share-panel d-none">
                                             <p id="groupShareHint" class="upload-share-hint">
-                                                Diese Freigabe gilt fuer alle Workouts dieses Upload-Jobs.
+                                                <%= t("uploadPage.groupShareHint") %>
                                             </p>
                                             <div id="groupShareList" class="upload-share-list"></div>
                                         </div>
@@ -461,7 +463,7 @@
 
                                     <div class="d-grid">
                                         <button type="submit" id="submitButton" class="btn btn-primary upload-primary-btn">
-                                            Upload starten
+                                            <%= t("uploadPage.startUpload") %>
                                         </button>
                                     </div>
                                 </form>
@@ -473,13 +475,13 @@
                         <div class="col-lg-6">
                             <div id="statusArea" class="upload-status-panel d-none h-100">
                                 <div class="upload-phase-card">
-                                    <span class="upload-phase-label">Aktuelle Phase</span>
-                                    <div id="phaseText" class="fw-semibold">Bereit</div>
+                                    <span class="upload-phase-label"><%= t("uploadPage.currentPhase") %></span>
+                                    <div id="phaseText" class="fw-semibold"><%= t("uploadPage.ready") %></div>
                                 </div>
 
                                 <div class="upload-progress-block">
                                     <div class="d-flex justify-content-between">
-                                        <span>Upload</span>
+                                        <span><%= t("uploadPage.upload") %></span>
                                         <span id="uploadPercentText">0%</span>
                                     </div>
                                     <div class="progress">
@@ -492,7 +494,7 @@
 
                                 <div class="upload-progress-block">
                                     <div class="d-flex justify-content-between">
-                                        <span>Verarbeitung</span>
+                                        <span><%= t("uploadPage.processing") %></span>
                                         <span id="processingPercentText">0%</span>
                                     </div>
                                     <div class="progress">
@@ -512,6 +514,9 @@
     <%- include("partials/app-footer") %>
     </div>
 
+    <script>
+        window.__I18N = <%- JSON.stringify(i18n || { locale: "en", messages: {} }) %>;
+    </script>
     <script type="module" src="/js/upload.js"></script>
 </body>
 

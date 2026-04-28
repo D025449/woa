@@ -1,8 +1,10 @@
 import { fetchShareableGroups, uploadFilesAndStartImport } from './upload-api.js';
 import { pollImportStatus } from './import-polling.js';
 import { createUploadUI } from './upload-ui.js';
+import { createTranslator } from "./i18n.js";
 
 const ui = createUploadUI();
+const t = createTranslator("upload");
 
 initializeShareGroups();
 ui.elements.form.addEventListener('submit', handleUploadSubmit);
@@ -14,7 +16,7 @@ async function initializeShareGroups() {
         ui.syncSharePanel();
     } catch (error) {
         console.error(error);
-        ui.setError(error.message || 'Gruppen fuer die Freigabe konnten nicht geladen werden.');
+        ui.setError(error.message || t("errorLoadGroups"));
     }
 }
 
@@ -28,7 +30,7 @@ async function handleUploadSubmit(event) {
     ui.clearMessage();
 
     if (files.length === 0) {
-        ui.setError('Bitte mindestens eine Datei auswählen.');
+        ui.setError(t("errorSelectFile"));
         return;
     }
 
@@ -38,13 +40,13 @@ async function handleUploadSubmit(event) {
         const isFit = lowerName.endsWith('.fit');
 
         if (!isZip && !isFit) {
-            ui.setError('Bitte nur .fit oder .zip Dateien hochladen.');
+            ui.setError(t("errorOnlyFitOrZip"));
             return;
         }
     }
 
     if (shareMode === 'groups' && groupIds.length === 0) {
-        ui.setError('Waehle mindestens eine Gruppe aus oder lade privat hoch.');
+        ui.setError(t("errorSelectGroupOrPrivate"));
         return;
     }
 
@@ -52,10 +54,10 @@ async function handleUploadSubmit(event) {
         ui.setLoading(true);
         ui.showStatusArea();
 
-        ui.setPhase('Upload wird vorbereitet');
+        ui.setPhase(t("phasePreparingUpload"));
         ui.setUploadProgress(0, '');
         ui.setProcessingProgress(0, '');
-        ui.setInfo('Datei wird hochgeladen ...');
+        ui.setInfo(t("infoUploading"));
 
         const importResult = await uploadFilesAndStartImport({
             files,
@@ -64,22 +66,22 @@ async function handleUploadSubmit(event) {
             onProgress: ({ loaded, total, percent }) => {
                 ui.setUploadProgress(
                     percent,
-                    `${formatBytes(loaded)} von ${formatBytes(total)} hochgeladen`
+                    `${formatBytes(loaded)} of ${formatBytes(total)} uploaded`
                 );
             }
         });
 
         const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
-        ui.setUploadProgress(100, `${files.length} Dateien, ${formatBytes(totalBytes)} hochgeladen`);
-        ui.setPhase('Import wird gestartet');
+        ui.setUploadProgress(100, `${files.length} files, ${formatBytes(totalBytes)} uploaded`);
+        ui.setPhase(t("phaseStartingImport"));
         ui.setInfo(
             shareMode === 'groups'
-                ? 'Datei wurde hochgeladen. Import und Gruppenfreigabe werden vorbereitet ...'
-                : 'Datei wurde hochgeladen. Import-Job wird gestartet ...'
+                ? t("infoFileUploadedShared")
+                : t("infoFileUploaded")
         );
 
-        ui.setPhase('Verarbeitung läuft');
-        ui.setInfo(`Import läuft (Job-ID: ${importResult.jobId})`);
+        ui.setPhase(t("phaseProcessing"));
+        ui.setInfo(`Import in progress (Job ID: ${importResult.jobId})`);
 
         pollImportStatus(importResult.jobId, {
             onUpdate(job) {
@@ -87,12 +89,12 @@ async function handleUploadSubmit(event) {
 
                 const progressPercent = Number(job.progressPercent || 0);
 
-                let detailText = `${Math.round(progressPercent)}% verarbeitet`;
+                let detailText = `${Math.round(progressPercent)}% processed`;
 
                 if (job.totalFiles) {
-                    detailText = `${job.processedFiles} / ${job.totalFiles} Dateien verarbeitet`;
+                    detailText = `${job.processedFiles} / ${job.totalFiles} files processed`;
                     if (job.failedFiles) {
-                        detailText += `, ${job.failedFiles} fehlgeschlagen`;
+                        detailText += `, ${job.failedFiles} failed`;
                     }
                 }
 
@@ -100,24 +102,24 @@ async function handleUploadSubmit(event) {
 
                 if (job.status === 'completed') {
                     ui.setSuccess(
-                        `Import abgeschlossen. ${job.processedFiles} Dateien verarbeitet, ${job.failedFiles} fehlgeschlagen.`
+                        `Import completed. ${job.processedFiles} files processed, ${job.failedFiles} failed.`
                     );
                     ui.setLoading(false);
                 }
 
                 if (job.status === 'failed') {
-                    ui.setError(job.errorMessage || 'Import fehlgeschlagen.');
+                    ui.setError(job.errorMessage || t("errorImportFailed"));
                     ui.setLoading(false);
                 }
             },
             onError(error) {
-                ui.setError(`Polling-Fehler: ${error.message}`);
+                ui.setError(`Polling error: ${error.message}`);
                 ui.setLoading(false);
             },
             intervalMs: 1500
         });
     } catch (error) {
-        ui.setError(error.message || 'Unbekannter Fehler beim Upload');
+        ui.setError(error.message || t("errorUnknownUpload"));
         ui.setLoading(false);
     }
 }
@@ -130,12 +132,12 @@ function formatBytes(bytes) {
 }
 
 function formatStage(stage, status) {
-    if (status === 'queued') return 'Wartet auf Worker';
-    if (stage === 'downloading_zip') return 'Legacy-Import lädt Datei';
-    if (stage === 'reading_zip') return 'ZIP wird analysiert';
-    if (stage === 'parsing_fit_files') return 'FIT-Dateien werden verarbeitet';
-    if (stage === 'saving_results') return 'Ergebnisse werden gespeichert';
-    if (stage === 'completed') return 'Abgeschlossen';
-    if (stage === 'failed') return 'Fehlgeschlagen';
-    return stage || status || 'Verarbeitung läuft';
+    if (status === 'queued') return t("workerQueued");
+    if (stage === 'downloading_zip') return t("stageDownloadingZip");
+    if (stage === 'reading_zip') return t("stageReadingZip");
+    if (stage === 'parsing_fit_files') return t("stageParsingFit");
+    if (stage === 'saving_results') return t("stageSavingResults");
+    if (stage === 'completed') return t("stageCompleted");
+    if (stage === 'failed') return t("stageFailed");
+    return stage || status || t("phaseProcessing");
 }

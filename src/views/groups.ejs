@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
@@ -428,27 +428,25 @@
             <div class="groups-shell">
                 <section class="groups-hero">
                     <div>
-                        <p class="groups-kicker">Collaboration Workspace</p>
-                        <h1 class="groups-title">Groups</h1>
+                        <p class="groups-kicker"><%= t("groups.hero.kicker") %></p>
+                        <h1 class="groups-title"><%= t("groups.hero.title") %></h1>
                         <p class="groups-subtitle">
-                            Private Trainingsgruppen, Einladungen und ein späterer Feed für neue Uploads und
-                            gemeinsame Vergleiche. Diese erste Ansicht ist bewusst noch ein sauberer Rahmen
-                            für die nächsten Ausbaustufen.
+                            <%= t("groups.hero.subtitle") %>
                         </p>
                     </div>
 
                     <div class="groups-hero-meta">
                         <span class="groups-chip">
-                            <span class="groups-chip-label">User</span>
-                            <span><%= ((typeof userInfo !== "undefined" && userInfo) ? (userInfo.display_name || userInfo.email) : "Unknown") %></span>
+                            <span class="groups-chip-label"><%= t("groups.hero.chipUser") %></span>
+                            <span><%= ((typeof userInfo !== "undefined" && userInfo) ? (userInfo.display_name || userInfo.email) : t("groups.hero.unknownUser")) %></span>
                         </span>
                         <span class="groups-chip">
-                            <span class="groups-chip-label">Phase</span>
-                            <span>MVP Setup</span>
+                            <span class="groups-chip-label"><%= t("groups.hero.chipPhase") %></span>
+                            <span><%= t("groups.hero.phaseValue") %></span>
                         </span>
                         <span class="groups-chip">
-                            <span class="groups-chip-label">Focus</span>
-                            <span>Groups · Invites · Feed</span>
+                            <span class="groups-chip-label"><%= t("groups.hero.chipFocus") %></span>
+                            <span><%= t("groups.hero.focusValue") %></span>
                         </span>
                     </div>
                 </section>
@@ -457,32 +455,32 @@
                     <div class="groups-surface">
                         <div class="groups-section-header">
                             <div>
-                                <h2 class="groups-section-title">Meine Gruppen</h2>
+                                <h2 class="groups-section-title"><%= t("groups.sections.myGroupsTitle") %></h2>
                                 <p class="groups-section-copy">
-                                    Hier landet später die Gruppenübersicht mit Rolle, Mitgliedern und Status.
+                                    <%= t("groups.sections.myGroupsCopy") %>
                                 </p>
                             </div>
 
                             <div class="groups-toolbar">
-                                <div class="groups-filter-toggle" role="group" aria-label="Gruppenfilter">
+                                <div class="groups-filter-toggle" role="group" aria-label="<%= t("groups.filters.groupFilterAria") %>">
                                     <button
                                         class="btn btn-sm btn-outline-secondary active"
                                         type="button"
                                         id="groups-filter-all"
                                         data-filter-value="all">
-                                        Alle Gruppen
+                                        <%= t("groups.filters.allGroups") %>
                                     </button>
                                     <button
                                         class="btn btn-sm btn-outline-secondary"
                                         type="button"
                                         id="groups-filter-owned"
                                         data-filter-value="owned">
-                                        Nur meine
+                                        <%= t("groups.filters.ownedByMe") %>
                                     </button>
                                 </div>
 
                                 <button class="btn btn-primary groups-action-btn" type="button" id="groups-create-button">
-                                    Gruppe anlegen
+                                    <%= t("groups.buttons.createGroup") %>
                                 </button>
                             </div>
                         </div>
@@ -503,8 +501,17 @@
                                 toolbarClass: "groups-section-toolbar",
                                 toggleClass: "groups-filter-toggle",
                                 bodyClass: "groups-surface-body",
-                                title: "Aktivität",
-                                copy: "Neue geteilte Workouts aus deinen Gruppen erscheinen hier zuerst.",
+                                title: t("groups.sections.activityTitle"),
+                                copy: t("groups.sections.activityCopy"),
+                                feedLabels: {
+                                    rangeAria: t("groups.filters.activityRangeAria"),
+                                    sourceAria: t("groups.filters.activitySourceAria"),
+                                    lastDay: t("groups.filters.lastDay"),
+                                    last7Days: t("groups.filters.last7Days"),
+                                    all: t("groups.filters.all"),
+                                    allUsers: t("groups.filters.allUsers"),
+                                    othersOnly: t("groups.filters.othersOnly")
+                                },
                                 defaultRange: "7d",
                                 defaultActorScope: "all"
                             }) %>
@@ -513,9 +520,9 @@
                         <div class="groups-surface">
                             <div class="groups-section-header">
                                 <div>
-                                    <h2 class="groups-section-title">Meine Einladungen</h2>
+                                    <h2 class="groups-section-title"><%= t("groups.sections.myInvitesTitle") %></h2>
                                     <p class="groups-section-copy">
-                                        Eingegangene Gruppen-Einladungen, die du annehmen oder ablehnen kannst.
+                                        <%= t("groups.sections.myInvitesCopy") %>
                                     </p>
                                 </div>
                             </div>
@@ -528,9 +535,9 @@
                         <div class="groups-surface">
                             <div class="groups-section-header">
                                 <div>
-                                    <h2 class="groups-section-title">Von mir versendet</h2>
+                                    <h2 class="groups-section-title"><%= t("groups.sections.sentByMeTitle") %></h2>
                                     <p class="groups-section-copy">
-                                        Einladungen, die du für deine Gruppen ausgelöst hast, inklusive aktuellem Status.
+                                        <%= t("groups.sections.sentByMeCopy") %>
                                     </p>
                                 </div>
                             </div>
@@ -541,11 +548,10 @@
                         </div>
 
                         <div class="groups-preview-card">
-                            <span class="groups-preview-kicker">Detailseite</span>
-                            <h3 class="groups-preview-title">Gruppendetail statt Home-Editing</h3>
+                            <span class="groups-preview-kicker"><%= t("groups.sections.detailsKicker") %></span>
+                            <h3 class="groups-preview-title"><%= t("groups.sections.detailsTitle") %></h3>
                             <p class="groups-preview-copy">
-                                Die Home-Seite bleibt Hub und Feed. Verwaltung, Mitglieder und Einladungen
-                                können sauber auf einer eigenen Groups-Ansicht liegen.
+                                <%= t("groups.sections.detailsCopy") %>
                             </p>
                         </div>
                     </div>
@@ -561,17 +567,17 @@
                     <form id="create-group-form">
                         <div class="modal-header">
                             <div>
-                                <p class="groups-kicker mb-1">Groups</p>
-                                <h2 class="groups-section-title mb-0">Neue Gruppe anlegen</h2>
+                                <p class="groups-kicker mb-1"><%= t("groups.modal.groupsLabel") %></p>
+                                <h2 class="groups-section-title mb-0"><%= t("groups.modal.createTitle") %></h2>
                             </div>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                         </div>
 
                         <div class="modal-body">
                             <div id="create-group-error" class="alert alert-danger d-none" role="alert"></div>
 
                             <div class="mb-3">
-                                <label class="form-label">Name</label>
+                                <label class="form-label"><%= t("groups.modal.nameLabel") %></label>
                                 <input
                                     type="text"
                                     class="form-control"
@@ -581,32 +587,32 @@
                             </div>
 
                             <div class="mb-3">
-                                <label class="form-label">Beschreibung</label>
+                                <label class="form-label"><%= t("groups.modal.descriptionLabel") %></label>
                                 <textarea
                                     class="form-control"
                                     name="description"
                                     rows="4"
-                                    placeholder="Kurzer Kontext, Fokus oder Zweck der Gruppe"></textarea>
+                                    placeholder="<%= t("groups.modal.descriptionPlaceholderCreate") %>"></textarea>
                             </div>
 
                             <div class="mb-0">
-                                <label class="form-label">Sichtbarkeit</label>
+                                <label class="form-label"><%= t("groups.modal.visibilityLabel") %></label>
                                 <select class="form-select" name="visibility">
-                                    <option value="private" selected>Private</option>
-                                    <option value="discoverable">Discoverable</option>
+                                    <option value="private" selected><%= t("groups.modal.visibilityPrivate") %></option>
+                                    <option value="discoverable"><%= t("groups.modal.visibilityDiscoverable") %></option>
                                 </select>
                                 <div class="groups-form-note">
-                                    Für den Anfang ist `Private` wahrscheinlich der sinnvolle Standard.
+                                    <%= t("groups.modal.visibilityHint") %>
                                 </div>
                             </div>
                         </div>
 
                         <div class="modal-footer">
                             <button type="button" class="btn btn-outline-secondary groups-action-btn" data-bs-dismiss="modal">
-                                Abbrechen
+                                <%= t("groups.buttons.cancel") %>
                             </button>
                             <button type="submit" class="btn btn-primary groups-action-btn" id="create-group-submit">
-                                Gruppe erstellen
+                                <%= t("groups.buttons.createGroup") %>
                             </button>
                         </div>
                     </form>
@@ -622,17 +628,17 @@
 
                         <div class="modal-header">
                             <div>
-                                <p class="groups-kicker mb-1">Groups</p>
-                                <h2 class="groups-section-title mb-0">Gruppe bearbeiten</h2>
+                                <p class="groups-kicker mb-1"><%= t("groups.modal.groupsLabel") %></p>
+                                <h2 class="groups-section-title mb-0"><%= t("groups.modal.editTitle") %></h2>
                             </div>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                         </div>
 
                         <div class="modal-body">
                             <div id="edit-group-error" class="alert alert-danger d-none" role="alert"></div>
 
                             <div class="mb-3">
-                                <label class="form-label">Name</label>
+                                <label class="form-label"><%= t("groups.modal.nameLabel") %></label>
                                 <input
                                     type="text"
                                     class="form-control"
@@ -642,22 +648,22 @@
                             </div>
 
                             <div class="mb-3">
-                                <label class="form-label">Beschreibung</label>
+                                <label class="form-label"><%= t("groups.modal.descriptionLabel") %></label>
                                 <textarea
                                     class="form-control"
                                     name="description"
                                     rows="4"
                                     maxlength="500"
-                                    placeholder="Kurz beschreiben, wofür die Gruppe gedacht ist."></textarea>
+                                    placeholder="<%= t("groups.modal.descriptionPlaceholderEdit") %>"></textarea>
                             </div>
                         </div>
 
                         <div class="modal-footer">
                             <button type="button" class="btn btn-outline-secondary groups-action-btn" data-bs-dismiss="modal">
-                                Abbrechen
+                                <%= t("groups.buttons.cancel") %>
                             </button>
                             <button type="submit" class="btn btn-primary groups-action-btn" id="edit-group-submit">
-                                Änderungen speichern
+                                <%= t("groups.buttons.saveChanges") %>
                             </button>
                         </div>
                     </form>
@@ -673,45 +679,45 @@
 
                         <div class="modal-header">
                             <div>
-                                <p class="groups-kicker mb-1">Groups</p>
-                                <h2 class="groups-section-title mb-0">Mitglied einladen</h2>
+                                <p class="groups-kicker mb-1"><%= t("groups.modal.groupsLabel") %></p>
+                                <h2 class="groups-section-title mb-0"><%= t("groups.modal.inviteTitle") %></h2>
                                 <p class="groups-section-copy mb-0" id="invite-group-context"></p>
                             </div>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                         </div>
 
                         <div class="modal-body">
                             <div id="invite-group-error" class="alert alert-danger d-none" role="alert"></div>
 
                             <div class="mb-3">
-                                <label class="form-label">E-Mail des Users</label>
+                                <label class="form-label"><%= t("groups.modal.inviteEmailLabel") %></label>
                                 <input
                                     type="email"
                                     class="form-control"
                                     name="invitedEmail"
                                     required
-                                    placeholder="name@example.com">
+                                    placeholder="<%= t("groups.modal.inviteEmailPlaceholder") %>">
                                 <div class="groups-form-note">
-                                    Für den ersten Schritt laden wir bestehende App-User per E-Mail-Adresse ein.
+                                    <%= t("groups.modal.inviteHint") %>
                                 </div>
                             </div>
 
                             <div class="mb-0">
-                                <label class="form-label">Nachricht</label>
+                                <label class="form-label"><%= t("groups.modal.inviteMessageLabel") %></label>
                                 <textarea
                                     class="form-control"
                                     name="message"
                                     rows="4"
-                                    placeholder="Optionaler Hinweis für die Einladung"></textarea>
+                                    placeholder="<%= t("groups.modal.inviteMessagePlaceholder") %>"></textarea>
                             </div>
                         </div>
 
                         <div class="modal-footer">
                             <button type="button" class="btn btn-outline-secondary groups-action-btn" data-bs-dismiss="modal">
-                                Abbrechen
+                                <%= t("groups.buttons.cancel") %>
                             </button>
                             <button type="submit" class="btn btn-primary groups-action-btn" id="invite-group-submit">
-                                Einladung senden
+                                <%= t("groups.buttons.sendInvite") %>
                             </button>
                         </div>
                     </form>
@@ -725,45 +731,45 @@
                     <form id="publish-group-content-form">
                         <div class="modal-header">
                             <div>
-                                <p class="groups-kicker mb-1">Groups</p>
-                                <h2 class="groups-section-title mb-0">Inhalte veröffentlichen</h2>
+                                <p class="groups-kicker mb-1"><%= t("groups.modal.groupsLabel") %></p>
+                                <h2 class="groups-section-title mb-0"><%= t("groups.modal.publishTitle") %></h2>
                                 <p class="groups-section-copy mb-0" id="publish-group-content-context"></p>
                             </div>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                         </div>
 
                         <div class="modal-body">
                             <div id="publish-group-content-error" class="alert alert-danger d-none" role="alert"></div>
 
                             <div class="mb-3">
-                                <label class="form-label">Inhaltstyp</label>
+                                <label class="form-label"><%= t("groups.modal.contentTypeLabel") %></label>
                                 <select class="form-select" id="publish-group-content-type" name="contentType">
-                                    <option value="workouts">Workouts</option>
-                                    <option value="segments">Segmente</option>
+                                    <option value="workouts"><%= t("groups.modal.contentTypeWorkouts") %></option>
+                                    <option value="segments"><%= t("groups.modal.contentTypeSegments") %></option>
                                 </select>
                             </div>
 
                             <div class="mb-0" id="publish-group-workout-preset-wrapper">
-                                <label class="form-label">Auswahl</label>
+                                <label class="form-label"><%= t("groups.modal.selectionLabel") %></label>
                                 <select class="form-select" name="workoutPreset">
-                                    <option value="training-30d">Trainings der letzten 30 Tage</option>
-                                    <option value="training-90d">Trainings der letzten 90 Tage</option>
-                                    <option value="uploaded-7d">Uploads der letzten 7 Tage</option>
-                                    <option value="uploaded-90d">Uploads der letzten 90 Tage</option>
-                                    <option value="all">Alle Workouts</option>
+                                    <option value="training-30d"><%= t("groups.modal.presetTraining30d") %></option>
+                                    <option value="training-90d"><%= t("groups.modal.presetTraining90d") %></option>
+                                    <option value="uploaded-7d"><%= t("groups.modal.presetUploaded7d") %></option>
+                                    <option value="uploaded-90d"><%= t("groups.modal.presetUploaded90d") %></option>
+                                    <option value="all"><%= t("groups.modal.presetAll") %></option>
                                 </select>
                                 <div class="groups-form-note">
-                                    Segmente werden aktuell als gesamter eigener Bestand in diese Gruppe veröffentlicht.
+                                <%= t("groups.modal.presetHint") %>
                                 </div>
                             </div>
                         </div>
 
                         <div class="modal-footer">
                             <button type="button" class="btn btn-outline-secondary groups-action-btn" data-bs-dismiss="modal">
-                                Abbrechen
+                                <%= t("groups.buttons.cancel") %>
                             </button>
                             <button type="submit" class="btn btn-primary groups-action-btn" id="publish-group-content-submit">
-                                Veröffentlichen
+                                <%= t("groups.buttons.publish") %>
                             </button>
                         </div>
                     </form>
@@ -776,10 +782,10 @@
                 <div class="modal-content">
                     <div class="modal-header">
                         <div>
-                            <p class="groups-kicker mb-1">Groups</p>
-                            <h2 class="groups-section-title mb-0">Gruppe verlassen</h2>
+                            <p class="groups-kicker mb-1"><%= t("groups.modal.groupsLabel") %></p>
+                            <h2 class="groups-section-title mb-0"><%= t("groups.modal.leaveTitle") %></h2>
                         </div>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
 
                     <div class="modal-body">
@@ -789,10 +795,10 @@
 
                     <div class="modal-footer">
                         <button type="button" class="btn btn-outline-secondary groups-action-btn" data-bs-dismiss="modal">
-                            Abbrechen
+                            <%= t("groups.buttons.cancel") %>
                         </button>
                         <button type="button" class="btn btn-danger groups-action-btn" id="leave-group-confirm">
-                            Ja, Gruppe verlassen
+                            <%= t("groups.buttons.leaveGroupConfirm") %>
                         </button>
                     </div>
                 </div>
@@ -804,10 +810,10 @@
                 <div class="modal-content">
                     <div class="modal-header">
                         <div>
-                            <p class="groups-kicker mb-1">Groups</p>
-                            <h2 class="groups-section-title mb-0">Gruppe löschen</h2>
+                            <p class="groups-kicker mb-1"><%= t("groups.modal.groupsLabel") %></p>
+                            <h2 class="groups-section-title mb-0"><%= t("groups.modal.deleteTitle") %></h2>
                         </div>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
 
                     <div class="modal-body">
@@ -817,10 +823,10 @@
 
                     <div class="modal-footer">
                         <button type="button" class="btn btn-outline-secondary groups-action-btn" data-bs-dismiss="modal">
-                            Abbrechen
+                            <%= t("groups.buttons.cancel") %>
                         </button>
                         <button type="button" class="btn btn-danger groups-action-btn" id="delete-group-confirm">
-                            Ja, Gruppe löschen
+                            <%= t("groups.buttons.deleteGroupConfirm") %>
                         </button>
                     </div>
                 </div>
@@ -828,6 +834,9 @@
         </div>
     <% } %>
 
+    <script>
+        window.__I18N = <%- JSON.stringify(i18n || { locale: "en", messages: {} }) %>;
+    </script>
     <script type="module" src="/js/groups-ui.js"></script>
 </body>
 

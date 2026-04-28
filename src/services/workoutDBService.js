@@ -56,7 +56,12 @@ export default class WorkoutDBService {
     await WorkoutSharingService.getAccessibleWorkout(uid, id);
 
     const result = await pool.query(
-      `SELECT stream FROM workouts WHERE id = $1`,
+      `SELECT
+        stream,
+        uploaded_at,
+        octet_length(stream) AS stream_size
+       FROM workouts
+       WHERE id = $1`,
       [id]
     );
 
@@ -64,8 +69,7 @@ export default class WorkoutDBService {
       throw new Error(`Workout with ID ${id} not found`);
     }
 
-    const stream = result.rows[0].stream;
-    return stream;
+    return result.rows[0];
   }
 
   static async getWorkout(id) {

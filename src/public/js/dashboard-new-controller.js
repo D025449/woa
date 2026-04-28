@@ -142,7 +142,7 @@ export default class Controller {
       await this.restoreSelectedWorkout();
     } catch (err) {
       console.error(err);
-      this.showToast("Workout-Library konnte nicht geladen werden.");
+      this.showToast("Workout library could not be loaded.");
     }
   }
 
@@ -170,7 +170,7 @@ export default class Controller {
       this.updateWorkoutMeta(workout);
     } catch (err) {
       console.error(err);
-      this.showToast("Workout konnte nicht geladen werden oder ist nicht freigegeben.");
+      this.showToast("Workout could not be loaded or is not shared.");
     } finally {
       this.chartView.hideLoading();
     }
@@ -190,18 +190,18 @@ export default class Controller {
     }
 
     const access = workout?.access || null;
-    const ownerLabel = access?.ownerDisplayName || access?.ownerEmail || "anderem User";
+    const ownerLabel = access?.ownerDisplayName || access?.ownerEmail || "another user";
 
     if (access?.isOwner) {
       this.sharedMetaElement.classList.add("d-none");
       this.sharedMetaTextElement.textContent = "";
-      this.detailCopyElement.textContent = "Leistung, Herzfrequenz, Kadenz, Speed und Höhe mit direkter Segment-Interaktion.";
+      this.detailCopyElement.textContent = "Power, heart rate, cadence, speed, and altitude with direct segment interaction.";
       return;
     }
 
     this.sharedMetaElement.classList.remove("d-none");
-    this.sharedMetaTextElement.textContent = `Geteilt von ${ownerLabel}`;
-    this.detailCopyElement.textContent = "Leistung, Herzfrequenz, Kadenz, Speed und Höhe des freigegebenen Workouts mit direkter Segment-Interaktion.";
+    this.sharedMetaTextElement.textContent = `Shared by ${ownerLabel}`;
+    this.detailCopyElement.textContent = "Power, heart rate, cadence, speed, and altitude of the shared workout with direct segment interaction.";
   }
 
   readInitialWorkoutId() {

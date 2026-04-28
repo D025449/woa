@@ -33,6 +33,11 @@ function toDateInputValue(value) {
   return match ? match[1] : null;
 }
 
+function normalizeEnum(value, allowedValues, fallback) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return allowedValues.includes(normalized) ? normalized : fallback;
+}
+
 export default class ProfileDBService {
   static async getProfile(userId) {
     const result = await pool.query(`
@@ -49,6 +54,10 @@ export default class ProfileDBService {
         p.postal_code,
         p.city,
         p.country,
+        p.language,
+        p.distance_unit,
+        p.speed_unit,
+        p.default_workout_scope,
         p.updated_at AS profile_updated_at
       FROM users u
       LEFT JOIN user_profiles p
@@ -78,6 +87,10 @@ export default class ProfileDBService {
       postalCode: row.postal_code || "",
       city: row.city || "",
       country: row.country || "",
+      language: row.language || "en",
+      distanceUnit: row.distance_unit || "km",
+      speedUnit: row.speed_unit || "kmh",
+      defaultWorkoutScope: row.default_workout_scope || "mine",
       updatedAt: row.profile_updated_at || null
     };
   }
@@ -93,6 +106,10 @@ export default class ProfileDBService {
     const postalCode = toNullableString(payload.postalCode, 20);
     const city = toNullableString(payload.city, 120);
     const country = toNullableString(payload.country, 120);
+    const language = normalizeEnum(payload.language, ["en", "de"], "en");
+    const distanceUnit = normalizeEnum(payload.distanceUnit, ["km", "mi"], "km");
+    const speedUnit = normalizeEnum(payload.speedUnit, ["kmh", "mph"], "kmh");
+    const defaultWorkoutScope = normalizeEnum(payload.defaultWorkoutScope, ["mine", "shared", "all"], "mine");
 
     if (dateOfBirth && !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
       const error = new Error("Geburtsdatum muss im Format YYYY-MM-DD sein.");
@@ -134,7 +151,11 @@ export default class ProfileDBService {
           address_line2,
           postal_code,
           city,
-          country
+          country,
+          language,
+          distance_unit,
+          speed_unit,
+          default_workout_scope
         )
         VALUES (
           $1,
@@ -146,7 +167,11 @@ export default class ProfileDBService {
           $7,
           $8,
           $9,
-          $10
+          $10,
+          $11,
+          $12,
+          $13,
+          $14
         )
         ON CONFLICT (user_id)
         DO UPDATE SET
@@ -158,7 +183,11 @@ export default class ProfileDBService {
           address_line2 = EXCLUDED.address_line2,
           postal_code = EXCLUDED.postal_code,
           city = EXCLUDED.city,
-          country = EXCLUDED.country
+          country = EXCLUDED.country,
+          language = EXCLUDED.language,
+          distance_unit = EXCLUDED.distance_unit,
+          speed_unit = EXCLUDED.speed_unit,
+          default_workout_scope = EXCLUDED.default_workout_scope
       `, [
         userId,
         phone,
@@ -169,7 +198,11 @@ export default class ProfileDBService {
         addressLine2,
         postalCode,
         city,
-        country
+        country,
+        language,
+        distanceUnit,
+        speedUnit,
+        defaultWorkoutScope
       ]);
 
       await client.query("COMMIT");

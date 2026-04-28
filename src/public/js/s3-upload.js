@@ -23,16 +23,16 @@ export function uploadFileToS3({ uploadUrl, file, onProgress }) {
             if (xhr.status >= 200 && xhr.status < 300) {
                 resolve();
             } else {
-                reject(new Error(`S3 Upload fehlgeschlagen (${xhr.status})`));
+                reject(new Error(`S3 upload failed (${xhr.status})`));
             }
         };
 
         xhr.onerror = () => {
-            reject(new Error('Netzwerkfehler beim Upload nach S3'));
+            reject(new Error('Network error while uploading to S3'));
         };
 
         xhr.onabort = () => {
-            reject(new Error('Upload wurde abgebrochen'));
+            reject(new Error('Upload was canceled'));
         };
 
         xhr.send(file);

@@ -1,4 +1,4 @@
-function formatEventTimestamp(value) {
+function formatEventTimestamp(value, locale = "en-US") {
   if (!value) {
     return "";
   }
@@ -9,7 +9,7 @@ function formatEventTimestamp(value) {
     return "";
   }
 
-  return new Intl.DateTimeFormat("de-DE", {
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(date);
@@ -45,10 +45,10 @@ function formatDurationSeconds(value) {
     .join(":");
 }
 
-function formatSegmentMeta(item) {
+function formatSegmentMeta(item, t) {
   const parts = [
-    item.entity_id ? `Segment #${item.entity_id}` : null,
-    item.payload?.segmentType === "gps" ? "GPS-Segment" : item.payload?.segmentType || null,
+    item.entity_id ? t("view.segmentMetaId", { id: item.entity_id }) : null,
+    item.payload?.segmentType === "gps" ? t("view.segmentMetaTypeGps") : item.payload?.segmentType || null,
     item.payload?.startName && item.payload?.endName
       ? `${item.payload.startName} -> ${item.payload.endName}`
       : item.payload?.startName || item.payload?.endName || null,
@@ -58,47 +58,47 @@ function formatSegmentMeta(item) {
   return parts.join(" · ");
 }
 
-function formatPublishedInGroups(item) {
+function formatPublishedInGroups(item, t) {
   const count = Number(item.group_count);
 
   if (!Number.isFinite(count) || count <= 1) {
     return null;
   }
 
-  return `In ${count} Gruppen veröffentlicht`;
+  return t("view.publishedInGroups", { count });
 }
 
-function describeEvent(item) {
-  const actor = item.actor_display_name || item.actor_email || "Ein Mitglied";
-  const publishedInGroups = formatPublishedInGroups(item);
+function describeEvent(item, t) {
+  const actor = item.actor_display_name || item.actor_email || t("view.eventActorFallback");
+  const publishedInGroups = formatPublishedInGroups(item, t);
 
   if (item.event_type === "workout_uploaded") {
     return {
-      kicker: publishedInGroups || "Aktivität",
-      title: `${actor} hat ein Workout hochgeladen`,
+      kicker: publishedInGroups || t("view.activityKicker"),
+      title: t("view.eventWorkoutUploaded", { actor }),
       meta: [
         item.payload?.originalFileName || null,
         formatDistanceKm(item.payload?.totalDistance, "m"),
         formatDurationSeconds(item.payload?.totalTimerTime)
       ].filter(Boolean).join(" · "),
       linkHref: item.entity_id ? `/dashboard-new?workoutId=${encodeURIComponent(item.entity_id)}` : null,
-      linkLabel: item.entity_id ? "Zum Workout" : null
+      linkLabel: item.entity_id ? t("buttons.openWorkout") : null
     };
   }
 
   if (item.event_type === "segment_published") {
     return {
-      kicker: publishedInGroups || "Aktivität",
-      title: `${actor} hat ein GPS-Segment veröffentlicht`,
-      meta: formatSegmentMeta(item),
+      kicker: publishedInGroups || t("view.activityKicker"),
+      title: t("view.eventSegmentPublished", { actor }),
+      meta: formatSegmentMeta(item, t),
       linkHref: item.entity_id ? `/segments?focusSegmentId=${encodeURIComponent(item.entity_id)}` : null,
-      linkLabel: item.entity_id ? "Zum Segment" : null
+      linkLabel: item.entity_id ? t("buttons.openSegment") : null
     };
   }
 
   return {
-    kicker: publishedInGroups || "Aktivität",
-    title: `${actor} hat ein neues Ereignis ausgelöst`,
+    kicker: publishedInGroups || t("view.activityKicker"),
+    title: t("view.eventDefault", { actor }),
     meta: "",
     linkHref: null,
     linkLabel: null
@@ -107,10 +107,12 @@ function describeEvent(item) {
 
 export default class GroupFeedView {
 
-  constructor(containerSelector, handlers = {}) {
+  constructor(containerSelector, handlers = {}, t = (key) => key, locale = "en-US") {
     this.container = document.querySelector(containerSelector);
     this.handlers = handlers;
     this.items = [];
+    this.t = t;
+    this.locale = locale;
   }
 
   render(items = []) {
@@ -123,23 +125,23 @@ export default class GroupFeedView {
     if (!items.length) {
       this.container.innerHTML = `
         <div class="groups-empty">
-          <strong>Noch keine Aktivität.</strong><br>
-          Neue freigegebene Workouts und GPS-Segmente aus deinen Gruppen erscheinen spaeter hier.
+          <strong>${this.t("view.emptyFeedTitle")}</strong><br>
+          ${this.t("view.emptyFeedBody")}
         </div>
       `;
       return;
     }
 
     this.container.innerHTML = items.map((item) => {
-      const event = describeEvent(item);
-      const timestamp = formatEventTimestamp(item.created_at);
+      const event = describeEvent(item, this.t);
+      const timestamp = formatEventTimestamp(item.created_at, this.locale);
 
       return `
         <div class="groups-preview-card">
           <span class="groups-preview-kicker">${event.kicker}</span>
           <h3 class="groups-preview-title">${event.title}</h3>
           <p class="groups-preview-copy">
-            ${event.meta || "Neues Gruppenereignis"}
+            ${event.meta || this.t("view.newGroupEvent")}
             ${timestamp ? `<br><span class="text-muted">${timestamp}</span>` : ""}
           </p>
           <div class="groups-preview-actions">
@@ -153,7 +155,7 @@ export default class GroupFeedView {
               class="btn btn-outline-secondary btn-sm"
               data-action="dismiss-feed-event"
               data-feed-event-id="${item.id}">
-              Ausblenden
+              ${this.t("buttons.dismissEvent")}
             </button>
           </div>
         </div>

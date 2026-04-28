@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Segments</title>
+    <title><%= t("segmentsPage.title") %></title>
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
@@ -434,7 +434,7 @@
     <% if (isAuthenticated) { %>
 
         <%- include("partials/app-topbar", {
-            title: "Segments",
+            title: t("segmentsPage.topbarTitle"),
             currentPage: "segments",
             userInfo,
             showDashboardNewLink: true
@@ -448,37 +448,37 @@
 
                 <section class="segments-hero">
                     <div>
-                        <p class="segments-kicker">Segment Analysis Console</p>
-                        <h1 class="segments-title">Segments</h1>
+                        <p class="segments-kicker"><%= t("segmentsPage.kicker") %></p>
+                        <h1 class="segments-title"><%= t("segmentsPage.titleMain") %></h1>
                         <p class="segments-subtitle">
-                            Definiere Segmente auf der Karte, prüfe Höhenprofil und Bestzeiten und verbinde die
-                            räumliche Ansicht mit den Workout-Daten im Chart.
+                            Define segments on the map, review elevation profile and best efforts, and connect
+                            the spatial view with workout data in the chart.
                         </p>
                     </div>
 
                     <div class="segments-hero-meta">
-                        <div class="segments-scope-toggle" role="group" aria-label="Segment-Scope">
+                        <div class="segments-scope-toggle" role="group" aria-label="<%= t('segmentsPage.scopeAria') %>">
                             <button id="segments-scope-mine" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="mine">
-                                Meine
+                                <%= t("segmentsPage.scopeMine") %>
                             </button>
                             <button id="segments-scope-shared" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="shared">
-                                Geteilte
+                                <%= t("segmentsPage.scopeShared") %>
                             </button>
                             <button id="segments-scope-all" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="all">
-                                Alle
+                                <%= t("segmentsPage.scopeAll") %>
                             </button>
                         </div>
                         <span class="segments-chip">
-                            <span class="segments-chip-label">User</span>
-                            <span><%= ((typeof userInfo !== "undefined" && userInfo) ? (userInfo.display_name || userInfo.email) : "Unknown") %></span>
+                            <span class="segments-chip-label"><%= t("segmentsPage.chipUser") %></span>
+                            <span><%= ((typeof userInfo !== "undefined" && userInfo) ? (userInfo.display_name || userInfo.email) : t("segmentsPage.chipUnknownUser")) %></span>
                         </span>
                         <span class="segments-chip">
-                            <span class="segments-chip-label">Workflow</span>
-                            <span>Create · Lookup · Compare</span>
+                            <span class="segments-chip-label"><%= t("segmentsPage.chipWorkflowLabel") %></span>
+                            <span><%= t("segmentsPage.chipWorkflowValue") %></span>
                         </span>
                         <span class="segments-chip">
-                            <span class="segments-chip-label">Focus</span>
-                            <span>Map-first Segment Design</span>
+                            <span class="segments-chip-label"><%= t("segmentsPage.chipFocusLabel") %></span>
+                            <span><%= t("segmentsPage.chipFocusValue") %></span>
                         </span>
                     </div>
                 </section>
@@ -486,18 +486,18 @@
                 <section class="segments-surface">
                     <div class="segments-section-header">
                         <div>
-                            <span class="segments-eyebrow">Primary Workspace</span>
-                            <h2 class="segments-section-title">Segments Map</h2>
+                            <span class="segments-eyebrow"><%= t("segmentsPage.mapEyebrow") %></span>
+                            <h2 class="segments-section-title"><%= t("segmentsPage.mapTitle") %></h2>
                             <p class="segments-section-copy">
-                                Definiere neue Segmente direkt auf der Karte und starte den Lookup auf Basis deiner
-                                gewählten Punkte.
+                                Define new segments directly on the map and run lookup based on your
+                                selected points.
                             </p>
                         </div>
 
                         <div class="segments-toolbar">
                             <button id="draw-segment-map-toggle" class="btn btn-sm btn-outline-primary"
                                 title="Enter segment creation mode. Then click two points on the map to define a new segment.">
-                                ＋ Create
+                                <%= t("segmentsPage.btnCreate") %>
                             </button>
 
                             <button id="draw-segment-map-lookup" class="btn btn-sm btn-outline-secondary" disabled
@@ -515,14 +515,14 @@
                 <section class="segments-surface">
                     <div class="segments-section-header">
                         <div>
-                            <span class="segments-eyebrow">Segment Insights</span>
-                            <h2 id="segment-header" class="segments-section-title">Segments</h2>
+                            <span class="segments-eyebrow"><%= t("segmentsPage.insightsEyebrow") %></span>
+                            <h2 id="segment-header" class="segments-section-title"><%= t("segmentsPage.insightsTitle") %></h2>
                             <p class="segments-section-copy">
-                                Vergleiche Best Efforts und nutze das Höhenprofil des aktuell ausgewählten Segments als
-                                zweite Lesart zur Karte.
+                                Compare best efforts and use the elevation profile of the selected segment as
+                                a second reading next to the map.
                             </p>
                             <div id="segment-shared-meta" class="segments-shared-meta d-none">
-                                <span class="segments-shared-meta__eyebrow">Shared Segment</span>
+                                <span class="segments-shared-meta__eyebrow"><%= t("segmentsPage.sharedSegmentEyebrow") %></span>
                                 <span id="segment-shared-meta-text"></span>
                             </div>
                         </div>
@@ -532,17 +532,17 @@
                                 Share
                             </button>
                             <div id="segment-share-inline" class="segment-share-inline">
-                                <span class="small text-muted">Sichtbarkeit</span>
+                                <span class="small text-muted">Visibility</span>
                                 <select id="segment-share-mode" class="form-select form-select-sm" style="width: 130px;">
-                                    <option value="private">Privat</option>
-                                    <option value="groups">Gruppen</option>
+                                    <option value="private"><%= t("segmentsPage.sharePrivate") %></option>
+                                    <option value="groups"><%= t("segmentsPage.shareGroups") %></option>
                                 </select>
                                 <div id="segment-share-groups" class="segment-share-inline__groups"></div>
                                 <span id="segment-share-status" class="segment-share-status"></span>
-                                <button id="segment-share-save" class="btn btn-sm btn-primary" type="button">Übernehmen</button>
+                                <button id="segment-share-save" class="btn btn-sm btn-primary" type="button">Apply</button>
                             </div>
                             <button id="delete-selected-segment" class="btn btn-sm btn-outline-danger d-none">
-                                Delete Segment
+                                <%= t("segmentsPage.deleteSegment") %>
                             </button>
                         </div>
                     </div>
@@ -553,13 +553,13 @@
                                 <h3 class="segments-panel-title">Best Efforts</h3>
                                 <div class="segment-bestefforts-scope-toggle" role="group" aria-label="Best-Efforts-Scope">
                                     <button id="segment-bestefforts-scope-mine" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-scope="mine">
-                                        Meine
+                                        Mine
                                     </button>
                                     <button id="segment-bestefforts-scope-shared" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-scope="shared">
-                                        Geteilte
+                                        <%= t("segmentsPage.bestEffortsScopeShared") %>
                                     </button>
                                     <button id="segment-bestefforts-scope-all" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-scope="all">
-                                        Alle
+                                        All
                                     </button>
                                 </div>
                             </div>
@@ -567,10 +567,10 @@
                         </div>
 
                         <div class="segments-panel">
-                            <h3 class="segments-panel-title">Elevation Profile</h3>
+                            <h3 class="segments-panel-title"><%= t("segmentsPage.elevationTitle") %></h3>
                             <div id="segment-elevation-panel" class="d-none h-100">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <div class="small text-muted fw-semibold">Elevation Profile</div>
+                                    <div class="small text-muted fw-semibold"><%= t("segmentsPage.elevationLabel") %></div>
                                     <div id="segment-elevation-stats" class="small text-muted"></div>
                                 </div>
                                 <div id="segment-elevation-chart"></div>
@@ -586,17 +586,17 @@
                 <section class="segments-surface">
                     <div class="segments-section-header">
                         <div>
-                            <span class="segments-eyebrow">Workout Context</span>
-                            <h2 id="files_header" class="segments-section-title">Workout Data</h2>
+                            <span class="segments-eyebrow"><%= t("segmentsPage.workoutContextEyebrow") %></span>
+                            <h2 id="files_header" class="segments-section-title"><%= t("segmentsPage.workoutContextTitle") %></h2>
                             <p class="segments-section-copy">
-                                Nutze den Chart als begleitende Analysefläche für Segmentbereiche und manuelle
-                                Bearbeitung innerhalb des geladenen Workouts.
+                                Use the chart as a complementary analysis surface for segment ranges and
+                                manual editing inside the loaded workout.
                             </p>
                         </div>
 
                         <div class="segments-toolbar">
                             <div id="segment-editor" class="d-none d-flex align-items-center gap-2">
-                                <span class="small text-muted">Segment:</span>
+                                <span class="small text-muted"><%= t("segmentsPage.segmentLabel") %></span>
                                 <input id="segment-name-input" type="text" class="form-control form-control-sm"
                                     style="width:150px;" />
                             </div>
@@ -626,10 +626,10 @@
 
             <div class="container py-5 text-center">
 
-                <h3 class="mb-4">Please log in</h3>
+                <h3 class="mb-4"><%= t("common.auth.pleaseSignIn") %></h3>
 
                 <a class="btn btn-primary" href="/login">
-                    Login
+                    <%= t("segmentsPage.signIn") %>
                 </a>
 
             </div>

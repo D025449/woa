@@ -1,6 +1,9 @@
+<%
+    const tr = typeof t === "function" ? t : ((key) => key);
+%>
 <link rel="stylesheet" href="/css/app-chrome.css">
 <footer class="app-footer pb-4">
-    <a href="/impressum?<%= new URLSearchParams({ returnTo: currentUrl || "/" }).toString() %>">Impressum</a>
+    <a href="/impressum?<%= new URLSearchParams({ returnTo: currentUrl || "/" }).toString() %>"><%= tr("common.footer.legalNotice") %></a>
     <span class="mx-2">·</span>
-    <a href="/datenschutz?<%= new URLSearchParams({ returnTo: currentUrl || "/" }).toString() %>">Datenschutz</a>
+    <a href="/datenschutz?<%= new URLSearchParams({ returnTo: currentUrl || "/" }).toString() %>"><%= tr("common.footer.privacy") %></a>
 </footer>

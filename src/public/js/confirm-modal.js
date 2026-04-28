@@ -11,15 +11,15 @@ function ensureModalElements() {
       <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content border-0 shadow">
           <div class="modal-header">
-            <h5 class="modal-title">Bestätigung</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button>
+            <h5 class="modal-title">Confirmation</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
           <div class="modal-body">
             <p class="mb-0" style="white-space: pre-line;" data-confirm-message></p>
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-outline-secondary" data-confirm-cancel>Abbrechen</button>
-            <button type="button" class="btn btn-danger" data-confirm-accept>Löschen</button>
+            <button type="button" class="btn btn-outline-secondary" data-confirm-cancel>Cancel</button>
+            <button type="button" class="btn btn-danger" data-confirm-accept>Delete</button>
           </div>
         </div>
       </div>
@@ -41,10 +41,10 @@ function ensureModalElements() {
 }
 
 export default function confirmModal({
-  title = "Bestätigung",
-  message = "Bist du sicher?",
-  acceptLabel = "Löschen",
-  cancelLabel = "Abbrechen",
+  title = "Confirmation",
+  message = "Are you sure?",
+  acceptLabel = "Delete",
+  cancelLabel = "Cancel",
   acceptClass = "btn-danger"
 } = {}) {
   if (!globalThis.bootstrap?.Modal) {

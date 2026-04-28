@@ -15,10 +15,10 @@ export default class WorkoutService {
     const filename = `Workout ${workoutId}`;
 
     const ok = await confirmModal({
-      title: "Workout löschen",
-      message: `Workout wirklich löschen?\n\n${filename}`,
-      acceptLabel: "Workout löschen",
-      cancelLabel: "Abbrechen",
+      title: "Delete Workout",
+      message: `Delete this workout?\n\n${filename}`,
+      acceptLabel: "Delete Workout",
+      cancelLabel: "Cancel",
       acceptClass: "btn-danger"
     });
     if (!ok) return;
@@ -34,7 +34,7 @@ export default class WorkoutService {
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(text || `Delete fehlgeschlagen (${response.status})`);
+      throw new Error(text || `Delete failed (${response.status})`);
     }
 
     await row.delete();
@@ -112,7 +112,7 @@ export default class WorkoutService {
       //}
     }
     catch (err) {
-      console.error("Parsing fehlgeschlagen:", err.message);
+      console.error("Parsing failed:", err.message);
     }
 
   }

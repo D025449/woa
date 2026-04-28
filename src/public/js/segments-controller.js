@@ -265,14 +265,14 @@ export default class Controller {
 
     if (isSharedSegment) {
       this.segmentSharedMetaText.textContent = isOwnedByCurrentUser
-        ? "Mit Gruppen geteilt"
-        : `Geteilt von ${ownerLabel}`;
+        ? "Shared with groups"
+        : `Shared by ${ownerLabel}`;
       return;
     }
 
     this.segmentSharedMetaText.textContent = isOwnedByCurrentUser
-      ? "Nur fuer dich sichtbar"
-      : `Privat von ${ownerLabel}`;
+      ? "Visible only to you"
+      : `Private by ${ownerLabel}`;
   }
 
   updateBestEffortsScopeUi() {
@@ -394,15 +394,15 @@ export default class Controller {
 
       if (this.shareStatus) {
         this.shareStatus.textContent = data.shareMode === "groups"
-          ? `${(data.groupIds || []).length} Gruppe(n) aktiv`
-          : "Privat";
+          ? `${(data.groupIds || []).length} group(s) active`
+          : "Private";
       }
       this.updateBestEffortsScopeUi();
     } catch (error) {
       console.error(error);
       this.selectedSegmentSharing = null;
       if (this.shareStatus) {
-        this.shareStatus.textContent = "Sharing konnte nicht geladen werden";
+        this.shareStatus.textContent = "Could not load sharing";
       }
       this.updateBestEffortsScopeUi();
     }
@@ -449,15 +449,15 @@ export default class Controller {
       this.selectedSegmentSharing = data;
       if (this.shareStatus) {
         this.shareStatus.textContent = data.shareMode === "groups"
-          ? `${(data.groupIds || []).length} Gruppe(n) aktiv`
-          : "Privat";
+          ? `${(data.groupIds || []).length} group(s) active`
+          : "Private";
       }
       this.updateBestEffortsScopeUi();
 
       this.shareInline?.classList.remove("is-open");
     } catch (error) {
       console.error(error);
-      window.alert(error.message || "Segment-Sharing konnte nicht gespeichert werden.");
+      window.alert(error.message || "Could not save segment sharing.");
     }
   }
 
@@ -467,10 +467,10 @@ export default class Controller {
 
     const label = `${segment.start?.name ?? "Start"} - ${segment.end?.name ?? "End"}`;
     const ok = await confirmModal({
-      title: "Segment löschen",
-      message: `Segment wirklich loeschen?\n\n${label}`,
-      acceptLabel: "Segment löschen",
-      cancelLabel: "Abbrechen",
+      title: "Delete Segment",
+      message: `Delete this segment?\n\n${label}`,
+      acceptLabel: "Delete Segment",
+      cancelLabel: "Cancel",
       acceptClass: "btn-danger"
     });
     if (!ok) return;

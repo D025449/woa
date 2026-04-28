@@ -1,9 +1,10 @@
 export default class GroupSentInvitesView {
 
-  constructor(containerSelector, handlers = {}) {
+  constructor(containerSelector, handlers = {}, t = (key) => key) {
     this.container = document.querySelector(containerSelector);
     this.handlers = handlers;
     this.items = [];
+    this.t = t;
   }
 
   render(items = []) {
@@ -16,8 +17,8 @@ export default class GroupSentInvitesView {
     if (!items.length) {
       this.container.innerHTML = `
         <div class="groups-empty">
-          <strong>Keine versendeten Einladungen.</strong><br>
-          Hier erscheinen Einladungen, die du für deine Gruppen ausgelöst hast.
+          <strong>${this.t("view.emptySentInvitesTitle")}</strong><br>
+          ${this.t("view.emptySentInvitesBody")}
         </div>
       `;
       return;
@@ -25,7 +26,7 @@ export default class GroupSentInvitesView {
 
     this.container.innerHTML = items.map((invite) => `
       <div class="groups-preview-card">
-        <span class="groups-preview-kicker">${invite.status || "Pending"}</span>
+        <span class="groups-preview-kicker">${invite.status || this.t("view.statusPending")}</span>
         <h3 class="groups-preview-title">${invite.group_name}</h3>
         <p class="groups-preview-copy">
           ${invite.invited_display_name || invite.invited_email}
@@ -38,7 +39,7 @@ export default class GroupSentInvitesView {
               class="btn btn-outline-secondary btn-sm"
               data-action="revoke-invite"
               data-invite-id="${invite.id}">
-              Revoke
+              ${this.t("buttons.revoke")}
             </button>
           ` : `
             <button
@@ -46,7 +47,7 @@ export default class GroupSentInvitesView {
               class="btn btn-outline-secondary btn-sm"
               data-action="dismiss-sent-invite"
               data-invite-id="${invite.id}">
-              Ausblenden
+              ${this.t("buttons.dismiss")}
             </button>
           `}
         </div>

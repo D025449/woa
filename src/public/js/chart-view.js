@@ -62,21 +62,21 @@ export default class ChartView {
     const wrapper = document.createElement("div");
     wrapper.className = "btn-group btn-group-sm";
     wrapper.setAttribute("role", "group");
-    wrapper.setAttribute("aria-label", "X-Achse");
+    wrapper.setAttribute("aria-label", "X Axis");
 
     const timeButton = document.createElement("button");
     timeButton.type = "button";
     timeButton.className = "btn btn-outline-dark";
-    timeButton.textContent = "Zeit";
+    timeButton.textContent = "Time";
     timeButton.dataset.xAxisMode = "time";
 
     const distanceButton = document.createElement("button");
     distanceButton.type = "button";
     distanceButton.className = "btn btn-outline-dark";
-    distanceButton.textContent = "Distanz";
+    distanceButton.textContent = "Distance";
     distanceButton.dataset.xAxisMode = "distance";
     distanceButton.disabled = true;
-    distanceButton.title = "Nur verfügbar, wenn Distanzdaten vorhanden sind.";
+    distanceButton.title = "Only available when distance data is present.";
 
     wrapper.appendChild(timeButton);
     wrapper.appendChild(distanceButton);
@@ -285,7 +285,7 @@ export default class ChartView {
 
         if (isGpsSegment) {
           this.handlers.onToast?.(
-            `GPS-Segmente können hier nicht gelöscht werden. <a href="/segments?focusSegmentId=${encodeURIComponent(seg.sid)}" class="fw-semibold text-decoration-underline">Zur Segments-Seite</a>`
+            `GPS segments cannot be deleted here. <a href="/segments?focusSegmentId=${encodeURIComponent(seg.sid)}" class="fw-semibold text-decoration-underline">Go to Segments page</a>`
           );
           return;
         }
@@ -413,10 +413,10 @@ export default class ChartView {
       this.createButton.setAttribute(
         "title",
         !isEditable
-          ? "Geteilte Workouts sind schreibgeschützt."
+          ? "Shared workouts are read-only."
           : isCreate
-          ? "Create-Segment-Modus aktiv. Ziehe im Chart einen Bereich auf, um ein neues Segment anzulegen."
-          : "Create-Segment-Modus aktivieren."
+          ? "Create Segment mode is active. Drag across the chart to create a new segment."
+          : "Enable Create Segment mode."
       );
       this.createButton.setAttribute(
         "aria-pressed",
@@ -433,14 +433,14 @@ export default class ChartView {
       this.createGpsButton.setAttribute(
         "title",
         !isEditable
-          ? "Geteilte Workouts sind schreibgeschützt."
+          ? "Shared workouts are read-only."
           : canCreateGps
           ? (
               isGpsCreate
-                ? "Create-GPS-Segment-Modus aktiv. Ziehe im Chart einen Bereich auf, um ein GPS-Segment zu erzeugen."
-                : "Create-GPS-Segment-Modus aktivieren."
+                ? "Create GPS Segment mode is active. Drag across the chart to create a GPS segment."
+                : "Enable Create GPS Segment mode."
             )
-          : "Nur verfuegbar, wenn das Workout gueltige GPS-Daten hat."
+          : "Only available when the workout has valid GPS data."
       );
       this.createGpsButton.setAttribute(
         "aria-pressed",
@@ -457,10 +457,10 @@ export default class ChartView {
       this.deleteButton.setAttribute(
         "title",
         !isEditable
-          ? "Geteilte Workouts sind schreibgeschützt."
+          ? "Shared workouts are read-only."
           : isDelete
-          ? "Delete-Segment-Modus aktiv. Klicke auf ein vorhandenes Segment, um es zu löschen."
-          : "Delete-Segment-Modus aktivieren."
+          ? "Delete Segment mode is active. Click an existing segment to delete it."
+          : "Enable Delete Segment mode."
       );
       this.deleteButton.setAttribute(
         "aria-pressed",
@@ -667,11 +667,11 @@ export default class ChartView {
       ? `Zeit: ${Utils.formatSeconds(index)}`
       : "Momentaufnahme entlang des Tracks";
     const rows = [
-      ["Leistung", Number.isFinite(row[1]) ? `${Math.round(row[1])} W` : "–"],
-      ["Herzfrequenz", Number.isFinite(row[2]) ? `${Math.round(row[2])} bpm` : "–"],
-      ["Kadenz", Number.isFinite(row[3]) ? `${Math.round(row[3])} rpm` : "–"],
+      ["Power", Number.isFinite(row[1]) ? `${Math.round(row[1])} W` : "–"],
+      ["Heart Rate", Number.isFinite(row[2]) ? `${Math.round(row[2])} bpm` : "–"],
+      ["Cadence", Number.isFinite(row[3]) ? `${Math.round(row[3])} rpm` : "–"],
       ["Speed", Number.isFinite(row[4]) ? `${Number(row[4]).toFixed(1)} km/h` : "–"],
-      ["Höhe", Number.isFinite(row[5]) ? `${Math.round(row[5])} m` : "–"]
+      ["Altitude", Number.isFinite(row[5]) ? `${Math.round(row[5])} m` : "–"]
     ];
 
     return `

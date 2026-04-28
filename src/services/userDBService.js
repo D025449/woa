@@ -26,6 +26,16 @@ export default class UserDBService {
     return result.rows[0];
   }
 
+  static async getUserLanguage(userId) {
+    const result = await pool.query(
+      `SELECT language FROM user_profiles WHERE user_id = $1 LIMIT 1`,
+      [userId]
+    );
+    if (result.rowCount === 0) {
+      return "en";
+    }
+    return result.rows[0]?.language || "en";
+  }
 
 
 

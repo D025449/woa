@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Workout Dashboard</title>
+    <title><%= t("dashboardLegacy.title") %></title>
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
@@ -424,7 +424,7 @@
     <% if (isAuthenticated) { %>
 
         <%- include("partials/app-topbar", {
-            title: "Workout Dashboard",
+            title: t("dashboardLegacy.topbarTitle"),
             currentPage: "dashboard",
             userInfo,
             showDashboardNewLink: true
@@ -439,25 +439,25 @@
                 <section class="dashboard-hero">
                     <div>
                         <p class="dashboard-kicker">Performance Analysis Console</p>
-                        <h1 class="dashboard-title">Workout Dashboard</h1>
+                        <h1 class="dashboard-title"><%= t("dashboardLegacy.heroTitle") %></h1>
                         <p class="dashboard-subtitle">
-                            Wähle ein Workout und analysiere Leistung, Route und Segmentlogik in einer ruhigen,
-                            datenfokussierten Arbeitsfläche.
+                            Select a workout and analyze power, route, and segment logic in a calm,
+                            data-focused workspace.
                         </p>
                     </div>
 
                     <div class="dashboard-hero-meta">
                         <span class="dashboard-chip">
-                            <span class="dashboard-chip-label">User</span>
-                            <span><%= ((typeof userInfo !== "undefined" && userInfo) ? (userInfo.display_name || userInfo.email) : "Unknown") %></span>
+                            <span class="dashboard-chip-label"><%= t("dashboardLegacy.chipUser") %></span>
+                            <span><%= ((typeof userInfo !== "undefined" && userInfo) ? (userInfo.display_name || userInfo.email) : t("dashboardLegacy.chipUnknownUser")) %></span>
                         </span>
                         <span class="dashboard-chip">
-                            <span class="dashboard-chip-label">Ansicht</span>
-                            <span>Desktop Focus</span>
+                            <span class="dashboard-chip-label"><%= t("dashboardLegacy.chipModeLabel") %></span>
+                            <span><%= t("dashboardLegacy.chipModeValue") %></span>
                         </span>
                         <span class="dashboard-chip">
-                            <span class="dashboard-chip-label">Workflow</span>
-                            <span>Analyse · Segmente · Karte</span>
+                            <span class="dashboard-chip-label"><%= t("dashboardLegacy.chipFocusLabel") %></span>
+                            <span><%= t("dashboardLegacy.chipFocusValue") %></span>
                         </span>
                     </div>
                 </section>
@@ -465,10 +465,10 @@
                 <section class="dashboard-section">
                     <div class="dashboard-section-header dashboard-section-header--compact">
                         <div>
-                            <span class="dashboard-eyebrow">Workout Library</span>
-                            <h2 id="files_header" class="dashboard-section-title">Workouts</h2>
+                            <span class="dashboard-eyebrow"><%= t("dashboardLegacy.libraryEyebrow") %></span>
+                            <h2 id="files_header" class="dashboard-section-title"><%= t("dashboardLegacy.libraryTitle") %></h2>
                             <p class="dashboard-section-copy">
-                                Öffne ein Workout aus der Liste und springe direkt in Chart- und Kartenanalyse.
+                                Open a workout from the list and jump straight into chart and map analysis.
                             </p>
                         </div>
                     </div>
@@ -483,23 +483,23 @@
                         <div class="dashboard-section-header">
                             <div>
                                 <span class="dashboard-eyebrow">Primary Analysis</span>
-                                <h2 class="dashboard-section-title">Workout Data</h2>
+                                <h2 class="dashboard-section-title"><%= t("dashboardLegacy.workoutDataTitle") %></h2>
                                 <p class="dashboard-section-copy">
-                                    Leistung, Herzfrequenz, Kadenz, Speed und Höhe mit direkter Segment-Interaktion.
+                                    Power, heart rate, cadence, speed, and altitude with direct segment interaction.
                                 </p>
                             </div>
 
                             <div class="dashboard-toolbar">
                                 <button id="draw-segment-toggle" class="btn btn-sm btn-outline-primary"
-                                    title="Create-Segment-Modus aktivieren.">
-                                    ＋ Create Segment
+                                    title="<%= t('dashboardLegacy.btnCreateSegmentTitle') %>">
+                                    <%= t("dashboardLegacy.btnCreateSegment") %>
                                 </button>
                                 <button id="draw-gps-segment-toggle" class="btn btn-sm btn-outline-success"
-                                    title="Create-GPS-Segment-Modus aktivieren." disabled>
-                                    🛰 Create GPS Segment
+                                    title="<%= t('dashboardLegacy.btnCreateGpsTitle') %>" disabled>
+                                    <%= t("dashboardLegacy.btnCreateGps") %>
                                 </button>
                                 <button id="delete-segments" class="btn btn-sm btn-outline-danger">
-                                    🗑 Delete Segment
+                                    <%= t("dashboardLegacy.btnDeleteSegment") %>
                                 </button>
                             </div>
                         </div>
@@ -513,9 +513,9 @@
                         <div class="dashboard-section-header">
                             <div>
                                 <span class="dashboard-eyebrow">Spatial Context</span>
-                                <h2 class="dashboard-section-title">Route Map</h2>
+                                <h2 class="dashboard-section-title"><%= t("dashboardLegacy.routeMapTitle") %></h2>
                                 <p class="dashboard-section-copy">
-                                    Track, Segmentbereiche und Kartenkontext als ergänzende Analysefläche.
+                                    Track, segment ranges, and map context as a complementary analysis surface.
                                 </p>
                             </div>
                         </div>
@@ -542,10 +542,10 @@
 
             <div class="container py-5 text-center">
 
-                <h3 class="mb-4">Please log in</h3>
+                <h3 class="mb-4"><%= t("common.auth.pleaseSignIn") %></h3>
 
                 <a class="btn btn-primary" href="/login">
-                    Login
+                    <%= t("dashboardLegacy.signIn") %>
                 </a>
 
             </div>

@@ -31,10 +31,11 @@ function getMemberPreview(group) {
 
 export default class GroupListView {
 
-  constructor(containerSelector, handlers = {}) {
+  constructor(containerSelector, handlers = {}, t = (key) => key) {
     this.container = document.querySelector(containerSelector);
     this.handlers = handlers;
     this.items = [];
+    this.t = t;
   }
 
   render(items = []) {
@@ -47,8 +48,8 @@ export default class GroupListView {
     if (!items.length) {
       this.container.innerHTML = `
         <div class="groups-empty">
-          <strong>Noch keine Gruppen.</strong><br>
-          Lege deine erste private Trainingsgruppe hier an. Die Home-Seite bleibt dabei bewusst read-only.
+          <strong>${this.t("view.emptyGroupsTitle")}</strong><br>
+          ${this.t("view.emptyGroupsBody")}
         </div>
       `;
       return;
@@ -60,17 +61,17 @@ export default class GroupListView {
 
         return `
       <div class="groups-preview-card">
-        <span class="groups-preview-kicker">${group.role || "Member"} · ${group.member_count || 0} Mitglieder</span>
+        <span class="groups-preview-kicker">${group.role || this.t("view.memberFallback")} · ${group.member_count || 0} ${this.t("view.membersLabel").toLowerCase()}</span>
         <h3 class="groups-preview-title">${group.name}</h3>
         <p class="groups-preview-copy">${group.description || ""}</p>
         <div class="groups-member-summary">
-          <div class="groups-member-summary__label">Mitglieder</div>
+          <div class="groups-member-summary__label">${this.t("view.membersLabel")}</div>
           <div class="groups-member-summary__items">
             ${visibleMembers.map((member) => `
               <span class="groups-member-pill">${member.label}</span>
             `).join("")}
             ${hiddenCount > 0 ? `
-              <span class="groups-member-pill groups-member-pill--more">+${hiddenCount} mehr</span>
+              <span class="groups-member-pill groups-member-pill--more">${this.t("view.moreMembers", { count: hiddenCount })}</span>
             ` : ""}
           </div>
         </div>
@@ -81,7 +82,7 @@ export default class GroupListView {
               class="btn btn-outline-success btn-sm"
               data-action="publish-group-content"
               data-group-id="${group.id}">
-              Inhalte veroeffentlichen
+              ${this.t("buttons.publishContent")}
             </button>
           ` : ""}
           ${canEdit(group) ? `
@@ -90,7 +91,7 @@ export default class GroupListView {
               class="btn btn-outline-secondary btn-sm"
               data-action="edit-group"
               data-group-id="${group.id}">
-              Bearbeiten
+              ${this.t("buttons.edit")}
             </button>
           ` : ""}
           ${canInvite(group) ? `
@@ -99,7 +100,7 @@ export default class GroupListView {
               class="btn btn-outline-primary btn-sm"
               data-action="invite-group"
               data-group-id="${group.id}">
-              Einladen
+              ${this.t("buttons.invite")}
             </button>
           ` : ""}
           ${canLeave(group) ? `
@@ -108,7 +109,7 @@ export default class GroupListView {
               class="btn btn-outline-danger btn-sm"
               data-action="leave-group"
               data-group-id="${group.id}">
-              Gruppe verlassen
+              ${this.t("buttons.leaveGroup")}
             </button>
           ` : ""}
           ${canDelete(group) ? `
@@ -117,7 +118,7 @@ export default class GroupListView {
               class="btn btn-danger btn-sm"
               data-action="delete-group"
               data-group-id="${group.id}">
-              Gruppe löschen
+              ${this.t("buttons.deleteGroup")}
             </button>
           ` : ""}
         </div>
