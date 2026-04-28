@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coaching</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body.coaching-page {
+            background:
+                radial-gradient(circle at top left, rgba(30, 64, 175, 0.08), transparent 26%),
+                radial-gradient(circle at top right, rgba(8, 145, 178, 0.10), transparent 24%),
+                linear-gradient(180deg, #f5f7fb 0%, #edf2f7 100%);
+            color: #10233b;
+        }
+
+        .coaching-shell {
+            display: grid;
+            gap: 1.5rem;
+        }
+
+        .coaching-hero,
+        .coaching-surface {
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 1.5rem;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.94));
+            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+        }
+
+        .coaching-hero {
+            display: flex;
+            align-items: end;
+            justify-content: space-between;
+            gap: 1.5rem;
+            padding: 1.5rem 1.75rem;
+        }
+
+        .coaching-kicker {
+            margin: 0 0 0.4rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: #0f766e;
+        }
+
+        .coaching-title {
+            margin: 0;
+            font-size: clamp(2rem, 2.5vw, 2.85rem);
+            font-weight: 700;
+            letter-spacing: -0.04em;
+            line-height: 0.95;
+            color: #0f172a;
+        }
+
+        .coaching-subtitle {
+            margin: 0.75rem 0 0;
+            max-width: 48rem;
+            font-size: 0.98rem;
+            color: #475569;
+        }
+
+        .coaching-hero-meta {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .coaching-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            padding: 0.7rem 1rem;
+            border: 1px solid rgba(148, 163, 184, 0.28);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.72);
+            font-size: 0.83rem;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .coaching-chip-label {
+            color: #64748b;
+        }
+
+        .coaching-surface {
+            overflow: hidden;
+        }
+
+        .coaching-section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 1.1rem 1.4rem 1rem;
+            border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+            background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 0.88));
+        }
+
+        .coaching-eyebrow {
+            display: block;
+            margin-bottom: 0.2rem;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #64748b;
+        }
+
+        .coaching-section-title {
+            margin: 0;
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .coaching-section-copy {
+            margin: 0.3rem 0 0;
+            color: #64748b;
+            font-size: 0.92rem;
+        }
+
+        .coaching-body {
+            padding: 1.35rem 1.4rem 1.45rem;
+        }
+
+        .coaching-subgrid {
+            display: grid;
+            gap: 1.25rem;
+        }
+
+        .coaching-fieldset {
+            padding: 1.1rem 1.1rem 1rem;
+            border: 1px solid rgba(226, 232, 240, 0.92);
+            border-radius: 1.15rem;
+            background: rgba(248, 250, 252, 0.68);
+        }
+
+        .coaching-fieldset-title {
+            margin: 0 0 0.85rem;
+            font-size: 0.94rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .goal-toggle {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.75rem;
+        }
+
+        .goal-option,
+        .style-option {
+            position: relative;
+        }
+
+        .goal-option input,
+        .style-option input,
+        .horizon-option input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .goal-option label,
+        .style-option label {
+            display: block;
+            height: 100%;
+            padding: 0.95rem 1rem;
+            border: 1px solid rgba(203, 213, 225, 0.95);
+            border-radius: 1rem;
+            background: #ffffff;
+            cursor: pointer;
+            transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+        }
+
+        .goal-option label:hover,
+        .style-option label:hover,
+        .horizon-option label:hover {
+            border-color: rgba(59, 130, 246, 0.4);
+            box-shadow: 0 12px 24px rgba(15, 23, 42, 0.06);
+            transform: translateY(-1px);
+        }
+
+        .goal-option input:checked + label,
+        .style-option input:checked + label,
+        .horizon-option input:checked + label {
+            border-color: rgba(30, 64, 175, 0.48);
+            background: rgba(239, 246, 255, 0.95);
+            box-shadow: 0 12px 26px rgba(37, 99, 235, 0.12);
+        }
+
+        .goal-option strong,
+        .style-option strong {
+            display: block;
+            color: #0f172a;
+            font-size: 0.94rem;
+            margin-bottom: 0.2rem;
+        }
+
+        .goal-option span,
+        .style-option span {
+            display: block;
+            color: #64748b;
+            font-size: 0.85rem;
+            line-height: 1.4;
+        }
+
+        .coaching-grid-2,
+        .coaching-grid-3,
+        .coaching-grid-4 {
+            display: grid;
+            gap: 0.9rem;
+        }
+
+        .coaching-grid-2 {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .coaching-grid-3 {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .coaching-grid-4 {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        .coaching-form-label {
+            margin-bottom: 0.4rem;
+            font-size: 0.82rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #64748b;
+        }
+
+        .coaching-form-control,
+        .coaching-form-select {
+            border-radius: 0.95rem;
+            border-color: rgba(203, 213, 225, 0.95);
+            padding: 0.8rem 0.95rem;
+            font-size: 0.95rem;
+            box-shadow: none;
+        }
+
+        .coaching-weekdays {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.6rem;
+        }
+
+        .weekday-chip {
+            position: relative;
+        }
+
+        .weekday-chip input {
+            position: absolute;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .weekday-chip label,
+        .horizon-option label {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 3.15rem;
+            padding: 0.72rem 0.95rem;
+            border: 1px solid rgba(203, 213, 225, 0.95);
+            border-radius: 999px;
+            background: #ffffff;
+            color: #0f172a;
+            font-size: 0.9rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+        }
+
+        .weekday-chip input:checked + label {
+            border-color: rgba(30, 64, 175, 0.48);
+            background: rgba(239, 246, 255, 0.95);
+            box-shadow: 0 10px 22px rgba(37, 99, 235, 0.12);
+        }
+
+        .horizon-toggle,
+        .style-toggle {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        .placeholder-grid {
+            display: grid;
+            gap: 1rem;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .coaching-history-list {
+            display: grid;
+            gap: 0.8rem;
+        }
+
+        .coaching-history-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 0.95rem 1rem;
+            border: 1px solid rgba(226, 232, 240, 0.92);
+            border-radius: 1rem;
+            background: rgba(248, 250, 252, 0.7);
+        }
+
+        .coaching-history-card__title {
+            margin: 0;
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .coaching-history-card__meta {
+            margin-top: 0.25rem;
+            font-size: 0.85rem;
+            color: #64748b;
+        }
+
+        .coaching-result-summary__chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        .coaching-result-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            padding: 0.7rem 0.95rem;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.28);
+            background: rgba(255, 255, 255, 0.8);
+            font-size: 0.84rem;
+            color: #1e293b;
+        }
+
+        .coaching-result-chip strong {
+            color: #64748b;
+            font-size: 0.78rem;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .coaching-plan-grid {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .coaching-week-card {
+            border: 1px solid rgba(226, 232, 240, 0.92);
+            border-radius: 1.2rem;
+            background: rgba(255, 255, 255, 0.88);
+            overflow: hidden;
+        }
+
+        .coaching-week-card__header {
+            display: flex;
+            align-items: start;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 1rem 1.1rem 0.95rem;
+            border-bottom: 1px solid rgba(226, 232, 240, 0.88);
+            background: rgba(248, 250, 252, 0.78);
+        }
+
+        .coaching-week-card__eyebrow {
+            margin-bottom: 0.22rem;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #64748b;
+        }
+
+        .coaching-week-card__title {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .coaching-week-card__hours {
+            font-size: 0.92rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .coaching-week-card__sessions {
+            display: grid;
+            gap: 0.8rem;
+            padding: 1rem 1.1rem 1.15rem;
+        }
+
+        .coaching-session-card {
+            display: grid;
+            grid-template-columns: 4rem 1fr;
+            gap: 0.85rem;
+            align-items: start;
+            padding: 0.9rem 1rem;
+            border-radius: 1rem;
+            border: 1px solid rgba(226, 232, 240, 0.92);
+            background: rgba(248, 250, 252, 0.74);
+        }
+
+        .coaching-session-card--hard {
+            border-color: rgba(248, 113, 113, 0.25);
+            background: rgba(254, 242, 242, 0.78);
+        }
+
+        .coaching-session-card--medium {
+            border-color: rgba(251, 191, 36, 0.26);
+            background: rgba(255, 251, 235, 0.82);
+        }
+
+        .coaching-session-card--long {
+            border-color: rgba(45, 212, 191, 0.25);
+            background: rgba(240, 253, 250, 0.82);
+        }
+
+        .coaching-session-card__day {
+            font-size: 0.8rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #64748b;
+            padding-top: 0.15rem;
+        }
+
+        .coaching-session-card__title {
+            font-size: 0.96rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .coaching-session-card__meta {
+            margin-top: 0.18rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem 1rem;
+            font-size: 0.84rem;
+            font-weight: 700;
+            color: #0f766e;
+        }
+
+        .coaching-session-card__notes {
+            margin-top: 0.3rem;
+            font-size: 0.88rem;
+            color: #475569;
+        }
+
+        .coaching-week-actions {
+            display: flex;
+            gap: 0.55rem;
+            align-items: center;
+        }
+
+        .coaching-edit-grid {
+            display: grid;
+            gap: 0.75rem;
+        }
+
+        .coaching-edit-session {
+            padding: 0.85rem;
+            border: 1px solid rgba(203, 213, 225, 0.9);
+            border-radius: 0.9rem;
+            background: rgba(255, 255, 255, 0.78);
+        }
+
+        .placeholder-card {
+            padding: 1rem 1rem 1.05rem;
+            border: 1px dashed rgba(148, 163, 184, 0.55);
+            border-radius: 1rem;
+            background: rgba(248, 250, 252, 0.78);
+        }
+
+        .placeholder-card h3 {
+            margin: 0 0 0.35rem;
+            font-size: 0.98rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .placeholder-card p,
+        .coaching-placeholder-copy {
+            margin: 0;
+            color: #64748b;
+            font-size: 0.92rem;
+        }
+
+        .coaching-placeholder-list {
+            margin: 1rem 0 0;
+            padding-left: 1.2rem;
+            color: #334155;
+        }
+
+        .coaching-placeholder-list li + li {
+            margin-top: 0.45rem;
+        }
+
+        @media (max-width: 991.98px) {
+            .coaching-hero {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .coaching-hero-meta {
+                justify-content: flex-start;
+            }
+
+            .goal-toggle,
+            .coaching-grid-2,
+            .coaching-grid-3,
+            .coaching-grid-4,
+            .placeholder-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body class="coaching-page">
+    <% if (isAuthenticated) { %>
+        <%- include("partials/app-topbar", {
+            title: "Coaching",
+            currentPage: "coaching",
+            userInfo,
+            showDashboardNewLink: true
+        }) %>
+
+        <div class="container-fluid px-3 px-xl-4 py-4">
+            <div class="coaching-shell">
+                <section class="coaching-hero">
+                    <div>
+                        <p class="coaching-kicker">AI-supported planning</p>
+                        <h1 class="coaching-title">Coaching</h1>
+                        <p class="coaching-subtitle">
+                            Define your planning goal, weekly availability, and event context first. This first version focuses on a clean planning intake before we wire the actual training-plan engine behind it.
+                        </p>
+                    </div>
+
+                    <div class="coaching-hero-meta">
+                        <span class="coaching-chip">
+                            <span class="coaching-chip-label">User</span>
+                            <span><%= userInfo.display_name || userInfo.email %></span>
+                        </span>
+                        <span class="coaching-chip">
+                            <span class="coaching-chip-label">Focus</span>
+                            <span>Goal · Availability · Plan</span>
+                        </span>
+                        <span class="coaching-chip">
+                            <span class="coaching-chip-label">Mode</span>
+                            <span>Planning Intake</span>
+                        </span>
+                    </div>
+                </section>
+
+                <section class="coaching-surface">
+                    <div class="coaching-section-header">
+                        <div>
+                            <span class="coaching-eyebrow">Planning Input</span>
+                            <h2 class="coaching-section-title">Plan Setup</h2>
+                            <p class="coaching-section-copy">Capture the goal and constraints first, then use them as the basis for generated training blocks.</p>
+                        </div>
+                    </div>
+
+                    <div class="coaching-body">
+                        <form class="coaching-subgrid" id="coaching-form">
+                            <section class="coaching-fieldset">
+                                <h3 class="coaching-fieldset-title">Goal</h3>
+
+                                <div class="goal-toggle">
+                                    <div class="goal-option">
+                                        <input type="radio" id="goal-event" name="primaryGoal" value="event" checked>
+                                        <label for="goal-event">
+                                            <strong>Event preparation</strong>
+                                            <span>Plan toward a target date with duration, terrain, distance, and elevation in mind.</span>
+                                        </label>
+                                    </div>
+
+                                    <div class="goal-option">
+                                        <input type="radio" id="goal-power" name="primaryGoal" value="power">
+                                        <label for="goal-power">
+                                            <strong>Power improvement</strong>
+                                            <span>Target a specific power duration such as sprint, 1 min, 4 min, 8 min, or FTP.</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div id="power-focus-panel" class="mt-3 d-none">
+                                    <label class="coaching-form-label" for="power-focus">Power Focus</label>
+                                    <select class="form-select coaching-form-select" id="power-focus" name="powerFocus">
+                                        <option value="sprint">Sprint</option>
+                                        <option value="1min">1 min</option>
+                                        <option value="4min">4 min</option>
+                                        <option value="8min">8 min</option>
+                                        <option value="ftp">FTP / 60 min</option>
+                                    </select>
+                                </div>
+
+                                <div id="event-panel" class="mt-3">
+                                    <div class="coaching-grid-4">
+                                        <div>
+                                            <label class="coaching-form-label" for="event-date">Event Date</label>
+                                            <input class="form-control coaching-form-control" id="event-date" name="eventDate" type="date">
+                                        </div>
+
+                                        <div>
+                                            <label class="coaching-form-label" for="event-duration">Expected Duration (h)</label>
+                                            <input class="form-control coaching-form-control" id="event-duration" name="eventDuration" type="number" min="0" step="0.5" placeholder="4.5">
+                                        </div>
+
+                                        <div>
+                                            <label class="coaching-form-label" for="event-distance">Distance (km)</label>
+                                            <input class="form-control coaching-form-control" id="event-distance" name="eventDistance" type="number" min="0" step="1" placeholder="120">
+                                        </div>
+
+                                        <div>
+                                            <label class="coaching-form-label" for="event-elevation">Elevation Gain (m)</label>
+                                            <input class="form-control coaching-form-control" id="event-elevation" name="eventElevation" type="number" min="0" step="50" placeholder="1800">
+                                        </div>
+                                    </div>
+
+                                    <div class="mt-3">
+                                        <label class="coaching-form-label" for="terrain-profile">Terrain Profile</label>
+                                        <select class="form-select coaching-form-select" id="terrain-profile" name="terrainProfile">
+                                            <option value="flat">Flat</option>
+                                            <option value="rolling">Rolling</option>
+                                            <option value="hilly">Hilly</option>
+                                            <option value="mountainous">Mountainous</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section class="coaching-fieldset">
+                                <h3 class="coaching-fieldset-title">Availability</h3>
+
+                                <div class="coaching-grid-2">
+                                    <div>
+                                        <label class="coaching-form-label" for="hours-per-week">Hours per Week</label>
+                                        <input class="form-control coaching-form-control" id="hours-per-week" name="hoursPerWeek" type="number" min="1" max="40" step="0.5" placeholder="8">
+                                    </div>
+
+                                    <div>
+                                        <label class="coaching-form-label" for="plan-start-date">Plan Start Date</label>
+                                        <input class="form-control coaching-form-control" id="plan-start-date" name="planStartDate" type="date">
+                                    </div>
+
+                                    <div>
+                                        <label class="coaching-form-label">Available Weekdays</label>
+                                        <div class="coaching-weekdays">
+                                            <div class="weekday-chip"><input type="checkbox" id="day-mon" name="days" value="mon"><label for="day-mon">Mon</label></div>
+                                            <div class="weekday-chip"><input type="checkbox" id="day-tue" name="days" value="tue"><label for="day-tue">Tue</label></div>
+                                            <div class="weekday-chip"><input type="checkbox" id="day-wed" name="days" value="wed"><label for="day-wed">Wed</label></div>
+                                            <div class="weekday-chip"><input type="checkbox" id="day-thu" name="days" value="thu"><label for="day-thu">Thu</label></div>
+                                            <div class="weekday-chip"><input type="checkbox" id="day-fri" name="days" value="fri"><label for="day-fri">Fri</label></div>
+                                            <div class="weekday-chip"><input type="checkbox" id="day-sat" name="days" value="sat"><label for="day-sat">Sat</label></div>
+                                            <div class="weekday-chip"><input type="checkbox" id="day-sun" name="days" value="sun"><label for="day-sun">Sun</label></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mt-3">
+                                    <label class="coaching-form-label">Athlete Data Mode</label>
+                                    <div class="style-toggle">
+                                        <div class="style-option">
+                                            <input type="radio" id="athlete-mode-current" name="athleteDataMode" value="current" checked>
+                                            <label for="athlete-mode-current">
+                                                <strong>Current athlete</strong>
+                                                <span>Use recent load, fatigue, and current training state as planning input.</span>
+                                            </label>
+                                        </div>
+
+                                        <div class="style-option">
+                                            <input type="radio" id="athlete-mode-historical" name="athleteDataMode" value="historical">
+                                            <label for="athlete-mode-historical">
+                                                <strong>Historical profile / simulation</strong>
+                                                <span>Treat older data as a reference profile only, not as current readiness.</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <section class="coaching-fieldset">
+                                <h3 class="coaching-fieldset-title">Planning Preferences</h3>
+
+                                <div class="coaching-grid-2">
+                                    <div>
+                                        <label class="coaching-form-label">Plan Horizon</label>
+                                        <div class="horizon-toggle">
+                                            <div class="horizon-option"><input type="radio" id="horizon-4" name="planHorizon" value="4" checked><label for="horizon-4">4 weeks</label></div>
+                                            <div class="horizon-option"><input type="radio" id="horizon-8" name="planHorizon" value="8"><label for="horizon-8">8 weeks</label></div>
+                                            <div class="horizon-option"><input type="radio" id="horizon-12" name="planHorizon" value="12"><label for="horizon-12">12 weeks</label></div>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label class="coaching-form-label">Planning Style</label>
+                                        <div class="style-toggle">
+                                            <div class="style-option">
+                                                <input type="radio" id="style-conservative" name="planningStyle" value="conservative">
+                                                <label for="style-conservative">
+                                                    <strong>Conservative</strong>
+                                                    <span>More cautious progression and more recovery margin.</span>
+                                                </label>
+                                            </div>
+
+                                            <div class="style-option">
+                                                <input type="radio" id="style-balanced" name="planningStyle" value="balanced" checked>
+                                                <label for="style-balanced">
+                                                    <strong>Balanced</strong>
+                                                    <span>Even split between stimulus, recovery, and steady build.</span>
+                                                </label>
+                                            </div>
+
+                                            <div class="style-option">
+                                                <input type="radio" id="style-ambitious" name="planningStyle" value="ambitious">
+                                                <label for="style-ambitious">
+                                                    <strong>Ambitious</strong>
+                                                    <span>Higher load progression for users who can absorb more work.</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mt-3">
+                                    <label class="coaching-form-label" for="additional-notes">Additional Notes</label>
+                                    <textarea class="form-control coaching-form-control" id="additional-notes" name="additionalNotes" rows="4" placeholder="Optional constraints, preferences, or event-specific notes."></textarea>
+                                </div>
+                            </section>
+
+                            <div class="d-flex justify-content-end">
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-outline-secondary px-4 py-2 rounded-pill fw-semibold" id="coaching-save-button" type="button" disabled>Save Plan</button>
+                                    <button class="btn btn-primary px-4 py-2 rounded-pill fw-semibold" id="coaching-generate-button" type="button">Generate Plan</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </section>
+
+                <section class="coaching-surface">
+                    <div class="coaching-section-header">
+                        <div>
+                            <span class="coaching-eyebrow">Athlete Context</span>
+                            <h2 class="coaching-section-title">Current Training State</h2>
+                            <p class="coaching-section-copy">Current load and performance markers from your existing workout history are folded into the generated plan.</p>
+                        </div>
+                    </div>
+
+                    <div class="coaching-body">
+                        <div id="coaching-user-context">
+                            <p class="coaching-placeholder-copy">Loading current athlete context ...</p>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="coaching-surface">
+                    <div class="coaching-section-header">
+                        <div>
+                            <span class="coaching-eyebrow">Plan History</span>
+                            <h2 class="coaching-section-title">Saved Plans</h2>
+                            <p class="coaching-section-copy">Recent plan versions can be reloaded here, so you can compare and iterate instead of overwriting the latest result.</p>
+                        </div>
+                    </div>
+
+                    <div class="coaching-body">
+                        <div id="coaching-plan-history">
+                            <p class="coaching-placeholder-copy">No saved plans loaded yet.</p>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="coaching-surface">
+                    <div class="coaching-section-header">
+                        <div>
+                            <span class="coaching-eyebrow">Plan Output</span>
+                            <h2 class="coaching-section-title">Generated Training Plan</h2>
+                            <p class="coaching-section-copy">The first MVP will render structured weekly blocks here before we move to calendar-level interaction.</p>
+                        </div>
+                    </div>
+
+                    <div class="coaching-body">
+                        <div id="coaching-plan-status" class="mb-3"></div>
+                        <div id="coaching-plan-summary">
+                            <p class="coaching-placeholder-copy">
+                                No plan has been generated yet. Once the planning engine is connected, this section will render week-by-week training blocks with workout intent, duration, and progression.
+                            </p>
+                        </div>
+
+                        <div id="coaching-plan-result" class="coaching-plan-grid mt-4">
+                            <ul class="coaching-placeholder-list">
+                                <li>Week-based structure with reusable daily workout cards</li>
+                                <li>Clear mapping between training goal, availability, and session prescription</li>
+                                <li>Later extension point for regeneration, manual edits, and save-to-calendar</li>
+                            </ul>
+
+                            <div class="placeholder-grid">
+                                <article class="placeholder-card">
+                                    <h3>Week 1</h3>
+                                    <p>Initial load calibration based on the selected goal, available days, and preferred planning style.</p>
+                                </article>
+
+                                <article class="placeholder-card">
+                                    <h3>Week 2</h3>
+                                    <p>Progression block with the first meaningful stimulus shift once the athlete baseline is established.</p>
+                                </article>
+
+                                <article class="placeholder-card">
+                                    <h3>Week 3+</h3>
+                                    <p>Future weeks will expand here with recovery logic, goal-specific sessions, and event tapering where relevant.</p>
+                                </article>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <script type="module">
+            import CoachingUI from "/js/coaching-ui.js";
+            new CoachingUI();
+        </script>
+    <% } else { %>
+        <div class="container py-5 text-center">
+            <h3 class="mb-4"><%= t("common.auth.pleaseSignIn") %></h3>
+            <a class="btn btn-primary" href="/login">Sign in</a>
+        </div>
+    <% } %>
+</body>
+
+</html>

@@ -10,6 +10,7 @@ import segmentRoutes from "./routes/segmentRoutes.js";
 import collaborationRoutes from "./routes/collaborationRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
 import paymentsRoutes from "./routes/paymentsRoutes.js";
+import coachingRoutes from "./routes/coachingRoutes.js";
 
 import { Issuer, generators } from "openid-client";
 import { InitiateAuthCommand } from "@aws-sdk/client-cognito-identity-provider";
@@ -47,6 +48,9 @@ export async function createApp() {
     app.use(cookieParser());
     app.use(authGlobal);
     app.use(createI18nMiddleware());
+    app.get("/favicon.ico", (req, res) => {
+        res.status(204).end();
+    });
     app.use((req, res, next) => {
         res.locals.currentUrl = req.originalUrl;
         next();
@@ -59,6 +63,7 @@ export async function createApp() {
     app.use('/collaboration', collaborationRoutes);
     app.use('/api/profile', profileRoutes);
     app.use('/api/payments', paymentsRoutes);
+    app.use('/api/coaching', coachingRoutes);
 
     app.use('/api/uploads', uploadsRouter);
     app.use('/api/imports', importsRouter);
@@ -251,6 +256,20 @@ export async function createApp() {
         }
 
         res.render("home", {
+            isAuthenticated: true,
+            userInfo: req.user
+        });
+    });
+
+    app.get("/coaching", (req, res) => {
+        if (!req.user?.id) {
+            return res.render("coaching", {
+                isAuthenticated: false,
+                userInfo: null
+            });
+        }
+
+        res.render("coaching", {
             isAuthenticated: true,
             userInfo: req.user
         });

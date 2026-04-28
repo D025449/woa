@@ -66,6 +66,14 @@
                         </li>
                     <% } %>
 
+                    <% if (typeof showCoachingLink === "undefined" || showCoachingLink !== false) { %>
+                        <li class="nav-item">
+                            <a class="nav-link <%= currentPage === 'coaching' ? 'active' : '' %>" href="/coaching">
+                                <%= tr("common.nav.coaching") %>
+                            </a>
+                        </li>
+                    <% } %>
+
                     <% if (typeof showUploadLink === "undefined" || showUploadLink !== false) { %>
                         <li class="nav-item">
                             <a class="nav-link <%= currentPage === 'upload' ? 'active' : '' %>" href="/files/uploadUI">
