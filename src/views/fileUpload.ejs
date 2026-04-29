@@ -229,6 +229,11 @@
             padding: 1.35rem 1.4rem 1.5rem;
         }
 
+        .upload-limit-alert {
+            margin-bottom: 1rem;
+            border-radius: 1rem;
+        }
+
         .upload-form-panel {
             border: 1px solid rgba(148, 163, 184, 0.18);
             border-radius: 1.25rem;
@@ -417,6 +422,7 @@
                 </div>
 
                 <div class="upload-stage-body">
+                    <div id="upload-limit-alert" class="upload-limit-alert d-none" role="alert"></div>
                     <div class="row g-4">
                         <div class="col-lg-6">
                             <div class="upload-form-panel h-100">
@@ -516,6 +522,7 @@
 
     <script>
         window.__I18N = <%- JSON.stringify(i18n || { locale: "en", messages: {} }) %>;
+        window.uploadUsage = <%- JSON.stringify(uploadUsage || { storedWorkout: null }) %>;
     </script>
     <script type="module" src="/js/upload.js"></script>
 </body>

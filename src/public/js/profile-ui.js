@@ -1,7 +1,6 @@
 class ProfileUI {
   constructor() {
     this.messages = window.profileMessages || {};
-    this.planDescriptions = window.profilePlanDescriptions || {};
     this.form = document.getElementById("profile-form");
     this.submitButton = document.getElementById("profile-submit");
     this.errorEl = document.getElementById("profile-error");
@@ -9,10 +8,12 @@ class ProfileUI {
     this.paymentsErrorEl = document.getElementById("profile-payments-error");
     this.paymentsInfoEl = document.getElementById("profile-payments-info");
     this.membershipSummaryEl = document.getElementById("profile-membership-summary");
+    this.usagePanelEl = document.getElementById("profile-usage-panel");
     this.plansGridEl = document.getElementById("profile-plans-grid");
     this.preferencesSaveButton = document.getElementById("profile-save-preferences");
     this.plans = [];
     this.membership = null;
+    this.usage = null;
     this.currentLanguage = "en";
 
     this.registerEvents();
@@ -233,7 +234,12 @@ class ProfileUI {
       return;
     }
 
-    this.membershipSummaryEl.textContent = `${this.t("currentPlan", "Current plan")}: ${this.membership.plan.name} (${this.membership.plan.price.toFixed(2)} ${this.membership.plan.currency})`;
+    const end = this.membership.currentPeriodEnd ? new Date(this.membership.currentPeriodEnd) : null;
+    const endLabel = end && !Number.isNaN(end.getTime())
+      ? end.toLocaleDateString(this.currentLanguage || undefined, { year: "numeric", month: "short", day: "2-digit" })
+      : "–";
+    const statusPrefix = this.membership.isActive ? this.t("currentPlan", "Current plan") : this.t("expiredPlan", "Expired plan");
+    this.membershipSummaryEl.textContent = `${statusPrefix}: ${this.membership.plan.name} (${this.membership.plan.price.toFixed(2)} ${this.membership.plan.currency}) · ${this.t("validUntil", "Valid until")} ${endLabel}`;
   }
 
   async loadPlans() {
@@ -258,15 +264,48 @@ class ProfileUI {
 
       this.plans = result.data?.plans || [];
       this.membership = result.data?.membership || null;
+      this.usage = result.data?.usage || null;
       this.renderPlans();
       this.updateMembershipSummary();
+      this.renderUsagePanel();
     } catch (err) {
       console.error(err);
       this.showPaymentsError(err.message || this.t("loadPlansError", "Could not load plans."));
       this.plans = [];
+      this.usage = null;
       this.renderPlans();
       this.updateMembershipSummary();
+      this.renderUsagePanel();
     }
+  }
+
+  renderUsagePanel() {
+    if (!this.usagePanelEl) {
+      return;
+    }
+
+    const items = Array.isArray(this.usage?.items) ? this.usage.items : [];
+    if (!items.length) {
+      this.usagePanelEl.innerHTML = "";
+      return;
+    }
+
+    this.usagePanelEl.innerHTML = `
+      <div class="small text-muted">${this.t("usageOverview", "Current usage")}</div>
+      <div class="profile-usage-grid">
+        ${items.map((item) => `
+          <div class="profile-usage-card ${item.exceeded ? "is-exceeded" : item.warning ? "is-warning" : ""}">
+            <div class="profile-usage-label">${this.escape(item.label || item.featureKey)}</div>
+            <div class="profile-usage-meta">${this.escape(String(item.used ?? 0))} / ${this.escape(String(item.limit ?? "–"))} · ${this.escape(item.periodLabel || "")}</div>
+            ${item.exceeded
+              ? `<div class="profile-usage-warning is-exceeded">${this.t("limitExceeded", "This limit has been exceeded")}</div>`
+              : item.warning
+                ? `<div class="profile-usage-warning">${this.t("nearLimit", "80% of this limit reached")}</div>`
+                : ""}
+          </div>
+        `).join("")}
+      </div>
+    `;
   }
 
   renderPlans() {
@@ -279,24 +318,28 @@ class ProfileUI {
       return;
     }
 
-    const currentPlanCode = this.membership?.plan?.code || null;
+    const currentPlanCode = this.membership?.isActive ? (this.membership?.plan?.code || null) : null;
 
     this.plansGridEl.innerHTML = this.plans.map((plan) => {
-      const isCurrent = currentPlanCode && currentPlanCode === plan.code;
-
-      const localizedDescription = this.getPlanDescription(plan);
+      const effectiveCurrentCode = currentPlanCode || "free";
+      const isCurrent = effectiveCurrentCode === plan.code;
+      const featureList = this.getPlanFeatureList(plan);
       return `
         <article class="profile-plan-card ${isCurrent ? "is-current" : ""}">
           <h3 class="profile-plan-name">${plan.name}</h3>
           <p class="profile-plan-price">${Number(plan.price).toFixed(2)} ${plan.currency}</p>
-          <p class="profile-plan-copy">${localizedDescription}</p>
+          <p class="profile-plan-copy">${this.getPlanDescription(plan)}</p>
+          <div class="small text-muted mt-2">${this.t("includedLimits", "Included limits")}</div>
+          <ul class="profile-plan-features">
+            ${featureList.map((line) => `<li>${this.escape(line)}</li>`).join("")}
+          </ul>
           <div class="profile-plan-actions">
             <button
               type="button"
               class="btn ${isCurrent ? "btn-outline-secondary" : "btn-dark"} btn-sm"
               data-action="upgrade-plan"
               data-plan-code="${plan.code}"
-              ${isCurrent ? "disabled" : ""}>
+              ${isCurrent || plan.code === "free" ? "disabled" : ""}>
               ${isCurrent ? this.t("active", "Active") : this.t("upgradeWithPayPal", "Upgrade with PayPal")}
             </button>
           </div>
@@ -416,13 +459,31 @@ class ProfileUI {
     return typeof value === "string" && value.trim() ? value : fallback;
   }
 
+  escape(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   getPlanDescription(plan) {
     const code = String(plan?.code || "").toLowerCase();
-    const localized = this.planDescriptions?.[code];
-    if (typeof localized === "string" && localized.trim()) {
-      return localized;
+    if (code === "free") {
+      return this.t("starterDescription", "Starter access with limited planning, saved plans, and AI coaching.");
     }
     return plan?.description || "";
+  }
+
+  getPlanFeatureList(plan) {
+    const limits = plan?.entitlements?.limits || {};
+    return [
+      `${limits.trainingPlanGenerationPerMonth ?? "–"} ${this.t("featurePlanGenerations", "plan generations / month")}`,
+      `${limits.coachCommentaryGenerationPerMonth ?? "–"} ${this.t("featureCoachCommentary", "coach commentary calls / month")}`,
+      `${limits.savedPlans ?? "–"} ${this.t("featureSavedPlans", "saved plans")}`,
+      `${limits.storedWorkouts ?? "–"} ${this.t("featureStoredWorkouts", "stored workouts")}`
+    ];
   }
 }
 

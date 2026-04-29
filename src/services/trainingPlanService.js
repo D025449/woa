@@ -17,20 +17,58 @@ function normalizeDays(days) {
   return allowed.filter((day) => list.includes(day));
 }
 
+function toNullableDateString(value) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = String(value).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : null;
+}
+
+function startOfDay(date) {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+function startOfWeekFromAnchor(anchorDate, weekIndex) {
+  const anchor = startOfDay(anchorDate);
+  const day = anchor.getDay();
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  anchor.setDate(anchor.getDate() + diffToMonday + (weekIndex * 7));
+  return anchor;
+}
+
+function addDays(date, days) {
+  const copy = new Date(date);
+  copy.setDate(copy.getDate() + days);
+  return copy;
+}
+
+function toIsoDate(date) {
+  return startOfDay(date).toISOString().slice(0, 10);
+}
+
+function weekdayOffset(dayCode) {
+  const offsets = { mon: 0, tue: 1, wed: 2, thu: 3, fri: 4, sat: 5, sun: 6 };
+  return offsets[dayCode] ?? 0;
+}
+
 function buildGoalSummary(input) {
   if (input.primaryGoal === "power") {
     const labels = {
-      sprint: "Sprint power",
-      "1min": "1-minute power",
-      "4min": "4-minute power",
-      "8min": "8-minute power",
-      ftp: "FTP / 60-minute power"
+      sprint: "goalSummary.sprintPower",
+      "1min": "goalSummary.oneMinutePower",
+      "4min": "goalSummary.fourMinutePower",
+      "8min": "goalSummary.eightMinutePower",
+      ftp: "goalSummary.ftpPower"
     };
 
-    return labels[input.powerFocus] || "Power improvement";
+    return labels[input.powerFocus] || "goalSummary.powerImprovement";
   }
 
-  return "Event preparation";
+  return "goalSummary.eventPreparation";
 }
 
 function buildIntensityDistribution(planningStyle) {
@@ -134,87 +172,87 @@ function buildPowerTemplates(powerFocus) {
   const templates = {
     sprint: {
       hard: [
-        "Sprint session · 10 x 12s maximal efforts with full recovery",
-        "Neuromuscular accelerations · 3 sets of 6 short sprints"
+        "sessionTitle.sprint1012",
+        "sessionTitle.neuromuscularAccelerations"
       ],
       medium: [
-        "Strength endurance ride · low cadence climbing blocks",
-        "Tempo session · controlled aerobic support work"
+        "sessionTitle.strengthEnduranceRide",
+        "sessionTitle.tempoSessionSupport"
       ],
       easy: [
-        "Recovery spin · easy cadence and relaxed aerobic volume",
-        "Endurance ride · low intensity aerobic support"
+        "sessionTitle.recoverySpinRelaxed",
+        "sessionTitle.enduranceAerobicSupport"
       ],
       long: [
-        "Endurance ride · steady aerobic support with a few openers"
+        "sessionTitle.enduranceOpeners"
       ]
     },
     "1min": {
       hard: [
-        "Anaerobic capacity session · 6 x 1 min hard / 3 min easy",
-        "1-minute repeats · 2 sets of 5 hard repetitions"
+        "sessionTitle.anaerobic613",
+        "sessionTitle.oneMinuteRepeats"
       ],
       medium: [
-        "Sweetspot session · sustained aerobic support blocks",
-        "Tempo ride · controlled pressure just below threshold"
+        "sessionTitle.sweetspotSustainedSupport",
+        "sessionTitle.tempoRideThreshold"
       ],
       easy: [
-        "Recovery spin · easy cadence and light circulation",
-        "Endurance ride · low intensity support volume"
+        "sessionTitle.recoverySpinLightCirculation",
+        "sessionTitle.enduranceSupportVolume"
       ],
       long: [
-        "Long endurance ride · stable aerobic base with smooth pacing"
+        "sessionTitle.longEnduranceSmoothPacing"
       ]
     },
     "4min": {
       hard: [
-        "VO2max session · 5 x 4 min hard / 4 min easy",
-        "VO2max ladder · 4 x 4 min with progressive pacing"
+        "sessionTitle.vo2max544",
+        "sessionTitle.vo2maxLadder"
       ],
       medium: [
-        "Sweetspot session · 3 x 12 min controlled pressure",
-        "Threshold support ride · over-under style aerobic control"
+        "sessionTitle.sweetspot312",
+        "sessionTitle.thresholdSupportRide"
       ],
       easy: [
-        "Recovery spin · easy cadence and low strain",
-        "Endurance ride · aerobic support and freshness maintenance"
+        "sessionTitle.recoverySpinLowStrain",
+        "sessionTitle.enduranceFreshness"
       ],
       long: [
-        "Long endurance ride · upper aerobic focus with controlled finish"
+        "sessionTitle.longEnduranceControlledFinish"
       ]
     },
     "8min": {
       hard: [
-        "High aerobic session · 4 x 8 min around critical power",
-        "VO2-threshold blend · 3 x 8 min progressive efforts"
+        "sessionTitle.highAerobic48",
+        "sessionTitle.vo2ThresholdBlend"
       ],
       medium: [
-        "Sweetspot ride · 2 x 20 min steady pressure",
-        "Threshold session · sustained pacing focus"
+        "sessionTitle.sweetspotRide220",
+        "sessionTitle.thresholdSustainedPacing"
       ],
       easy: [
-        "Recovery spin · short and easy aerobic support",
-        "Endurance ride · relaxed volume with cadence control"
+        "sessionTitle.recoverySpinShortEasy",
+        "sessionTitle.enduranceCadenceControl"
       ],
       long: [
-        "Long endurance ride · aerobic durability and pacing"
+        "sessionTitle.longEnduranceDurability"
       ]
     },
     ftp: {
       hard: [
-        "Threshold session · 3 x 12 min around FTP",
-        "Threshold progression · 2 x 20 min sustained work"
+        "sessionTitle.thresholdSession312",
+        "sessionTitle.thresholdProgression220"
       ],
       medium: [
-        "Sweetspot blocks · 3 x 15 min controlled pressure",
-        "Tempo endurance · long steady aerobic support"
+        "sessionTitle.sweetspotBlocks315",
+        "sessionTitle.tempoEndurance"
       ],
       easy: [
-        "Recovery spin · easy circulation and low fatigue",
-        "Endurance ride · low intensity support volume"
+        "sessionTitle.recoverySpinLowFatigue",
+        "sessionTitle.enduranceSupportVolume"
       ],
       long: [
-        "Long endurance ride · aerobic base with steady finish"
+        "sessionTitle.longEnduranceSteadyFinish"
       ]
     }
   };
@@ -224,27 +262,27 @@ function buildPowerTemplates(powerFocus) {
 
 function buildEventTemplates(terrainProfile = "rolling") {
   const terrainLabel = {
-    flat: "flat-course",
-    rolling: "rolling-course",
-    hilly: "hilly-course",
-    mountainous: "mountain-course"
-  }[terrainProfile] || "event-specific";
+    flat: "terrain.flatCourse",
+    rolling: "terrain.rollingCourse",
+    hilly: "terrain.hillyCourse",
+    mountainous: "terrain.mountainCourse"
+  }[terrainProfile] || "terrain.eventSpecific";
 
   return {
     hard: [
-      `Event-specific intensity · race-like intervals for ${terrainLabel} demands`,
-      `Structured key session · intensity blocks matched to ${terrainLabel} pacing`
+      `sessionTitle.eventSpecificIntensity|${terrainLabel}`,
+      `sessionTitle.structuredKeySession|${terrainLabel}`
     ],
     medium: [
-      "Tempo / sweetspot support · build sustainable event pace",
-      "Aerobic support ride · controlled pressure and fueling practice"
+      "sessionTitle.tempoSweetspotSupport",
+      "sessionTitle.aerobicSupportFueling"
     ],
     easy: [
-      "Recovery spin · absorb previous load and maintain freshness",
-      "Easy endurance ride · low intensity with cadence freedom"
+      "sessionTitle.recoverySpinAbsorbLoad",
+      "sessionTitle.easyEnduranceCadenceFreedom"
     ],
     long: [
-      `Long event simulation ride · duration and fueling focus for ${terrainLabel} demands`
+      `sessionTitle.longEventSimulation|${terrainLabel}`
     ]
   };
 }
@@ -256,28 +294,28 @@ function pickTemplate(list, index) {
 function buildSessionSemantics({ primaryGoal, powerFocus, type }) {
   const baseByType = {
     long: {
-      objective: primaryGoal === "event" ? "Event durability and fueling" : "Aerobic durability",
+      objective: primaryGoal === "event" ? "semanticsObjective.eventDurabilityFueling" : "semanticsObjective.aerobicDurability",
       intensity: "low",
       zone: primaryGoal === "event" ? "Z2 with event-specific pacing" : "Z2",
-      energySystem: "aerobic endurance"
+      energySystem: "semanticsSystem.aerobicEndurance"
     },
     hard: {
-      objective: "Primary adaptation stimulus",
+      objective: "semanticsObjective.primaryAdaptationStimulus",
       intensity: "high",
       zone: "Z5-Z6",
-      energySystem: "high aerobic power"
+      energySystem: "semanticsSystem.highAerobicPower"
     },
     medium: {
-      objective: "Supportive quality work",
+      objective: "semanticsObjective.supportiveQualityWork",
       intensity: "moderate",
       zone: "Z3-Z4",
-      energySystem: "threshold support"
+      energySystem: "semanticsSystem.thresholdSupport"
     },
     easy: {
-      objective: "Recovery and aerobic support",
+      objective: "semanticsObjective.recoveryAerobicSupport",
       intensity: "low",
       zone: "Z1-Z2",
-      energySystem: "recovery aerobic"
+      energySystem: "semanticsSystem.recoveryAerobic"
     }
   };
 
@@ -287,13 +325,13 @@ function buildSessionSemantics({ primaryGoal, powerFocus, type }) {
 
   if (primaryGoal === "event") {
     if (type === "hard") {
-      semantics.objective = "Race-specific intensity and pacing";
+      semantics.objective = "semanticsObjective.raceSpecificIntensity";
       semantics.zone = "Z4-Z5";
-      semantics.energySystem = "event-specific intensity";
+      semantics.energySystem = "semanticsSystem.eventSpecificIntensity";
     } else if (type === "medium") {
-      semantics.objective = "Sustainable event pace support";
+      semantics.objective = "semanticsObjective.eventPaceSupport";
       semantics.zone = "Z3-Z4";
-      semantics.energySystem = "tempo-threshold support";
+      semantics.energySystem = "semanticsSystem.tempoThresholdSupport";
     }
 
     return semantics;
@@ -302,62 +340,62 @@ function buildSessionSemantics({ primaryGoal, powerFocus, type }) {
   const powerProfiles = {
     sprint: {
       hard: {
-        objective: "Neuromuscular sprint power",
+        objective: "semanticsObjective.neuromuscularSprintPower",
         zone: "Z6+",
-        energySystem: "neuromuscular anaerobic"
+        energySystem: "semanticsSystem.neuromuscularAnaerobic"
       },
       medium: {
-        objective: "Force and torque support",
+        objective: "semanticsObjective.forceTorqueSupport",
         zone: "Z3-Z4",
-        energySystem: "strength endurance"
+        energySystem: "semanticsSystem.strengthEndurance"
       }
     },
     "1min": {
       hard: {
-        objective: "Anaerobic capacity",
+        objective: "semanticsObjective.anaerobicCapacity",
         zone: "Z6",
-        energySystem: "anaerobic capacity"
+        energySystem: "semanticsSystem.anaerobicCapacity"
       },
       medium: {
-        objective: "Lactate tolerance support",
+        objective: "semanticsObjective.lactateTolerance",
         zone: "Z3-Z4",
-        energySystem: "high aerobic support"
+        energySystem: "semanticsSystem.highAerobicSupport"
       }
     },
     "4min": {
       hard: {
-        objective: "VO2max development",
+        objective: "semanticsObjective.vo2maxDevelopment",
         zone: "Z5",
-        energySystem: "vo2max"
+        energySystem: "semanticsSystem.vo2max"
       },
       medium: {
-        objective: "Threshold support",
+        objective: "semanticsObjective.thresholdSupport",
         zone: "Z3-Z4",
-        energySystem: "sweetspot-threshold"
+        energySystem: "semanticsSystem.sweetspotThreshold"
       }
     },
     "8min": {
       hard: {
-        objective: "High aerobic power",
+        objective: "semanticsObjective.highAerobicPower",
         zone: "Z4-Z5",
-        energySystem: "vo2-threshold blend"
+        energySystem: "semanticsSystem.vo2ThresholdBlend"
       },
       medium: {
-        objective: "Sustained threshold support",
+        objective: "semanticsObjective.sustainedThresholdSupport",
         zone: "Z3-Z4",
-        energySystem: "threshold"
+        energySystem: "semanticsSystem.threshold"
       }
     },
     ftp: {
       hard: {
-        objective: "FTP extension",
+        objective: "semanticsObjective.ftpExtension",
         zone: "Z4",
-        energySystem: "threshold"
+        energySystem: "semanticsSystem.threshold"
       },
       medium: {
-        objective: "Sweetspot durability",
+        objective: "semanticsObjective.sweetspotDurability",
         zone: "Z3-Z4",
-        energySystem: "sweetspot"
+        energySystem: "semanticsSystem.sweetspot"
       }
     }
   };
@@ -366,13 +404,37 @@ function buildSessionSemantics({ primaryGoal, powerFocus, type }) {
   return overrides ? { ...semantics, ...overrides } : semantics;
 }
 
-function buildSession(type, label, hours, notes = "", semantics = null) {
+function buildWeekTheme({ isRecoveryWeek, isFinalWeek, primaryGoal, athleteDataMode, powerFocus }) {
+  if (isRecoveryWeek) {
+    return "weekTheme.recoveryAndConsolidation";
+  }
+  if (primaryGoal === "event" && isFinalWeek) {
+    return "weekTheme.eventTaperAndFreshness";
+  }
+  if (athleteDataMode === "historical") {
+    return "weekTheme.conservativeRestartAndCalibration";
+  }
+  if (primaryGoal !== "power") {
+    return "weekTheme.eventOrientedBuild";
+  }
+  const map = {
+    sprint: "weekTheme.sprintFocus",
+    "1min": "weekTheme.oneMinuteFocus",
+    "4min": "weekTheme.fourMinuteFocus",
+    "8min": "weekTheme.eightMinuteFocus",
+    ftp: "weekTheme.ftpFocus"
+  };
+  return map[powerFocus] || "weekTheme.fourMinuteFocus";
+}
+
+function buildSession(type, label, hours, notes = "", semantics = null, plannedDate = null) {
   return {
     type,
     title: label,
     durationHours: roundToQuarterHour(hours),
     notes,
-    semantics
+    semantics,
+    plannedDate
   };
 }
 
@@ -393,23 +455,25 @@ function pickTrainingDays(availableDays, goalProfile) {
   return { hardDays, mediumDays, longDay };
 }
 
-function buildWeekPlan({ weekIndex, availableDays, weeklyHours, goalTemplates, goalProfile, isRecoveryWeek, primaryGoal }) {
+function buildWeekPlan({ weekIndex, availableDays, weeklyHours, goalTemplates, goalProfile, isRecoveryWeek, primaryGoal, planStartDate }) {
   const sessions = [];
   const dayCount = availableDays.length;
   const safeWeeklyHours = clamp(weeklyHours, 2, 40);
   const scaledHours = isRecoveryWeek ? safeWeeklyHours * 0.7 : safeWeeklyHours;
   const { hardDays, mediumDays, longDay } = pickTrainingDays(availableDays, goalProfile);
+  const weekStartDate = planStartDate ? startOfWeekFromAnchor(new Date(planStartDate), weekIndex) : null;
 
   let assignedHours = 0;
 
   availableDays.forEach((day, index) => {
+    const plannedDate = weekStartDate ? toIsoDate(addDays(weekStartDate, weekdayOffset(day))) : null;
     if (day === longDay) {
       const longHours = clamp(scaledHours * goalProfile.longShare, goalProfile.longMin, goalProfile.longMax);
       assignedHours += longHours;
       const semantics = buildSessionSemantics({ primaryGoal, powerFocus: goalProfile.powerFocus, type: "long" });
       sessions.push({
         day,
-        ...buildSession("long", pickTemplate(goalTemplates.long, weekIndex + index), longHours, isRecoveryWeek ? "Reduced duration for recovery week." : "Primary endurance anchor of the week.", semantics)
+        ...buildSession("long", pickTemplate(goalTemplates.long, weekIndex + index), longHours, isRecoveryWeek ? "sessionNote.reducedDurationRecovery" : "sessionNote.primaryEnduranceAnchor", semantics, plannedDate)
       });
       return;
     }
@@ -420,7 +484,7 @@ function buildWeekPlan({ weekIndex, availableDays, weeklyHours, goalTemplates, g
       const semantics = buildSessionSemantics({ primaryGoal, powerFocus: goalProfile.powerFocus, type: "hard" });
       sessions.push({
         day,
-        ...buildSession("hard", pickTemplate(goalTemplates.hard, weekIndex + index), hardHours, isRecoveryWeek ? "Keep intensity but reduce total stress." : "Key intensity day matched to the chosen goal.", semantics)
+        ...buildSession("hard", pickTemplate(goalTemplates.hard, weekIndex + index), hardHours, isRecoveryWeek ? "sessionNote.keepIntensityReduceStress" : "sessionNote.keyIntensityDay", semantics, plannedDate)
       });
       return;
     }
@@ -431,7 +495,7 @@ function buildWeekPlan({ weekIndex, availableDays, weeklyHours, goalTemplates, g
       const semantics = buildSessionSemantics({ primaryGoal, powerFocus: goalProfile.powerFocus, type: "medium" });
       sessions.push({
         day,
-        ...buildSession("medium", pickTemplate(goalTemplates.medium, weekIndex + index), mediumHours, "Controlled support work to build repeatable training load.", semantics)
+        ...buildSession("medium", pickTemplate(goalTemplates.medium, weekIndex + index), mediumHours, "sessionNote.controlledSupportWork", semantics, plannedDate)
       });
       return;
     }
@@ -441,7 +505,7 @@ function buildWeekPlan({ weekIndex, availableDays, weeklyHours, goalTemplates, g
     const semantics = buildSessionSemantics({ primaryGoal, powerFocus: goalProfile.powerFocus, type: "easy" });
     sessions.push({
       day,
-      ...buildSession("easy", pickTemplate(goalTemplates.easy, weekIndex + index), easyHours, "Low-intensity support day.", semantics)
+      ...buildSession("easy", pickTemplate(goalTemplates.easy, weekIndex + index), easyHours, "sessionNote.lowIntensitySupportDay", semantics, plannedDate)
     });
   });
 
@@ -477,7 +541,7 @@ export default class TrainingPlanService {
     const availableDays = normalizeDays(payload.days);
     const safeDays = availableDays.length > 0 ? availableDays : ["tue", "thu", "sat"];
     const eventDate = payload.eventDate || null;
-    const planStartDate = payload.planStartDate || null;
+    const planStartDate = toNullableDateString(payload.planStartDate);
     const eventDistanceKm = normalizeNumber(payload.eventDistance, 0);
     const eventElevationM = normalizeNumber(payload.eventElevation, 0);
     const eventDurationH = normalizeNumber(payload.eventDuration, 0);
@@ -504,15 +568,7 @@ export default class TrainingPlanService {
 
       weeks.push({
         weekNumber: weekIndex + 1,
-        theme: isRecoveryWeek
-          ? "Recovery and consolidation"
-          : primaryGoal === "event" && isFinalWeek
-          ? "Event taper and freshness"
-          : athleteDataMode === "historical" && weekIndex === 0
-          ? "Conservative restart and calibration"
-          : primaryGoal === "power"
-          ? `${buildGoalSummary({ primaryGoal, powerFocus })} focus`
-          : "Event-oriented build",
+        theme: buildWeekTheme({ isRecoveryWeek, isFinalWeek, primaryGoal, athleteDataMode: athleteDataMode === "historical" && weekIndex === 0 ? "historical" : athleteDataMode, powerFocus }),
         targetHours: roundToQuarterHour(isRecoveryWeek ? progressiveHours * 0.7 : progressiveHours),
         sessions: buildWeekPlan({
           weekIndex,
@@ -521,7 +577,8 @@ export default class TrainingPlanService {
           goalTemplates,
           goalProfile,
           isRecoveryWeek,
-          primaryGoal
+          primaryGoal,
+          planStartDate
         })
       });
     }

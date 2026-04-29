@@ -8,6 +8,7 @@ import authMiddleware from "../middleware/authMiddleware.js";
 
 import { FileDBService } from "../services/fileDBService.js";
 import CollaborationDBService from "../services/collaborationDBService.js";
+import EntitlementService from "../services/entitlementService.js";
 
 const router = express.Router();
 
@@ -72,9 +73,17 @@ router.get('/uploadUI', checkAuth, async (req, res) => {
     return res.redirect(`/login?redirect=${redirectUrl}`);
   }
 
+  const usage = await EntitlementService.getUsageOverview(req.user.id);
+  const storedWorkoutUsage = Array.isArray(usage?.items)
+    ? usage.items.find((item) => item.featureKey === "stored_workout") || null
+    : null;
+
   res.render('fileUpload', {
     userInfo: req.user,
-    isAuthenticated: req.isAuthenticated
+    isAuthenticated: req.isAuthenticated,
+    uploadUsage: {
+      storedWorkout: storedWorkoutUsage
+    }
   });
 });
 

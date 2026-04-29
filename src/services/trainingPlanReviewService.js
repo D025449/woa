@@ -24,8 +24,28 @@ function addDays(date, days) {
   return copy;
 }
 
+function isoDateString(date) {
+  return startOfDay(date).toISOString().slice(0, 10);
+}
+
 function weekdayCode(date) {
   return ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][date.getDay()];
+}
+
+function weekdayIndex(value) {
+  return {
+    mon: 1,
+    tue: 2,
+    wed: 3,
+    thu: 4,
+    fri: 5,
+    sat: 6,
+    sun: 7
+  }[value] ?? 0;
+}
+
+function dayDistance(sessionDay, workoutDate) {
+  return Math.abs(weekdayIndex(sessionDay) - weekdayIndex(weekdayCode(workoutDate)));
 }
 
 function safeNumber(value, fallback = 0) {
@@ -45,6 +65,48 @@ function normalizeIntensityFromWorkout(workout) {
     return "moderate";
   }
   return "low";
+}
+
+function normalizeDurationBucket(hours) {
+  if (hours >= 2.5) {
+    return "long";
+  }
+  if (hours >= 1.25) {
+    return "medium";
+  }
+  return "short";
+}
+
+function sessionObjectiveBucket(session) {
+  const plannedType = String(session.type || "easy").toLowerCase();
+  const plannedHours = safeNumber(session.durationHours, 0);
+
+  if (plannedType === "long") {
+    return "long";
+  }
+  if (plannedType === "hard") {
+    return "high_intensity";
+  }
+  if (plannedType === "medium") {
+    return plannedHours >= 1.5 ? "tempo_endurance" : "steady";
+  }
+  return plannedHours >= 1.75 ? "easy_endurance" : "recovery";
+}
+
+function workoutObjectiveBucket(workout) {
+  const durationHours = safeNumber(workout.total_timer_time, 0) / 3600;
+  const intensity = normalizeIntensityFromWorkout(workout);
+
+  if (durationHours >= 2.5) {
+    return intensity === "low" ? "long" : "tempo_endurance";
+  }
+  if (intensity === "high") {
+    return "high_intensity";
+  }
+  if (intensity === "moderate") {
+    return durationHours >= 1.5 ? "tempo_endurance" : "steady";
+  }
+  return durationHours >= 1.75 ? "easy_endurance" : "recovery";
 }
 
 function durationCompliance(session, workout) {
@@ -73,31 +135,80 @@ function intensityCompliance(session, workout) {
 }
 
 function objectiveCompliance(session, workout) {
-  const plannedType = String(session.type || "easy").toLowerCase();
-  const actualDuration = safeNumber(workout.total_timer_time, 0) / 3600;
-  const actualIntensity = normalizeIntensityFromWorkout(workout);
+  const plannedObjective = sessionObjectiveBucket(session);
+  const workoutObjective = workoutObjectiveBucket(workout);
+  const plannedDurationBucket = normalizeDurationBucket(safeNumber(session.durationHours, 0));
+  const workoutDurationBucket = normalizeDurationBucket(safeNumber(workout.total_timer_time, 0) / 3600);
 
-  if (plannedType === "long") {
-    return actualDuration >= Math.max(1.5, safeNumber(session.durationHours, 0) * 0.75) ? 1 : 0.45;
+  if (plannedObjective === workoutObjective) {
+    return 1;
   }
-  if (plannedType === "hard") {
-    return actualIntensity === "high" ? 1 : actualIntensity === "moderate" ? 0.55 : 0.2;
+
+  const compatibleObjectives = new Set([
+    "tempo_endurance:steady",
+    "steady:tempo_endurance",
+    "easy_endurance:long",
+    "long:easy_endurance",
+    "recovery:steady",
+    "steady:recovery"
+  ]);
+
+  if (compatibleObjectives.has(`${plannedObjective}:${workoutObjective}`)) {
+    return 0.72;
   }
-  if (plannedType === "medium") {
-    return actualIntensity === "moderate" ? 1 : actualIntensity === "high" ? 0.7 : 0.45;
+
+  if (plannedDurationBucket === workoutDurationBucket) {
+    return 0.58;
   }
-  return actualIntensity === "low" ? 1 : 0.5;
+
+  return 0.25;
+}
+
+function timingCompliance(session, workout) {
+  const workoutDate = new Date(workout.start_time);
+  const plannedDate = session.plannedDate ? new Date(session.plannedDate) : null;
+
+  if (plannedDate && !Number.isNaN(plannedDate.getTime())) {
+    const diffDays = Math.abs((startOfDay(workoutDate).getTime() - startOfDay(plannedDate).getTime()) / 86400000);
+    if (diffDays === 0) {
+      return 1;
+    }
+    if (diffDays === 1) {
+      return 0.85;
+    }
+    if (diffDays === 2) {
+      return 0.65;
+    }
+    if (diffDays <= 3) {
+      return 0.45;
+    }
+    return 0.15;
+  }
+
+  const fallbackDistance = dayDistance(session.day, workoutDate);
+  if (fallbackDistance === 0) {
+    return 1;
+  }
+  if (fallbackDistance === 1) {
+    return 0.8;
+  }
+  if (fallbackDistance === 2) {
+    return 0.55;
+  }
+  return 0.25;
 }
 
 function overallMatchScore(session, workout) {
   const d = durationCompliance(session, workout);
   const i = intensityCompliance(session, workout);
   const o = objectiveCompliance(session, workout);
+  const t = timingCompliance(session, workout);
   return {
     durationCompliance: d,
     intensityCompliance: i,
     objectiveCompliance: o,
-    matchScore: clamp((d * 0.4) + (i * 0.35) + (o * 0.25), 0, 1)
+    timingCompliance: t,
+    matchScore: clamp((d * 0.32) + (i * 0.26) + (o * 0.24) + (t * 0.18), 0, 1)
   };
 }
 
@@ -115,23 +226,30 @@ function deriveMatchStatus(score) {
 }
 
 function buildWeekSummary(counts, rates) {
+  if (counts.completed_count === 0 && counts.mostly_completed_count === 0 && counts.substituted_count === 0 && counts.extra_unplanned_count === 0) {
+    return {
+      reviewStatus: "off_track",
+      reviewSummary: "reviewSummary.noMatchingWorkouts"
+    };
+  }
+
   if (counts.missed_count >= 2 || rates.completionRate < 0.45) {
     return {
       reviewStatus: "off_track",
-      reviewSummary: "Several planned sessions were missed or replaced. The week drifted clearly away from the original intent."
+      reviewSummary: "reviewSummary.severalMissed"
     };
   }
 
   if (counts.substituted_count > 0 || rates.completionRate < 0.75) {
     return {
       reviewStatus: "slightly_off",
-      reviewSummary: "The week stayed partly on track, but some sessions were replaced or completed below target."
+      reviewSummary: "reviewSummary.partlyOnTrack"
     };
   }
 
   return {
     reviewStatus: "on_track",
-    reviewSummary: "The week matched the planned structure well and stayed close to the intended training objective."
+    reviewSummary: "reviewSummary.matchedPlannedStructure"
   };
 }
 
@@ -166,11 +284,17 @@ export default class TrainingPlanReviewService {
       const unmatchedWorkoutIds = new Set(weekWorkouts.map((workout) => Number(workout.id)));
 
       for (const session of week.sessions || []) {
-        const exactDayCandidates = weekWorkouts.filter((workout) =>
-          unmatchedWorkoutIds.has(Number(workout.id)) && weekdayCode(new Date(workout.start_time)) === session.day
-        );
-        const relaxedCandidates = weekWorkouts.filter((workout) => unmatchedWorkoutIds.has(Number(workout.id)));
-        const candidatePool = exactDayCandidates.length > 0 ? exactDayCandidates : relaxedCandidates;
+        const candidatePool = weekWorkouts
+          .filter((workout) => unmatchedWorkoutIds.has(Number(workout.id)))
+          .map((workout) => ({
+            workout,
+            workoutDate: new Date(workout.start_time),
+            timingDistance: session.plannedDate
+              ? Math.abs((startOfDay(new Date(workout.start_time)).getTime() - startOfDay(new Date(session.plannedDate)).getTime()) / 86400000)
+              : dayDistance(session.day, new Date(workout.start_time))
+          }))
+          .sort((a, b) => a.timingDistance - b.timingDistance)
+          .map((entry) => entry.workout);
 
         let bestWorkout = null;
         let bestScore = null;
@@ -193,6 +317,7 @@ export default class TrainingPlanReviewService {
             durationCompliance: 0,
             intensityCompliance: 0,
             objectiveCompliance: 0,
+            timingCompliance: 0,
             matchedBy: "rule_engine",
             matchReason: "No suitable workout was found for the planned session."
           });
@@ -209,8 +334,9 @@ export default class TrainingPlanReviewService {
           durationCompliance: bestScore.durationCompliance,
           intensityCompliance: bestScore.intensityCompliance,
           objectiveCompliance: bestScore.objectiveCompliance,
+          timingCompliance: bestScore.timingCompliance,
           matchedBy: "rule_engine",
-          matchReason: "Workout matched to the planned session based on timing, duration, and intensity profile."
+          matchReason: `Matched workout on ${isoDateString(new Date(bestWorkout.start_time))} using timing, duration, and intensity similarity.`
         });
       }
 
@@ -224,6 +350,7 @@ export default class TrainingPlanReviewService {
           durationCompliance: 0,
           intensityCompliance: 0,
           objectiveCompliance: 0,
+          timingCompliance: 0,
           matchedBy: "rule_engine",
           matchReason: "Workout did not align with a planned session in this week."
         });

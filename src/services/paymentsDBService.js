@@ -4,12 +4,21 @@ function normalizePlanCode(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function addMonths(dateLike, months) {
+  const date = new Date(dateLike);
+  const copy = new Date(date.getTime());
+  copy.setMonth(copy.getMonth() + Number(months || 0));
+  return copy;
+}
+
 export default class PaymentsDBService {
   static async listPlans() {
     const result = await pool.query(`
       SELECT
         id,
         code,
+        tier_code,
+        duration_months,
         name,
         description,
         price,
@@ -23,6 +32,8 @@ export default class PaymentsDBService {
     return result.rows.map((row) => ({
       id: Number(row.id),
       code: row.code,
+      tierCode: row.tier_code,
+      durationMonths: Number(row.duration_months),
       name: row.name,
       description: row.description,
       price: Number(row.price),
@@ -33,7 +44,7 @@ export default class PaymentsDBService {
   static async getPlanByCode(planCode) {
     const normalized = normalizePlanCode(planCode);
     const result = await pool.query(`
-      SELECT id, code, name, description, price, currency
+      SELECT id, code, tier_code, duration_months, name, description, price, currency
       FROM account_plans
       WHERE code = $1
         AND is_active = TRUE
@@ -50,6 +61,8 @@ export default class PaymentsDBService {
     return {
       id: Number(row.id),
       code: row.code,
+      tierCode: row.tier_code,
+      durationMonths: Number(row.duration_months),
       name: row.name,
       description: row.description,
       price: Number(row.price),
@@ -156,6 +169,33 @@ export default class PaymentsDBService {
       }
 
       const order = orderResult.rows[0];
+      const planResult = await client.query(`
+        SELECT id, tier_code, duration_months
+        FROM account_plans
+        WHERE id = $1
+        LIMIT 1
+      `, [order.plan_id]);
+
+      if (planResult.rowCount === 0) {
+        const error = new Error("Payment plan not found");
+        error.statusCode = 404;
+        throw error;
+      }
+
+      const plan = planResult.rows[0];
+      const existingMembershipResult = await client.query(`
+        SELECT current_period_end
+        FROM user_memberships
+        WHERE user_id = $1
+        LIMIT 1
+      `, [order.user_id]);
+      const now = new Date();
+      const existingEnd = existingMembershipResult.rowCount > 0
+        ? existingMembershipResult.rows[0].current_period_end
+        : null;
+      const effectiveStart = existingEnd && new Date(existingEnd) > now ? new Date(existingEnd) : now;
+      const currentPeriodStart = effectiveStart;
+      const currentPeriodEnd = addMonths(effectiveStart, Number(plan.duration_months || 0));
 
       await client.query(`
         INSERT INTO user_memberships (
@@ -163,16 +203,20 @@ export default class PaymentsDBService {
           plan_id,
           status,
           source_payment_order_id,
-          started_at
+          started_at,
+          current_period_start,
+          current_period_end
         )
-        VALUES ($1, $2, 'active', $3, NOW())
+        VALUES ($1, $2, 'active', $3, NOW(), $4, $5)
         ON CONFLICT (user_id)
         DO UPDATE SET
           plan_id = EXCLUDED.plan_id,
           status = 'active',
           source_payment_order_id = EXCLUDED.source_payment_order_id,
-          started_at = NOW()
-      `, [order.user_id, order.plan_id, order.id]);
+          started_at = NOW(),
+          current_period_start = EXCLUDED.current_period_start,
+          current_period_end = EXCLUDED.current_period_end
+      `, [order.user_id, order.plan_id, order.id, currentPeriodStart, currentPeriodEnd]);
 
       await client.query("COMMIT");
       return order;
@@ -190,7 +234,11 @@ export default class PaymentsDBService {
         m.user_id,
         m.status,
         m.started_at,
+        m.current_period_start,
+        m.current_period_end,
         p.code,
+        p.tier_code,
+        p.duration_months,
         p.name,
         p.price,
         p.currency
@@ -210,8 +258,13 @@ export default class PaymentsDBService {
       userId: Number(row.user_id),
       status: row.status,
       startedAt: row.started_at,
+      currentPeriodStart: row.current_period_start,
+      currentPeriodEnd: row.current_period_end,
+      isActive: row.status === "active" && new Date(row.current_period_end) > new Date(),
       plan: {
         code: row.code,
+        tierCode: row.tier_code,
+        durationMonths: Number(row.duration_months),
         name: row.name,
         price: Number(row.price),
         currency: row.currency

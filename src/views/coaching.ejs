@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Coaching</title>
+    <title><%= t("coachingPage.title") %></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body.coaching-page {
@@ -390,6 +390,14 @@
             color: #0f172a;
         }
 
+        .coaching-week-card__review-row {
+            margin-top: 0.45rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+            align-items: center;
+        }
+
         .coaching-week-card__hours {
             font-size: 0.92rem;
             font-weight: 700;
@@ -411,6 +419,10 @@
             border-radius: 1rem;
             border: 1px solid rgba(226, 232, 240, 0.92);
             background: rgba(248, 250, 252, 0.74);
+        }
+
+        .coaching-session-card--full {
+            grid-template-columns: 1fr;
         }
 
         .coaching-session-card--hard {
@@ -456,6 +468,209 @@
         .coaching-session-card__notes {
             margin-top: 0.3rem;
             font-size: 0.88rem;
+            color: #475569;
+        }
+
+        .coaching-status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.28rem 0.65rem;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            background: rgba(241, 245, 249, 0.9);
+            font-size: 0.75rem;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #334155;
+        }
+
+        .coaching-status-badge--on-track,
+        .coaching-status-badge--completed {
+            border-color: rgba(34, 197, 94, 0.24);
+            background: rgba(240, 253, 244, 0.96);
+            color: #166534;
+        }
+
+        .coaching-status-badge--slightly-off,
+        .coaching-status-badge--mostly-completed {
+            border-color: rgba(245, 158, 11, 0.24);
+            background: rgba(255, 251, 235, 0.96);
+            color: #b45309;
+        }
+
+        .coaching-status-badge--substituted,
+        .coaching-status-badge--extra-unplanned {
+            border-color: rgba(59, 130, 246, 0.24);
+            background: rgba(239, 246, 255, 0.96);
+            color: #1d4ed8;
+        }
+
+        .coaching-status-badge--off-track,
+        .coaching-status-badge--missed {
+            border-color: rgba(239, 68, 68, 0.24);
+            background: rgba(254, 242, 242, 0.96);
+            color: #b91c1c;
+        }
+
+        .coaching-metric-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            padding: 0.32rem 0.7rem;
+            border-radius: 999px;
+            background: rgba(248, 250, 252, 0.92);
+            border: 1px solid rgba(203, 213, 225, 0.9);
+            color: #334155;
+            font-size: 0.78rem;
+            font-weight: 700;
+        }
+
+        .coaching-metric-pill strong {
+            color: #64748b;
+            font-size: 0.72rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .coaching-review-panel {
+            display: grid;
+            gap: 0.75rem;
+        }
+
+        .coaching-review-panel__summary {
+            font-size: 0.92rem;
+            color: #334155;
+        }
+
+        .coaching-review-panel__counts {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+        }
+
+        .coaching-extra-list {
+            display: grid;
+            gap: 0.55rem;
+        }
+
+        .coaching-extra-list__title {
+            font-size: 0.88rem;
+            font-weight: 800;
+            color: #0f172a;
+        }
+
+        .coaching-extra-item {
+            display: grid;
+            gap: 0.4rem;
+            padding: 0.8rem 0.9rem;
+            border-radius: 0.95rem;
+            border: 1px solid rgba(59, 130, 246, 0.18);
+            background: rgba(239, 246, 255, 0.6);
+        }
+
+        .coaching-extra-item__header {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.55rem;
+            justify-content: space-between;
+        }
+
+        .coaching-extra-item__title {
+            font-size: 0.86rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .coaching-advice-list {
+            display: grid;
+            gap: 0.6rem;
+        }
+
+        .coaching-advice-list__title {
+            font-size: 0.88rem;
+            font-weight: 800;
+            color: #0f172a;
+        }
+
+        .coaching-advice-item {
+            display: grid;
+            gap: 0.3rem;
+            padding: 0.85rem 0.95rem;
+            border-radius: 0.95rem;
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            background: rgba(248, 250, 252, 0.88);
+        }
+
+        .coaching-advice-item--high {
+            border-color: rgba(239, 68, 68, 0.2);
+            background: rgba(254, 242, 242, 0.88);
+        }
+
+        .coaching-advice-item--medium {
+            border-color: rgba(245, 158, 11, 0.2);
+            background: rgba(255, 251, 235, 0.88);
+        }
+
+        .coaching-advice-item--low {
+            border-color: rgba(34, 197, 94, 0.2);
+            background: rgba(240, 253, 244, 0.88);
+        }
+
+        .coaching-advice-item__title {
+            font-size: 0.86rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .coaching-commentary {
+            display: grid;
+            gap: 0.7rem;
+        }
+
+        .coaching-commentary__title {
+            font-size: 0.88rem;
+            font-weight: 800;
+            color: #0f172a;
+        }
+
+        .coaching-commentary__section {
+            display: grid;
+            gap: 0.28rem;
+        }
+
+        .coaching-commentary__label {
+            font-size: 0.76rem;
+            font-weight: 800;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #64748b;
+        }
+
+        .coaching-commentary__list {
+            margin: 0;
+            padding-left: 1.1rem;
+            color: #334155;
+            font-size: 0.9rem;
+        }
+
+        .coaching-commentary__list li + li {
+            margin-top: 0.22rem;
+        }
+
+        .coaching-session-card__match {
+            margin-top: 0.45rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+            align-items: center;
+        }
+
+        .coaching-session-card__reason {
+            margin-top: 0.35rem;
+            font-size: 0.84rem;
             color: #475569;
         }
 
@@ -532,7 +747,7 @@
 <body class="coaching-page">
     <% if (isAuthenticated) { %>
         <%- include("partials/app-topbar", {
-            title: "Coaching",
+            title: t("coachingPage.title"),
             currentPage: "coaching",
             userInfo,
             showDashboardNewLink: true
@@ -542,25 +757,25 @@
             <div class="coaching-shell">
                 <section class="coaching-hero">
                     <div>
-                        <p class="coaching-kicker">AI-supported planning</p>
-                        <h1 class="coaching-title">Coaching</h1>
+                        <p class="coaching-kicker"><%= t("coachingPage.heroKicker") %></p>
+                        <h1 class="coaching-title"><%= t("coachingPage.title") %></h1>
                         <p class="coaching-subtitle">
-                            Define your planning goal, weekly availability, and event context first. This first version focuses on a clean planning intake before we wire the actual training-plan engine behind it.
+                            <%= t("coachingPage.heroSubtitle") %>
                         </p>
                     </div>
 
                     <div class="coaching-hero-meta">
                         <span class="coaching-chip">
-                            <span class="coaching-chip-label">User</span>
+                            <span class="coaching-chip-label"><%= t("coachingPage.chipUser") %></span>
                             <span><%= userInfo.display_name || userInfo.email %></span>
                         </span>
                         <span class="coaching-chip">
-                            <span class="coaching-chip-label">Focus</span>
-                            <span>Goal · Availability · Plan</span>
+                            <span class="coaching-chip-label"><%= t("coachingPage.chipFocus") %></span>
+                            <span><%= t("coachingPage.chipFocusValue") %></span>
                         </span>
                         <span class="coaching-chip">
-                            <span class="coaching-chip-label">Mode</span>
-                            <span>Planning Intake</span>
+                            <span class="coaching-chip-label"><%= t("coachingPage.chipMode") %></span>
+                            <span><%= t("coachingPage.chipModeValue") %></span>
                         </span>
                     </div>
                 </section>
@@ -568,125 +783,125 @@
                 <section class="coaching-surface">
                     <div class="coaching-section-header">
                         <div>
-                            <span class="coaching-eyebrow">Planning Input</span>
-                            <h2 class="coaching-section-title">Plan Setup</h2>
-                            <p class="coaching-section-copy">Capture the goal and constraints first, then use them as the basis for generated training blocks.</p>
+                            <span class="coaching-eyebrow"><%= t("coachingPage.sections.planningInputEyebrow") %></span>
+                            <h2 class="coaching-section-title"><%= t("coachingPage.sections.planSetupTitle") %></h2>
+                            <p class="coaching-section-copy"><%= t("coachingPage.sections.planSetupCopy") %></p>
                         </div>
                     </div>
 
                     <div class="coaching-body">
                         <form class="coaching-subgrid" id="coaching-form">
                             <section class="coaching-fieldset">
-                                <h3 class="coaching-fieldset-title">Goal</h3>
+                                <h3 class="coaching-fieldset-title"><%= t("coachingPage.fieldsets.goal") %></h3>
 
                                 <div class="goal-toggle">
                                     <div class="goal-option">
                                         <input type="radio" id="goal-event" name="primaryGoal" value="event" checked>
                                         <label for="goal-event">
-                                            <strong>Event preparation</strong>
-                                            <span>Plan toward a target date with duration, terrain, distance, and elevation in mind.</span>
+                                            <strong><%= t("coachingPage.goal.eventTitle") %></strong>
+                                            <span><%= t("coachingPage.goal.eventCopy") %></span>
                                         </label>
                                     </div>
 
                                     <div class="goal-option">
                                         <input type="radio" id="goal-power" name="primaryGoal" value="power">
                                         <label for="goal-power">
-                                            <strong>Power improvement</strong>
-                                            <span>Target a specific power duration such as sprint, 1 min, 4 min, 8 min, or FTP.</span>
+                                            <strong><%= t("coachingPage.goal.powerTitle") %></strong>
+                                            <span><%= t("coachingPage.goal.powerCopy") %></span>
                                         </label>
                                     </div>
                                 </div>
 
                                 <div id="power-focus-panel" class="mt-3 d-none">
-                                    <label class="coaching-form-label" for="power-focus">Power Focus</label>
+                                    <label class="coaching-form-label" for="power-focus"><%= t("coachingPage.labels.powerFocus") %></label>
                                     <select class="form-select coaching-form-select" id="power-focus" name="powerFocus">
-                                        <option value="sprint">Sprint</option>
-                                        <option value="1min">1 min</option>
-                                        <option value="4min">4 min</option>
-                                        <option value="8min">8 min</option>
-                                        <option value="ftp">FTP / 60 min</option>
+                                        <option value="sprint"><%= t("coachingPage.powerFocus.sprint") %></option>
+                                        <option value="1min"><%= t("coachingPage.powerFocus.1min") %></option>
+                                        <option value="4min"><%= t("coachingPage.powerFocus.4min") %></option>
+                                        <option value="8min"><%= t("coachingPage.powerFocus.8min") %></option>
+                                        <option value="ftp"><%= t("coachingPage.powerFocus.ftp") %></option>
                                     </select>
                                 </div>
 
                                 <div id="event-panel" class="mt-3">
                                     <div class="coaching-grid-4">
                                         <div>
-                                            <label class="coaching-form-label" for="event-date">Event Date</label>
+                                            <label class="coaching-form-label" for="event-date"><%= t("coachingPage.labels.eventDate") %></label>
                                             <input class="form-control coaching-form-control" id="event-date" name="eventDate" type="date">
                                         </div>
 
                                         <div>
-                                            <label class="coaching-form-label" for="event-duration">Expected Duration (h)</label>
-                                            <input class="form-control coaching-form-control" id="event-duration" name="eventDuration" type="number" min="0" step="0.5" placeholder="4.5">
+                                            <label class="coaching-form-label" for="event-duration"><%= t("coachingPage.labels.eventDuration") %></label>
+                                            <input class="form-control coaching-form-control" id="event-duration" name="eventDuration" type="number" min="0" step="0.5" placeholder="<%= t('coachingPage.placeholders.eventDuration') %>">
                                         </div>
 
                                         <div>
-                                            <label class="coaching-form-label" for="event-distance">Distance (km)</label>
-                                            <input class="form-control coaching-form-control" id="event-distance" name="eventDistance" type="number" min="0" step="1" placeholder="120">
+                                            <label class="coaching-form-label" for="event-distance"><%= t("coachingPage.labels.eventDistance") %></label>
+                                            <input class="form-control coaching-form-control" id="event-distance" name="eventDistance" type="number" min="0" step="1" placeholder="<%= t('coachingPage.placeholders.eventDistance') %>">
                                         </div>
 
                                         <div>
-                                            <label class="coaching-form-label" for="event-elevation">Elevation Gain (m)</label>
-                                            <input class="form-control coaching-form-control" id="event-elevation" name="eventElevation" type="number" min="0" step="50" placeholder="1800">
+                                            <label class="coaching-form-label" for="event-elevation"><%= t("coachingPage.labels.eventElevation") %></label>
+                                            <input class="form-control coaching-form-control" id="event-elevation" name="eventElevation" type="number" min="0" step="50" placeholder="<%= t('coachingPage.placeholders.eventElevation') %>">
                                         </div>
                                     </div>
 
                                     <div class="mt-3">
-                                        <label class="coaching-form-label" for="terrain-profile">Terrain Profile</label>
+                                        <label class="coaching-form-label" for="terrain-profile"><%= t("coachingPage.labels.terrainProfile") %></label>
                                         <select class="form-select coaching-form-select" id="terrain-profile" name="terrainProfile">
-                                            <option value="flat">Flat</option>
-                                            <option value="rolling">Rolling</option>
-                                            <option value="hilly">Hilly</option>
-                                            <option value="mountainous">Mountainous</option>
+                                            <option value="flat"><%= t("coachingPage.terrain.flat") %></option>
+                                            <option value="rolling"><%= t("coachingPage.terrain.rolling") %></option>
+                                            <option value="hilly"><%= t("coachingPage.terrain.hilly") %></option>
+                                            <option value="mountainous"><%= t("coachingPage.terrain.mountainous") %></option>
                                         </select>
                                     </div>
                                 </div>
                             </section>
 
                             <section class="coaching-fieldset">
-                                <h3 class="coaching-fieldset-title">Availability</h3>
+                                <h3 class="coaching-fieldset-title"><%= t("coachingPage.fieldsets.availability") %></h3>
 
                                 <div class="coaching-grid-2">
                                     <div>
-                                        <label class="coaching-form-label" for="hours-per-week">Hours per Week</label>
-                                        <input class="form-control coaching-form-control" id="hours-per-week" name="hoursPerWeek" type="number" min="1" max="40" step="0.5" placeholder="8">
+                                        <label class="coaching-form-label" for="hours-per-week"><%= t("coachingPage.labels.hoursPerWeek") %></label>
+                                        <input class="form-control coaching-form-control" id="hours-per-week" name="hoursPerWeek" type="number" min="1" max="40" step="0.5" placeholder="<%= t('coachingPage.placeholders.hoursPerWeek') %>">
                                     </div>
 
                                     <div>
-                                        <label class="coaching-form-label" for="plan-start-date">Plan Start Date</label>
+                                        <label class="coaching-form-label" for="plan-start-date"><%= t("coachingPage.labels.planStartDate") %></label>
                                         <input class="form-control coaching-form-control" id="plan-start-date" name="planStartDate" type="date">
                                     </div>
 
                                     <div>
-                                        <label class="coaching-form-label">Available Weekdays</label>
+                                        <label class="coaching-form-label"><%= t("coachingPage.labels.availableWeekdays") %></label>
                                         <div class="coaching-weekdays">
-                                            <div class="weekday-chip"><input type="checkbox" id="day-mon" name="days" value="mon"><label for="day-mon">Mon</label></div>
-                                            <div class="weekday-chip"><input type="checkbox" id="day-tue" name="days" value="tue"><label for="day-tue">Tue</label></div>
-                                            <div class="weekday-chip"><input type="checkbox" id="day-wed" name="days" value="wed"><label for="day-wed">Wed</label></div>
-                                            <div class="weekday-chip"><input type="checkbox" id="day-thu" name="days" value="thu"><label for="day-thu">Thu</label></div>
-                                            <div class="weekday-chip"><input type="checkbox" id="day-fri" name="days" value="fri"><label for="day-fri">Fri</label></div>
-                                            <div class="weekday-chip"><input type="checkbox" id="day-sat" name="days" value="sat"><label for="day-sat">Sat</label></div>
-                                            <div class="weekday-chip"><input type="checkbox" id="day-sun" name="days" value="sun"><label for="day-sun">Sun</label></div>
+                                            <div class="weekday-chip"><input type="checkbox" id="day-mon" name="days" value="mon"><label for="day-mon"><%= t("coachingPage.days.mon") %></label></div>
+                                            <div class="weekday-chip"><input type="checkbox" id="day-tue" name="days" value="tue"><label for="day-tue"><%= t("coachingPage.days.tue") %></label></div>
+                                            <div class="weekday-chip"><input type="checkbox" id="day-wed" name="days" value="wed"><label for="day-wed"><%= t("coachingPage.days.wed") %></label></div>
+                                            <div class="weekday-chip"><input type="checkbox" id="day-thu" name="days" value="thu"><label for="day-thu"><%= t("coachingPage.days.thu") %></label></div>
+                                            <div class="weekday-chip"><input type="checkbox" id="day-fri" name="days" value="fri"><label for="day-fri"><%= t("coachingPage.days.fri") %></label></div>
+                                            <div class="weekday-chip"><input type="checkbox" id="day-sat" name="days" value="sat"><label for="day-sat"><%= t("coachingPage.days.sat") %></label></div>
+                                            <div class="weekday-chip"><input type="checkbox" id="day-sun" name="days" value="sun"><label for="day-sun"><%= t("coachingPage.days.sun") %></label></div>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div class="mt-3">
-                                    <label class="coaching-form-label">Athlete Data Mode</label>
+                                    <label class="coaching-form-label"><%= t("coachingPage.labels.athleteDataMode") %></label>
                                     <div class="style-toggle">
                                         <div class="style-option">
                                             <input type="radio" id="athlete-mode-current" name="athleteDataMode" value="current" checked>
                                             <label for="athlete-mode-current">
-                                                <strong>Current athlete</strong>
-                                                <span>Use recent load, fatigue, and current training state as planning input.</span>
+                                                <strong><%= t("coachingPage.athleteMode.currentTitle") %></strong>
+                                                <span><%= t("coachingPage.athleteMode.currentCopy") %></span>
                                             </label>
                                         </div>
 
                                         <div class="style-option">
                                             <input type="radio" id="athlete-mode-historical" name="athleteDataMode" value="historical">
                                             <label for="athlete-mode-historical">
-                                                <strong>Historical profile / simulation</strong>
-                                                <span>Treat older data as a reference profile only, not as current readiness.</span>
+                                                <strong><%= t("coachingPage.athleteMode.historicalTitle") %></strong>
+                                                <span><%= t("coachingPage.athleteMode.historicalCopy") %></span>
                                             </label>
                                         </div>
                                     </div>
@@ -694,42 +909,42 @@
                             </section>
 
                             <section class="coaching-fieldset">
-                                <h3 class="coaching-fieldset-title">Planning Preferences</h3>
+                                <h3 class="coaching-fieldset-title"><%= t("coachingPage.fieldsets.preferences") %></h3>
 
                                 <div class="coaching-grid-2">
                                     <div>
-                                        <label class="coaching-form-label">Plan Horizon</label>
+                                        <label class="coaching-form-label"><%= t("coachingPage.labels.planHorizon") %></label>
                                         <div class="horizon-toggle">
-                                            <div class="horizon-option"><input type="radio" id="horizon-4" name="planHorizon" value="4" checked><label for="horizon-4">4 weeks</label></div>
-                                            <div class="horizon-option"><input type="radio" id="horizon-8" name="planHorizon" value="8"><label for="horizon-8">8 weeks</label></div>
-                                            <div class="horizon-option"><input type="radio" id="horizon-12" name="planHorizon" value="12"><label for="horizon-12">12 weeks</label></div>
+                                            <div class="horizon-option"><input type="radio" id="horizon-4" name="planHorizon" value="4" checked><label for="horizon-4"><%= t("coachingPage.horizon.4weeks") %></label></div>
+                                            <div class="horizon-option"><input type="radio" id="horizon-8" name="planHorizon" value="8"><label for="horizon-8"><%= t("coachingPage.horizon.8weeks") %></label></div>
+                                            <div class="horizon-option"><input type="radio" id="horizon-12" name="planHorizon" value="12"><label for="horizon-12"><%= t("coachingPage.horizon.12weeks") %></label></div>
                                         </div>
                                     </div>
 
                                     <div>
-                                        <label class="coaching-form-label">Planning Style</label>
+                                        <label class="coaching-form-label"><%= t("coachingPage.labels.planningStyle") %></label>
                                         <div class="style-toggle">
                                             <div class="style-option">
                                                 <input type="radio" id="style-conservative" name="planningStyle" value="conservative">
                                                 <label for="style-conservative">
-                                                    <strong>Conservative</strong>
-                                                    <span>More cautious progression and more recovery margin.</span>
+                                                    <strong><%= t("coachingPage.style.conservativeTitle") %></strong>
+                                                    <span><%= t("coachingPage.style.conservativeCopy") %></span>
                                                 </label>
                                             </div>
 
                                             <div class="style-option">
                                                 <input type="radio" id="style-balanced" name="planningStyle" value="balanced" checked>
                                                 <label for="style-balanced">
-                                                    <strong>Balanced</strong>
-                                                    <span>Even split between stimulus, recovery, and steady build.</span>
+                                                    <strong><%= t("coachingPage.style.balancedTitle") %></strong>
+                                                    <span><%= t("coachingPage.style.balancedCopy") %></span>
                                                 </label>
                                             </div>
 
                                             <div class="style-option">
                                                 <input type="radio" id="style-ambitious" name="planningStyle" value="ambitious">
                                                 <label for="style-ambitious">
-                                                    <strong>Ambitious</strong>
-                                                    <span>Higher load progression for users who can absorb more work.</span>
+                                                    <strong><%= t("coachingPage.style.ambitiousTitle") %></strong>
+                                                    <span><%= t("coachingPage.style.ambitiousCopy") %></span>
                                                 </label>
                                             </div>
                                         </div>
@@ -737,15 +952,15 @@
                                 </div>
 
                                 <div class="mt-3">
-                                    <label class="coaching-form-label" for="additional-notes">Additional Notes</label>
-                                    <textarea class="form-control coaching-form-control" id="additional-notes" name="additionalNotes" rows="4" placeholder="Optional constraints, preferences, or event-specific notes."></textarea>
+                                    <label class="coaching-form-label" for="additional-notes"><%= t("coachingPage.labels.additionalNotes") %></label>
+                                    <textarea class="form-control coaching-form-control" id="additional-notes" name="additionalNotes" rows="4" placeholder="<%= t('coachingPage.placeholders.additionalNotes') %>"></textarea>
                                 </div>
                             </section>
 
                             <div class="d-flex justify-content-end">
                                 <div class="d-flex gap-2">
-                                    <button class="btn btn-outline-secondary px-4 py-2 rounded-pill fw-semibold" id="coaching-save-button" type="button" disabled>Save Plan</button>
-                                    <button class="btn btn-primary px-4 py-2 rounded-pill fw-semibold" id="coaching-generate-button" type="button">Generate Plan</button>
+                                    <button class="btn btn-outline-secondary px-4 py-2 rounded-pill fw-semibold" id="coaching-save-button" type="button" disabled><%= t("coachingPage.actions.savePlan") %></button>
+                                    <button class="btn btn-primary px-4 py-2 rounded-pill fw-semibold" id="coaching-generate-button" type="button"><%= t("coachingPage.actions.generatePlan") %></button>
                                 </div>
                             </div>
                         </form>
@@ -755,15 +970,15 @@
                 <section class="coaching-surface">
                     <div class="coaching-section-header">
                         <div>
-                            <span class="coaching-eyebrow">Athlete Context</span>
-                            <h2 class="coaching-section-title">Current Training State</h2>
-                            <p class="coaching-section-copy">Current load and performance markers from your existing workout history are folded into the generated plan.</p>
+                            <span class="coaching-eyebrow"><%= t("coachingPage.sections.athleteContextEyebrow") %></span>
+                            <h2 class="coaching-section-title"><%= t("coachingPage.sections.currentTrainingStateTitle") %></h2>
+                            <p class="coaching-section-copy"><%= t("coachingPage.sections.currentTrainingStateCopy") %></p>
                         </div>
                     </div>
 
                     <div class="coaching-body">
                         <div id="coaching-user-context">
-                            <p class="coaching-placeholder-copy">Loading current athlete context ...</p>
+                            <p class="coaching-placeholder-copy"><%= t("coachingPage.placeholders.loadingAthleteContext") %></p>
                         </div>
                     </div>
                 </section>
@@ -771,15 +986,15 @@
                 <section class="coaching-surface">
                     <div class="coaching-section-header">
                         <div>
-                            <span class="coaching-eyebrow">Plan History</span>
-                            <h2 class="coaching-section-title">Saved Plans</h2>
-                            <p class="coaching-section-copy">Recent plan versions can be reloaded here, so you can compare and iterate instead of overwriting the latest result.</p>
+                            <span class="coaching-eyebrow"><%= t("coachingPage.sections.planHistoryEyebrow") %></span>
+                            <h2 class="coaching-section-title"><%= t("coachingPage.sections.savedPlansTitle") %></h2>
+                            <p class="coaching-section-copy"><%= t("coachingPage.sections.savedPlansCopy") %></p>
                         </div>
                     </div>
 
                     <div class="coaching-body">
                         <div id="coaching-plan-history">
-                            <p class="coaching-placeholder-copy">No saved plans loaded yet.</p>
+                            <p class="coaching-placeholder-copy"><%= t("coachingPage.history.emptyLoaded") %></p>
                         </div>
                     </div>
                 </section>
@@ -787,9 +1002,9 @@
                 <section class="coaching-surface">
                     <div class="coaching-section-header">
                         <div>
-                            <span class="coaching-eyebrow">Plan Output</span>
-                            <h2 class="coaching-section-title">Generated Training Plan</h2>
-                            <p class="coaching-section-copy">The first MVP will render structured weekly blocks here before we move to calendar-level interaction.</p>
+                            <span class="coaching-eyebrow"><%= t("coachingPage.sections.planOutputEyebrow") %></span>
+                            <h2 class="coaching-section-title"><%= t("coachingPage.sections.generatedPlanTitle") %></h2>
+                            <p class="coaching-section-copy"><%= t("coachingPage.sections.generatedPlanCopy") %></p>
                         </div>
                     </div>
 
@@ -797,31 +1012,31 @@
                         <div id="coaching-plan-status" class="mb-3"></div>
                         <div id="coaching-plan-summary">
                             <p class="coaching-placeholder-copy">
-                                No plan has been generated yet. Once the planning engine is connected, this section will render week-by-week training blocks with workout intent, duration, and progression.
+                                <%= t("coachingPage.placeholders.noPlanGenerated") %>
                             </p>
                         </div>
 
                         <div id="coaching-plan-result" class="coaching-plan-grid mt-4">
                             <ul class="coaching-placeholder-list">
-                                <li>Week-based structure with reusable daily workout cards</li>
-                                <li>Clear mapping between training goal, availability, and session prescription</li>
-                                <li>Later extension point for regeneration, manual edits, and save-to-calendar</li>
+                                <li><%= t("coachingPage.placeholders.weekStructure") %></li>
+                                <li><%= t("coachingPage.placeholders.goalMapping") %></li>
+                                <li><%= t("coachingPage.placeholders.extensionPoint") %></li>
                             </ul>
 
                             <div class="placeholder-grid">
                                 <article class="placeholder-card">
-                                    <h3>Week 1</h3>
-                                    <p>Initial load calibration based on the selected goal, available days, and preferred planning style.</p>
+                                    <h3><%= t("coachingPage.placeholders.week1Title") %></h3>
+                                    <p><%= t("coachingPage.placeholders.week1Copy") %></p>
                                 </article>
 
                                 <article class="placeholder-card">
-                                    <h3>Week 2</h3>
-                                    <p>Progression block with the first meaningful stimulus shift once the athlete baseline is established.</p>
+                                    <h3><%= t("coachingPage.placeholders.week2Title") %></h3>
+                                    <p><%= t("coachingPage.placeholders.week2Copy") %></p>
                                 </article>
 
                                 <article class="placeholder-card">
-                                    <h3>Week 3+</h3>
-                                    <p>Future weeks will expand here with recovery logic, goal-specific sessions, and event tapering where relevant.</p>
+                                    <h3><%= t("coachingPage.placeholders.week3Title") %></h3>
+                                    <p><%= t("coachingPage.placeholders.week3Copy") %></p>
                                 </article>
                             </div>
                         </div>
@@ -830,6 +1045,9 @@
             </div>
         </div>
 
+        <script>
+            window.__I18N = <%- JSON.stringify(i18n || { locale: "en", messages: {} }) %>;
+        </script>
         <script type="module">
             import CoachingUI from "/js/coaching-ui.js";
             new CoachingUI();
@@ -837,7 +1055,7 @@
     <% } else { %>
         <div class="container py-5 text-center">
             <h3 class="mb-4"><%= t("common.auth.pleaseSignIn") %></h3>
-            <a class="btn btn-primary" href="/login">Sign in</a>
+            <a class="btn btn-primary" href="/login"><%= t("common.auth.signIn") %></a>
         </div>
     <% } %>
 </body>

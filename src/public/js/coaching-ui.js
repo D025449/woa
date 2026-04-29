@@ -1,12 +1,17 @@
+import { createTranslator, getCurrentLocale } from "./i18n.js";
+
+const t = createTranslator("coachingPage");
+const currentLocale = getCurrentLocale();
+
 function formatWeekday(day) {
   const labels = {
-    mon: "Mon",
-    tue: "Tue",
-    wed: "Wed",
-    thu: "Thu",
-    fri: "Fri",
-    sat: "Sat",
-    sun: "Sun"
+    mon: t("days.mon"),
+    tue: t("days.tue"),
+    wed: t("days.wed"),
+    thu: t("days.thu"),
+    fri: t("days.fri"),
+    sat: t("days.sat"),
+    sun: t("days.sun")
   };
 
   return labels[day] || day;
@@ -22,8 +27,68 @@ function formatDuration(hours) {
   return `${Number(hours).toFixed(2).replace(/\.00$/, "")} h`;
 }
 
+function formatDistance(km) {
+  if (km == null || km === "") {
+    return "–";
+  }
+
+  return `${Number(km).toFixed(1).replace(/\.0$/, "")} km`;
+}
+
 function formatSemanticsValue(value) {
   return value ? String(value) : "–";
+}
+
+function translateMappedValue(value) {
+  const text = value ? String(value) : "";
+  if (!text) {
+    return text;
+  }
+  if (text.startsWith("[Adjusted] ")) {
+    const inner = translateMappedValue(text.slice(11));
+    return `${t("dynamic.sessionNote.adjustedPrefix")} ${inner}`;
+  }
+  if (text.includes("|")) {
+    const [baseKey, paramKey] = text.split("|");
+    const direct = t(`dynamic.${baseKey}`, { terrain: t(`dynamic.${paramKey}`) });
+    if (!direct.startsWith("coachingPage.dynamic.")) {
+      return direct;
+    }
+  }
+  if (text.includes(".")) {
+    const direct = t(`dynamic.${text}`);
+    if (!direct.startsWith("coachingPage.dynamic.")) {
+      return direct;
+    }
+  }
+  return text;
+}
+
+function formatPercent(value) {
+  return `${Math.round(Number(value || 0) * 100)}%`;
+}
+
+function formatStatusLabel(value) {
+  const labels = {
+    on_track: t("status.onTrack"),
+    slightly_off: t("status.slightlyOff"),
+    off_track: t("status.offTrack"),
+    completed: t("status.completed"),
+    mostly_completed: t("status.mostlyCompleted"),
+    substituted: t("status.substituted"),
+    missed: t("status.missed"),
+    extra_unplanned: t("status.extraUnplanned")
+  };
+
+  return labels[value] || String(value || "–");
+}
+
+function formatStatusClass(value) {
+  return String(value || "neutral").replace(/_/g, "-");
+}
+
+function renderStatusBadge(value) {
+  return `<span class="coaching-status-badge coaching-status-badge--${escapeHtml(formatStatusClass(value))}">${escapeHtml(formatStatusLabel(value))}</span>`;
 }
 
 function formatDateTime(value) {
@@ -36,12 +101,29 @@ function formatDateTime(value) {
     return String(value);
   }
 
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(currentLocale, {
     year: "numeric",
     month: "short",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit"
+  }).format(date);
+}
+
+function formatDateOnly(value) {
+  if (!value) {
+    return "–";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat(currentLocale, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit"
   }).format(date);
 }
 
@@ -72,6 +154,7 @@ export default class CoachingUI {
     this.currentPlan = null;
     this.editingWeekNumber = null;
     this.editingPlanName = false;
+    this.hasPreviewInteraction = false;
 
     this.registerEvents();
     this.syncGoalPanels();
@@ -96,6 +179,32 @@ export default class CoachingUI {
       }
 
       await this.loadPlanById(button.getAttribute("data-plan-id"));
+    });
+    this.summaryRoot?.addEventListener("click", async (event) => {
+      const editPlanNameButton = event.target.closest("[data-edit-plan-name]");
+      if (editPlanNameButton) {
+        this.editingPlanName = true;
+        this.renderPlan(this.currentPlan);
+        return;
+      }
+
+      const cancelPlanNameButton = event.target.closest("[data-cancel-plan-name]");
+      if (cancelPlanNameButton) {
+        this.editingPlanName = false;
+        this.renderPlan(this.currentPlan);
+        return;
+      }
+
+      const savePlanNameButton = event.target.closest("[data-save-plan-name]");
+      if (savePlanNameButton) {
+        await this.savePlanName();
+        return;
+      }
+
+      const reviewPlanButton = event.target.closest("[data-review-plan]");
+      if (reviewPlanButton) {
+        await this.reviewCurrentPlan();
+      }
     });
     this.resultRoot?.addEventListener("click", async (event) => {
       const editButton = event.target.closest("[data-edit-week]");
@@ -124,6 +233,18 @@ export default class CoachingUI {
         return;
       }
 
+      const applyAdjustmentButton = event.target.closest("[data-apply-adjustment]");
+      if (applyAdjustmentButton) {
+        await this.applyAdjustment(Number(applyAdjustmentButton.getAttribute("data-apply-adjustment")));
+        return;
+      }
+
+      const commentaryButton = event.target.closest("[data-generate-commentary]");
+      if (commentaryButton) {
+        await this.generateCommentary(Number(commentaryButton.getAttribute("data-generate-commentary")));
+        return;
+      }
+
       const addSessionButton = event.target.closest("[data-add-session]");
       if (addSessionButton) {
         this.addSessionToEditingWeek(Number(addSessionButton.getAttribute("data-add-session")));
@@ -137,31 +258,6 @@ export default class CoachingUI {
           Number(removeSessionButton.getAttribute("data-remove-session-index"))
         );
         return;
-      }
-
-      const editPlanNameButton = event.target.closest("[data-edit-plan-name]");
-      if (editPlanNameButton) {
-        this.editingPlanName = true;
-        this.renderPlan(this.currentPlan);
-        return;
-      }
-
-      const cancelPlanNameButton = event.target.closest("[data-cancel-plan-name]");
-      if (cancelPlanNameButton) {
-        this.editingPlanName = false;
-        this.renderPlan(this.currentPlan);
-        return;
-      }
-
-      const savePlanNameButton = event.target.closest("[data-save-plan-name]");
-      if (savePlanNameButton) {
-        await this.savePlanName();
-        return;
-      }
-
-      const reviewPlanButton = event.target.closest("[data-review-plan]");
-      if (reviewPlanButton) {
-        await this.reviewCurrentPlan();
       }
     });
   }
@@ -262,6 +358,7 @@ export default class CoachingUI {
     }
 
     const payload = this.collectPayload();
+    this.hasPreviewInteraction = true;
     this.setSubmitting(true);
 
     try {
@@ -282,16 +379,16 @@ export default class CoachingUI {
       const json = await response.json();
 
       if (!response.ok) {
-        throw new Error(json?.error || "Plan generation failed");
+        throw new Error(json?.error || t("errors.planGeneration"));
       }
 
       this.lastGeneratedPayload = payload;
       this.renderPlan(json.data);
       this.setSaveEnabled(true);
-      this.setStatus("Preview generated. Save it if you want to keep this version.", "info");
+      this.setStatus(t("statusMessages.previewGenerated"), "info");
     } catch (error) {
       this.setSaveEnabled(false);
-      this.summaryRoot.innerHTML = `<div class="alert alert-danger mb-0">${escapeHtml(error.message || "Plan generation failed")}</div>`;
+      this.summaryRoot.innerHTML = `<div class="alert alert-danger mb-0">${escapeHtml(error.message || t("errors.planGeneration"))}</div>`;
       this.resultRoot.innerHTML = "";
     } finally {
       this.setSubmitting(false);
@@ -323,15 +420,15 @@ export default class CoachingUI {
       const json = await response.json();
 
       if (!response.ok) {
-        throw new Error(json?.error || "Saving training plan failed");
+        throw new Error(json?.error || t("errors.saveTrainingPlan"));
       }
 
       this.renderPlan(json.data);
       this.setSaveEnabled(false);
-      this.setStatus(`Plan saved as ${json.data?.name || "Training Plan"}.`, "success");
+      this.setStatus(t("statusMessages.planSaved", { name: json.data?.name || t("history.trainingPlan") }), "success");
       await this.loadPlanHistory();
     } catch (error) {
-      this.setStatus(error.message || "Saving training plan failed", "danger");
+      this.setStatus(error.message || t("errors.saveTrainingPlan"), "danger");
     } finally {
       this.setSaveSubmitting(false);
     }
@@ -354,19 +451,23 @@ export default class CoachingUI {
       const json = await response.json();
 
       if (!response.ok) {
-        throw new Error(json?.error || "Failed to load latest plan");
+        throw new Error(json?.error || t("errors.loadLatestPlan"));
       }
 
       if (!json.data) {
         return;
       }
 
+      if (this.hasPreviewInteraction) {
+        return;
+      }
+
       this.applyPayloadToForm(json.data.input || {});
       this.renderPlan(json.data);
       this.setSaveEnabled(false);
-      this.setStatus(`Loaded latest saved plan: ${json.data?.name || "Training Plan"}.`, "secondary");
+      this.setStatus(t("statusMessages.latestPlanLoaded", { name: json.data?.name || t("history.trainingPlan") }), "secondary");
     } catch (error) {
-      this.setStatus(error.message || "Failed to load latest plan", "warning");
+      this.setStatus(error.message || t("errors.loadLatestPlan"), "warning");
     }
   }
 
@@ -387,12 +488,12 @@ export default class CoachingUI {
       const json = await response.json();
 
       if (!response.ok) {
-        throw new Error(json?.error || "Failed to load saved plans");
+        throw new Error(json?.error || t("errors.loadSavedPlans"));
       }
 
       this.renderPlanHistory(Array.isArray(json.data) ? json.data : []);
     } catch (error) {
-      this.historyRoot.innerHTML = `<div class="alert alert-warning mb-0">${escapeHtml(error.message || "Failed to load saved plans")}</div>`;
+      this.historyRoot.innerHTML = `<div class="alert alert-warning mb-0">${escapeHtml(error.message || t("errors.loadSavedPlans"))}</div>`;
     }
   }
 
@@ -414,15 +515,15 @@ export default class CoachingUI {
       const json = await response.json();
 
       if (!response.ok) {
-        throw new Error(json?.error || "Failed to load saved plan");
+        throw new Error(json?.error || t("errors.loadSavedPlan"));
       }
 
       this.applyPayloadToForm(json.data.input || {});
       this.renderPlan(json.data);
       this.setSaveEnabled(false);
-      this.setStatus(`Loaded saved plan: ${json.data?.name || "Training Plan"}.`, "secondary");
+      this.setStatus(t("statusMessages.planLoaded", { name: json.data?.name || t("history.trainingPlan") }), "secondary");
     } catch (error) {
-      this.setStatus(error.message || "Failed to load saved plan", "warning");
+      this.setStatus(error.message || t("errors.loadSavedPlan"), "warning");
     }
   }
 
@@ -443,12 +544,12 @@ export default class CoachingUI {
       const json = await response.json();
 
       if (!response.ok) {
-        throw new Error(json?.error || "Failed to load context");
+        throw new Error(json?.error || t("errors.loadContext"));
       }
 
       this.renderContext(json.data);
     } catch (error) {
-      this.contextRoot.innerHTML = `<div class="alert alert-warning mb-0">${escapeHtml(error.message || "Failed to load context")}</div>`;
+      this.contextRoot.innerHTML = `<div class="alert alert-warning mb-0">${escapeHtml(error.message || t("errors.loadContext"))}</div>`;
     }
   }
 
@@ -458,7 +559,7 @@ export default class CoachingUI {
     }
 
     this.generateButton.disabled = isSubmitting;
-    this.generateButton.textContent = isSubmitting ? "Generating..." : "Generate Plan";
+    this.generateButton.textContent = isSubmitting ? t("actions.generating") : t("actions.generatePlan");
   }
 
   setSaveSubmitting(isSubmitting) {
@@ -467,7 +568,7 @@ export default class CoachingUI {
     }
 
     this.saveButton.disabled = isSubmitting || !this.lastGeneratedPayload;
-    this.saveButton.textContent = isSubmitting ? "Saving..." : "Save Plan";
+    this.saveButton.textContent = isSubmitting ? t("actions.saving") : t("actions.savePlan");
   }
 
   setSaveEnabled(isEnabled) {
@@ -476,7 +577,7 @@ export default class CoachingUI {
     }
 
     this.saveButton.disabled = !isEnabled;
-    this.saveButton.textContent = "Save Plan";
+    this.saveButton.textContent = t("actions.savePlan");
   }
 
   setStatus(message, variant = "secondary") {
@@ -496,20 +597,21 @@ export default class CoachingUI {
     this.currentPlan = data || null;
     const summary = data?.summary || {};
     const weeks = Array.isArray(data?.weeks) ? data.weeks : [];
-    const planName = data?.name || summary.goal || "Training plan";
+    const localizedGoal = translateMappedValue(summary.goal);
+    const planName = data?.name || localizedGoal || t("history.trainingPlan");
 
     this.summaryRoot.innerHTML = `
       <div class="coaching-result-summary">
         <div class="coaching-result-summary__chips">
           ${this.renderPlanNameChip(planName)}
-          <span class="coaching-result-chip"><strong>Goal</strong><span>${escapeHtml(summary.goal || "Training plan")}</span></span>
-          <span class="coaching-result-chip"><strong>Weekly Hours</strong><span>${escapeHtml(String(summary.weeklyHours || "–"))} h</span></span>
-          <span class="coaching-result-chip"><strong>Start</strong><span>${escapeHtml(String(summary.planStartDate || "–"))}</span></span>
-          <span class="coaching-result-chip"><strong>Days</strong><span>${escapeHtml((summary.availableDays || []).map(formatWeekday).join(" · ") || "–")}</span></span>
-          <span class="coaching-result-chip"><strong>Horizon</strong><span>${escapeHtml(String(summary.planHorizonWeeks || "–"))} weeks</span></span>
-          <span class="coaching-result-chip"><strong>Data Mode</strong><span>${escapeHtml(summary.athleteDataMode === "historical" ? "Historical profile" : "Current athlete")}</span></span>
+          <span class="coaching-result-chip"><strong>${escapeHtml(t("summary.goal"))}</strong><span>${escapeHtml(localizedGoal || t("history.trainingPlan"))}</span></span>
+          <span class="coaching-result-chip"><strong>${escapeHtml(t("summary.weeklyHours"))}</strong><span>${escapeHtml(String(summary.weeklyHours || "–"))} h</span></span>
+          <span class="coaching-result-chip"><strong>${escapeHtml(t("summary.start"))}</strong><span>${escapeHtml(summary.planStartDate ? formatDateOnly(summary.planStartDate) : "–")}</span></span>
+          <span class="coaching-result-chip"><strong>${escapeHtml(t("summary.days"))}</strong><span>${escapeHtml((summary.availableDays || []).map(formatWeekday).join(" · ") || "–")}</span></span>
+          <span class="coaching-result-chip"><strong>${escapeHtml(t("summary.horizon"))}</strong><span>${escapeHtml(String(summary.planHorizonWeeks || "–"))} ${escapeHtml(t("history.weeks"))}</span></span>
+          <span class="coaching-result-chip"><strong>${escapeHtml(t("summary.dataMode"))}</strong><span>${escapeHtml(summary.athleteDataMode === "historical" ? t("summary.historicalProfile") : t("summary.currentAthlete"))}</span></span>
           ${summary.planningSignals ? `<span class="coaching-result-chip"><strong>TSB</strong><span>${escapeHtml(String(summary.planningSignals.currentTsb ?? "–"))}</span></span>` : ""}
-          ${this.currentPlan?.id ? `<span class="coaching-result-chip"><button class="btn btn-sm btn-outline-primary rounded-pill px-3" type="button" data-review-plan>Review Plan</button></span>` : ""}
+          ${this.currentPlan?.id ? `<span class="coaching-result-chip"><button class="btn btn-sm btn-outline-primary rounded-pill px-3" type="button" data-review-plan>${escapeHtml(t("actions.reviewPlan"))}</button></span>` : ""}
         </div>
       </div>
     `;
@@ -518,9 +620,16 @@ export default class CoachingUI {
       <article class="coaching-week-card">
         <header class="coaching-week-card__header">
           <div>
-            <div class="coaching-week-card__eyebrow">Week ${escapeHtml(String(week.weekNumber))}</div>
-            <h3 class="coaching-week-card__title">${escapeHtml(week.theme || "Training Week")}</h3>
-            ${week.review ? `<div class="coaching-session-card__meta"><span><strong>Status</strong> ${escapeHtml(week.review.status)}</span><span><strong>Completion</strong> ${escapeHtml(`${Math.round((week.review.completionRate || 0) * 100)}%`)}</span></div>` : ""}
+            <div class="coaching-week-card__eyebrow">${escapeHtml(t("history.week"))} ${escapeHtml(String(week.weekNumber))}</div>
+            <h3 class="coaching-week-card__title">${escapeHtml(translateMappedValue(week.theme) || t("history.trainingWeek"))}</h3>
+            ${week.review ? `
+              <div class="coaching-week-card__review-row">
+                ${renderStatusBadge(week.review.status)}
+                <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.completion"))}</strong><span>${escapeHtml(formatPercent(week.review.completionRate || 0))}</span></span>
+                <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.missed"))}</strong><span>${escapeHtml(String(week.review.missedCount || 0))}</span></span>
+                <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.extra"))}</strong><span>${escapeHtml(String(week.review.extraUnplannedCount || 0))}</span></span>
+              </div>
+            ` : ""}
           </div>
           <div class="coaching-week-actions">
             <div class="coaching-week-card__hours">${escapeHtml(formatDuration(week.targetHours || 0))}</div>
@@ -536,25 +645,25 @@ export default class CoachingUI {
 
   renderPlanNameChip(planName) {
     if (!this.currentPlan?.id) {
-      return `<span class="coaching-result-chip"><strong>Plan</strong><span>${escapeHtml(planName)}</span></span>`;
+      return `<span class="coaching-result-chip"><strong>${escapeHtml(t("summary.plan"))}</strong><span>${escapeHtml(planName)}</span></span>`;
     }
 
     if (!this.editingPlanName) {
       return `
         <span class="coaching-result-chip">
-          <strong>Plan</strong>
+          <strong>${escapeHtml(t("summary.plan"))}</strong>
           <span>${escapeHtml(planName)}</span>
-          <button class="btn btn-sm btn-link p-0 text-decoration-none" type="button" data-edit-plan-name>Edit</button>
+          <button class="btn btn-sm btn-link p-0 text-decoration-none" type="button" data-edit-plan-name>${escapeHtml(t("actions.edit"))}</button>
         </span>
       `;
     }
 
     return `
       <span class="coaching-result-chip">
-        <strong>Plan</strong>
+        <strong>${escapeHtml(t("summary.plan"))}</strong>
         <input class="form-control form-control-sm" id="coaching-plan-name-input" type="text" value="${escapeHtml(planName)}" style="min-width: 16rem;">
-        <button class="btn btn-sm btn-link p-0 text-decoration-none" type="button" data-save-plan-name>Save</button>
-        <button class="btn btn-sm btn-link p-0 text-decoration-none text-secondary" type="button" data-cancel-plan-name>Cancel</button>
+        <button class="btn btn-sm btn-link p-0 text-decoration-none" type="button" data-save-plan-name>${escapeHtml(t("actions.save"))}</button>
+        <button class="btn btn-sm btn-link p-0 text-decoration-none text-secondary" type="button" data-cancel-plan-name>${escapeHtml(t("actions.cancel"))}</button>
       </span>
     `;
   }
@@ -562,37 +671,113 @@ export default class CoachingUI {
   renderWeekActionButtons(weekNumber) {
     if (this.editingWeekNumber === Number(weekNumber)) {
       return `
-        <button class="btn btn-sm btn-primary rounded-pill px-3" type="button" data-save-week="${escapeHtml(String(weekNumber))}">Save Week</button>
-        <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" type="button" data-cancel-week="${escapeHtml(String(weekNumber))}">Cancel</button>
+        <button class="btn btn-sm btn-primary rounded-pill px-3" type="button" data-save-week="${escapeHtml(String(weekNumber))}">${escapeHtml(t("actions.saveWeek"))}</button>
+        <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" type="button" data-cancel-week="${escapeHtml(String(weekNumber))}">${escapeHtml(t("actions.cancel"))}</button>
       `;
     }
 
     return `
-      <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" type="button" data-edit-week="${escapeHtml(String(weekNumber))}">Edit Week</button>
-      <button class="btn btn-sm btn-outline-primary rounded-pill px-3" type="button" data-regenerate-week="${escapeHtml(String(weekNumber))}">Regenerate</button>
+      <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" type="button" data-edit-week="${escapeHtml(String(weekNumber))}">${escapeHtml(t("actions.editWeek"))}</button>
+      <button class="btn btn-sm btn-outline-primary rounded-pill px-3" type="button" data-regenerate-week="${escapeHtml(String(weekNumber))}">${escapeHtml(t("actions.regenerate"))}</button>
     `;
   }
 
   renderReadOnlyWeek(week) {
     return `
       <div class="coaching-week-card__sessions">
-        ${week.review ? `<div class="coaching-session-card"><div class="coaching-session-card__body"><div class="coaching-session-card__title">Week Review</div><div class="coaching-session-card__meta"><span><strong>Volume</strong> ${escapeHtml(`${Math.round((week.review.volumeCompliance || 0) * 100)}%`)}</span><span><strong>Intensity</strong> ${escapeHtml(`${Math.round((week.review.intensityCompliance || 0) * 100)}%`)}</span><span><strong>Objective</strong> ${escapeHtml(`${Math.round((week.review.objectiveCompliance || 0) * 100)}%`)}</span></div><div class="coaching-session-card__notes">${escapeHtml(week.review.summary || "")}</div></div></div>` : ""}
+        ${week.review ? `
+          <div class="coaching-session-card coaching-session-card--full">
+            <div class="coaching-session-card__body coaching-review-panel">
+              <div class="d-flex flex-wrap align-items-center gap-2">
+                <div class="coaching-session-card__title">${escapeHtml(t("review.weekReview"))}</div>
+                ${renderStatusBadge(week.review.status)}
+              </div>
+              <div class="coaching-review-panel__counts">
+                <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.completion"))}</strong><span>${escapeHtml(formatPercent(week.review.completionRate || 0))}</span></span>
+                <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.volume"))}</strong><span>${escapeHtml(formatPercent(week.review.volumeCompliance || 0))}</span></span>
+                <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.intensity"))}</strong><span>${escapeHtml(formatPercent(week.review.intensityCompliance || 0))}</span></span>
+                <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.objective"))}</strong><span>${escapeHtml(formatPercent(week.review.objectiveCompliance || 0))}</span></span>
+                <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.completed"))}</strong><span>${escapeHtml(String(week.review.completedCount || 0))}</span></span>
+                <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.mostly"))}</strong><span>${escapeHtml(String(week.review.mostlyCompletedCount || 0))}</span></span>
+                <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.substituted"))}</strong><span>${escapeHtml(String(week.review.substitutedCount || 0))}</span></span>
+                <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.missed"))}</strong><span>${escapeHtml(String(week.review.missedCount || 0))}</span></span>
+                <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.extra"))}</strong><span>${escapeHtml(String(week.review.extraUnplannedCount || 0))}</span></span>
+              </div>
+              <div class="coaching-review-panel__summary">${escapeHtml(translateMappedValue(week.review.summary) || t("review.noSummary"))}</div>
+              ${(week.review.recommendations || []).length ? `
+                <div class="coaching-advice-list">
+                  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                    <div class="coaching-advice-list__title">${escapeHtml(t("review.suggestedNextAdjustment"))}</div>
+                    ${this.currentPlan?.id && (this.currentPlan.weeks || []).some((entry) => Number(entry.weekNumber) === Number(week.weekNumber) + 1)
+                      ? `<button class="btn btn-sm btn-outline-primary rounded-pill px-3" type="button" data-apply-adjustment="${escapeHtml(String(week.weekNumber))}">${escapeHtml(t("actions.applyAdjustment"))}</button>`
+                      : ``}
+                  </div>
+                  ${(week.review.recommendations || []).map((item) => `
+                    <div class="coaching-advice-item coaching-advice-item--${escapeHtml(String(item.severity || "low"))}">
+                      <div class="coaching-advice-item__title">${escapeHtml(translateMappedValue(item.title) || t("review.suggestedAdjustment"))}</div>
+                      <div class="coaching-session-card__reason">${escapeHtml(translateMappedValue(item.detail) || "")}</div>
+                    </div>
+                  `).join("")}
+                </div>
+              ` : ""}
+              <div class="coaching-commentary">
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                  <div class="coaching-commentary__title">${escapeHtml(t("commentary.title"))}</div>
+                  ${this.currentPlan?.id
+                    ? `<button class="btn btn-sm btn-outline-secondary rounded-pill px-3" type="button" data-generate-commentary="${escapeHtml(String(week.weekNumber))}">${escapeHtml(week.review.commentary ? t("actions.refreshCommentary") : t("actions.generateCommentary"))}</button>`
+                    : ``}
+                </div>
+                ${week.review.commentary ? this.renderCommentary(week.review.commentary) : `<div class="coaching-session-card__reason">${escapeHtml(t("commentary.noneYet"))}</div>`}
+              </div>
+              ${(week.extraWorkouts || []).length ? `
+                <div class="coaching-extra-list">
+                  <div class="coaching-extra-list__title">${escapeHtml(t("review.unplannedWorkouts"))}</div>
+                  ${(week.extraWorkouts || []).map((workout) => `
+                    <div class="coaching-extra-item">
+                      <div class="coaching-extra-item__header">
+                        <div class="coaching-extra-item__title">${escapeHtml(t("review.workoutLabel"))} ${escapeHtml(String(workout.workoutId || "–"))} · ${escapeHtml(formatDateOnly(workout.startTime))}</div>
+                        ${renderStatusBadge(workout.status)}
+                      </div>
+                      <div class="coaching-review-panel__counts">
+                        <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.duration"))}</strong><span>${escapeHtml(formatDuration(workout.durationHours || 0))}</span></span>
+                        <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.distance"))}</strong><span>${escapeHtml(formatDistance(workout.distanceKm))}</span></span>
+                        <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.avgPower"))}</strong><span>${escapeHtml(String(workout.avgPower ?? "–"))}</span></span>
+                        <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.np"))}</strong><span>${escapeHtml(String(workout.avgNormalizedPower ?? "–"))}</span></span>
+                      </div>
+                      <div class="coaching-session-card__reason">${escapeHtml(workout.reason || t("review.unplannedReason"))}</div>
+                    </div>
+                  `).join("")}
+                </div>
+              ` : ""}
+            </div>
+          </div>
+        ` : ""}
         ${(week.sessions || []).map((session) => `
           <div class="coaching-session-card coaching-session-card--${escapeHtml(session.type || "easy")}">
             <div class="coaching-session-card__day">${escapeHtml(formatWeekday(session.day))}</div>
             <div class="coaching-session-card__body">
-              <div class="coaching-session-card__title">${escapeHtml(session.title || "Session")}</div>
+              <div class="coaching-session-card__title">${escapeHtml(translateMappedValue(session.title) || t("review.session"))}</div>
               <div class="coaching-session-card__meta">${escapeHtml(formatDuration(session.durationHours || 0))}</div>
-              ${session.match ? `<div class="coaching-session-card__meta"><span><strong>Match</strong> ${escapeHtml(session.match.status || "–")}</span><span><strong>Score</strong> ${escapeHtml(`${Math.round((Number(session.match.score || 0)) * 100)}%`)}</span></div>` : ""}
+              ${session.plannedDate ? `<div class="coaching-session-card__meta"><span><strong>${escapeHtml(t("review.planned"))}</strong> ${escapeHtml(session.plannedDate)}</span></div>` : ""}
+              ${session.match ? `
+                <div class="coaching-session-card__match">
+                  ${renderStatusBadge(session.match.status)}
+                  <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.score"))}</strong><span>${escapeHtml(formatPercent(session.match.score || 0))}</span></span>
+                  <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.duration"))}</strong><span>${escapeHtml(formatPercent(session.match.durationCompliance || 0))}</span></span>
+                  <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.intensity"))}</strong><span>${escapeHtml(formatPercent(session.match.intensityCompliance || 0))}</span></span>
+                  <span class="coaching-metric-pill"><strong>${escapeHtml(t("review.objective"))}</strong><span>${escapeHtml(formatPercent(session.match.objectiveCompliance || 0))}</span></span>
+                </div>
+                ${session.match.reason ? `<div class="coaching-session-card__reason">${escapeHtml(session.match.reason)}</div>` : ""}
+              ` : `<div class="coaching-session-card__reason">${escapeHtml(t("review.noSessionReview"))}</div>`}
               <div class="coaching-session-card__meta">
-                <span><strong>Intensity</strong> ${escapeHtml(formatSemanticsValue(session.semantics?.intensity))}</span>
-                <span><strong>Objective</strong> ${escapeHtml(formatSemanticsValue(session.semantics?.objective))}</span>
+                <span><strong>${escapeHtml(t("review.intensity"))}</strong> ${escapeHtml(translateMappedValue(formatSemanticsValue(session.semantics?.intensity)))}</span>
+                <span><strong>${escapeHtml(t("review.objective"))}</strong> ${escapeHtml(translateMappedValue(formatSemanticsValue(session.semantics?.objective)))}</span>
               </div>
               <div class="coaching-session-card__meta">
-                <span><strong>Zone</strong> ${escapeHtml(formatSemanticsValue(session.semantics?.zone))}</span>
-                <span><strong>System</strong> ${escapeHtml(formatSemanticsValue(session.semantics?.energySystem))}</span>
+                <span><strong>${escapeHtml(t("review.zone"))}</strong> ${escapeHtml(formatSemanticsValue(session.semantics?.zone))}</span>
+                <span><strong>${escapeHtml(t("review.system"))}</strong> ${escapeHtml(translateMappedValue(formatSemanticsValue(session.semantics?.energySystem)))}</span>
               </div>
-              <div class="coaching-session-card__notes">${escapeHtml(session.notes || "")}</div>
+              <div class="coaching-session-card__notes">${escapeHtml(translateMappedValue(session.notes) || "")}</div>
             </div>
           </div>
         `).join("")}
@@ -600,32 +785,76 @@ export default class CoachingUI {
     `;
   }
 
+  renderCommentary(commentary = {}) {
+    const highlights = Array.isArray(commentary.highlights) ? commentary.highlights : [];
+    const risks = Array.isArray(commentary.risks) ? commentary.risks : [];
+    const nextActions = Array.isArray(commentary.next_actions) ? commentary.next_actions : [];
+
+    return `
+      <div class="coaching-commentary__section">
+        <div class="coaching-commentary__label">${escapeHtml(t("commentary.weekSummary"))}</div>
+        <div class="coaching-review-panel__summary">${escapeHtml(commentary.week_summary || t("commentary.noSummary"))}</div>
+      </div>
+      ${highlights.length ? `
+        <div class="coaching-commentary__section">
+          <div class="coaching-commentary__label">${escapeHtml(t("commentary.highlights"))}</div>
+          <ul class="coaching-commentary__list">
+            ${highlights.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+          </ul>
+        </div>
+      ` : ""}
+      ${risks.length ? `
+        <div class="coaching-commentary__section">
+          <div class="coaching-commentary__label">${escapeHtml(t("commentary.risks"))}</div>
+          <ul class="coaching-commentary__list">
+            ${risks.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+          </ul>
+        </div>
+      ` : ""}
+      ${nextActions.length ? `
+        <div class="coaching-commentary__section">
+          <div class="coaching-commentary__label">${escapeHtml(t("commentary.nextActions"))}</div>
+          <ul class="coaching-commentary__list">
+            ${nextActions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+          </ul>
+        </div>
+      ` : ""}
+      ${commentary.coach_tone ? `
+        <div class="coaching-commentary__section">
+          <div class="coaching-commentary__label">${escapeHtml(t("commentary.coachTone"))}</div>
+          <div class="coaching-session-card__reason">${escapeHtml(commentary.coach_tone)}</div>
+        </div>
+      ` : ""}
+      ${commentary.model ? `<div class="coaching-session-card__reason">${escapeHtml(t("commentary.model"))}: ${escapeHtml(String(commentary.model))}</div>` : ""}
+    `;
+  }
+
   renderEditableWeek(week) {
     const weekdayOptions = [
-      { value: "mon", label: "Mon" },
-      { value: "tue", label: "Tue" },
-      { value: "wed", label: "Wed" },
-      { value: "thu", label: "Thu" },
-      { value: "fri", label: "Fri" },
-      { value: "sat", label: "Sat" },
-      { value: "sun", label: "Sun" }
+      { value: "mon", label: t("days.mon") },
+      { value: "tue", label: t("days.tue") },
+      { value: "wed", label: t("days.wed") },
+      { value: "thu", label: t("days.thu") },
+      { value: "fri", label: t("days.fri") },
+      { value: "sat", label: t("days.sat") },
+      { value: "sun", label: t("days.sun") }
     ];
     const sessionTypeOptions = [
-      { value: "easy", label: "Easy" },
-      { value: "medium", label: "Medium" },
-      { value: "hard", label: "Hard" },
-      { value: "long", label: "Long" }
+      { value: "easy", label: t("sessionTypes.easy") },
+      { value: "medium", label: t("sessionTypes.medium") },
+      { value: "hard", label: t("sessionTypes.hard") },
+      { value: "long", label: t("sessionTypes.long") }
     ];
 
     return `
       <div class="coaching-week-card__sessions coaching-edit-grid" data-week-editor="${escapeHtml(String(week.weekNumber))}">
         <div class="coaching-grid-2">
           <div>
-            <label class="coaching-form-label">Week Theme</label>
+            <label class="coaching-form-label">${escapeHtml(t("editor.weekTheme"))}</label>
             <input class="form-control coaching-form-control" data-week-theme type="text" value="${escapeHtml(week.theme || "")}">
           </div>
           <div>
-            <label class="coaching-form-label">Target Hours</label>
+            <label class="coaching-form-label">${escapeHtml(t("editor.targetHours"))}</label>
             <input class="form-control coaching-form-control" data-week-hours type="number" min="0.25" step="0.25" value="${escapeHtml(String(week.targetHours || 0))}">
           </div>
         </div>
@@ -633,13 +862,13 @@ export default class CoachingUI {
           <section class="coaching-edit-session" data-session-index="${escapeHtml(String(index))}" data-session-id="${escapeHtml(String(session.id || ""))}">
             <div class="coaching-grid-2">
               <div>
-                <label class="coaching-form-label">Day</label>
+                <label class="coaching-form-label">${escapeHtml(t("editor.day"))}</label>
                 <select class="form-select coaching-form-select" data-session-day>
                   ${renderOptions(weekdayOptions, session.day)}
                 </select>
               </div>
               <div>
-                <label class="coaching-form-label">Session Type</label>
+                <label class="coaching-form-label">${escapeHtml(t("editor.sessionType"))}</label>
                 <select class="form-select coaching-form-select" data-session-type>
                   ${renderOptions(sessionTypeOptions, session.type || "easy")}
                 </select>
@@ -647,45 +876,51 @@ export default class CoachingUI {
             </div>
             <div class="coaching-grid-2 mt-2">
               <div>
-                <label class="coaching-form-label">Duration (h)</label>
-                <input class="form-control coaching-form-control" data-session-duration type="number" min="0.25" step="0.25" value="${escapeHtml(String(session.durationHours || 0))}">
+                <label class="coaching-form-label">${escapeHtml(t("editor.plannedDate"))}</label>
+                <input class="form-control coaching-form-control" type="text" value="${escapeHtml(session.plannedDate || "")}" disabled>
               </div>
               <div>
-                <label class="coaching-form-label">Title</label>
+                <label class="coaching-form-label">${escapeHtml(t("editor.durationHours"))}</label>
+                <input class="form-control coaching-form-control" data-session-duration type="number" min="0.25" step="0.25" value="${escapeHtml(String(session.durationHours || 0))}">
+              </div>
+            </div>
+            <div class="mt-2">
+              <div>
+                <label class="coaching-form-label">${escapeHtml(t("editor.title"))}</label>
                 <input class="form-control coaching-form-control" data-session-title type="text" value="${escapeHtml(session.title || "")}">
               </div>
             </div>
             <div class="coaching-grid-2 mt-2">
               <div>
-                <label class="coaching-form-label">Intensity</label>
+                <label class="coaching-form-label">${escapeHtml(t("review.intensity"))}</label>
                 <input class="form-control coaching-form-control" data-session-intensity type="text" value="${escapeHtml(session.semantics?.intensity || "")}">
               </div>
               <div>
-                <label class="coaching-form-label">Zone</label>
+                <label class="coaching-form-label">${escapeHtml(t("review.zone"))}</label>
                 <input class="form-control coaching-form-control" data-session-zone type="text" value="${escapeHtml(session.semantics?.zone || "")}">
               </div>
             </div>
             <div class="coaching-grid-2 mt-2">
               <div>
-                <label class="coaching-form-label">Objective</label>
+                <label class="coaching-form-label">${escapeHtml(t("review.objective"))}</label>
                 <input class="form-control coaching-form-control" data-session-objective type="text" value="${escapeHtml(session.semantics?.objective || "")}">
               </div>
               <div>
-                <label class="coaching-form-label">System</label>
+                <label class="coaching-form-label">${escapeHtml(t("review.system"))}</label>
                 <input class="form-control coaching-form-control" data-session-system type="text" value="${escapeHtml(session.semantics?.energySystem || "")}">
               </div>
             </div>
             <div class="mt-2">
-              <label class="coaching-form-label">Notes</label>
+              <label class="coaching-form-label">${escapeHtml(t("editor.notes"))}</label>
               <textarea class="form-control coaching-form-control" data-session-notes rows="2">${escapeHtml(session.notes || "")}</textarea>
             </div>
             <div class="mt-2 d-flex justify-content-end">
-              <button class="btn btn-sm btn-outline-danger rounded-pill px-3" type="button" data-remove-session-index="${escapeHtml(String(index))}" data-remove-session-week="${escapeHtml(String(week.weekNumber))}">Remove Session</button>
+              <button class="btn btn-sm btn-outline-danger rounded-pill px-3" type="button" data-remove-session-index="${escapeHtml(String(index))}" data-remove-session-week="${escapeHtml(String(week.weekNumber))}">${escapeHtml(t("actions.removeSession"))}</button>
             </div>
           </section>
         `).join("")}
         <div class="d-flex justify-content-end">
-          <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" type="button" data-add-session="${escapeHtml(String(week.weekNumber))}">Add Session</button>
+          <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" type="button" data-add-session="${escapeHtml(String(week.weekNumber))}">${escapeHtml(t("actions.addSession"))}</button>
         </div>
       </div>
     `;
@@ -706,7 +941,7 @@ export default class CoachingUI {
       id: null,
       day: "tue",
       type: "easy",
-      title: "New Session",
+      title: t("editor.newSession"),
       durationHours: 1,
       notes: "",
       semantics: {
@@ -780,15 +1015,15 @@ export default class CoachingUI {
 
       const json = await response.json();
       if (!response.ok) {
-        throw new Error(json?.error || "Saving week failed");
+        throw new Error(json?.error || t("errors.saveWeek"));
       }
 
       this.editingWeekNumber = null;
       this.renderPlan(json.data);
-      this.setStatus(`Week ${weekNumber} saved.`, "success");
+      this.setStatus(t("statusMessages.weekSaved", { weekNumber }), "success");
       await this.loadPlanHistory();
     } catch (error) {
-      this.setStatus(error.message || "Saving week failed", "danger");
+      this.setStatus(error.message || t("errors.saveWeek"), "danger");
     }
   }
 
@@ -810,15 +1045,73 @@ export default class CoachingUI {
 
       const json = await response.json();
       if (!response.ok) {
-        throw new Error(json?.error || "Regenerating week failed");
+        throw new Error(json?.error || t("errors.regenerateWeek"));
       }
 
       this.editingWeekNumber = null;
       this.renderPlan(json.data);
-      this.setStatus(`Week ${weekNumber} regenerated.`, "success");
+      this.setStatus(t("statusMessages.weekRegenerated", { weekNumber }), "success");
       await this.loadPlanHistory();
     } catch (error) {
-      this.setStatus(error.message || "Regenerating week failed", "danger");
+      this.setStatus(error.message || t("errors.regenerateWeek"), "danger");
+    }
+  }
+
+  async applyAdjustment(weekNumber) {
+    if (!this.currentPlan?.id) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/coaching/plans/${encodeURIComponent(this.currentPlan.id)}/weeks/${encodeURIComponent(weekNumber)}/apply-adjustment`, {
+        method: "POST",
+        credentials: "include"
+      });
+
+      if (response.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
+
+      const json = await response.json();
+      if (!response.ok) {
+        throw new Error(json?.error || t("errors.applyAdjustment"));
+      }
+
+      this.editingWeekNumber = null;
+      this.renderPlan(json.data);
+      this.setStatus(t("statusMessages.adjustmentApplied", { weekNumber, nextWeek: Number(weekNumber) + 1 }), "success");
+      await this.loadPlanHistory();
+    } catch (error) {
+      this.setStatus(error.message || t("errors.applyAdjustment"), "danger");
+    }
+  }
+
+  async generateCommentary(weekNumber) {
+    if (!this.currentPlan?.id) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/coaching/plans/${encodeURIComponent(this.currentPlan.id)}/weeks/${encodeURIComponent(weekNumber)}/commentary`, {
+        method: "POST",
+        credentials: "include"
+      });
+
+      if (response.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
+
+      const json = await response.json();
+      if (!response.ok) {
+        throw new Error(json?.error || t("errors.generateCommentary"));
+      }
+
+      this.renderPlan(json.data);
+      this.setStatus(t("statusMessages.commentaryGenerated", { weekNumber }), "success");
+    } catch (error) {
+      this.setStatus(error.message || t("errors.generateCommentary"), "danger");
     }
   }
 
@@ -847,15 +1140,15 @@ export default class CoachingUI {
 
       const json = await response.json();
       if (!response.ok) {
-        throw new Error(json?.error || "Saving plan name failed");
+        throw new Error(json?.error || t("errors.savePlanName"));
       }
 
       this.editingPlanName = false;
       this.renderPlan(json.data);
-      this.setStatus("Plan name updated.", "success");
+      this.setStatus(t("statusMessages.planNameUpdated"), "success");
       await this.loadPlanHistory();
     } catch (error) {
-      this.setStatus(error.message || "Saving plan name failed", "danger");
+      this.setStatus(error.message || t("errors.savePlanName"), "danger");
     }
   }
 
@@ -877,13 +1170,13 @@ export default class CoachingUI {
 
       const json = await response.json();
       if (!response.ok) {
-        throw new Error(json?.error || "Reviewing plan failed");
+        throw new Error(json?.error || t("errors.reviewPlan"));
       }
 
       this.renderPlan(json.data);
-      this.setStatus("Plan review updated from actual workouts.", "success");
+      this.setStatus(t("statusMessages.reviewUpdated"), "success");
     } catch (error) {
-      this.setStatus(error.message || "Reviewing plan failed", "danger");
+      this.setStatus(error.message || t("errors.reviewPlan"), "danger");
     }
   }
 
@@ -914,7 +1207,7 @@ export default class CoachingUI {
     }
 
     if (!plans.length) {
-      this.historyRoot.innerHTML = `<p class="coaching-placeholder-copy">No saved plans yet.</p>`;
+      this.historyRoot.innerHTML = `<p class="coaching-placeholder-copy">${escapeHtml(t("history.empty"))}</p>`;
       return;
     }
 
@@ -923,15 +1216,15 @@ export default class CoachingUI {
         ${plans.map((plan) => `
           <article class="coaching-history-card">
             <div>
-              <h3 class="coaching-history-card__title">${escapeHtml(plan.name || "Training Plan")}</h3>
+              <h3 class="coaching-history-card__title">${escapeHtml(plan.name || t("history.trainingPlan"))}</h3>
               <div class="coaching-history-card__meta">
-                ${escapeHtml(plan.summary?.goal || "Training plan")} ·
+                ${escapeHtml(translateMappedValue(plan.summary?.goal) || t("history.trainingPlan"))} ·
                 ${escapeHtml(String(plan.weeklyHours ?? "–"))} h ·
-                ${escapeHtml(String(plan.planHorizonWeeks || "–"))} weeks ·
+                ${escapeHtml(String(plan.planHorizonWeeks || "–"))} ${escapeHtml(t("history.weeks"))} ·
                 ${escapeHtml(formatDateTime(plan.createdAt))}
               </div>
             </div>
-            <button class="btn btn-outline-secondary btn-sm rounded-pill px-3" type="button" data-plan-id="${escapeHtml(String(plan.id))}">Load</button>
+            <button class="btn btn-outline-secondary btn-sm rounded-pill px-3" type="button" data-plan-id="${escapeHtml(String(plan.id))}">${escapeHtml(t("actions.load"))}</button>
           </article>
         `).join("")}
       </div>

@@ -1,6 +1,7 @@
 import express from "express";
 
 import authMiddleware from "../middleware/authMiddleware.js";
+import EntitlementService from "../services/entitlementService.js";
 import PaymentsDBService from "../services/paymentsDBService.js";
 import PayPalCheckoutService from "../services/paypalCheckoutService.js";
 
@@ -23,11 +24,30 @@ router.get("/plans", authMiddleware, async (req, res, next) => {
     const membership = req.user?.id
       ? await PaymentsDBService.getMembershipForUser(req.user.id)
       : null;
+    const usage = req.user?.id
+      ? await EntitlementService.getUsageOverview(req.user.id)
+      : null;
+
+    const enrichedPlans = plans.map((plan) => ({
+      ...plan,
+      entitlements: EntitlementService.describeTier(plan.tierCode || plan.code)
+    }));
+
+    const freePlan = {
+      id: 0,
+      code: "free",
+      name: "Free",
+      description: "Starter access with limited planning and AI coaching.",
+      price: 0,
+      currency: "EUR",
+      entitlements: EntitlementService.describeTier("free")
+    };
 
     res.json({
       data: {
-        plans,
+        plans: [freePlan, ...enrichedPlans],
         membership,
+        usage,
         provider: "paypal",
         environment: PayPalCheckoutService.getEnvironment()
       }

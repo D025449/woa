@@ -1,8 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Router } from "express";
+import unzipper from "unzipper";
 
 import authMiddleware from "../middleware/authMiddleware.js";
+import EntitlementService from "../services/entitlementService.js";
 import uploadMiddleware from "../middleware/uploadMiddleware.js";
 import { createAndEnqueueImport } from "../services/import-service.js";
 import WorkoutSharingService from "../services/workoutSharingService.js";
@@ -24,6 +26,29 @@ function parseGroupIds(value) {
   }
 
   return [];
+}
+
+async function countIncomingFitFiles(uploadedFiles = []) {
+  let total = 0;
+
+  for (const uploadedFile of uploadedFiles) {
+    const ext = path.extname(uploadedFile.originalname).toLowerCase();
+    if (ext === ".fit") {
+      total += 1;
+      continue;
+    }
+
+    if (ext === ".zip") {
+      const zipDirectory = await unzipper.Open.file(uploadedFile.path);
+      total += zipDirectory.files.filter((entry) =>
+        entry.type === "File"
+        && entry.path.toLowerCase().endsWith(".fit")
+        && !entry.path.startsWith("__MACOSX/")
+      ).length;
+    }
+  }
+
+  return total;
 }
 
 router.post(
@@ -58,6 +83,17 @@ router.post(
             error: "Nur .zip oder .fit Dateien sind erlaubt"
           });
         }
+      }
+
+      const incomingWorkoutCount = await countIncomingFitFiles(uploadedFiles);
+      const allowance = await EntitlementService.checkAllowance(req.user.id, "stored_workout", incomingWorkoutCount);
+      if (!allowance.allowed) {
+        await Promise.all(uploadedFiles.map((file) => fs.rm(file.path, { force: true }).catch(() => {})));
+        return res.status(402).json({
+          error: `Stored workout limit reached for your ${allowance.tierCode} tier.`,
+          limit: allowance,
+          incomingWorkoutCount
+        });
       }
 
       const shareConfig = await WorkoutSharingService.resolveShareConfigForUser(req.user.id, {

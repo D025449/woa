@@ -44,6 +44,7 @@ CREATE INDEX IF NOT EXISTS idx_training_plan_weeks_plan_week
 CREATE TABLE IF NOT EXISTS training_plan_sessions (
   id BIGSERIAL PRIMARY KEY,
   training_plan_week_id BIGINT NOT NULL REFERENCES training_plan_weeks(id) ON DELETE CASCADE,
+  planned_date DATE NULL,
   day_code TEXT NOT NULL,
   session_type TEXT NOT NULL,
   title TEXT NOT NULL,

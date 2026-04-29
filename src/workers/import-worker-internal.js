@@ -15,6 +15,7 @@ import {
 
 import { FileDBService } from "../services/fileDBService.js";
 import SegmentDBService from "../services/segmentDBService.js";
+import EntitlementService from "../services/entitlementService.js";
 import WorkoutSharingService from "../services/workoutSharingService.js";
 
 import { redisConnection } from "../queue/connection.js";
@@ -394,6 +395,18 @@ export async function createApp() {
       });
 
       const totalFiles = fitEntries.length;
+      const allowance = await EntitlementService.checkAllowance(uid, "stored_workout", totalFiles);
+      if (!allowance.allowed) {
+        await updateImportJob(jobId, {
+          status: "failed",
+          stage: "failed",
+          totalFiles,
+          processedFiles: 0,
+          failedFiles: 0,
+          errorMessage: `Stored workout limit reached for your ${allowance.tierCode} tier. ${allowance.used}/${allowance.limitValue} already used, ${totalFiles} incoming.`
+        });
+        throw new Error(`Stored workout limit reached for your ${allowance.tierCode} tier.`);
+      }
 
       await updateImportJob(jobId, {
         stage: "parsing_fit_files",
@@ -526,6 +539,18 @@ export async function createApp() {
 
     const totalFilesPerInput = await Promise.all(files.map((filePath) => countFitEntries(filePath)));
     const totalFiles = totalFilesPerInput.reduce((sum, count) => sum + count, 0);
+    const allowance = await EntitlementService.checkAllowance(uid, "stored_workout", totalFiles);
+    if (!allowance.allowed) {
+      await updateImportJob(jobId, {
+        status: "failed",
+        stage: "failed",
+        totalFiles,
+        processedFiles: 0,
+        failedFiles: 0,
+        errorMessage: `Stored workout limit reached for your ${allowance.tierCode} tier. ${allowance.used}/${allowance.limitValue} already used, ${totalFiles} incoming.`
+      });
+      throw new Error(`Stored workout limit reached for your ${allowance.tierCode} tier.`);
+    }
     batchTrace.checkpoint({
       phase: "counted-inputs",
       totalFiles

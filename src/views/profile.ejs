@@ -246,6 +246,69 @@
             justify-content: flex-end;
         }
 
+        .profile-usage-panel {
+            margin-top: 0.9rem;
+            display: grid;
+            gap: 0.7rem;
+        }
+
+        .profile-usage-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.85rem;
+        }
+
+        .profile-usage-card {
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            border-radius: 1rem;
+            padding: 0.85rem 0.95rem;
+            background: rgba(248, 250, 252, 0.88);
+        }
+
+        .profile-usage-card.is-warning {
+            border-color: rgba(245, 158, 11, 0.28);
+            background: rgba(255, 251, 235, 0.94);
+        }
+
+        .profile-usage-card.is-exceeded {
+            border-color: rgba(239, 68, 68, 0.28);
+            background: rgba(254, 242, 242, 0.94);
+        }
+
+        .profile-usage-label {
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .profile-usage-meta {
+            margin-top: 0.3rem;
+            font-size: 0.85rem;
+            color: #475569;
+        }
+
+        .profile-usage-warning {
+            margin-top: 0.35rem;
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: #b45309;
+        }
+
+        .profile-usage-warning.is-exceeded {
+            color: #b91c1c;
+        }
+
+        .profile-plan-features {
+            margin: 0.7rem 0 0;
+            padding-left: 1rem;
+            color: #475569;
+            font-size: 0.84rem;
+        }
+
+        .profile-plan-features li + li {
+            margin-top: 0.2rem;
+        }
+
         @media (max-width: 992px) {
             .profile-hero {
                 flex-direction: column;
@@ -257,6 +320,10 @@
             }
 
             .profile-plans-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .profile-usage-grid {
                 grid-template-columns: 1fr;
             }
         }
@@ -418,6 +485,7 @@
                     <div id="profile-payments-error" class="alert alert-danger d-none" role="alert"></div>
                     <div id="profile-payments-info" class="alert alert-info d-none" role="alert"></div>
                     <div id="profile-membership-summary" class="small text-muted"></div>
+                    <div id="profile-usage-panel" class="profile-usage-panel"></div>
                     <div id="profile-plans-grid" class="profile-plans-grid"></div>
                 </div>
             </section>
@@ -447,13 +515,20 @@
             incompleteReturnParameters: "<%= t('profile.ui.incompleteReturnParameters') %>",
             paymentSuccess: "<%= t('profile.ui.paymentSuccess') %>",
             paymentConfirmError: "<%= t('profile.ui.paymentConfirmError') %>",
-            missingApprovalUrl: "<%= t('profile.ui.missingApprovalUrl') %>"
-        };
-
-        window.profilePlanDescriptions = {
-            plus: "<%= t('profile.planDescriptions.plus') %>",
-            pro: "<%= t('profile.planDescriptions.pro') %>",
-            premium: "<%= t('profile.planDescriptions.premium') %>"
+            missingApprovalUrl: "<%= t('profile.ui.missingApprovalUrl') %>",
+            usageWarningPrefix: "<%= t('profile.ui.usageWarningPrefix') %>",
+            includedLimits: "<%= t('profile.ui.includedLimits') %>",
+            usageOverview: "<%= t('profile.ui.usageOverview') %>",
+            nearLimit: "<%= t('profile.ui.nearLimit') %>",
+            limitExceeded: "<%= t('profile.ui.limitExceeded') %>",
+            freeTierName: "<%= t('profile.ui.freeTierName') %>",
+            expiredPlan: "<%= t('profile.ui.expiredPlan') %>",
+            validUntil: "<%= t('profile.ui.validUntil') %>",
+            starterDescription: "<%= t('profile.ui.starterDescription') %>",
+            featurePlanGenerations: "<%= t('profile.ui.featurePlanGenerations') %>",
+            featureCoachCommentary: "<%= t('profile.ui.featureCoachCommentary') %>",
+            featureSavedPlans: "<%= t('profile.ui.featureSavedPlans') %>",
+            featureStoredWorkouts: "<%= t('profile.ui.featureStoredWorkouts') %>"
         };
 
         // Defensive cleanup: if a previous page left a modal backdrop behind,

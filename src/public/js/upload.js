@@ -5,9 +5,26 @@ import { createTranslator } from "./i18n.js";
 
 const ui = createUploadUI();
 const t = createTranslator("upload");
+const uploadUsage = globalThis.uploadUsage || { storedWorkout: null };
 
 initializeShareGroups();
+initializeUsageWarning();
 ui.elements.form.addEventListener('submit', handleUploadSubmit);
+
+function initializeUsageWarning() {
+    const alertEl = document.getElementById("upload-limit-alert");
+    const item = uploadUsage?.storedWorkout;
+
+    if (!alertEl || !item || !item.exceeded) {
+        return;
+    }
+
+    alertEl.className = "upload-limit-alert alert alert-danger";
+    alertEl.textContent = t("storedWorkoutLimitExceeded", {
+        used: item.used,
+        limit: item.limit
+    });
+}
 
 async function initializeShareGroups() {
     try {
