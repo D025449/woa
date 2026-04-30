@@ -21,6 +21,10 @@ export default class Controller {
     this.sharedMetaTextElement = document.getElementById("dashboard-shared-meta-text");
     this.toastElement = document.getElementById("dashboard-toast");
     this.toastBodyElement = document.getElementById("dashboard-toast-body");
+    this.mobileLibraryToggle = document.getElementById("dashboard-mobile-library-toggle");
+    this.mobileLibraryBackdrop = document.getElementById("dashboard-mobile-library-backdrop");
+    this.libraryColumn = document.querySelector(".dashboard-library-column");
+    this.isMobileLibraryOpen = false;
     this.toast = this.toastElement && globalThis.bootstrap
       ? new globalThis.bootstrap.Toast(this.toastElement, {
           delay: 2800
@@ -135,6 +139,8 @@ export default class Controller {
   // -----------------------------
   registerEvents() {
     window.addEventListener("resize", () => this.onResize());
+    this.mobileLibraryToggle?.addEventListener("click", () => this.toggleMobileLibrary());
+    this.mobileLibraryBackdrop?.addEventListener("click", () => this.closeMobileLibrary());
   }
 
   async boot() {
@@ -170,6 +176,7 @@ export default class Controller {
       this.mapView.renderTrack(workout);
       this.libraryView.setSelectedWorkout(workout.id);
       this.updateWorkoutMeta(workout);
+      this.closeMobileLibrary();
     } catch (err) {
       console.error(err);
       this.showToast(this.t("messages.workoutOpenFailed"));
@@ -247,5 +254,42 @@ export default class Controller {
 
   onResize() {
     this.chartView.resize();
+    if (!window.matchMedia("(max-width: 991.98px)").matches) {
+      this.closeMobileLibrary();
+    }
+  }
+
+  toggleMobileLibrary() {
+    if (this.isMobileLibraryOpen) {
+      this.closeMobileLibrary();
+      return;
+    }
+    this.openMobileLibrary();
+  }
+
+  openMobileLibrary() {
+    if (!this.libraryColumn || !window.matchMedia("(max-width: 991.98px)").matches) {
+      return;
+    }
+
+    this.isMobileLibraryOpen = true;
+    this.libraryColumn.classList.add("is-open");
+    this.mobileLibraryBackdrop?.classList.add("is-open");
+    if (this.mobileLibraryToggle) {
+      this.mobileLibraryToggle.setAttribute("aria-expanded", "true");
+      this.mobileLibraryToggle.textContent = this.t("mobileLibraryClose");
+    }
+    document.body.classList.add("overflow-hidden");
+  }
+
+  closeMobileLibrary() {
+    this.isMobileLibraryOpen = false;
+    this.libraryColumn?.classList.remove("is-open");
+    this.mobileLibraryBackdrop?.classList.remove("is-open");
+    if (this.mobileLibraryToggle) {
+      this.mobileLibraryToggle.setAttribute("aria-expanded", "false");
+      this.mobileLibraryToggle.textContent = this.t("mobileLibraryOpen");
+    }
+    document.body.classList.remove("overflow-hidden");
   }
 }

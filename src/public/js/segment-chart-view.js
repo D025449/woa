@@ -19,6 +19,9 @@ export default class ChartView {
     this.currentSegment = null;
     this.currentSegment = null;
     this.isHoveringSegmentArea = false;
+    this.baseMarkAreas = [];
+    this.previewMarkArea = null;
+    this.activePointerId = null;
 
     this.editor = document.getElementById('segment-editor');
     this.input = document.getElementById('segment-name-input');
@@ -27,6 +30,7 @@ export default class ChartView {
     this.initUI();
     this.initChart();
     this.registerInteractions();
+    this.registerPointerInteractions();
   }
 
   // -----------------------------
@@ -168,9 +172,11 @@ export default class ChartView {
       dataset: { source: result.data },
       series: [{
         name: labels.power,
-        markArea: { data: buildMarkAreasSegment(segment) }
+        markArea: { data: [] }
       }]
     });
+    this.baseMarkAreas = buildMarkAreasSegment(segment);
+    this.applyMarkAreas();
   }
 
   updateWorkoutCP(workout, cpview) {
@@ -184,9 +190,11 @@ export default class ChartView {
       dataset: { source: workout.series },
       series: [{
         name: labels.power,
-        markArea: { data: buildMarkAreasCP(cpview) }
+        markArea: { data: [] }
       }]
     });
+    this.baseMarkAreas = buildMarkAreasCP(cpview);
+    this.applyMarkAreas();
   }
 
   // -----------------------------
@@ -214,27 +222,6 @@ export default class ChartView {
     this.chart.getZr().on("mousemove", (p) => {
       const x = this.chart.convertFromPixel({ xAxisIndex: 0 }, p.offsetX);
       if (!isNaN(x)) this.handlers.onChartHoverIndex?.(Math.round(x));
-    });
-
-    this.chart.getZr().on('mousedown', (e) => {
-      if (!this.isSegmentMode) return;
-
-      const data = this.chart.convertFromPixel({ seriesIndex: 0 }, [e.offsetX, e.offsetY]);
-      this.selectionStart = data[0];
-    });
-
-    this.chart.getZr().on('mouseup', (e) => {
-      if (this.selectionStart == null) return;
-
-      const data = this.chart.convertFromPixel({ seriesIndex: 0 }, [e.offsetX, e.offsetY]);
-
-      SegmentService.createAddNewSegment(this.currentWorkout, {
-        startIndex: Math.round(this.selectionStart),
-        endIndex: Math.round(data[0])
-      });
-
-      this.handlers.onUpdateWorkout?.(this.currentWorkout);
-      this.selectionStart = null;
     });
 
     this.chart.on("mouseover", (params) => {
@@ -278,6 +265,61 @@ export default class ChartView {
     });
   }
 
+  registerPointerInteractions() {
+    const dom = this.chart?.getDom?.();
+    if (!dom) {
+      return;
+    }
+
+    dom.addEventListener("pointerdown", (event) => {
+      if (!this.isSegmentMode) return;
+      if (!event.isPrimary) return;
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+
+      const xValue = this.getPointerXValue(event);
+      if (xValue == null || Number.isNaN(xValue)) {
+        return;
+      }
+
+      this.activePointerId = event.pointerId;
+      this.selectionStart = xValue;
+      this.updateSelectionPreview(xValue);
+      dom.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    }, { passive: false });
+
+    dom.addEventListener("pointermove", (event) => {
+      if (this.selectionStart == null) return;
+      if (this.activePointerId != null && event.pointerId !== this.activePointerId) return;
+
+      const xValue = this.getPointerXValue(event);
+      if (xValue == null || Number.isNaN(xValue)) {
+        return;
+      }
+
+      this.updateSelectionPreview(xValue);
+      event.preventDefault();
+    }, { passive: false });
+
+    const finish = (event) => {
+      if (this.selectionStart == null) return;
+      if (this.activePointerId != null && event.pointerId !== this.activePointerId) return;
+
+      const xValue = this.getPointerXValue(event);
+      this.finishSelectionDrag(xValue);
+      dom.releasePointerCapture?.(event.pointerId);
+      event.preventDefault();
+    };
+
+    dom.addEventListener("pointerup", finish, { passive: false });
+    dom.addEventListener("pointercancel", (event) => {
+      if (this.activePointerId != null && event.pointerId !== this.activePointerId) return;
+      this.selectionStart = null;
+      this.activePointerId = null;
+      this.clearSelectionPreview();
+    });
+  }
+
   // -----------------------------
   // UI HELPERS
   // -----------------------------
@@ -294,6 +336,9 @@ export default class ChartView {
   }
 
   setDrawingMode(enabled) {
+    this.activePointerId = null;
+    this.selectionStart = null;
+    this.clearSelectionPreview();
     this.chart.setOption({
       dataZoom: [{
         type: 'inside',
@@ -309,6 +354,86 @@ export default class ChartView {
       startValue: start,
       endValue: end
     });
+  }
+
+  getPointerXValue(event) {
+    const rect = this.chart?.getDom?.().getBoundingClientRect?.();
+    if (!rect) {
+      return null;
+    }
+
+    const localX = event.clientX - rect.left;
+    return this.chart.convertFromPixel({ xAxisIndex: 0 }, localX);
+  }
+
+  buildSelectionPreviewArea(startIndex, endIndex) {
+    const left = Math.min(startIndex, endIndex);
+    const right = Math.max(startIndex, endIndex);
+
+    return [
+      {
+        xAxis: left,
+        itemStyle: {
+          color: "rgba(59, 130, 246, 0.2)",
+          borderColor: "rgba(37, 99, 235, 0.85)",
+          borderWidth: 1
+        },
+        label: {
+          show: false
+        }
+      },
+      {
+        xAxis: right
+      }
+    ];
+  }
+
+  updateSelectionPreview(xValue) {
+    if (this.selectionStart == null || xValue == null || Number.isNaN(xValue)) {
+      return;
+    }
+
+    this.previewMarkArea = this.buildSelectionPreviewArea(this.selectionStart, xValue);
+    this.applyMarkAreas();
+  }
+
+  clearSelectionPreview() {
+    if (!this.previewMarkArea) {
+      return;
+    }
+    this.previewMarkArea = null;
+    this.applyMarkAreas();
+  }
+
+  applyMarkAreas() {
+    const data = this.previewMarkArea
+      ? [...this.baseMarkAreas, this.previewMarkArea]
+      : this.baseMarkAreas;
+
+    this.chart.setOption({
+      series: [{
+        markArea: { data }
+      }]
+    });
+  }
+
+  finishSelectionDrag(xValue) {
+    if (this.selectionStart == null || xValue == null || Number.isNaN(xValue)) {
+      this.selectionStart = null;
+      this.activePointerId = null;
+      this.clearSelectionPreview();
+      return;
+    }
+
+    SegmentService.createAddNewSegment(this.currentWorkout, {
+      startIndex: Math.round(this.selectionStart),
+      endIndex: Math.round(xValue)
+    });
+
+    this.handlers.onUpdateWorkout?.(this.currentWorkout);
+    this.selectionStart = null;
+    this.activePointerId = null;
+    this.clearSelectionPreview();
   }
 
   formatTooltip(params) {

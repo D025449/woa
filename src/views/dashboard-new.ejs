@@ -361,6 +361,91 @@
             outline: 0;
         }
 
+        .workout-library-hint {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin: -0.2rem 0 0.95rem;
+        }
+
+        .workout-library-hint__label {
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #64748b;
+        }
+
+        .workout-library-hint__chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.34rem 0.62rem;
+            border: 1px solid rgba(148, 163, 184, 0.24);
+            border-radius: 999px;
+            background: rgba(248, 250, 252, 0.9);
+            color: #0f172a;
+            font-size: 0.8rem;
+            font-weight: 600;
+            line-height: 1;
+            white-space: nowrap;
+        }
+
+        .workout-library-hint__chip--action {
+            cursor: pointer;
+            transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+        }
+
+        .workout-library-hint__chip--action:hover {
+            transform: translateY(-1px);
+            border-color: rgba(59, 130, 246, 0.32);
+            box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+        }
+
+        .workout-library-active-filters {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            flex-wrap: wrap;
+            margin: 0 0 0.95rem;
+        }
+
+        .workout-library-active-filters[hidden] {
+            display: none;
+        }
+
+        .workout-library-active-filters__label {
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #64748b;
+        }
+
+        .workout-library-active-filters__chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            padding: 0.38rem 0.68rem;
+            border: 1px solid rgba(191, 219, 254, 0.9);
+            border-radius: 999px;
+            background: rgba(239, 246, 255, 0.96);
+            color: #1d4ed8;
+            font-size: 0.8rem;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .workout-library-active-filters__remove {
+            border: 0;
+            background: transparent;
+            color: inherit;
+            font-size: 0.95rem;
+            line-height: 1;
+            padding: 0;
+            cursor: pointer;
+        }
+
         .workout-library-grid {
             display: grid;
             gap: 0.85rem;
@@ -618,6 +703,21 @@
             align-items: stretch;
         }
 
+        .dashboard-mobile-library-toggle {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            width: 100%;
+            margin-bottom: 1rem;
+            border-radius: 999px;
+            font-weight: 700;
+        }
+
+        .dashboard-mobile-library-backdrop {
+            display: none;
+        }
+
         .dashboard-surface {
             border: 1px solid rgba(148, 163, 184, 0.22);
             border-radius: 1.5rem;
@@ -653,14 +753,63 @@
                 grid-template-columns: 1fr;
             }
 
+            .dashboard-mobile-library-toggle {
+                display: inline-flex;
+            }
+
+            .dashboard-library-column {
+                position: fixed;
+                top: 0;
+                left: 0;
+                bottom: 0;
+                width: min(26rem, 100vw);
+                z-index: 1060;
+                padding: 0.9rem;
+                transform: translateX(calc(-100% - 1rem));
+                transition: transform 180ms ease;
+                pointer-events: none;
+            }
+
+            .dashboard-library-column.is-open {
+                transform: translateX(0);
+                pointer-events: auto;
+            }
+
             .dashboard-library-section {
-                position: static;
+                position: relative;
+                top: auto;
+                height: calc(100vh - 1.8rem);
+                display: flex;
+                flex-direction: column;
+                border-radius: 1.35rem;
+                box-shadow: 0 28px 60px rgba(15, 23, 42, 0.22);
+            }
+
+            .dashboard-library-section .dashboard-table-body {
+                display: flex;
+                flex: 1 1 auto;
+                min-height: 0;
+                flex-direction: column;
             }
 
             .workout-library-scroll {
                 max-height: none;
-                overflow: visible;
+                overflow: auto;
                 padding-right: 0;
+                flex: 1 1 auto;
+                min-height: 0;
+            }
+
+            .dashboard-mobile-library-backdrop {
+                position: fixed;
+                inset: 0;
+                z-index: 1055;
+                background: rgba(15, 23, 42, 0.38);
+                backdrop-filter: blur(4px);
+            }
+
+            .dashboard-mobile-library-backdrop.is-open {
+                display: block;
             }
 
             #workout-chart,
@@ -713,6 +862,9 @@
                 </section>
 
                 <section class="dashboard-master-detail">
+                    <button id="dashboard-mobile-library-toggle" class="btn btn-outline-dark dashboard-mobile-library-toggle" type="button" aria-expanded="false">
+                        <%= t("dashboardNewPage.mobileLibraryOpen") %>
+                    </button>
                     <div class="dashboard-library-column">
                         <section class="dashboard-section dashboard-library-section">
                             <div class="dashboard-section-header dashboard-section-header--compact">
@@ -756,6 +908,18 @@
                                         type="search"
                                         placeholder="<%= t('dashboardNewPage.searchPlaceholder') %>"
                                     >
+                                    <div id="workout-library-active-filters" class="workout-library-active-filters" hidden></div>
+                                    <div class="workout-library-hint">
+                                        <span class="workout-library-hint__label"><%= t("dashboardNewPage.library.searchHintLabel") %></span>
+                                        <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-example="power:225">power:225</button>
+                                        <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-example="power > 200">power &gt; 200</button>
+                                        <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-example="hr <= 150">hr &lt;= 150</button>
+                                        <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-example="date:2018-03">date:2018-03</button>
+                                        <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-scope="power">power:</button>
+                                        <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-scope="np">np:</button>
+                                        <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-scope="hr">hr:</button>
+                                        <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-scope="date">date:</button>
+                                    </div>
                                     <select id="workout-library-sort" class="form-select workout-library-select">
                                         <option value="newest"><%= t("dashboardNewPage.sortNewest") %></option>
                                         <option value="uploaded"><%= t("dashboardNewPage.sortUploaded") %></option>
@@ -827,6 +991,7 @@
                         </aside>
                     </section>
                 </section>
+                <div id="dashboard-mobile-library-backdrop" class="dashboard-mobile-library-backdrop"></div>
             </div>
 
         </div>

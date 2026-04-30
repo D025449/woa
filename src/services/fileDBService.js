@@ -4,6 +4,38 @@ import WorkoutSharingService from "./workoutSharingService.js";
 
 
 class FileDBService {
+  static searchColumns = [
+    "id",
+    "start_time",
+    "uploaded_at",
+    "total_distance",
+    "total_timer_time",
+    "total_ascent",
+    "avg_power",
+    "avg_heart_rate",
+    "avg_normalized_power",
+    "avg_cadence",
+    "avg_speed"
+  ];
+
+  static scopedSearchColumns = {
+    id: "id",
+    date: "start_time",
+    start: "start_time",
+    uploaded: "uploaded_at",
+    distance: "total_distance",
+    duration: "total_timer_time",
+    alt: "total_ascent",
+    altitude: "total_ascent",
+    ascent: "total_ascent",
+    power: "avg_power",
+    hr: "avg_heart_rate",
+    heartrate: "avg_heart_rate",
+    np: "avg_normalized_power",
+    cadence: "avg_cadence",
+    cad: "avg_cadence",
+    speed: "avg_speed"
+  };
 
   static normalizeQueryArray(value) {
     if (Array.isArray(value)) {
@@ -55,8 +87,10 @@ class FileDBService {
     "uid",
     "id",
     "total_distance",
+    "total_ascent",
     "avg_speed",
     "avg_power",
+    "avg_heart_rate",
     "avg_cadence",
     "avg_speed",
     "avg_normalized_power",
@@ -66,8 +100,10 @@ class FileDBService {
   static numericFields = [
     "id",
     "total_distance",
+    "total_ascent",
     "avg_speed",
     "avg_power",
+    "avg_heart_rate",
     "avg_cadence",
     "avg_speed",
     "avg_normalized_power",
@@ -222,6 +258,52 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     // FILTER
     // --------------------
     normalizedFilter.forEach(f => {
+      if (f.field === "__search") {
+        const paramIndex = params.length + 1;
+        const searchValue = String(f.value ?? "").trim();
+        if (!searchValue) {
+          return;
+        }
+
+        const scopedComparisonMatch = searchValue.match(/^([a-z_]+)\s*(<=|>=|=|<|>)\s*(.+)$/i);
+        if (scopedComparisonMatch) {
+          const scopeKey = String(scopedComparisonMatch[1] || "").toLowerCase();
+          const operator = String(scopedComparisonMatch[2] || "").trim();
+          const scopedValue = String(scopedComparisonMatch[3] || "").trim();
+          const scopedColumn = FileDBService.scopedSearchColumns[scopeKey];
+
+          if (scopedColumn && scopedValue && numericColumns.includes(scopedColumn)) {
+            const numericValue = Number.parseFloat(scopedValue);
+            if (Number.isFinite(numericValue)) {
+              whereParts.push(`${scopedColumn} ${operator} $${paramIndex}`);
+              params.push(numericValue);
+              return;
+            }
+          }
+        }
+
+        const scopedMatch = searchValue.match(/^([a-z_]+)\s*:\s*(.+)$/i);
+        if (scopedMatch) {
+          const scopeKey = String(scopedMatch[1] || "").toLowerCase();
+          const scopedValue = String(scopedMatch[2] || "").trim();
+          const scopedColumn = FileDBService.scopedSearchColumns[scopeKey];
+
+          if (scopedColumn && scopedValue) {
+            if (numericColumns.includes(scopedColumn)) {
+              whereParts.push(`ROUND(${scopedColumn})::text ILIKE $${paramIndex}`);
+            } else {
+              whereParts.push(`${scopedColumn}::text ILIKE $${paramIndex}`);
+            }
+            params.push(`%${scopedValue}%`);
+            return;
+          }
+        }
+
+        const likeParts = FileDBService.searchColumns.map((column) => `${column}::text ILIKE $${paramIndex}`);
+        whereParts.push(`(${likeParts.join(" OR ")})`);
+        params.push(`%${searchValue}%`);
+        return;
+      }
 
       if (!allowedColumns.includes(f.field)) return;
 

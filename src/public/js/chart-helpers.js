@@ -1,6 +1,14 @@
 
 import Utils from '../../shared/Utils.js'
 
+function sortAreasBySpanDescending(areas) {
+  return areas.sort((left, right) => {
+    const leftSpan = Math.abs((left?.[1]?.xAxis ?? 0) - (left?.[0]?.xAxis ?? 0));
+    const rightSpan = Math.abs((right?.[1]?.xAxis ?? 0) - (right?.[0]?.xAxis ?? 0));
+    return rightSpan - leftSpan;
+  });
+}
+
 function getSegmentStyle(segment) {
   if (segment.segmenttype === 'manual') {
     return {
@@ -20,7 +28,8 @@ function getSegmentStyle(segment) {
 }
 
 export function buildMarkAreas(workout) {
-  return workout.segments
+  return sortAreasBySpanDescending(
+    workout.segments
     .filter(s => s.rowstate !== 'DEL')
     .map(s => {
       const area = [
@@ -47,7 +56,8 @@ export function buildMarkAreas(workout) {
       ];
 
       return area;
-    });
+    })
+  );
 }
 
 /*export function buildMarkAreas(workout) {

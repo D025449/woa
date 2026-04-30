@@ -5,6 +5,7 @@ export default class WorkoutLibraryView {
 
   constructor(containerSelector, handlers = {}) {
     this.t = createTranslator("dashboardNewPage.library");
+    this.pageT = createTranslator("dashboardNewPage");
     this.locale = getCurrentLocale();
     this.container = document.querySelector(containerSelector);
     this.handlers = handlers;
@@ -13,6 +14,7 @@ export default class WorkoutLibraryView {
     this.sortSelect = document.getElementById(handlers.sortSelectId || "workout-library-sort");
     this.loadMoreContainer = document.getElementById(handlers.loadMoreButtonId || "workout-library-load-more");
     this.loadMoreButton = this.loadMoreContainer?.querySelector("button") || null;
+    this.activeFiltersElement = document.getElementById(handlers.activeFiltersId || "workout-library-active-filters");
     this.scopeMineButton = document.getElementById(handlers.scopeMineButtonId || "workout-library-scope-mine");
     this.scopeSharedButton = document.getElementById(handlers.scopeSharedButtonId || "workout-library-scope-shared");
     this.scopeAllButton = document.getElementById(handlers.scopeAllButtonId || "workout-library-scope-all");
@@ -61,6 +63,9 @@ export default class WorkoutLibraryView {
       searchTimeout = setTimeout(() => {
         this.searchInputValue = this.searchInput?.value || "";
         this.handlers.onStateChange?.(this.getState());
+        if (this.shouldWaitForScopedSearchValue(this.searchInputValue)) {
+          return;
+        }
         this.reload();
       }, 220);
     });
@@ -88,6 +93,23 @@ export default class WorkoutLibraryView {
       this.page += 1;
       await this.fetchPage({ append: true });
     });
+
+    document.querySelectorAll("[data-search-example]").forEach((element) => {
+      element.addEventListener("click", () => {
+        this.applySearchValue(element.getAttribute("data-search-example") || "");
+      });
+    });
+
+    document.querySelectorAll("[data-search-scope]").forEach((element) => {
+      element.addEventListener("click", () => {
+        const scope = String(element.getAttribute("data-search-scope") || "").trim();
+        if (!scope) {
+          return;
+        }
+        this.applySearchValue(`${scope}:`);
+        this.searchInput?.focus();
+      });
+    });
   }
 
   async initialize() {
@@ -99,6 +121,7 @@ export default class WorkoutLibraryView {
     this.page = 1;
     this.lastPage = 1;
     this.items = [];
+    this.renderActiveFilters();
     await this.fetchPage({ append: false });
   }
 
@@ -183,11 +206,11 @@ export default class WorkoutLibraryView {
       return [];
     }
 
-    if (/^\d+$/.test(search)) {
-      return [{ field: "id", type: "=", value: search }];
-    }
+    return [{ field: "__search", type: "like", value: search }];
+  }
 
-    return [{ field: "start_time", type: "like", value: search }];
+  shouldWaitForScopedSearchValue(search) {
+    return /^[a-z_]+\s*(?::\s*|(?:<=|>=|=|<|>)\s*)$/i.test(String(search || "").trim());
   }
 
   renderHeader() {
@@ -196,6 +219,112 @@ export default class WorkoutLibraryView {
     }
 
     this.headerElement.textContent = this.t("workoutCount", { count: this.totalRecords });
+  }
+
+  renderActiveFilters() {
+    if (!this.activeFiltersElement) {
+      return;
+    }
+
+    const chips = [];
+    const search = (this.searchInput?.value || this.searchInputValue || "").trim();
+    const sort = this.sortSelect?.value || this.sortValue || "newest";
+    const scope = this.scopeValue || "mine";
+
+    if (search) {
+      chips.push({
+        type: "search",
+        label: `${this.t("activeSearch")}: ${search}`
+      });
+    }
+
+    if (scope !== "mine") {
+      const scopeLabel = scope === "shared" ? this.t("activeScopeShared") : this.t("activeScopeAll");
+      chips.push({
+        type: "scope",
+        label: `${this.t("activeScope")}: ${scopeLabel}`
+      });
+    }
+
+    if (sort !== "newest") {
+      chips.push({
+        type: "sort",
+        label: `${this.t("activeSort")}: ${this.getSortLabel(sort)}`
+      });
+    }
+
+    if (chips.length === 0) {
+      this.activeFiltersElement.hidden = true;
+      this.activeFiltersElement.innerHTML = "";
+      return;
+    }
+
+    this.activeFiltersElement.hidden = false;
+    this.activeFiltersElement.innerHTML = `
+      <span class="workout-library-active-filters__label">${this.t("activeFiltersLabel")}</span>
+      ${chips.map((chip) => `
+        <span class="workout-library-active-filters__chip">
+          <span>${chip.label}</span>
+          <button type="button" class="workout-library-active-filters__remove" data-filter-remove="${chip.type}" aria-label="${this.t("clearFilter")}">×</button>
+        </span>
+      `).join("")}
+    `;
+
+    this.activeFiltersElement.querySelectorAll("[data-filter-remove]").forEach((element) => {
+      element.addEventListener("click", () => {
+        this.clearFilterType(element.getAttribute("data-filter-remove") || "");
+      });
+    });
+  }
+
+  clearFilterType(type) {
+    if (type === "search") {
+      this.applySearchValue("");
+      return;
+    }
+
+    if (type === "scope") {
+      this.scopeValue = "mine";
+      this.updateScopeButtons();
+      this.handlers.onStateChange?.(this.getState());
+      this.reload();
+      return;
+    }
+
+    if (type === "sort") {
+      this.sortValue = "newest";
+      if (this.sortSelect) {
+        this.sortSelect.value = "newest";
+      }
+      this.handlers.onStateChange?.(this.getState());
+      this.reload();
+    }
+  }
+
+  applySearchValue(value) {
+    this.searchInputValue = value;
+    if (this.searchInput) {
+      this.searchInput.value = value;
+    }
+    this.handlers.onStateChange?.(this.getState());
+    if (this.shouldWaitForScopedSearchValue(value)) {
+      this.renderActiveFilters();
+      return;
+    }
+    this.reload();
+  }
+
+  getSortLabel(sort) {
+    const labels = {
+      newest: this.pageT("sortNewest"),
+      uploaded: this.pageT("sortUploaded"),
+      oldest: this.pageT("sortOldest"),
+      distance: this.pageT("sortDistance"),
+      duration: this.pageT("sortDuration"),
+      power: this.pageT("sortPower"),
+      np: this.pageT("sortNp")
+    };
+    return labels[sort] || sort;
   }
 
   updateLoadMoreButton() {

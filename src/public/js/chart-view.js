@@ -19,6 +19,9 @@ export default class ChartView {
     this.distanceKmByIndex = null;
     this.mode = "";
     this.isHoveringSegmentArea = false;
+    this.baseMarkAreas = [];
+    this.previewMarkArea = null;
+    this.activePointerId = null;
     this.createButton = document.getElementById('draw-segment-toggle');
     this.createGpsButton = document.getElementById('draw-gps-segment-toggle');
     this.deleteButton = document.getElementById('delete-segments');
@@ -27,6 +30,7 @@ export default class ChartView {
     this.initUI();
     this.initChart();
     this.registerInteractions();
+    this.registerPointerInteractions();
   }
 
   // -----------------------------
@@ -215,7 +219,7 @@ export default class ChartView {
         {
           name: labels.power,
           encode: { x: xField, y: "Power" },
-          markArea: { data: this.buildMarkAreasForMode(workout) }
+          markArea: { data: [] }
         },
         { name: labels.heartRate, encode: { x: xField, y: "Heartrate" } },
         { name: labels.cadence, encode: { x: xField, y: "Cadence" } },
@@ -223,6 +227,8 @@ export default class ChartView {
         { name: labels.altitude, encode: { x: xField, y: "Altitude" } }
       ]
     });
+    this.baseMarkAreas = this.buildMarkAreasForMode(workout);
+    this.applyMarkAreas();
   }
 
   updateWorkoutCP(workout, cpview) {
@@ -259,7 +265,7 @@ export default class ChartView {
         {
           name: labels.power,
           encode: { x: xField, y: "Power" },
-          markArea: { data: this.buildMarkAreasCPForMode(cpview) }
+          markArea: { data: [] }
         },
         { name: labels.heartRate, encode: { x: xField, y: "Heartrate" } },
         { name: labels.cadence, encode: { x: xField, y: "Cadence" } },
@@ -267,6 +273,8 @@ export default class ChartView {
         { name: labels.altitude, encode: { x: xField, y: "Altitude" } }
       ]
     });
+    this.baseMarkAreas = this.buildMarkAreasCPForMode(cpview);
+    this.applyMarkAreas();
   }
 
   // -----------------------------
@@ -308,45 +316,13 @@ export default class ChartView {
 
     this.chart.getZr().on("mousemove", (p) => {
       const x = this.chart.convertFromPixel({ xAxisIndex: 0 }, p.offsetX);
-      if (!isNaN(x)) this.handlers.onChartHoverIndex?.(this.xValueToIndex(x));
-    });
-
-    this.chart.getZr().on('mousedown', (e) => {
-      if (!this.isWorkoutEditable()) return;
-      if (this.mode !== "create" && this.mode !== "gps-create") return;
-
-      const data = this.chart.convertFromPixel({ seriesIndex: 0 }, [e.offsetX, e.offsetY]);
-      this.selectionStart = this.xValueToIndex(data[0]);
-    });
-
-    this.chart.getZr().on('mouseup', async (e) => {
-      if (!this.isWorkoutEditable()) {
-        this.selectionStart = null;
-        return;
+      if (!isNaN(x)) {
+        this.handlers.onChartHoverIndex?.(this.xValueToIndex(x));
       }
-
-      if (this.mode !== "create" && this.mode !== "gps-create") {
-        this.selectionStart = null;
-        return;
+      if (this.selectionStart != null && (this.mode === "create" || this.mode === "gps-create")) {
+        this.updateSelectionPreview(x);
       }
-
-      if (this.selectionStart == null) return;
-
-      const data = this.chart.convertFromPixel({ seriesIndex: 0 }, [e.offsetX, e.offsetY]);
-
-      const startEnd = {
-        startIndex: Math.round(this.selectionStart),
-        endIndex: this.xValueToIndex(data[0])
-      };
-
-      if (this.mode === "gps-create") {
-        const gpsSegment = await SegmentService.createAddNewGpsSegment(this.currentWorkout, startEnd);
-        this.handlers.onGpsSegmentCreated?.(gpsSegment);
-      } else {
-        await SegmentService.createAddNewSegment(this.currentWorkout, startEnd);
-        this.handlers.onUpdateWorkout?.(this.currentWorkout);
-      }
-      this.selectionStart = null;
+      this.syncSegmentHoverFromPointer(x, p.event);
     });
 
     this.chart.on("mouseover", (params) => {
@@ -390,6 +366,65 @@ export default class ChartView {
     });
   }
 
+  registerPointerInteractions() {
+    const dom = this.chart?.getDom?.();
+    if (!dom) {
+      return;
+    }
+
+    dom.addEventListener("pointerdown", (event) => {
+      if (!this.isWorkoutEditable()) return;
+      if (this.mode !== "create" && this.mode !== "gps-create") return;
+      if (!event.isPrimary) return;
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+
+      const xValue = this.getPointerXValue(event);
+      if (xValue == null || Number.isNaN(xValue)) {
+        return;
+      }
+
+      this.activePointerId = event.pointerId;
+      this.selectionStart = this.xValueToIndex(xValue);
+      this.updateSelectionPreview(xValue);
+      dom.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    }, { passive: false });
+
+    dom.addEventListener("pointermove", (event) => {
+      if (this.selectionStart == null) return;
+      if (this.activePointerId != null && event.pointerId !== this.activePointerId) return;
+
+      const xValue = this.getPointerXValue(event);
+      if (xValue == null || Number.isNaN(xValue)) {
+        return;
+      }
+
+      this.updateSelectionPreview(xValue);
+      event.preventDefault();
+    }, { passive: false });
+
+    const finish = async (event) => {
+      if (this.selectionStart == null) return;
+      if (this.activePointerId != null && event.pointerId !== this.activePointerId) return;
+
+      const xValue = this.getPointerXValue(event);
+      await this.finishSelectionDrag(xValue);
+      dom.releasePointerCapture?.(event.pointerId);
+      event.preventDefault();
+    };
+
+    dom.addEventListener("pointerup", (event) => {
+      finish(event).catch((err) => console.error(err));
+    }, { passive: false });
+
+    dom.addEventListener("pointercancel", (event) => {
+      if (this.activePointerId != null && event.pointerId !== this.activePointerId) return;
+      this.selectionStart = null;
+      this.activePointerId = null;
+      this.clearSelectionPreview();
+    });
+  }
+
   // -----------------------------
   // UI HELPERS
   // -----------------------------
@@ -401,6 +436,8 @@ export default class ChartView {
   setMode(mode) {
     this.mode = mode;
     this.selectionStart = null;
+    this.activePointerId = null;
+    this.clearSelectionPreview();
     this.setDrawingMode(mode === "create" || mode === "gps-create");
     this.syncModeButtons();
   }
@@ -633,6 +670,113 @@ export default class ChartView {
     ]));
   }
 
+  buildSelectionPreviewArea(startIndex, endIndex) {
+    const left = Math.min(startIndex, endIndex);
+    const right = Math.max(startIndex, endIndex);
+
+    return [
+      {
+        xAxis: this.xIndexToValue(left),
+        itemStyle: {
+          color: this.mode === "gps-create"
+            ? "rgba(34, 197, 94, 0.22)"
+            : "rgba(59, 130, 246, 0.2)",
+          borderColor: this.mode === "gps-create"
+            ? "rgba(22, 163, 74, 0.85)"
+            : "rgba(37, 99, 235, 0.85)",
+          borderWidth: 1
+        },
+        label: {
+          show: false
+        }
+      },
+      {
+        xAxis: this.xIndexToValue(right)
+      }
+    ];
+  }
+
+  getPointerXValue(event) {
+    const rect = this.chart?.getDom?.().getBoundingClientRect?.();
+    if (!rect) {
+      return null;
+    }
+
+    const localX = event.clientX - rect.left;
+    return this.chart.convertFromPixel({ xAxisIndex: 0 }, localX);
+  }
+
+  updateSelectionPreview(xValue) {
+    if (this.selectionStart == null || Number.isNaN(xValue) || xValue == null) {
+      return;
+    }
+
+    const endIndex = this.xValueToIndex(xValue);
+    this.previewMarkArea = this.buildSelectionPreviewArea(this.selectionStart, endIndex);
+    this.applyMarkAreas();
+  }
+
+  clearSelectionPreview() {
+    if (!this.previewMarkArea) {
+      return;
+    }
+    this.previewMarkArea = null;
+    this.applyMarkAreas();
+  }
+
+  async finishSelectionDrag(xValue) {
+    if (!this.isWorkoutEditable()) {
+      this.selectionStart = null;
+      this.activePointerId = null;
+      this.clearSelectionPreview();
+      return;
+    }
+
+    if (this.mode !== "create" && this.mode !== "gps-create") {
+      this.selectionStart = null;
+      this.activePointerId = null;
+      this.clearSelectionPreview();
+      return;
+    }
+
+    if (this.selectionStart == null || xValue == null || Number.isNaN(xValue)) {
+      this.selectionStart = null;
+      this.activePointerId = null;
+      this.clearSelectionPreview();
+      return;
+    }
+
+    const startEnd = {
+      startIndex: Math.round(this.selectionStart),
+      endIndex: this.xValueToIndex(xValue)
+    };
+
+    this.clearSelectionPreview();
+
+    if (this.mode === "gps-create") {
+      const gpsSegment = await SegmentService.createAddNewGpsSegment(this.currentWorkout, startEnd);
+      this.handlers.onGpsSegmentCreated?.(gpsSegment);
+    } else {
+      await SegmentService.createAddNewSegment(this.currentWorkout, startEnd);
+      this.handlers.onUpdateWorkout?.(this.currentWorkout);
+    }
+
+    this.selectionStart = null;
+    this.activePointerId = null;
+  }
+
+  applyMarkAreas() {
+    const data = this.previewMarkArea
+      ? [...this.baseMarkAreas, this.previewMarkArea]
+      : this.baseMarkAreas;
+
+    this.chart.setOption({
+      series: [{
+        markArea: { data }
+      }]
+    });
+  }
+
   setDrawingMode(enabled) {
     this.chart.getZr().setCursorStyle(enabled ? "crosshair" : "default");
     this.chart.setOption({
@@ -721,6 +865,45 @@ export default class ChartView {
     }
 
     return this.currentWorkout?.segments?.find((segment) => segment.id === segmentId) ?? null;
+  }
+
+  getHoveredSegmentAtXValue(xValue) {
+    if (Number.isNaN(xValue) || xValue == null) {
+      return null;
+    }
+
+    const index = this.xValueToIndex(xValue);
+    const segments = this.currentWorkout?.segments?.filter((segment) => {
+      if (segment.rowstate === "DEL") {
+        return false;
+      }
+      return index >= segment.start_offset && index <= segment.end_offset;
+    }) ?? [];
+
+    if (segments.length === 0) {
+      return null;
+    }
+
+    segments.sort((left, right) => {
+      const leftSpan = Math.abs((left.end_offset ?? 0) - (left.start_offset ?? 0));
+      const rightSpan = Math.abs((right.end_offset ?? 0) - (right.start_offset ?? 0));
+      return leftSpan - rightSpan;
+    });
+
+    return segments[0] ?? null;
+  }
+
+  syncSegmentHoverFromPointer(xValue, nativeEvent) {
+    const segment = this.getHoveredSegmentAtXValue(xValue);
+
+    if (!segment) {
+      this.hideSegmentHoverTooltip();
+      return;
+    }
+
+    this.isHoveringSegmentArea = true;
+    this.chart.dispatchAction({ type: "hideTip" });
+    this.showSegmentHoverTooltip(segment, nativeEvent);
   }
 
   showSegmentHoverTooltip(segment, nativeEvent) {
