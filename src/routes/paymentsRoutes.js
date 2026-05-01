@@ -1,6 +1,7 @@
 import express from "express";
 
 import authMiddleware from "../middleware/authMiddleware.js";
+import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
 import EntitlementService from "../services/entitlementService.js";
 import PaymentsDBService from "../services/paymentsDBService.js";
 import PayPalCheckoutService from "../services/paypalCheckoutService.js";
@@ -57,7 +58,7 @@ router.get("/plans", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.post("/checkout/order", authMiddleware, async (req, res, next) => {
+router.post("/checkout/order", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const userId = req.user?.id;
     if (!userId) {

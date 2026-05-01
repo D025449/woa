@@ -536,20 +536,6 @@ export async function createApp() {
     });
 
 
-    app.get("/dashboard", checkAuth, (req, res) => {
-
-        if (!req?.user?.id) {
-            const redirectUrl = encodeURIComponent(req.originalUrl);
-            return res.redirect(`/login?redirect=${redirectUrl}`);
-        }
-
-        res.render("dashboard", {
-            userInfo: req.user,
-            isAuthenticated: true
-        });
-
-    });
-
     app.get("/dashboard-new", checkAuth, (req, res) => {
 
         if (!req?.user?.id) {

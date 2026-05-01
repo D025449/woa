@@ -46,6 +46,10 @@ export default class ProfileDBService {
         u.id,
         u.email,
         u.display_name,
+        u.account_status,
+        u.deletion_requested_at,
+        u.deletion_scheduled_for,
+        u.deleted_at,
         p.phone,
         p.date_of_birth,
         p.weight_kg,
@@ -92,6 +96,10 @@ export default class ProfileDBService {
       distanceUnit: row.distance_unit || "km",
       speedUnit: row.speed_unit || "kmh",
       defaultWorkoutScope: row.default_workout_scope || "mine",
+      accountStatus: row.account_status || "active",
+      deletionRequestedAt: row.deletion_requested_at || null,
+      deletionScheduledFor: row.deletion_scheduled_for || null,
+      deletedAt: row.deleted_at || null,
       updatedAt: row.profile_updated_at || null
     };
   }

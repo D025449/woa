@@ -1,0 +1,403 @@
+:root {
+  --ui-page-bg: linear-gradient(180deg, #f5f7fb 0%, #edf2f7 100%);
+  --ui-page-accent-start: rgba(30, 64, 175, 0.08);
+  --ui-page-accent-end: rgba(13, 148, 136, 0.10);
+  --ui-page-text: #10233b;
+
+  --ui-brand-accent: #2563eb;
+  --ui-brand-accent-soft: rgba(30, 64, 175, 0.04);
+  --ui-brand-accent-faint: rgba(30, 64, 175, 0.02);
+  --ui-brand-success: #0f766e;
+  --ui-brand-success-soft: rgba(13, 148, 136, 0.10);
+  --ui-brand-success-faint: rgba(15, 118, 110, 0.06);
+  --ui-brand-success-text-strong: #166534;
+
+  --ui-text-strong: #0f172a;
+  --ui-text-default: #1e293b;
+  --ui-text-body: #475569;
+  --ui-text-muted: #64748b;
+  --ui-text-inverse: #f8fafc;
+  --ui-text-on-dark: #e2e8f0;
+
+  --ui-radius-sm: 1rem;
+  --ui-radius-md: 1.35rem;
+  --ui-radius-lg: 1.5rem;
+
+  --ui-card-radius: 1rem;
+  --ui-card-radius-soft: 1.15rem;
+  --ui-card-radius-panel: 1.25rem;
+  --ui-card-padding: 0.95rem 1rem;
+  --ui-card-padding-compact: 0.85rem 0.95rem;
+  --ui-card-padding-relaxed: 1rem 1.05rem;
+  --ui-card-padding-panel: 1.1rem 1.15rem 1.2rem;
+
+  --ui-border-color-soft: rgba(148, 163, 184, 0.22);
+  --ui-border-color-strong: rgba(148, 163, 184, 0.28);
+  --ui-border-color-emphasis: rgba(148, 163, 184, 0.35);
+  --ui-divider-color: rgba(226, 232, 240, 0.85);
+
+  --ui-border-soft: 1px solid var(--ui-border-color-soft);
+  --ui-border-strong: 1px solid var(--ui-border-color-strong);
+
+  --ui-bg-panel: rgba(255, 255, 255, 0.96);
+  --ui-bg-panel-strong: rgba(255, 255, 255, 0.98);
+  --ui-bg-panel-soft: rgba(255, 255, 255, 0.88);
+  --ui-bg-input: rgba(248, 250, 252, 0.96);
+  --ui-bg-chip-soft: rgba(248, 250, 252, 0.9);
+  --ui-bg-kpi-soft: rgba(255, 255, 255, 0.86);
+  --ui-bg-tag-soft: rgba(226, 232, 240, 0.65);
+  --ui-bg-card-soft: rgba(255, 255, 255, 0.88);
+  --ui-bg-card-soft-alt: rgba(255, 255, 255, 0.8);
+  --ui-bg-card-muted: rgba(248, 250, 252, 0.74);
+  --ui-bg-card-muted-strong: rgba(248, 250, 252, 0.78);
+  --ui-bg-card-muted-soft: rgba(248, 250, 252, 0.7);
+  --ui-bg-card-muted-faint: rgba(248, 250, 252, 0.68);
+  --ui-bg-overlay-soft: rgba(255, 255, 255, 0.72);
+  --ui-bg-subtle: rgba(248, 250, 252, 0.92);
+  --ui-bg-subtle-soft: rgba(248, 250, 252, 0.88);
+  --ui-bg-subtle-faint: rgba(248, 250, 252, 0.78);
+  --ui-bg-surface-gradient: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.94));
+  --ui-bg-card-gradient: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+  --ui-bg-card-selected-gradient: linear-gradient(180deg, var(--ui-info-bg-strong), rgba(248, 250, 252, 0.98));
+  --ui-bg-hero-overlay: linear-gradient(135deg, rgba(255, 255, 255, 0.94), var(--ui-bg-subtle));
+  --ui-bg-hero-accent: linear-gradient(135deg, var(--ui-brand-accent-faint), var(--ui-brand-accent-soft));
+
+  --ui-shadow-soft: 0 12px 26px rgba(15, 23, 42, 0.05);
+  --ui-shadow-md: 0 18px 40px rgba(15, 23, 42, 0.08);
+  --ui-shadow-lg: 0 18px 45px rgba(15, 23, 42, 0.08);
+  --ui-shadow-floating: 0 18px 35px rgba(15, 23, 42, 0.16);
+  --ui-shadow-hover: 0 16px 34px rgba(15, 23, 42, 0.08);
+  --ui-shadow-chip-hover: 0 8px 18px rgba(15, 23, 42, 0.06);
+  --ui-shadow-drawer: 0 28px 60px rgba(15, 23, 42, 0.22);
+
+  --ui-topbar-bg: linear-gradient(180deg, #0f172a 0%, #172235 100%);
+  --ui-topbar-border: rgba(148, 163, 184, 0.18);
+  --ui-topbar-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
+  --ui-topbar-link: rgba(226, 232, 240, 0.82);
+  --ui-topbar-link-active: rgba(226, 232, 240, 0.8);
+  --ui-topbar-control-bg: rgba(255, 255, 255, 0.04);
+  --ui-topbar-control-bg-hover: rgba(255, 255, 255, 0.12);
+  --ui-topbar-control-border: rgba(148, 163, 184, 0.3);
+  --ui-topbar-control-border-hover: rgba(226, 232, 240, 0.36);
+
+  --ui-danger-soft: rgba(220, 38, 38, 0.28);
+  --ui-danger-faint: rgba(127, 29, 29, 0.18);
+  --ui-danger-border: rgba(248, 113, 113, 0.32);
+  --ui-danger-border-strong: rgba(248, 113, 113, 0.45);
+  --ui-danger-border-soft: rgba(239, 68, 68, 0.24);
+  --ui-danger-border-faint: rgba(239, 68, 68, 0.2);
+  --ui-danger-border-muted: rgba(248, 113, 113, 0.25);
+  --ui-danger-bg: rgba(254, 242, 242, 0.96);
+  --ui-danger-bg-soft: rgba(254, 242, 242, 0.88);
+  --ui-danger-bg-faint: rgba(254, 242, 242, 0.78);
+  --ui-danger-text: #fecaca;
+  --ui-danger-text-strong: #fff1f2;
+  --ui-danger-text-dark: #b91c1c;
+
+  --ui-warning-bg: rgba(255, 251, 235, 0.96);
+  --ui-warning-bg-soft: rgba(255, 251, 235, 0.88);
+  --ui-warning-bg-faint: rgba(255, 251, 235, 0.82);
+  --ui-warning-border: rgba(251, 191, 36, 0.35);
+  --ui-warning-border-soft: rgba(245, 158, 11, 0.24);
+  --ui-warning-border-faint: rgba(245, 158, 11, 0.2);
+  --ui-warning-border-muted: rgba(251, 191, 36, 0.26);
+  --ui-warning-text: #7c2d12;
+  --ui-warning-text-strong: #b45309;
+
+  --ui-info-bg: rgba(239, 246, 255, 0.96);
+  --ui-info-bg-soft: rgba(239, 246, 255, 0.95);
+  --ui-info-bg-faint: rgba(239, 246, 255, 0.6);
+  --ui-info-bg-strong: rgba(239, 246, 255, 0.98);
+  --ui-info-border: rgba(191, 219, 254, 0.9);
+  --ui-info-border-soft: rgba(191, 219, 254, 0.95);
+  --ui-info-border-faint: rgba(59, 130, 246, 0.24);
+  --ui-info-border-muted: rgba(59, 130, 246, 0.18);
+  --ui-info-border-active: rgba(30, 64, 175, 0.48);
+  --ui-info-border-hover-strong: rgba(59, 130, 246, 0.4);
+  --ui-info-border-strong: rgba(59, 130, 246, 0.45);
+  --ui-info-border-hover: rgba(59, 130, 246, 0.32);
+  --ui-info-shadow-soft: 0 0 0 0.22rem rgba(59, 130, 246, 0.12);
+  --ui-info-shadow-md: 0 18px 38px rgba(37, 99, 235, 0.12);
+  --ui-info-shadow-sm: 0 10px 22px rgba(37, 99, 235, 0.12);
+  --ui-info-shadow-hover: 0 12px 26px rgba(37, 99, 235, 0.12);
+  --ui-info-text: #1d4ed8;
+
+  --ui-input-border: rgba(203, 213, 225, 0.82);
+  --ui-input-border-soft: rgba(203, 213, 225, 0.9);
+  --ui-input-border-strong: rgba(203, 213, 225, 0.95);
+  --ui-chip-border-soft: rgba(148, 163, 184, 0.24);
+  --ui-card-border-soft: rgba(226, 232, 240, 0.95);
+  --ui-card-border-muted: rgba(226, 232, 240, 0.92);
+  --ui-card-divider: rgba(226, 232, 240, 0.88);
+  --ui-card-border-faint: rgba(148, 163, 184, 0.22);
+  --ui-card-border-strong: rgba(148, 163, 184, 0.28);
+  --ui-card-border-dashed: rgba(148, 163, 184, 0.55);
+  --ui-status-neutral-bg: rgba(241, 245, 249, 0.9);
+
+  --ui-success-bg: rgba(240, 253, 244, 0.96);
+  --ui-success-bg-soft: rgba(240, 253, 250, 0.82);
+  --ui-success-bg-faint: rgba(240, 253, 244, 0.88);
+  --ui-success-border: rgba(34, 197, 94, 0.24);
+  --ui-success-border-soft: rgba(34, 197, 94, 0.2);
+  --ui-success-border-alt: rgba(45, 212, 191, 0.25);
+
+  --ui-scrollbar-thumb: rgba(148, 163, 184, 0.42);
+  --ui-backdrop-dark: rgba(15, 23, 42, 0.38);
+}
+
+.ui-page-shell {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.ui-hero {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1.5rem 1.75rem;
+  border: 1px solid color-mix(in srgb, var(--ui-border-color-strong) 90%, transparent);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-bg-hero-overlay), var(--ui-bg-hero-accent);
+  box-shadow: var(--ui-shadow-lg);
+  backdrop-filter: blur(10px);
+}
+
+.ui-hero__meta {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.ui-hero__kicker {
+  margin: 0 0 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ui-brand-success);
+}
+
+.ui-hero__title {
+  margin: 0;
+  font-size: clamp(2rem, 2.5vw, 2.85rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+  color: var(--ui-text-strong);
+}
+
+.ui-hero__subtitle {
+  margin: 0.75rem 0 0;
+  font-size: 0.98rem;
+  color: var(--ui-text-body);
+}
+
+.ui-surface,
+.dashboard-section,
+.dashboard-surface {
+  border: var(--ui-border-soft);
+  border-radius: var(--ui-radius-lg);
+  background: var(--ui-bg-panel);
+  box-shadow: var(--ui-shadow-md);
+  overflow: hidden;
+}
+
+.ui-surface--gradient {
+  background:
+    linear-gradient(180deg, var(--ui-bg-panel), rgba(248, 250, 252, 0.94));
+}
+
+.ui-section-header,
+.dashboard-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.4rem 1rem;
+  border-bottom: 1px solid var(--ui-divider-color);
+  background: linear-gradient(180deg, var(--ui-bg-subtle), var(--ui-bg-panel-soft));
+}
+
+.ui-surface-body {
+  padding: 1.1rem 1.25rem 1.25rem;
+}
+
+.ui-surface-body--flush {
+  padding: 0;
+}
+
+.ui-card {
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: var(--ui-card-radius);
+  background: var(--ui-bg-panel-soft);
+}
+
+.ui-card--subtle {
+  background: var(--ui-bg-subtle);
+  border-color: rgba(148, 163, 184, 0.24);
+}
+
+.ui-card--soft {
+  border-radius: var(--ui-card-radius-soft);
+}
+
+.ui-card--panel {
+  border-radius: var(--ui-card-radius-panel);
+}
+
+.dashboard-section-header--compact {
+  padding-bottom: 0.9rem;
+}
+
+.ui-eyebrow,
+.dashboard-eyebrow {
+  display: block;
+  margin-bottom: 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ui-text-muted);
+}
+
+.ui-title,
+.dashboard-section-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ui-text-strong);
+}
+
+.ui-copy,
+.dashboard-section-copy {
+  margin: 0.35rem 0 0;
+  font-size: 0.9rem;
+  color: var(--ui-text-muted);
+}
+
+.ui-chip,
+.dashboard-chip,
+.dashboard-shared-meta,
+.workout-library-tag,
+.workout-share-chip,
+.workout-library-hint__chip,
+.workout-library-active-filters__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 999px;
+}
+
+.ui-chip {
+  padding: 0.7rem 1rem;
+  border: var(--ui-border-strong);
+  background: var(--ui-bg-overlay-soft);
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--ui-text-default);
+}
+
+.ui-chip__label {
+  color: var(--ui-text-muted);
+}
+
+.dashboard-chip {
+  padding: 0.7rem 1rem;
+  border: var(--ui-border-strong);
+  background: var(--ui-bg-overlay-soft);
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--ui-text-default);
+}
+
+.dashboard-chip-label {
+  color: var(--ui-text-muted);
+}
+
+.ui-toolbar,
+.dashboard-toolbar,
+.workout-library-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.ui-toolbar--end {
+  justify-content: flex-end;
+}
+
+.ui-toolbar--spacious {
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.dashboard-toolbar {
+  justify-content: flex-end;
+}
+
+.workout-library-toolbar {
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+
+.dashboard-toolbar .btn,
+.workout-library-card .btn,
+.workout-library-load-more .btn {
+  border-radius: 999px;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.dashboard-toolbar .btn {
+  padding-inline: 0.9rem;
+}
+
+.ui-toggle-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.28rem;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 999px;
+  background: var(--ui-bg-subtle);
+}
+
+.ui-toggle-group--light {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: var(--ui-bg-overlay-soft);
+}
+
+.ui-toggle-group .btn {
+  border-radius: 999px;
+  padding-inline: 0.85rem;
+  font-weight: 700;
+  border-color: transparent;
+}
+
+.ui-toggle-group .btn.active {
+  background: var(--ui-text-strong);
+  color: var(--ui-text-inverse);
+  border-color: var(--ui-text-strong);
+}
+
+.ui-empty-state,
+.workout-library-empty {
+  padding: 1.2rem 0.4rem 0.6rem;
+  color: var(--ui-text-muted);
+  font-size: 0.95rem;
+}
+
+@media (max-width: 991.98px) {
+  .ui-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .ui-hero__meta {
+    justify-content: flex-start;
+  }
+}

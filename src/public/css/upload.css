@@ -1,0 +1,143 @@
+body.upload-page {
+  background:
+    radial-gradient(circle at top left, var(--ui-page-accent-start), transparent 28%),
+    radial-gradient(circle at top right, var(--ui-page-accent-end), transparent 22%),
+    var(--ui-page-bg);
+  color: var(--ui-page-text);
+}
+
+.upload-stage-body {
+  padding: 1.35rem 1.4rem 1.5rem;
+}
+
+.upload-limit-alert {
+  margin-bottom: 1rem;
+  border-radius: 1rem;
+}
+
+.upload-form-panel {
+  border: 1px solid color-mix(in srgb, var(--ui-border-color-soft) 82%, transparent);
+  border-radius: var(--ui-card-radius-panel);
+  background: var(--ui-bg-overlay-soft);
+  padding: var(--ui-card-padding-panel);
+}
+
+.upload-form-panel .form-label {
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ui-text-body);
+}
+
+.upload-form-panel .form-control {
+  border-radius: 1rem;
+  padding: 0.85rem 1rem;
+  border-color: var(--ui-border-color-emphasis);
+  box-shadow: none;
+}
+
+.upload-share-shell {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--ui-divider-color);
+}
+
+.upload-share-choice {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.upload-share-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: var(--ui-card-padding-compact);
+  border: 1px solid var(--ui-chip-border-soft);
+  border-radius: var(--ui-card-radius);
+  background: var(--ui-bg-kpi-soft);
+  cursor: pointer;
+}
+
+.upload-share-option input {
+  margin-top: 0.2rem;
+}
+
+.upload-share-option strong {
+  display: block;
+  font-size: 0.92rem;
+  color: var(--ui-text-strong);
+}
+
+.upload-share-option small {
+  display: block;
+  margin-top: 0.1rem;
+  color: var(--ui-text-muted);
+}
+
+.upload-share-panel {
+  display: grid;
+  gap: 0.7rem;
+  padding: var(--ui-card-padding);
+  border: 1px solid var(--ui-card-border-faint);
+  border-radius: var(--ui-card-radius);
+  background: color-mix(in srgb, var(--ui-bg-panel-soft) 80%, transparent);
+}
+
+.upload-share-hint {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--ui-text-muted);
+}
+
+.upload-share-list {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.upload-primary-btn {
+  border-radius: 999px;
+  padding: 0.85rem 1rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.upload-status-panel {
+  border: 1px solid color-mix(in srgb, var(--ui-border-color-soft) 82%, transparent);
+  border-radius: var(--ui-card-radius-panel);
+  background: var(--ui-bg-subtle);
+  padding: var(--ui-card-padding-relaxed);
+}
+
+.upload-phase-card {
+  padding: var(--ui-card-padding-compact);
+  border-radius: var(--ui-card-radius);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(30, 41, 59, 0.92));
+  color: var(--ui-text-inverse);
+}
+
+.upload-phase-label {
+  display: block;
+  margin-bottom: 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--ui-text-on-dark) 88%, transparent);
+}
+
+.upload-progress-block {
+  margin-top: 1rem;
+}
+
+.upload-progress-block .progress {
+  height: 0.72rem;
+  border-radius: 999px;
+  background: var(--ui-divider-color);
+}
+
+#response .alert {
+  border-radius: 1rem;
+}

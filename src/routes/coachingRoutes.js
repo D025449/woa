@@ -1,6 +1,7 @@
 import express from "express";
 
 import authMiddleware from "../middleware/authMiddleware.js";
+import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
 import EntitlementService from "../services/entitlementService.js";
 import TrainingPlanDBService from "../services/trainingPlanDBService.js";
 import TrainingPlanCommentaryService from "../services/trainingPlanCommentaryService.js";
@@ -19,7 +20,7 @@ router.get("/context", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.post("/plan-preview", authMiddleware, async (req, res, next) => {
+router.post("/plan-preview", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const allowance = await EntitlementService.checkAllowance(req.user.id, "training_plan_generation", 1);
     if (!allowance.allowed) {
@@ -37,7 +38,7 @@ router.post("/plan-preview", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.post("/plans", authMiddleware, async (req, res, next) => {
+router.post("/plans", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const planAllowance = await EntitlementService.checkAllowance(req.user.id, "training_plan_saved", 1);
     if (!planAllowance.allowed) {
@@ -89,7 +90,7 @@ router.get("/plans/:planId", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.put("/plans/:planId/weeks/:weekNumber", authMiddleware, async (req, res, next) => {
+router.put("/plans/:planId/weeks/:weekNumber", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const data = await TrainingPlanDBService.updateWeek(
       req.user.id,
@@ -103,7 +104,7 @@ router.put("/plans/:planId/weeks/:weekNumber", authMiddleware, async (req, res, 
   }
 });
 
-router.post("/plans/:planId/weeks/:weekNumber/regenerate", authMiddleware, async (req, res, next) => {
+router.post("/plans/:planId/weeks/:weekNumber/regenerate", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const planId = Number(req.params.planId);
     const weekNumber = Number(req.params.weekNumber);
@@ -131,7 +132,7 @@ router.post("/plans/:planId/weeks/:weekNumber/regenerate", authMiddleware, async
   }
 });
 
-router.put("/plans/:planId/name", authMiddleware, async (req, res, next) => {
+router.put("/plans/:planId/name", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const data = await TrainingPlanDBService.updatePlanName(
       req.user.id,
@@ -144,7 +145,7 @@ router.put("/plans/:planId/name", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.post("/plans/:planId/review", authMiddleware, async (req, res, next) => {
+router.post("/plans/:planId/review", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const planId = Number(req.params.planId);
     const plan = await TrainingPlanDBService.getPlanById(req.user.id, planId);
@@ -156,7 +157,7 @@ router.post("/plans/:planId/review", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.post("/plans/:planId/weeks/:weekNumber/apply-adjustment", authMiddleware, async (req, res, next) => {
+router.post("/plans/:planId/weeks/:weekNumber/apply-adjustment", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const data = await TrainingPlanDBService.applyWeekAdjustment(
       req.user.id,
@@ -169,7 +170,7 @@ router.post("/plans/:planId/weeks/:weekNumber/apply-adjustment", authMiddleware,
   }
 });
 
-router.post("/plans/:planId/weeks/:weekNumber/commentary", authMiddleware, async (req, res, next) => {
+router.post("/plans/:planId/weeks/:weekNumber/commentary", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const allowance = await EntitlementService.checkAllowance(req.user.id, "coach_commentary_generation", 1);
     if (!allowance.allowed) {

@@ -1,17 +1,17 @@
 .app-topbar {
-    background: linear-gradient(180deg, #0f172a 0%, #172235 100%) !important;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
-    box-shadow: 0 14px 30px rgba(15, 23, 42, 0.18);
+    background: var(--ui-topbar-bg) !important;
+    border-bottom: 1px solid var(--ui-topbar-border);
+    box-shadow: var(--ui-topbar-shadow);
 }
 
 .app-topbar .navbar-brand {
     font-weight: 700;
     letter-spacing: -0.02em;
-    color: #f8fafc;
+    color: var(--ui-text-inverse);
 }
 
 .app-topbar .nav-link {
-    color: rgba(226, 232, 240, 0.82);
+    color: var(--ui-topbar-link);
     font-weight: 600;
     padding: 0.35rem 0.25rem;
     border-bottom: 2px solid transparent;
@@ -19,8 +19,8 @@
 
 .app-topbar .nav-link:hover,
 .app-topbar .nav-link.active {
-    color: #ffffff;
-    border-bottom-color: rgba(226, 232, 240, 0.8);
+    color: var(--ui-text-inverse);
+    border-bottom-color: var(--ui-topbar-link-active);
 }
 
 .app-topbar-profile {
@@ -30,16 +30,16 @@
     width: 2.3rem;
     height: 2.3rem;
     border-radius: 999px;
-    border: 1px solid rgba(148, 163, 184, 0.3);
-    background: rgba(255, 255, 255, 0.04);
-    color: #e2e8f0;
+    border: 1px solid var(--ui-topbar-control-border);
+    background: var(--ui-topbar-control-bg);
+    color: var(--ui-text-on-dark);
     transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
 .app-topbar-profile:hover {
-    color: #ffffff;
-    background: rgba(255, 255, 255, 0.12);
-    border-color: rgba(226, 232, 240, 0.36);
+    color: var(--ui-text-inverse);
+    background: var(--ui-topbar-control-bg-hover);
+    border-color: var(--ui-topbar-control-border-hover);
 }
 
 .app-topbar-profile__icon {
@@ -51,19 +51,31 @@
     border-radius: 999px;
     padding-inline: 0.9rem;
     font-weight: 600;
-    border-color: rgba(148, 163, 184, 0.28);
+    border-color: var(--ui-border-color-strong);
+}
+
+.app-topbar .btn-outline-light {
+    color: var(--ui-text-on-dark);
+    border-color: var(--ui-topbar-control-border);
+    background: var(--ui-topbar-control-bg);
+}
+
+.app-topbar .btn-outline-light:hover {
+    color: var(--ui-text-inverse);
+    background: var(--ui-topbar-control-bg-hover);
+    border-color: var(--ui-topbar-control-border-hover);
 }
 
 .app-topbar .btn-outline-danger {
-    color: #fecaca;
-    border-color: rgba(248, 113, 113, 0.32);
-    background: rgba(127, 29, 29, 0.18);
+    color: var(--ui-danger-text);
+    border-color: var(--ui-danger-border);
+    background: var(--ui-danger-faint);
 }
 
 .app-topbar .btn-outline-danger:hover {
-    color: #fff1f2;
-    background: rgba(220, 38, 38, 0.28);
-    border-color: rgba(248, 113, 113, 0.45);
+    color: var(--ui-danger-text-strong);
+    background: var(--ui-danger-soft);
+    border-color: var(--ui-danger-border-strong);
 }
 
 body.has-fixed-app-topbar {
@@ -73,16 +85,16 @@ body.has-fixed-app-topbar {
 .app-footer {
     margin-top: 1.5rem;
     text-align: center;
-    color: #64748b;
+    color: var(--ui-text-muted);
     font-size: 0.88rem;
 }
 
 .app-footer a {
-    color: #475569;
+    color: var(--ui-text-body);
     text-decoration: none;
 }
 
 .app-footer a:hover {
-    color: #0f172a;
+    color: var(--ui-text-strong);
     text-decoration: underline;
 }

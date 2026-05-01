@@ -1,6 +1,8 @@
 import express from "express";
 
 import authMiddleware from "../middleware/authMiddleware.js";
+import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
+import AccountDeletionService from "../services/accountDeletionService.js";
 import ProfileDBService from "../services/profileDBService.js";
 import { normalizeSupportedLocale } from "../i18n/index.js";
 
@@ -15,7 +17,7 @@ router.get("/", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.put("/", authMiddleware, async (req, res, next) => {
+router.put("/", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const data = await ProfileDBService.updateProfile(req.user.id, req.body || {});
 
@@ -37,6 +39,55 @@ router.put("/", authMiddleware, async (req, res, next) => {
       maxAge: 1000 * 60 * 60 * 24 * 365
     });
 
+    res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/deletion/status", authMiddleware, async (req, res, next) => {
+  try {
+    const data = await AccountDeletionService.getDeletionStatus(req.user.id);
+    res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/deletion/request", authMiddleware, async (req, res, next) => {
+  try {
+    const data = await AccountDeletionService.requestDeletion(req.user.id);
+    if (req.user) {
+      req.user.account_status = data.accountStatus;
+      req.user.deletion_requested_at = data.deletionRequestedAt;
+      req.user.deletion_scheduled_for = data.deletionScheduledFor;
+    }
+    if (req.session?.user) {
+      req.session.user.account_status = data.accountStatus;
+      req.session.user.deletion_requested_at = data.deletionRequestedAt;
+      req.session.user.deletion_scheduled_for = data.deletionScheduledFor;
+      req.session.user.deleted_at = data.deletedAt;
+    }
+    res.json({ data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/deletion/cancel", authMiddleware, async (req, res, next) => {
+  try {
+    const data = await AccountDeletionService.cancelDeletion(req.user.id);
+    if (req.user) {
+      req.user.account_status = data.accountStatus;
+      req.user.deletion_requested_at = data.deletionRequestedAt;
+      req.user.deletion_scheduled_for = data.deletionScheduledFor;
+    }
+    if (req.session?.user) {
+      req.session.user.account_status = data.accountStatus;
+      req.session.user.deletion_requested_at = data.deletionRequestedAt;
+      req.session.user.deletion_scheduled_for = data.deletionScheduledFor;
+      req.session.user.deleted_at = data.deletedAt;
+    }
     res.json({ data });
   } catch (err) {
     next(err);

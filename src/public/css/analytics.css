@@ -1,0 +1,57 @@
+body.analytics-page {
+    background:
+        radial-gradient(circle at top left, var(--ui-page-accent-start), transparent 28%),
+        radial-gradient(circle at top right, var(--ui-page-accent-end), transparent 22%),
+        var(--ui-page-bg);
+    color: var(--ui-page-text);
+}
+
+.analytics-toggle-group .btn {
+    font-weight: 600;
+    padding-inline: 0.85rem;
+}
+
+.analytics-body {
+    padding: 0;
+}
+
+.analytics-chart-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.5rem;
+}
+
+.analytics-focus-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(340px, 1fr);
+    gap: 1.5rem;
+    align-items: stretch;
+}
+
+#ctl-chart,
+#ftp-chart,
+#cp-chart {
+    height: 400px !important;
+}
+
+#workout-chart {
+    height: 560px !important;
+}
+
+#workout-map {
+    height: 560px !important;
+}
+
+@media (max-width: 1199.98px) {
+    .analytics-chart-grid,
+    .analytics-focus-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 991.98px) {
+    #workout-chart,
+    #workout-map {
+        height: 460px !important;
+    }
+}

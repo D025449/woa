@@ -1,6 +1,7 @@
 import express from "express";
 
 import authMiddleware from "../middleware/authMiddleware.js";
+import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
 import pool from "../services/database.js";
 import { FileDBService } from "../services/fileDBService.js";
 import WorkoutDBService from "../services/workoutDBService.js";
@@ -100,7 +101,7 @@ router.get("/:id/sharing", authMiddleware, async (req, res) => {
   }
 });
 
-router.put("/:id/sharing", authMiddleware, async (req, res) => {
+router.put("/:id/sharing", authMiddleware, requireActiveAccountWrite, async (req, res) => {
   try {
     const workoutId = Number(req.params.id);
     const uid = req.user.id;
@@ -212,7 +213,7 @@ router.get("/:id/track", authMiddleware, async (req, res) => {
 });
 
 
-router.delete("/:id", authMiddleware, async (req, res) => {
+router.delete("/:id", authMiddleware, requireActiveAccountWrite, async (req, res) => {
   const workoutId = req.params.id;
   const uid = req.user.id;
 
@@ -431,7 +432,7 @@ router.get("/cp-best-efforts", authMiddleware, async (req, res, next) => {
 });
 
 
-router.post("/workouts/:id/segments", authMiddleware, async (req, res, next) => {
+router.post("/workouts/:id/segments", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const workoutId = req.params.id;
     const uid = req.user?.id;

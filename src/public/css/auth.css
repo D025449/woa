@@ -1,0 +1,185 @@
+body.auth-page {
+  background:
+    radial-gradient(circle at top left, var(--ui-page-accent-start), transparent 28%),
+    radial-gradient(circle at top right, var(--ui-page-accent-end), transparent 22%),
+    var(--ui-page-bg);
+  color: var(--ui-page-text);
+}
+
+.auth-topbar {
+  background: var(--ui-topbar-bg) !important;
+  border-bottom: 1px solid var(--ui-topbar-border);
+  box-shadow: var(--ui-topbar-shadow);
+}
+
+.auth-topbar .navbar-brand {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ui-text-inverse);
+}
+
+.auth-shell {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.auth-hero {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1.5rem 1.75rem;
+  border: 1px solid color-mix(in srgb, var(--ui-border-color-strong) 90%, transparent);
+  border-radius: 1.5rem;
+  background: var(--ui-bg-hero-overlay), var(--ui-bg-hero-accent);
+  box-shadow: var(--ui-shadow-lg);
+}
+
+.auth-kicker {
+  margin: 0 0 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ui-brand-success);
+}
+
+.auth-title {
+  margin: 0;
+  font-size: clamp(2rem, 2.5vw, 2.85rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 0.95;
+  color: var(--ui-text-strong);
+}
+
+.auth-subtitle {
+  margin: 0.75rem 0 0;
+  max-width: 36rem;
+  font-size: 0.98rem;
+  color: var(--ui-text-body);
+}
+
+.auth-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--ui-card-border-strong);
+  border-radius: 999px;
+  background: var(--ui-bg-overlay-soft);
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--ui-text-default);
+}
+
+.auth-chip-label {
+  color: var(--ui-text-muted);
+}
+
+.auth-card {
+  border: 1px solid var(--ui-card-border-faint);
+  border-radius: 1.5rem;
+  background: var(--ui-bg-surface-gradient);
+  box-shadow: var(--ui-shadow-md);
+  overflow: hidden;
+}
+
+.auth-card-header {
+  padding: 1.1rem 1.4rem 1rem;
+  border-bottom: 1px solid var(--ui-divider-color);
+  background: linear-gradient(180deg, var(--ui-bg-subtle), var(--ui-bg-panel-soft));
+}
+
+.auth-card-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ui-text-strong);
+}
+
+.auth-card-body {
+  padding: 1.35rem 1.4rem 1.5rem;
+}
+
+.auth-card-body .form-label {
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ui-text-body);
+}
+
+.auth-card-body .form-control {
+  border-radius: 1rem;
+  padding: 0.85rem 1rem;
+  border-color: var(--ui-border-color-emphasis);
+  box-shadow: none;
+}
+
+.auth-primary-btn {
+  border-radius: 999px;
+  padding: 0.85rem 1rem;
+  font-weight: 700;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin: 1rem 0;
+  color: color-mix(in srgb, var(--ui-text-muted) 80%, white 20%);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--ui-input-border-soft);
+}
+
+.auth-google-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  width: 100%;
+  border-radius: 999px;
+  padding: 0.82rem 1rem;
+  font-weight: 700;
+  border: 1px solid var(--ui-input-border-strong);
+  background: var(--ui-bg-panel-strong);
+  color: var(--ui-text-strong);
+  text-decoration: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.auth-google-btn:hover {
+  color: var(--ui-text-strong);
+  border-color: var(--ui-info-border-hover);
+  box-shadow: var(--ui-shadow-hover);
+  transform: translateY(-1px);
+  text-decoration: none;
+}
+
+.auth-google-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+}
+
+@media (max-width: 991.98px) {
+  .auth-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

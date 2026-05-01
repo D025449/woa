@@ -12,6 +12,20 @@
 <section class="<%= surfaceClass %>">
     <div class="<%= headerClass %>">
         <div>
+            <% if (idPrefix === "home") { %>
+                <a class="home-panel-icon home-panel-icon--activity home-panel-icon--link" href="/groups" aria-label="<%= tr('home.auth.activityTitle') %>">
+                    <svg viewBox="0 0 64 64" fill="none">
+                        <defs>
+                            <linearGradient id="homePanelActivityGradient" x1="12" y1="48" x2="52" y2="18" gradientUnits="userSpaceOnUse">
+                                <stop stop-color="#0f766e" />
+                                <stop offset="1" stop-color="#2563eb" />
+                            </linearGradient>
+                        </defs>
+                        <path d="M14 42H22L27 28L34 40L41 22L46 33H52" stroke="url(#homePanelActivityGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M14 50H52" stroke="rgba(148,163,184,0.34)" stroke-width="3" stroke-linecap="round" />
+                    </svg>
+                </a>
+            <% } %>
             <h2 class="<%= titleClass %>"><%= title %></h2>
             <p class="<%= copyClass %>"><%= copy %></p>
         </div>

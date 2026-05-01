@@ -1,0 +1,154 @@
+body.profile-page {
+  background:
+    radial-gradient(circle at top left, var(--ui-page-accent-start), transparent 28%),
+    radial-gradient(circle at top right, var(--ui-page-accent-end), transparent 22%),
+    var(--ui-page-bg);
+  color: var(--ui-page-text);
+}
+
+.profile-subtitle {
+  margin: 0.75rem 0 0;
+  max-width: 44rem;
+}
+
+.profile-form {
+  padding: 1.2rem 1.35rem 1.35rem;
+}
+
+.profile-plans-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.95rem;
+  margin-top: 1rem;
+}
+
+.profile-plan-card {
+  padding: var(--ui-card-padding);
+}
+
+.profile-plan-card.is-current {
+  border-color: color-mix(in srgb, var(--ui-brand-success) 40%, transparent);
+  background: var(--ui-info-bg-soft);
+}
+
+.profile-plan-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ui-text-strong);
+}
+
+.profile-plan-price {
+  margin: 0.35rem 0 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ui-brand-success);
+}
+
+.profile-plan-copy {
+  margin: 0.55rem 0 0;
+  font-size: 0.88rem;
+  color: var(--ui-text-muted);
+  line-height: 1.45;
+  min-height: 2.4rem;
+}
+
+.profile-plan-actions {
+  margin-top: 0.8rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.profile-usage-panel {
+  margin-top: 0.9rem;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.profile-usage-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.profile-usage-card {
+  padding: var(--ui-card-padding-compact);
+}
+
+.profile-usage-card.is-warning {
+  border-color: color-mix(in srgb, var(--ui-warning-text-strong) 28%, transparent);
+  background: var(--ui-warning-bg);
+}
+
+.profile-usage-card.is-exceeded {
+  border-color: color-mix(in srgb, var(--ui-danger-text-dark) 28%, transparent);
+  background: var(--ui-danger-bg);
+}
+
+.profile-usage-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ui-text-strong);
+}
+
+.profile-usage-meta {
+  margin-top: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--ui-text-body);
+}
+
+.profile-usage-warning {
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ui-warning-text-strong);
+}
+
+.profile-usage-warning.is-exceeded {
+  color: var(--ui-danger-text-dark);
+}
+
+.profile-plan-features {
+  margin: 0.7rem 0 0;
+  padding-left: 1rem;
+  color: var(--ui-text-body);
+  font-size: 0.84rem;
+}
+
+.profile-plan-features li + li {
+  margin-top: 0.2rem;
+}
+
+.profile-deletion-status {
+  display: grid;
+  gap: 0.45rem;
+  min-height: 2.5rem;
+  color: var(--ui-text-body);
+  font-size: 0.9rem;
+}
+
+.profile-deletion-status strong {
+  color: var(--ui-text-strong);
+}
+
+.profile-deletion-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 992px) {
+  .profile-plans-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-usage-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-deletion-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}

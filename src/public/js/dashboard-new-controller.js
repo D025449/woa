@@ -3,12 +3,15 @@ import ChartView from "./chart-view.js";
 import WorkoutService from "./workout-service.js";
 import UIStateManager from "./UIStateManager.js";
 import WorkoutLibraryView from "./workout-library-view.js";
-import { createTranslator } from "./i18n.js";
+import { createTranslator, getCurrentLocale } from "./i18n.js";
+import Utils from "../../shared/Utils.js";
 
 export default class Controller {
 
   constructor() {
     this.t = createTranslator("dashboardNewPage");
+    this.libraryT = createTranslator("dashboardNewPage.library");
+    this.locale = getCurrentLocale();
     this.uiState = new UIStateManager("dashboardNewController");
     this.currentWorkoutId = this.readInitialWorkoutId() || this.uiState.get("selectedWorkoutId");
     this.libraryState = this.uiState.get("workoutLibraryState", {
@@ -17,6 +20,11 @@ export default class Controller {
       scope: "mine"
     });
     this.detailCopyElement = document.getElementById("dashboard-detail-copy");
+    this.workspacePanelElement = document.getElementById("dashboard-workspace-panel");
+    this.workspaceSummaryElement = document.getElementById("dashboard-workspace-summary");
+    this.workspaceSummaryTitleElement = document.getElementById("dashboard-workspace-summary-title");
+    this.workspaceSummaryMetaElement = document.getElementById("dashboard-workspace-summary-meta");
+    this.workspaceSummaryChipsElement = document.getElementById("dashboard-workspace-summary-chips");
     this.sharedMetaElement = document.getElementById("dashboard-shared-meta");
     this.sharedMetaTextElement = document.getElementById("dashboard-shared-meta-text");
     this.toastElement = document.getElementById("dashboard-toast");
@@ -119,6 +127,7 @@ export default class Controller {
         if (String(workout.id) === String(this.currentWorkoutId)) {
           this.currentWorkoutId = null;
           this.uiState.remove("selectedWorkoutId");
+          this.resetWorkspaceSummary();
         }
 
         this.libraryView.removeWorkout(workout.id);
@@ -147,6 +156,7 @@ export default class Controller {
     try {
       await this.loadShareableGroups();
       await this.libraryView.initialize();
+      this.resetWorkspaceSummary();
       await this.restoreSelectedWorkout();
     } catch (err) {
       console.error(err);
@@ -167,6 +177,7 @@ export default class Controller {
         this.uiState.remove("selectedWorkoutId");
         this.currentWorkoutId = null;
         this.libraryView.setSelectedWorkout(null);
+        this.resetWorkspaceSummary();
         return;
       }
 
@@ -176,9 +187,11 @@ export default class Controller {
       this.mapView.renderTrack(workout);
       this.libraryView.setSelectedWorkout(workout.id);
       this.updateWorkoutMeta(workout);
+      this.updateWorkspaceSummary(workout);
       this.closeMobileLibrary();
     } catch (err) {
       console.error(err);
+      this.resetWorkspaceSummary();
       this.showToast(this.t("messages.workoutOpenFailed"));
     } finally {
       this.chartView.hideLoading();
@@ -211,6 +224,62 @@ export default class Controller {
     this.sharedMetaElement.classList.remove("d-none");
     this.sharedMetaTextElement.textContent = this.t("messages.sharedBy", { owner: ownerLabel });
     this.detailCopyElement.textContent = this.t("messages.sharedWorkoutDetailCopy");
+  }
+
+  resetWorkspaceSummary() {
+    if (!this.workspaceSummaryElement || !this.workspaceSummaryTitleElement || !this.workspaceSummaryMetaElement || !this.workspaceSummaryChipsElement) {
+      return;
+    }
+
+    this.workspaceSummaryElement.classList.add("is-idle");
+    this.workspacePanelElement?.classList.remove("is-active");
+    this.workspaceSummaryTitleElement.textContent = this.t("workoutDataTitle");
+    this.workspaceSummaryMetaElement.textContent = this.t("messages.ownedWorkoutDetailCopy");
+    this.workspaceSummaryChipsElement.innerHTML = "";
+  }
+
+  updateWorkspaceSummary(workout) {
+    if (!this.workspaceSummaryElement || !this.workspaceSummaryTitleElement || !this.workspaceSummaryMetaElement || !this.workspaceSummaryChipsElement) {
+      return;
+    }
+
+    const startedAt = workout?.start_time ? new Date(workout.start_time) : null;
+    const dateLabel = startedAt
+      ? startedAt.toLocaleDateString(this.locale, { day: "2-digit", month: "short", year: "numeric" })
+      : this.libraryT("na");
+    const timeLabel = startedAt
+      ? startedAt.toLocaleTimeString(this.locale, { hour: "2-digit", minute: "2-digit" })
+      : "";
+
+    const chips = [
+      `${this.libraryT("duration")}: ${this.formatDuration(workout?.total_timer_time)}`,
+      `${this.libraryT("distance")}: ${this.formatDistance(workout?.total_distance)}`,
+      `${this.libraryT("avgPower")}: ${this.formatPower(workout?.avg_power)}`
+    ];
+
+    if (!workout?.is_owned) {
+      chips.push(this.t("sharedWorkoutEyebrow"));
+    }
+
+    this.workspaceSummaryElement.classList.remove("is-idle");
+    this.workspacePanelElement?.classList.add("is-active");
+    this.workspaceSummaryTitleElement.textContent = this.libraryT("workoutLabel", { id: workout?.id });
+    this.workspaceSummaryMetaElement.textContent = [dateLabel, timeLabel].filter(Boolean).join(" · ");
+    this.workspaceSummaryChipsElement.innerHTML = chips
+      .map((chip) => `<span class="dashboard-workspace-summary__chip">${chip}</span>`)
+      .join("");
+  }
+
+  formatDuration(value) {
+    return Number.isFinite(value) ? Utils.formatDuration(Number(value)) : this.libraryT("na");
+  }
+
+  formatDistance(value) {
+    return Number.isFinite(value) ? `${(Number(value) / 1000).toFixed(1)} km` : this.libraryT("na");
+  }
+
+  formatPower(value) {
+    return Number.isFinite(value) ? `${Math.round(Number(value))} W` : this.libraryT("na");
   }
 
   readInitialWorkoutId() {

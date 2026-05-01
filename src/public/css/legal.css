@@ -1,0 +1,55 @@
+body {
+  background:
+    radial-gradient(circle at top left, var(--ui-page-accent-start), transparent 28%),
+    radial-gradient(circle at top right, var(--ui-page-accent-end), transparent 22%),
+    var(--ui-page-bg);
+  color: var(--ui-page-text);
+}
+
+.legal-shell {
+  max-width: 860px;
+}
+
+.legal-surface {
+  border: 1px solid var(--ui-card-border-faint);
+  border-radius: 1.5rem;
+  background: var(--ui-bg-surface-gradient);
+  box-shadow: var(--ui-shadow-md);
+  overflow: hidden;
+}
+
+.legal-header {
+  padding: 1.25rem 1.5rem 1rem;
+  border-bottom: 1px solid var(--ui-divider-color);
+  background: linear-gradient(180deg, var(--ui-bg-subtle), var(--ui-bg-panel-soft));
+}
+
+.legal-kicker {
+  display: block;
+  margin-bottom: 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ui-text-muted);
+}
+
+.legal-title {
+  margin: 0;
+  font-size: clamp(1.8rem, 2.5vw, 2.4rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--ui-text-strong);
+}
+
+.legal-body {
+  padding: 1.4rem 1.5rem 1.5rem;
+}
+
+.legal-note {
+  border-left: 4px solid var(--ui-brand-success);
+  padding: 0.9rem 1rem;
+  background: var(--ui-brand-success-faint);
+  border-radius: 0.9rem;
+  color: var(--ui-text-default);
+}

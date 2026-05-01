@@ -27,6 +27,17 @@ function getIdVerifier() {
   return idVerifier;
 }
 
+function clearAuthState(req, res) {
+  res.clearCookie("accessToken");
+  res.clearCookie("refreshToken");
+  res.clearCookie("idToken");
+
+  if (req.session?.user_id || req.session?.user) {
+    delete req.session.user_id;
+    delete req.session.user;
+  }
+}
+
 export default async function authGlobal(req, res, next) {
 
   try {
@@ -36,11 +47,23 @@ export default async function authGlobal(req, res, next) {
     const idToken = req.cookies.idToken;
 
     if (!token && req.session?.user_id && req.session?.user?.sub) {
+      if (req.session?.user?.account_status === "deleted") {
+        clearAuthState(req, res);
+        req.user = null;
+        res.locals.user = null;
+        return next();
+      }
+
       req.user = {
         id: req.session.user_id,
         sub: req.session.user.sub,
         email: req.session?.user?.email,
-        language: req.session?.user?.language || "en"
+        display_name: req.session?.user?.display_name,
+        language: req.session?.user?.language || "en",
+        account_status: req.session?.user?.account_status || "active",
+        deletion_requested_at: req.session?.user?.deletion_requested_at || null,
+        deletion_scheduled_for: req.session?.user?.deletion_scheduled_for || null,
+        deleted_at: req.session?.user?.deleted_at || null
       };
       res.locals.user = req.user;
       return next();
@@ -82,7 +105,11 @@ export default async function authGlobal(req, res, next) {
       sub: user.sub,
       email: dbuser.email,
       display_name: dbuser.display_name,
-      language: normalizedLanguage
+      language: normalizedLanguage,
+      account_status: dbuser.account_status || "active",
+      deletion_requested_at: dbuser.deletion_requested_at || null,
+      deletion_scheduled_for: dbuser.deletion_scheduled_for || null,
+      deleted_at: dbuser.deleted_at || null
     };
 
     // 🔥 5. Request setzen
@@ -92,8 +119,19 @@ export default async function authGlobal(req, res, next) {
       email: dbuser.email,
       username: user.username,
       display_name: dbuser.display_name,
-      language: normalizedLanguage
+      language: normalizedLanguage,
+      account_status: dbuser.account_status || "active",
+      deletion_requested_at: dbuser.deletion_requested_at || null,
+      deletion_scheduled_for: dbuser.deletion_scheduled_for || null,
+      deleted_at: dbuser.deleted_at || null
     };
+
+    if (dbuser.account_status === "deleted") {
+      clearAuthState(req, res);
+      req.user = null;
+      res.locals.user = null;
+      return next();
+    }
 
     res.locals.user = req.user;
 
@@ -103,10 +141,7 @@ export default async function authGlobal(req, res, next) {
 
     console.warn("JWT verify failed:", err.message);
 
-    if (req.session?.user_id || req.session?.user) {
-      delete req.session.user_id;
-      delete req.session.user;
-    }
+    clearAuthState(req, res);
 
     next();
 

@@ -8,6 +8,7 @@
     "start": "node src/index.js",
     "worker": "node src/workers/import-worker.js",
     "migrate": "node src/migrate.js",
+    "account-deletion:sweep": "node src/scripts/run-account-deletion-sweep.js",
     "db:rebuild": "node src/db-rebuild.js",
     "bench:persistence": "node src/scripts/benchmark-workout-persistence.js",
     "migrate:workout-streams:absolute": "node src/scripts/migrate-workout-streams-to-absolute.js",

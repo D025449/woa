@@ -1,6 +1,7 @@
 import express from "express";
 
 import authMiddleware from "../middleware/authMiddleware.js";
+import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
 //import checkSessionMiddleware from "../middleware/checkSessionMiddleware.js";
 //import uploadMiddleware from "../middleware/uploadMiddleware.js";
 
@@ -44,7 +45,7 @@ function normalizeArrayParam(value) {
 );*/
 
 
-router.delete("/workouts/:id", authMiddleware, async (req, res) => {
+router.delete("/workouts/:id", authMiddleware, requireActiveAccountWrite, async (req, res) => {
   const workoutId = req.params.id;
   const uid = req.user.id;
 
@@ -288,7 +289,7 @@ router.get("/cp-best-efforts", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.post("segments/delete/:id", authMiddleware, async (req, res, next) => {
+router.post("segments/delete/:id", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
 
     const workoutId = req.params.id;
     const uid = req.user?.id;
@@ -306,7 +307,7 @@ router.post("segments/delete/:id", authMiddleware, async (req, res, next) => {
 });
 
 
-router.post("/workouts/:id/segments", authMiddleware, async (req, res, next) => {
+router.post("/workouts/:id/segments", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const workoutId = req.params.id;
     const uid = req.user?.id;

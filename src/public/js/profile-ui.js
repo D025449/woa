@@ -1,3 +1,5 @@
+import confirmModal from "./confirm-modal.js";
+
 class ProfileUI {
   constructor() {
     this.messages = window.profileMessages || {};
@@ -11,10 +13,15 @@ class ProfileUI {
     this.usagePanelEl = document.getElementById("profile-usage-panel");
     this.plansGridEl = document.getElementById("profile-plans-grid");
     this.preferencesSaveButton = document.getElementById("profile-save-preferences");
+    this.deletionAlertEl = document.getElementById("profile-deletion-alert");
+    this.deletionStatusEl = document.getElementById("profile-deletion-status");
+    this.requestDeletionButton = document.getElementById("profile-request-deletion");
+    this.cancelDeletionButton = document.getElementById("profile-cancel-deletion");
     this.plans = [];
     this.membership = null;
     this.usage = null;
     this.currentLanguage = "en";
+    this.profileData = null;
 
     this.registerEvents();
     this.boot();
@@ -28,6 +35,34 @@ class ProfileUI {
 
     this.preferencesSaveButton?.addEventListener("click", async () => {
       await this.save();
+    });
+
+    this.requestDeletionButton?.addEventListener("click", async () => {
+      const accepted = await confirmModal({
+        title: this.t("deletionRequestTitle", "Request account deletion"),
+        message: this.t("deletionRequestConfirm", "Request account deletion?"),
+        acceptLabel: this.t("requestDeletion", "Request account deletion"),
+        cancelLabel: this.t("cancelAction", "Cancel"),
+        acceptClass: "btn-danger"
+      });
+      if (!accepted) {
+        return;
+      }
+      await this.requestDeletion();
+    });
+
+    this.cancelDeletionButton?.addEventListener("click", async () => {
+      const accepted = await confirmModal({
+        title: this.t("deletionCancelTitle", "Cancel deletion"),
+        message: this.t("deletionCancelConfirm", "Cancel the pending account deletion?"),
+        acceptLabel: this.t("cancelDeletion", "Cancel deletion"),
+        cancelLabel: this.t("deletionKeepScheduled", "Keep scheduled deletion"),
+        acceptClass: "btn-dark"
+      });
+      if (!accepted) {
+        return;
+      }
+      await this.cancelDeletion();
     });
   }
 
@@ -58,7 +93,9 @@ class ProfileUI {
         throw new Error(result.error || `Failed to load profile (${response.status})`);
       }
 
+      this.profileData = result.data || {};
       this.fillForm(result.data || {});
+      this.renderDeletionState();
     } catch (err) {
       console.error(err);
       this.showError(err.message || this.t("loadProfileError", "Could not load profile."));
@@ -151,6 +188,8 @@ class ProfileUI {
       }
 
       this.fillForm(result.data || {});
+      this.profileData = result.data || {};
+      this.renderDeletionState();
       this.showSuccess(this.t("profileSaved", "Profile saved."));
 
       const nextLanguage = String(result.data?.language || payload.language || "en").toLowerCase();
@@ -198,6 +237,111 @@ class ProfileUI {
   hideProfileMessages() {
     this.errorEl?.classList.add("d-none");
     this.successEl?.classList.add("d-none");
+  }
+
+  renderDeletionState() {
+    if (!this.deletionStatusEl || !this.requestDeletionButton || !this.cancelDeletionButton) {
+      return;
+    }
+
+    const status = this.profileData?.accountStatus || "active";
+    const scheduledFor = this.profileData?.deletionScheduledFor
+      ? new Date(this.profileData.deletionScheduledFor)
+      : null;
+    const scheduledLabel = scheduledFor && !Number.isNaN(scheduledFor.getTime())
+      ? scheduledFor.toLocaleDateString(this.currentLanguage || undefined, { year: "numeric", month: "short", day: "2-digit" })
+      : "–";
+
+    if (status === "pending_deletion") {
+      this.requestDeletionButton.classList.add("d-none");
+      this.cancelDeletionButton.classList.remove("d-none");
+      this.deletionStatusEl.innerHTML = `
+        <strong>${this.t("deletionPendingTitle", "Deletion scheduled")}</strong>
+        <span>${this.t("deletionPendingCopy", "Your account is scheduled for deletion on {date}.", { date: scheduledLabel })}</span>
+        <span>${this.t("deletionReadOnly", "Most write actions are disabled until you cancel deletion or the deadline is reached.")}</span>
+      `;
+      this.deletionAlertEl?.classList.remove("d-none");
+      if (this.deletionAlertEl) {
+        this.deletionAlertEl.textContent = this.t("deletionPendingCopy", "Your account is scheduled for deletion on {date}.", { date: scheduledLabel });
+      }
+      this.updateReadOnlyState(true);
+      this.renderPlans();
+      return;
+    }
+
+    this.requestDeletionButton.classList.remove("d-none");
+    this.cancelDeletionButton.classList.add("d-none");
+    this.deletionStatusEl.innerHTML = `<span>${this.t("deletionRequestCopy", "Request account deletion to start a 28-day grace period before your account is removed.")}</span>`;
+    this.deletionAlertEl?.classList.add("d-none");
+    this.updateReadOnlyState(false);
+    this.renderPlans();
+  }
+
+  updateReadOnlyState(isReadOnly) {
+    this.submitButton && (this.submitButton.disabled = isReadOnly);
+    this.preferencesSaveButton && (this.preferencesSaveButton.disabled = isReadOnly);
+  }
+
+  async requestDeletion() {
+    try {
+      const response = await fetch("/api/profile/deletion/request", {
+        method: "POST",
+        credentials: "include"
+      });
+
+      if (response.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.error || this.t("deletionRequestError", "Could not request account deletion."));
+      }
+
+      this.profileData = {
+        ...(this.profileData || {}),
+        accountStatus: result.data?.accountStatus || "pending_deletion",
+        deletionRequestedAt: result.data?.deletionRequestedAt || null,
+        deletionScheduledFor: result.data?.deletionScheduledFor || null
+      };
+      this.renderDeletionState();
+      this.showSuccess(this.t("deletionRequested", "Account deletion requested."));
+    } catch (err) {
+      console.error(err);
+      this.showError(err.message || this.t("deletionRequestError", "Could not request account deletion."));
+    }
+  }
+
+  async cancelDeletion() {
+    try {
+      const response = await fetch("/api/profile/deletion/cancel", {
+        method: "POST",
+        credentials: "include"
+      });
+
+      if (response.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.error || this.t("deletionCancelError", "Could not cancel account deletion."));
+      }
+
+      this.profileData = {
+        ...(this.profileData || {}),
+        accountStatus: result.data?.accountStatus || "active",
+        deletionRequestedAt: null,
+        deletionScheduledFor: null
+      };
+      this.renderDeletionState();
+      this.showSuccess(this.t("deletionCanceled", "Account deletion canceled."));
+    } catch (err) {
+      console.error(err);
+      this.showError(err.message || this.t("deletionCancelError", "Could not cancel account deletion."));
+    }
   }
 
   showPaymentsError(message) {
@@ -294,7 +438,7 @@ class ProfileUI {
       <div class="small text-muted">${this.t("usageOverview", "Current usage")}</div>
       <div class="profile-usage-grid">
         ${items.map((item) => `
-          <div class="profile-usage-card ${item.exceeded ? "is-exceeded" : item.warning ? "is-warning" : ""}">
+          <div class="profile-usage-card ui-card ui-card--subtle ${item.exceeded ? "is-exceeded" : item.warning ? "is-warning" : ""}">
             <div class="profile-usage-label">${this.escape(item.label || item.featureKey)}</div>
             <div class="profile-usage-meta">${this.escape(String(item.used ?? 0))} / ${this.escape(String(item.limit ?? "–"))} · ${this.escape(item.periodLabel || "")}</div>
             ${item.exceeded
@@ -319,13 +463,14 @@ class ProfileUI {
     }
 
     const currentPlanCode = this.membership?.isActive ? (this.membership?.plan?.code || null) : null;
+    const isReadOnly = (this.profileData?.accountStatus || "active") === "pending_deletion";
 
     this.plansGridEl.innerHTML = this.plans.map((plan) => {
       const effectiveCurrentCode = currentPlanCode || "free";
       const isCurrent = effectiveCurrentCode === plan.code;
       const featureList = this.getPlanFeatureList(plan);
       return `
-        <article class="profile-plan-card ${isCurrent ? "is-current" : ""}">
+        <article class="profile-plan-card ui-card ui-card--subtle ${isCurrent ? "is-current" : ""}">
           <h3 class="profile-plan-name">${plan.name}</h3>
           <p class="profile-plan-price">${Number(plan.price).toFixed(2)} ${plan.currency}</p>
           <p class="profile-plan-copy">${this.getPlanDescription(plan)}</p>
@@ -339,7 +484,7 @@ class ProfileUI {
               class="btn ${isCurrent ? "btn-outline-secondary" : "btn-dark"} btn-sm"
               data-action="upgrade-plan"
               data-plan-code="${plan.code}"
-              ${isCurrent || plan.code === "free" ? "disabled" : ""}>
+              ${isCurrent || plan.code === "free" || isReadOnly ? "disabled" : ""}>
               ${isCurrent ? this.t("active", "Active") : this.t("upgradeWithPayPal", "Upgrade with PayPal")}
             </button>
           </div>
@@ -454,9 +599,12 @@ class ProfileUI {
     window.history.replaceState({}, "", url.toString());
   }
 
-  t(key, fallback) {
+  t(key, fallback, params = {}) {
     const value = this.messages?.[key];
-    return typeof value === "string" && value.trim() ? value : fallback;
+    const template = typeof value === "string" && value.trim() ? value : fallback;
+    return String(template).replace(/\{(\w+)\}/g, (match, token) => (
+      Object.prototype.hasOwnProperty.call(params, token) ? String(params[token]) : match
+    ));
   }
 
   escape(value) {

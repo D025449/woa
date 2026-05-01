@@ -1,6 +1,7 @@
 import express from "express";
 
 import authMiddleware from "../middleware/authMiddleware.js";
+import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
 //import checkSessionMiddleware from "../middleware/checkSessionMiddleware.js";
 //import uploadMiddleware from "../middleware/uploadMiddleware.js";
 
@@ -219,7 +220,7 @@ function createStepLogger(scope, meta = {}) {
 
 
 
-router.post("/track-lookup", authMiddleware, async (req, res, next) => {
+router.post("/track-lookup", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   const timing = createStepLogger("segments.track-lookup");
   try {
     const { start, end } = req.body;
@@ -357,7 +358,7 @@ router.post("/track-lookup", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.post("/track-lookup-v2", authMiddleware, async (req, res, next) => {
+router.post("/track-lookup-v2", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   const timing = createStepLogger("segments.track-lookup-v2");
 
   try {
@@ -457,7 +458,7 @@ router.post("/track-lookup-v2", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.post("/save/:id/segments", authMiddleware, async (req, res, next) => {
+router.post("/save/:id/segments", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const transaction_id = req.params.id;
     const uid = req.user?.id;
@@ -524,7 +525,7 @@ router.get("/:id/sharing", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.put("/:id/sharing", authMiddleware, async (req, res, next) => {
+router.put("/:id/sharing", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const uid = req.user?.id;
     const segmentId = Number(req.params.id);
@@ -542,7 +543,7 @@ router.put("/:id/sharing", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.post("/query", authMiddleware, async (req, res, next) => {
+router.post("/query", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const uid = req.user.id
     const { bounds, excludeIds, scope } = req.body;
@@ -656,7 +657,7 @@ router.get("/:id/best-efforts-status", authMiddleware, async (req, res, next) =>
   }
 });
 
-router.delete("/:id", authMiddleware, async (req, res, next) => {
+router.delete("/:id", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const segmentId = req.params.id;
     const uid = req.user?.id;

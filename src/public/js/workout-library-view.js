@@ -410,6 +410,14 @@ export default class WorkoutLibraryView {
         const workoutId = element.getAttribute("data-workout-open");
         this.handlers.onWorkoutOpen?.(workoutId);
       });
+      element.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") {
+          return;
+        }
+        event.preventDefault();
+        const workoutId = element.getAttribute("data-workout-open");
+        this.handlers.onWorkoutOpen?.(workoutId);
+      });
     });
 
     this.container.querySelectorAll(".workout-share-inline").forEach((element) => {
@@ -582,6 +590,7 @@ export default class WorkoutLibraryView {
 
   renderWorkoutCard(workout) {
     const isSelected = String(workout.id) === this.selectedWorkoutId;
+    const hasSelection = !!this.selectedWorkoutId;
     const workoutId = String(workout.id);
     const isOwned = !!workout.is_owned;
     const hasValidGps = workout.validGps ?? workout.validgps ?? false;
@@ -601,25 +610,34 @@ export default class WorkoutLibraryView {
       : this.t("sharePrivate");
     const draft = this.getShareDraft(workoutId);
     const shareError = this.shareErrors.get(workoutId) || "";
+    const tone = this.getWorkoutTone(workout);
+    const contextLabel = this.getWorkoutContextLabel(workout, hasValidGps);
+    const dimmedClass = hasSelection && !isSelected ? " is-dimmed" : "";
 
     return `
       <article
-        class="workout-library-card${isSelected ? " is-selected" : ""}"
+        class="workout-library-card workout-library-card--${tone}${isSelected ? " is-selected" : ""}${dimmedClass}"
         data-workout-open="${workout.id}"
         role="button"
         tabindex="0"
       >
+        <div class="workout-library-card__accent"></div>
         <div class="workout-library-card__head">
-          <div>
+          <div class="workout-library-card__identity">
+            <div class="workout-library-card__context">
+              <span class="workout-library-card__context-chip">${contextLabel}</span>
+              <span class="workout-library-card__context-chip">${dayLabel}</span>
+              ${timeLabel ? `<span class="workout-library-card__context-chip">${timeLabel}</span>` : ""}
+            </div>
             <div class="workout-library-card__title">${this.t("workoutLabel", { id: workout.id })}</div>
-            <div class="workout-library-card__meta">${dayLabel}${timeLabel ? ` · ${timeLabel}` : ""}</div>
+            <div class="workout-library-card__meta">${this.buildIdentitySummary(workout)}</div>
             ${workout.is_owned ? "" : `
               <div class="workout-library-card__owner">
                 ${this.t("sharedBy", { owner: workout.owner_display_name || workout.owner_email || this.t("anotherUser") })}
               </div>
             `}
           </div>
-          <div class="workout-library-card__primary-metrics">
+          <div class="workout-library-card__kpi-strip">
             <div class="workout-library-kpi">
               <span class="workout-library-kpi__label">${this.t("duration")}</span>
               <span class="workout-library-kpi__value">${Utils.formatDuration(workout.total_timer_time)}</span>
@@ -642,12 +660,14 @@ export default class WorkoutLibraryView {
             <span class="workout-library-stat"><span class="workout-library-stat__label">${this.t("avgHr")}</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_heart_rate)} bpm</span></span>
             <span class="workout-library-stat"><span class="workout-library-stat__label">hm</span><span class="workout-library-stat__value">${this.formatAscentMeters(workout.total_ascent)}</span></span>
           </div>
-          <div class="workout-library-card__footer">
+          <div class="workout-library-card__status-row">
             <div class="workout-library-tags">
               <span class="workout-library-tag">${hasValidGps ? this.t("gps") : this.t("noGps")}</span>
               <span class="workout-library-tag">${workout.avg_power ? this.t("power") : this.t("basic")}</span>
               <span class="workout-library-tag">${shareTag}</span>
             </div>
+          </div>
+          <div class="workout-library-card__footer">
             <div class="workout-library-actions">
               ${isOwned ? `
                 <a
@@ -727,5 +747,51 @@ export default class WorkoutLibraryView {
     }
 
     return `${Math.round(Number(value))} m`;
+  }
+
+  getWorkoutTone(workout) {
+    const durationSeconds = Number(workout.total_timer_time) || 0;
+    const avgPower = Number(workout.avg_power) || 0;
+    const hasGps = workout.validGps ?? workout.validgps ?? false;
+
+    if (avgPower >= 220) {
+      return "power";
+    }
+
+    if (durationSeconds >= 7200) {
+      return "endurance";
+    }
+
+    if (hasGps) {
+      return "route";
+    }
+
+    return "basic";
+  }
+
+  getWorkoutContextLabel(workout, hasValidGps) {
+    if (Number(workout.avg_power) > 0) {
+      return this.t("power");
+    }
+
+    return hasValidGps ? this.t("gps") : this.t("basic");
+  }
+
+  buildIdentitySummary(workout) {
+    const summary = [];
+
+    if (Number.isFinite(workout.total_distance) && Number(workout.total_distance) > 0) {
+      summary.push(this.formatDistance(workout.total_distance));
+    }
+
+    if (Number.isFinite(workout.avg_speed) && Number(workout.avg_speed) > 0) {
+      summary.push(this.formatSpeed(workout.avg_speed));
+    }
+
+    if (!summary.length) {
+      summary.push(this.t("na"));
+    }
+
+    return summary.join(" · ");
   }
 }

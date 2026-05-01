@@ -129,7 +129,21 @@
       "featurePlanGenerations": "plan generations / month",
       "featureCoachCommentary": "coach commentary calls / month",
       "featureSavedPlans": "saved plans",
-      "featureStoredWorkouts": "stored workouts"
+      "featureStoredWorkouts": "stored workouts",
+      "deletionPendingTitle": "Deletion scheduled",
+      "deletionPendingCopy": "Your account is scheduled for deletion on {date}.",
+      "deletionRequestCopy": "Request account deletion to start a 28-day grace period before your account is removed.",
+      "deletionRequested": "Account deletion requested.",
+      "deletionCanceled": "Account deletion canceled.",
+      "deletionRequestError": "Could not request account deletion.",
+      "deletionCancelError": "Could not cancel account deletion.",
+      "deletionRequestTitle": "Request account deletion",
+      "deletionCancelTitle": "Cancel deletion",
+      "deletionRequestConfirm": "Request account deletion? This starts the 28-day grace period.",
+      "deletionCancelConfirm": "Cancel the pending account deletion?",
+      "deletionKeepScheduled": "Keep scheduled deletion",
+      "cancelAction": "Cancel",
+      "deletionReadOnly": "Most write actions are disabled until you cancel deletion or the deadline is reached."
     },
     "planDescriptions": {
       "plus": "Upgrade for expanded limits and smoother day-to-day training workflows.",
@@ -137,7 +151,11 @@
       "premium": "Full feature set with maximum limits and premium performance tooling."
     },
     "sectionUpgradeTitle": "Account Upgrade",
-    "sectionUpgradeCopy": "Migrate your account to Plus, Pro, or Premium via PayPal Checkout."
+    "sectionUpgradeCopy": "Migrate your account to Plus, Pro, or Premium via PayPal Checkout.",
+    "sectionDeletionTitle": "Account deletion",
+    "sectionDeletionCopy": "Start a deletion request with a 28-day grace period before the account is permanently removed.",
+    "requestDeletion": "Request account deletion",
+    "cancelDeletion": "Cancel deletion"
   },
   "uploadPage": {
     "title": "FIT Upload",
@@ -190,15 +208,15 @@
     "title": "Workout Home",
     "auth": {
       "heroKicker": "App Home",
-      "heroTitle": "Workout Console",
-      "heroSubtitle": "Choose your entry point for analytics, segments, and uploads. This page is intentionally a navigation hub, not the deep analysis view itself.",
+      "heroTitle": "Welcome back",
+      "heroSubtitle": "Choose what you want to do next: analyze workouts, compare segments, review trends, or upload new activities.",
       "chipUser": "User",
       "chipMode": "Mode",
       "chipModeValue": "Workspace Hub",
       "activityTitle": "Activity",
-      "activityCopy": "New shared workouts and GPS segments from your groups.",
+      "activityCopy": "New shared workouts and group activity at a glance.",
       "myInvitesTitle": "My Invites",
-      "myInvitesCopy": "Incoming group invites you can accept or reject."
+      "myInvitesCopy": "Open group invites waiting for your response."
     },
     "guest": {
       "brand": "Workout Dashboard",
@@ -224,20 +242,20 @@
     "tiles": {
       "workoutEyebrow": "Workout Library",
       "workoutTitle": "Workouts",
-      "workoutCopy": "Refined workout library with direct access to chart and map.",
-      "workoutCta": "Go to analysis view",
-      "segmentsEyebrow": "Map-first Design",
+      "workoutCopy": "Find recent sessions fast, compare key metrics, and jump straight into chart and map.",
+      "workoutCta": "Open workouts",
+      "segmentsEyebrow": "Segments",
       "segmentsTitle": "Segments",
-      "segmentsCopy": "Define, compare, and analyze segments with elevation profiles and best efforts.",
-      "segmentsCta": "Go to segments view",
+      "segmentsCopy": "Compare your segments, review best efforts, and see where you have improved.",
+      "segmentsCta": "Open segments",
       "analyticsEyebrow": "Training Trends",
       "analyticsTitle": "Analytics",
-      "analyticsCopy": "CTL, ATL, FTP, and CP trends in a dedicated analytics view.",
-      "analyticsCta": "Go to analytics page",
-      "uploadEyebrow": "Import Runner",
+      "analyticsCopy": "Track training load, FTP, and performance trends over longer periods.",
+      "analyticsCta": "Open analytics",
+      "uploadEyebrow": "Import",
       "uploadTitle": "Upload",
-      "uploadCopy": "Upload FIT and ZIP files and track processing in the upload view.",
-      "uploadCta": "Go to upload"
+      "uploadCopy": "Upload new workouts and keep your training history up to date.",
+      "uploadCta": "Open upload"
     }
   },
   "upload": {
@@ -275,41 +293,6 @@
     "stageSavingResults": "Saving results",
     "stageCompleted": "Completed",
     "stageFailed": "Failed"
-  },
-  "dashboardLegacy": {
-    "title": "Workout Dashboard",
-    "topbarTitle": "Workout Dashboard",
-    "heroTitle": "Workout Dashboard",
-    "chipUser": "User",
-    "chipUnknownUser": "Unknown",
-    "chipModeLabel": "Mode",
-    "chipModeValue": "Desktop Focus",
-    "chipFocusLabel": "Focus",
-    "chipFocusValue": "Analytics · Segments · Map",
-    "libraryEyebrow": "Workout Library",
-    "libraryTitle": "Workouts",
-    "workoutDataTitle": "Workout Data",
-    "btnCreateSegmentTitle": "Enable Create Segment mode.",
-    "btnCreateSegment": "＋ Create Segment",
-    "btnCreateGpsTitle": "Enable Create GPS Segment mode.",
-    "btnCreateGps": "🛰 Create GPS Segment",
-    "btnDeleteSegment": "🗑 Delete Segment",
-    "routeMapTitle": "Route Map",
-    "signIn": "Sign in",
-    "chart": {
-      "workout": "Workout",
-      "snapshot": "Snapshot",
-      "timeLabel": "Time",
-      "power": "Power",
-      "heartRate": "HR",
-      "cadence": "Cad.",
-      "speed": "Speed",
-      "altitude": "Alt.",
-      "axisPower": "W",
-      "axisHeartCadence": "HR/Cad",
-      "axisSpeed": "km/h",
-      "axisAltitude": "m"
-    }
   },
   "dashboardNewPage": {
     "title": "Workouts",
@@ -1072,6 +1055,12 @@
       "membersLabel": "Members",
       "moreMembers": "+{count} more",
       "memberFallback": "Member",
+      "roleOwner": "Owner",
+      "roleAdmin": "Admin",
+      "roleMember": "Member",
+      "visibilityPrivate": "Private",
+      "visibilityDiscoverable": "Discoverable",
+      "noDescription": "No description yet.",
       "emptyInvitesTitle": "No incoming invites.",
       "emptyInvitesBody": "Only group invites addressed to you appear here.",
       "emptySentInvitesTitle": "No sent invites.",

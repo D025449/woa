@@ -4,6 +4,17 @@ import UserDBService from "../services/userDBService.js";
 let accessVerifier;
 let idVerifier;
 
+function clearAuthCookies(req, res) {
+  res.clearCookie("accessToken");
+  res.clearCookie("refreshToken");
+  res.clearCookie("idToken");
+
+  if (req.session?.user_id || req.session?.user) {
+    delete req.session.user_id;
+    delete req.session.user;
+  }
+}
+
 function getAccessVerifier() {
   if (!accessVerifier) {
     accessVerifier = CognitoJwtVerifier.create({
@@ -35,6 +46,10 @@ export default async function authMiddleware(req, res, next) {
       return res.status(401).json({ error: "No token provided" });
     }*/
     if (req?.user?.id) {
+      if (req.user.account_status === "deleted") {
+        clearAuthCookies(req, res);
+        return res.status(403).json({ error: "Account has been deleted" });
+      }
       return next();
 
     }
@@ -68,8 +83,17 @@ export default async function authMiddleware(req, res, next) {
       sub: accessPayload.sub,
       email: dbuser.email,
       username: user.username,
-      display_name: dbuser.display_name
+      display_name: dbuser.display_name,
+      account_status: dbuser.account_status || "active",
+      deletion_requested_at: dbuser.deletion_requested_at || null,
+      deletion_scheduled_for: dbuser.deletion_scheduled_for || null,
+      deleted_at: dbuser.deleted_at || null
     };
+
+    if (dbuser.account_status === "deleted") {
+      clearAuthCookies(req, res);
+      return res.status(403).json({ error: "Account has been deleted" });
+    }
 
     next();
 

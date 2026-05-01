@@ -1,6 +1,7 @@
 import express from "express";
 
 import authMiddleware from "../middleware/authMiddleware.js";
+import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
 import CollaborationDBService from "../services/collaborationDBService.js";
 import SegmentDBService from "../services/segmentDBService.js";
 import { enqueueSegmentBestEfforts } from "../services/segment-best-efforts-service.js";
@@ -17,7 +18,7 @@ router.get("/groups", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.post("/groups", authMiddleware, async (req, res, next) => {
+router.post("/groups", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const group = await CollaborationDBService.createGroup(req.user.id, req.body);
     res.status(201).json({ data: group });
@@ -26,7 +27,7 @@ router.post("/groups", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.put("/groups/:groupId", authMiddleware, async (req, res, next) => {
+router.put("/groups/:groupId", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const group = await CollaborationDBService.updateGroup(
       req.user.id,
@@ -51,7 +52,7 @@ router.get("/groups/:groupId", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.post("/groups/:groupId/leave", authMiddleware, async (req, res, next) => {
+router.post("/groups/:groupId/leave", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const data = await CollaborationDBService.leaveGroup(
       req.user.id,
@@ -63,7 +64,7 @@ router.post("/groups/:groupId/leave", authMiddleware, async (req, res, next) => 
   }
 });
 
-router.delete("/groups/:groupId", authMiddleware, async (req, res, next) => {
+router.delete("/groups/:groupId", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const data = await CollaborationDBService.deleteGroup(
       req.user.id,
@@ -75,7 +76,7 @@ router.delete("/groups/:groupId", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.post("/groups/:groupId/invites", authMiddleware, async (req, res, next) => {
+router.post("/groups/:groupId/invites", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const invite = await CollaborationDBService.createInvite(
       req.user.id,
@@ -88,7 +89,7 @@ router.post("/groups/:groupId/invites", authMiddleware, async (req, res, next) =
   }
 });
 
-router.post("/groups/:groupId/publish", authMiddleware, async (req, res, next) => {
+router.post("/groups/:groupId/publish", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const groupId = Number(req.params.groupId);
     const contentType = String(req.body?.contentType || "").toLowerCase();
@@ -210,7 +211,7 @@ router.get("/feed", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.post("/feed/:feedEventId/dismiss", authMiddleware, async (req, res, next) => {
+router.post("/feed/:feedEventId/dismiss", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const data = await CollaborationDBService.dismissFeedEventForUser(
       req.user.id,
@@ -222,7 +223,7 @@ router.post("/feed/:feedEventId/dismiss", authMiddleware, async (req, res, next)
   }
 });
 
-router.post("/invites/:inviteId/accept", authMiddleware, async (req, res, next) => {
+router.post("/invites/:inviteId/accept", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const result = await CollaborationDBService.respondToInvite(
       req.user.id,
@@ -262,7 +263,7 @@ router.post("/invites/:inviteId/accept", authMiddleware, async (req, res, next) 
   }
 });
 
-router.post("/invites/:inviteId/decline", authMiddleware, async (req, res, next) => {
+router.post("/invites/:inviteId/decline", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const result = await CollaborationDBService.respondToInvite(
       req.user.id,
@@ -275,7 +276,7 @@ router.post("/invites/:inviteId/decline", authMiddleware, async (req, res, next)
   }
 });
 
-router.post("/invites/:inviteId/revoke", authMiddleware, async (req, res, next) => {
+router.post("/invites/:inviteId/revoke", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const result = await CollaborationDBService.revokeInvite(
       req.user.id,
@@ -287,7 +288,7 @@ router.post("/invites/:inviteId/revoke", authMiddleware, async (req, res, next) 
   }
 });
 
-router.post("/invites/:inviteId/dismiss-sent", authMiddleware, async (req, res, next) => {
+router.post("/invites/:inviteId/dismiss-sent", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const result = await CollaborationDBService.dismissSentInviteForUser(
       req.user.id,

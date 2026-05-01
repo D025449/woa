@@ -1,6 +1,7 @@
 import "./config/env.js";
 
 import { createApp } from "./app.js";
+import { startAccountDeletionScheduler } from "./services/accountDeletionScheduler.js";
 
 async function start() {
     console.log("Server debug start");
@@ -11,6 +12,8 @@ async function start() {
     app.listen(PORT, "0.0.0.0", () => {
         console.log(`Server running on port ${PORT}`);
     });
+
+    startAccountDeletionScheduler();
 
 }
 

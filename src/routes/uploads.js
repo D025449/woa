@@ -4,6 +4,7 @@ import { Router } from "express";
 import unzipper from "unzipper";
 
 import authMiddleware from "../middleware/authMiddleware.js";
+import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
 import EntitlementService from "../services/entitlementService.js";
 import uploadMiddleware from "../middleware/uploadMiddleware.js";
 import { createAndEnqueueImport } from "../services/import-service.js";
@@ -54,6 +55,7 @@ async function countIncomingFitFiles(uploadedFiles = []) {
 router.post(
   "/",
   authMiddleware,
+  requireActiveAccountWrite,
   uploadMiddleware.array("files", 50),
   async (req, res, next) => {
     const uploadedFiles = req.files || [];
