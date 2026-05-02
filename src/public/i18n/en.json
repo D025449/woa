@@ -10,6 +10,7 @@
       "coaching": "Coaching",
       "upload": "Upload",
       "groups": "Groups",
+      "about": "About",
       "openProfile": "Open profile",
       "logout": "Sign out"
     },
@@ -375,7 +376,7 @@
     "loadMore": "Load more",
     "primaryEyebrow": "Primary Analysis",
     "spatialEyebrow": "Spatial Context",
-    "mapCopy": "Track, segment ranges, and map context as a complementary analysis surface.",
+    "mapCopy": "Track, segment ranges, and map context.",
     "xAxisAria": "X Axis",
     "timeAxis": "Time",
     "distanceAxis": "Distance",

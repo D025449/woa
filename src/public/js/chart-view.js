@@ -101,7 +101,6 @@ export default class ChartView {
   initChart() {
     const labels = this.getChartLabels();
     this.chart.setOption({
-      title: { text: "..." },
       tooltip: {
         trigger: "axis",
         confine: true,
@@ -208,7 +207,6 @@ export default class ChartView {
     const labels = this.getChartLabels();
 
     this.chart.setOption({
-      title: { text: new Date(sd).toDateString() },
       xAxis: {
         min: xRange.min,
         max: xRange.max,
@@ -254,7 +252,6 @@ export default class ChartView {
     const labels = this.getChartLabels();
 
     this.chart.setOption({
-      title: { text: new Date(cpview.startTime).toDateString() },
       xAxis: {
         min: xRange.min,
         max: xRange.max,

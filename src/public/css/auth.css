@@ -18,6 +18,46 @@ body.auth-page {
   color: var(--ui-text-inverse);
 }
 
+.auth-topbar .btn {
+  border-radius: 999px !important;
+  padding-inline: 0.95rem;
+  font-weight: 600;
+  border-width: 1px;
+}
+
+.auth-topbar .btn-outline-light {
+  color: var(--ui-text-on-dark);
+  border-color: var(--ui-topbar-control-border);
+  background: var(--ui-topbar-control-bg);
+}
+
+.auth-topbar .btn-outline-light:hover {
+  color: var(--ui-text-inverse);
+  background: var(--ui-topbar-control-bg-hover);
+  border-color: var(--ui-topbar-control-border-hover);
+}
+
+.public-topbar-dropdown {
+  border-radius: 1rem;
+  border: 1px solid var(--ui-card-border-faint);
+  background: var(--ui-bg-card-gradient);
+  box-shadow: var(--ui-shadow-floating);
+  padding: 0.45rem;
+}
+
+.public-topbar-dropdown .dropdown-item {
+  border-radius: 0.8rem;
+  font-weight: 600;
+  color: var(--ui-text-strong);
+  padding: 0.55rem 0.8rem;
+}
+
+.public-topbar-dropdown .dropdown-item:hover,
+.public-topbar-dropdown .dropdown-item:focus {
+  background: var(--ui-bg-subtle);
+  color: var(--ui-text-strong);
+}
+
 .auth-shell {
   max-width: 1080px;
   margin: 0 auto;

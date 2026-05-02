@@ -113,6 +113,27 @@ body.home-page {
   border-color: var(--ui-topbar-control-border-hover);
 }
 
+.public-topbar-dropdown {
+  border-radius: 1rem;
+  border: 1px solid var(--ui-card-border-faint);
+  background: var(--ui-bg-card-gradient);
+  box-shadow: var(--ui-shadow-floating);
+  padding: 0.45rem;
+}
+
+.public-topbar-dropdown .dropdown-item {
+  border-radius: 0.8rem;
+  font-weight: 600;
+  color: var(--ui-text-strong);
+  padding: 0.55rem 0.8rem;
+}
+
+.public-topbar-dropdown .dropdown-item:hover,
+.public-topbar-dropdown .dropdown-item:focus {
+  background: var(--ui-bg-subtle);
+  color: var(--ui-text-strong);
+}
+
 .home-auth-card__body .btn {
   border-radius: 999px !important;
 }

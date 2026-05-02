@@ -342,6 +342,11 @@ export default class WorkoutLibraryView {
     this.render();
   }
 
+  getWorkoutById(workoutId) {
+    const targetId = String(workoutId);
+    return this.items.find((workout) => String(workout.id) === targetId) || null;
+  }
+
   removeWorkout(workoutId) {
     const targetId = String(workoutId);
     this.items = this.items.filter((workout) => String(workout.id) !== targetId);

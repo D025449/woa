@@ -20,11 +20,8 @@ export default class Controller {
       scope: "mine"
     });
     this.detailCopyElement = document.getElementById("dashboard-detail-copy");
+    this.workoutTitleElement = document.getElementById("dashboard-workout-title");
     this.workspacePanelElement = document.getElementById("dashboard-workspace-panel");
-    this.workspaceSummaryElement = document.getElementById("dashboard-workspace-summary");
-    this.workspaceSummaryTitleElement = document.getElementById("dashboard-workspace-summary-title");
-    this.workspaceSummaryMetaElement = document.getElementById("dashboard-workspace-summary-meta");
-    this.workspaceSummaryChipsElement = document.getElementById("dashboard-workspace-summary-chips");
     this.sharedMetaElement = document.getElementById("dashboard-shared-meta");
     this.sharedMetaTextElement = document.getElementById("dashboard-shared-meta-text");
     this.toastElement = document.getElementById("dashboard-toast");
@@ -103,7 +100,7 @@ export default class Controller {
     });
 
     this.libraryView = new WorkoutLibraryView("#workout-library", {
-      headerElementId: "files_header",
+      headerElementId: "dashboard-workout-count",
       searchInputId: "workout-library-search",
       sortSelectId: "workout-library-sort",
       initialSearch: this.libraryState?.search || "",
@@ -172,6 +169,7 @@ export default class Controller {
     this.chartView.showLoading();
 
     try {
+      const workoutMeta = this.libraryView.getWorkoutById(workoutId) || {};
       const workout = await WorkoutService.loadWorkoutByRow(workoutId);
       if (!workout) {
         this.uiState.remove("selectedWorkoutId");
@@ -181,13 +179,20 @@ export default class Controller {
         return;
       }
 
+      Object.assign(workout, {
+        start_time: workoutMeta.start_time ?? null,
+        total_timer_time: workoutMeta.total_timer_time ?? null,
+        total_distance: workoutMeta.total_distance ?? null,
+        avg_power: workoutMeta.avg_power ?? null,
+        is_owned: workoutMeta.is_owned ?? (workout.access?.isOwner !== false)
+      });
+
       this.currentWorkoutId = workout.id;
       this.uiState.set("selectedWorkoutId", workout.id);
       this.chartView.updateWorkout(workout);
       this.mapView.renderTrack(workout);
       this.libraryView.setSelectedWorkout(workout.id);
       this.updateWorkoutMeta(workout);
-      this.updateWorkspaceSummary(workout);
       this.closeMobileLibrary();
     } catch (err) {
       console.error(err);
@@ -213,61 +218,56 @@ export default class Controller {
 
     const access = workout?.access || null;
     const ownerLabel = access?.ownerDisplayName || access?.ownerEmail || this.t("messages.anotherUser");
+    const headerDetailLine = this.buildWorkoutDetailLine(workout);
+
+    if (this.workoutTitleElement) {
+      this.workoutTitleElement.textContent = this.libraryT("workoutLabel", { id: workout?.id });
+    }
 
     if (access?.isOwner) {
       this.sharedMetaElement.classList.add("d-none");
       this.sharedMetaTextElement.textContent = "";
-      this.detailCopyElement.textContent = this.t("messages.ownedWorkoutDetailCopy");
+      this.detailCopyElement.textContent = headerDetailLine;
       return;
     }
 
     this.sharedMetaElement.classList.remove("d-none");
     this.sharedMetaTextElement.textContent = this.t("messages.sharedBy", { owner: ownerLabel });
-    this.detailCopyElement.textContent = this.t("messages.sharedWorkoutDetailCopy");
+    this.detailCopyElement.textContent = headerDetailLine;
   }
 
   resetWorkspaceSummary() {
-    if (!this.workspaceSummaryElement || !this.workspaceSummaryTitleElement || !this.workspaceSummaryMetaElement || !this.workspaceSummaryChipsElement) {
-      return;
-    }
-
-    this.workspaceSummaryElement.classList.add("is-idle");
     this.workspacePanelElement?.classList.remove("is-active");
-    this.workspaceSummaryTitleElement.textContent = this.t("workoutDataTitle");
-    this.workspaceSummaryMetaElement.textContent = this.t("messages.ownedWorkoutDetailCopy");
-    this.workspaceSummaryChipsElement.innerHTML = "";
+    if (this.workoutTitleElement) {
+      this.workoutTitleElement.textContent = this.t("workoutDataTitle");
+    }
+    if (this.detailCopyElement) {
+      this.detailCopyElement.textContent = "";
+    }
   }
 
-  updateWorkspaceSummary(workout) {
-    if (!this.workspaceSummaryElement || !this.workspaceSummaryTitleElement || !this.workspaceSummaryMetaElement || !this.workspaceSummaryChipsElement) {
-      return;
-    }
-
+  buildWorkoutDetailLine(workout) {
     const startedAt = workout?.start_time ? new Date(workout.start_time) : null;
-    const dateLabel = startedAt
-      ? startedAt.toLocaleDateString(this.locale, { day: "2-digit", month: "short", year: "numeric" })
-      : this.libraryT("na");
-    const timeLabel = startedAt
-      ? startedAt.toLocaleTimeString(this.locale, { hour: "2-digit", minute: "2-digit" })
-      : "";
+    const parts = [];
 
-    const chips = [
-      `${this.libraryT("duration")}: ${this.formatDuration(workout?.total_timer_time)}`,
-      `${this.libraryT("distance")}: ${this.formatDistance(workout?.total_distance)}`,
-      `${this.libraryT("avgPower")}: ${this.formatPower(workout?.avg_power)}`
-    ];
-
-    if (!workout?.is_owned) {
-      chips.push(this.t("sharedWorkoutEyebrow"));
+    if (startedAt) {
+      const dateLabel = startedAt.toLocaleDateString(this.locale, {
+        day: "2-digit",
+        month: "short",
+        year: "numeric"
+      });
+      const timeLabel = startedAt.toLocaleTimeString(this.locale, {
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+      parts.push([dateLabel, timeLabel].filter(Boolean).join(" · "));
     }
 
-    this.workspaceSummaryElement.classList.remove("is-idle");
-    this.workspacePanelElement?.classList.add("is-active");
-    this.workspaceSummaryTitleElement.textContent = this.libraryT("workoutLabel", { id: workout?.id });
-    this.workspaceSummaryMetaElement.textContent = [dateLabel, timeLabel].filter(Boolean).join(" · ");
-    this.workspaceSummaryChipsElement.innerHTML = chips
-      .map((chip) => `<span class="dashboard-workspace-summary__chip">${chip}</span>`)
-      .join("");
+    parts.push(`${this.libraryT("duration")}: ${this.formatDuration(workout?.total_timer_time)}`);
+    parts.push(`${this.libraryT("distance")}: ${this.formatDistance(workout?.total_distance)}`);
+    parts.push(`${this.libraryT("avgPower")}: ${this.formatPower(workout?.avg_power)}`);
+
+    return parts.filter(Boolean).join(" · ");
   }
 
   formatDuration(value) {

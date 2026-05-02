@@ -10,6 +10,7 @@
       "coaching": "Coaching",
       "upload": "Upload",
       "groups": "Gruppen",
+      "about": "About",
       "openProfile": "Profil öffnen",
       "logout": "Abmelden"
     },
@@ -375,7 +376,7 @@
     "loadMore": "Mehr laden",
     "primaryEyebrow": "Primäre Analyse",
     "spatialEyebrow": "Räumlicher Kontext",
-    "mapCopy": "Track, Segmentbereiche und Kartenkontext als ergänzende Analysefläche.",
+    "mapCopy": "Track, Segmentbereiche und Kartenkontext.",
     "xAxisAria": "X-Achse",
     "timeAxis": "Zeit",
     "distanceAxis": "Distanz",

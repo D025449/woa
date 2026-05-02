@@ -36,8 +36,7 @@
                 <section class="dashboard-hero">
                     <div>
                         <p class="dashboard-kicker"><%= t("dashboardNewPage.kicker") %></p>
-                        <h1 class="dashboard-title"><%= t("dashboardNewPage.titleMain") %></h1>
-                        <p class="dashboard-subtitle"><%= t("dashboardNewPage.subtitle") %></p>
+                        <h1 id="dashboard-workout-count" class="dashboard-title"><%= t("dashboardNewPage.titleMain") %></h1>
                     </div>
                 </section>
 
@@ -47,16 +46,6 @@
                     </button>
                     <div class="dashboard-library-column">
                         <section class="dashboard-section dashboard-library-section">
-                            <div class="dashboard-section-header dashboard-section-header--compact">
-                                <div>
-                                    <span class="dashboard-eyebrow"><%= t("dashboardNewPage.libraryEyebrow") %></span>
-                                    <h2 id="files_header" class="dashboard-section-title"><%= t("dashboardNewPage.libraryTitle") %></h2>
-                                    <p class="dashboard-section-copy">
-                                        <%= t("dashboardNewPage.libraryCopy") %>
-                                    </p>
-                                </div>
-                            </div>
-
                             <div class="dashboard-table-body">
                                 <div class="workout-library-toolbar">
                                     <div class="workout-library-scope-toggle" role="group" aria-label="<%= t('dashboardNewPage.filterAria') %>">
@@ -127,19 +116,12 @@
                             <div class="dashboard-workspace-header">
                                 <div>
                                 <span class="dashboard-eyebrow"><%= t("dashboardNewPage.primaryEyebrow") %></span>
-                                <h2 class="dashboard-section-title"><%= t("dashboardNewPage.workoutDataTitle") %></h2>
-                                <p id="dashboard-detail-copy" class="dashboard-section-copy">
-                                    <%= t("dashboardNewPage.messages.ownedWorkoutDetailCopy") %>
-                                </p>
+                                <h2 id="dashboard-workout-title" class="dashboard-section-title"><%= t("dashboardNewPage.workoutDataTitle") %></h2>
+                                <p id="dashboard-detail-copy" class="dashboard-section-copy"></p>
                                 <div id="dashboard-shared-meta" class="dashboard-shared-meta d-none">
                                     <span class="dashboard-shared-meta__eyebrow"><%= t("dashboardNewPage.sharedWorkoutEyebrow") %></span>
                                     <span id="dashboard-shared-meta-text"></span>
                                 </div>
-                                </div>
-                                <div id="dashboard-workspace-summary" class="dashboard-workspace-summary is-idle">
-                                    <div id="dashboard-workspace-summary-title" class="dashboard-workspace-summary__title"><%= t("dashboardNewPage.libraryTitle") %></div>
-                                    <div id="dashboard-workspace-summary-meta" class="dashboard-workspace-summary__meta"><%= t("dashboardNewPage.messages.ownedWorkoutDetailCopy") %></div>
-                                    <div id="dashboard-workspace-summary-chips" class="dashboard-workspace-summary__chips"></div>
                                 </div>
                             </div>
 
@@ -189,8 +171,6 @@
                 <div class="toast-body" id="dashboard-toast-body"></div>
             </div>
         </div>
-
-        <%- include("partials/app-footer") %>
 
         <% } else { %>
 
