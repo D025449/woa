@@ -12,12 +12,33 @@ body.groups-page {
     gap: 1.5rem;
 }
 
+.groups-shell--client {
+    --groups-client-height: auto;
+}
+
+.groups-shell--client .groups-grid {
+    height: var(--groups-client-height);
+    align-items: stretch;
+}
+
 .groups-surface {
     border: 1px solid var(--ui-card-border-faint);
     border-radius: 1.5rem;
     background: var(--ui-bg-surface-gradient);
     box-shadow: var(--ui-shadow-md);
     overflow: hidden;
+}
+
+.groups-shell--client .groups-grid-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.groups-shell--client .groups-surface-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
 }
 
 .groups-section-header {
@@ -63,6 +84,11 @@ body.groups-page {
 .groups-stack {
     display: grid;
     gap: 1rem;
+}
+
+.groups-shell--client .groups-stack {
+    min-height: 0;
+    grid-template-rows: minmax(0, 1.2fr) minmax(0, 0.9fr) minmax(0, 0.9fr) auto;
 }
 
 .groups-preview-card {

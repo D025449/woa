@@ -6,6 +6,10 @@ body.analytics-page {
     color: var(--ui-page-text);
 }
 
+.analytics-shell--client {
+    --analytics-focus-height: auto;
+}
+
 .analytics-toggle-group .btn {
     font-weight: 600;
     padding-inline: 0.85rem;
@@ -13,6 +17,11 @@ body.analytics-page {
 
 .analytics-body {
     padding: 0;
+}
+
+.analytics-grid-panel,
+.analytics-focus-panel {
+    overflow: hidden;
 }
 
 .analytics-chart-grid {
@@ -28,6 +37,21 @@ body.analytics-page {
     align-items: stretch;
 }
 
+.analytics-shell--client .analytics-focus-grid {
+    height: var(--analytics-focus-height);
+}
+
+.analytics-shell--client .analytics-focus-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.analytics-shell--client .analytics-focus-panel .analytics-body {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
 #ctl-chart,
 #ftp-chart,
 #cp-chart {
@@ -40,6 +64,12 @@ body.analytics-page {
 
 #workout-map {
     height: 560px !important;
+}
+
+.analytics-shell--client #workout-chart,
+.analytics-shell--client #workout-map {
+    height: 100% !important;
+    min-height: 0;
 }
 
 @media (max-width: 1199.98px) {

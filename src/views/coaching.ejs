@@ -20,8 +20,8 @@
         }) %>
 
         <div class="container-fluid px-3 px-xl-4 py-4">
-            <div class="coaching-shell">
-                <section class="coaching-hero">
+            <div id="coaching-shell" class="coaching-shell">
+                <section id="coaching-hero" class="coaching-hero">
                     <div>
                         <p class="coaching-kicker"><%= t("coachingPage.heroKicker") %></p>
                         <h1 class="coaching-title"><%= t("coachingPage.title") %></h1>
@@ -31,7 +31,7 @@
                     </div>
                 </section>
 
-                <section class="coaching-surface">
+                <section id="coaching-planning-surface" class="coaching-surface">
                     <div class="coaching-section-header">
                         <div>
                             <span class="coaching-eyebrow"><%= t("coachingPage.sections.planningInputEyebrow") %></span>
@@ -218,7 +218,7 @@
                     </div>
                 </section>
 
-                <section class="coaching-surface">
+                <section class="coaching-surface coaching-scroll-surface">
                     <div class="coaching-section-header">
                         <div>
                             <span class="coaching-eyebrow"><%= t("coachingPage.sections.athleteContextEyebrow") %></span>
@@ -227,14 +227,14 @@
                         </div>
                     </div>
 
-                    <div class="coaching-body">
+                    <div class="coaching-body coaching-scroll-body">
                         <div id="coaching-user-context">
                             <p class="coaching-placeholder-copy"><%= t("coachingPage.placeholders.loadingAthleteContext") %></p>
                         </div>
                     </div>
                 </section>
 
-                <section class="coaching-surface">
+                <section class="coaching-surface coaching-scroll-surface">
                     <div class="coaching-section-header">
                         <div>
                             <span class="coaching-eyebrow"><%= t("coachingPage.sections.planHistoryEyebrow") %></span>
@@ -243,14 +243,14 @@
                         </div>
                     </div>
 
-                    <div class="coaching-body">
+                    <div class="coaching-body coaching-scroll-body">
                         <div id="coaching-plan-history">
                             <p class="coaching-placeholder-copy"><%= t("coachingPage.history.emptyLoaded") %></p>
                         </div>
                     </div>
                 </section>
 
-                <section class="coaching-surface">
+                <section class="coaching-surface coaching-scroll-surface">
                     <div class="coaching-section-header">
                         <div>
                             <span class="coaching-eyebrow"><%= t("coachingPage.sections.planOutputEyebrow") %></span>
@@ -259,7 +259,7 @@
                         </div>
                     </div>
 
-                    <div class="coaching-body">
+                    <div class="coaching-body coaching-scroll-body">
                         <div id="coaching-plan-status" class="mb-3"></div>
                         <div id="coaching-plan-summary">
                             <p class="coaching-placeholder-copy">

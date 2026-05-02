@@ -24,8 +24,8 @@
         }) %>
 
         <div class="container-fluid px-3 px-xl-4 py-4">
-            <div class="groups-shell ui-page-shell">
-                <section class="groups-hero ui-hero">
+            <div id="groups-shell" class="groups-shell ui-page-shell">
+                <section id="groups-hero" class="groups-hero ui-hero">
                     <div>
                         <p class="groups-kicker ui-hero__kicker"><%= t("groups.hero.kicker") %></p>
                         <h1 class="groups-title ui-hero__title"><%= t("groups.hero.title") %></h1>
@@ -35,8 +35,8 @@
                     </div>
                 </section>
 
-                <section class="groups-grid">
-                    <div class="groups-surface">
+                <section id="groups-grid" class="groups-grid">
+                    <div class="groups-surface groups-grid-panel">
                         <div class="groups-section-header">
                             <div>
                                 <h2 class="groups-section-title"><%= t("groups.sections.myGroupsTitle") %></h2>
@@ -75,7 +75,7 @@
                     </div>
 
                     <div class="groups-stack">
-                        <div class="groups-surface">
+                        <div class="groups-surface groups-grid-panel">
                             <%- include("partials/activity-feed-panel", {
                                 idPrefix: "group",
                                 surfaceClass: "groups-surface",
@@ -101,7 +101,7 @@
                             }) %>
                         </div>
 
-                        <div class="groups-surface">
+                        <div class="groups-surface groups-grid-panel">
                             <div class="groups-section-header">
                                 <div>
                                     <h2 class="groups-section-title"><%= t("groups.sections.myInvitesTitle") %></h2>
@@ -116,7 +116,7 @@
                             </div>
                         </div>
 
-                        <div class="groups-surface">
+                        <div class="groups-surface groups-grid-panel">
                             <div class="groups-section-header">
                                 <div>
                                     <h2 class="groups-section-title"><%= t("groups.sections.sentByMeTitle") %></h2>

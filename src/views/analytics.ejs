@@ -31,9 +31,9 @@
         }) %>
         <!-- Content -->
         <div class="container-fluid px-3 px-xl-4 py-4">
-            <div class="analytics-shell ui-page-shell">
+            <div id="analytics-shell" class="analytics-shell ui-page-shell">
 
-                <section class="analytics-hero ui-hero">
+                <section id="analytics-hero" class="analytics-hero ui-hero">
                     <div>
                         <p class="analytics-kicker ui-hero__kicker"><%= t("analyticsPage.kicker") %></p>
                         <h1 class="analytics-title ui-hero__title"><%= t("analyticsPage.mainTitle") %></h1>
@@ -43,8 +43,8 @@
                     </div>
                 </section>
 
-                <section class="analytics-chart-grid">
-                    <article class="analytics-surface ui-surface ui-surface--gradient">
+                <section id="analytics-chart-grid" class="analytics-chart-grid">
+                    <article class="analytics-surface ui-surface ui-surface--gradient analytics-grid-panel">
                         <div class="analytics-section-header ui-section-header">
                             <div>
                                 <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.loadModelEyebrow") %></span>
@@ -71,7 +71,7 @@
                         </div>
                     </article>
 
-                    <article class="analytics-surface ui-surface ui-surface--gradient">
+                    <article class="analytics-surface ui-surface ui-surface--gradient analytics-grid-panel">
                         <div class="analytics-section-header ui-section-header">
                             <div>
                                 <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.thresholdEyebrow") %></span>
@@ -101,7 +101,7 @@
                         </div>
                     </article>
 
-                    <article class="analytics-surface ui-surface ui-surface--gradient">
+                    <article class="analytics-surface ui-surface ui-surface--gradient analytics-grid-panel">
                         <div class="analytics-section-header ui-section-header">
                             <div>
                                 <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.powerCurveEyebrow") %></span>
@@ -132,8 +132,8 @@
                     </article>
                 </section>
 
-                <section class="analytics-focus-grid">
-                    <article class="analytics-surface ui-surface ui-surface--gradient">
+                <section id="analytics-focus-grid" class="analytics-focus-grid">
+                    <article class="analytics-surface ui-surface ui-surface--gradient analytics-focus-panel">
                         <div class="analytics-section-header ui-section-header">
                             <div>
                                 <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.workoutContextEyebrow") %></span>
@@ -149,7 +149,7 @@
                         </div>
                     </article>
 
-                    <aside class="analytics-surface ui-surface ui-surface--gradient">
+                    <aside class="analytics-surface ui-surface ui-surface--gradient analytics-focus-panel">
                         <div class="analytics-section-header ui-section-header">
                             <div>
                                 <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.spatialEyebrow") %></span>

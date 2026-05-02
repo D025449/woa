@@ -14,6 +14,9 @@ export default class GroupsController {
     this.createButton = document.getElementById("groups-create-button");
     this.filterAllButton = document.getElementById("groups-filter-all");
     this.filterOwnedButton = document.getElementById("groups-filter-owned");
+    this.shellElement = document.getElementById("groups-shell");
+    this.heroElement = document.getElementById("groups-hero");
+    this.gridElement = document.getElementById("groups-grid");
     this.createModalElement = document.getElementById("create-group-modal");
     this.createForm = document.getElementById("create-group-form");
     this.createSubmitButton = document.getElementById("create-group-submit");
@@ -65,6 +68,8 @@ export default class GroupsController {
     this.pendingDeleteGroup = null;
     this.pendingEditGroup = null;
     this.groups = [];
+    this.layoutMeasureRaf = null;
+    this.layoutObserver = null;
     this.initViews();
     this.registerEvents();
     this.boot();
@@ -115,6 +120,8 @@ export default class GroupsController {
 
   registerEvents() {
     this.activityFeedController.registerEvents();
+    window.addEventListener("resize", () => this.scheduleDesktopLayoutMeasure());
+    this.initLayoutObservers();
 
     this.createButton?.addEventListener("click", () => {
       this.hideCreateError();
@@ -160,6 +167,67 @@ export default class GroupsController {
     this.deleteConfirmButton?.addEventListener("click", async () => {
       await this.handleDeleteGroup();
     });
+  }
+
+  initLayoutObservers() {
+    if (typeof ResizeObserver !== "function") {
+      return;
+    }
+
+    const observerTargets = [
+      document.querySelector(".app-topbar"),
+      this.heroElement,
+      this.gridElement
+    ].filter(Boolean);
+
+    if (!observerTargets.length) {
+      return;
+    }
+
+    this.layoutObserver = new ResizeObserver(() => {
+      this.scheduleDesktopLayoutMeasure();
+    });
+
+    observerTargets.forEach((target) => this.layoutObserver.observe(target));
+  }
+
+  scheduleDesktopLayoutMeasure() {
+    if (!this.shellElement || !this.gridElement) {
+      return;
+    }
+
+    if (this.layoutMeasureRaf != null) {
+      cancelAnimationFrame(this.layoutMeasureRaf);
+    }
+
+    this.layoutMeasureRaf = requestAnimationFrame(() => {
+      this.layoutMeasureRaf = null;
+      this.updateDesktopLayoutMeasure();
+    });
+  }
+
+  updateDesktopLayoutMeasure() {
+    const shell = this.shellElement;
+    const grid = this.gridElement;
+
+    if (!shell || !grid) {
+      return;
+    }
+
+    const isDesktopLike = window.matchMedia("(min-width: 992px)").matches;
+    const rect = grid.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const availableHeight = Math.floor(viewportHeight - rect.top - 24);
+    const canUseClientLayout = isDesktopLike && availableHeight >= 520;
+
+    shell.classList.toggle("groups-shell--client", canUseClientLayout);
+
+    if (!canUseClientLayout) {
+      shell.style.removeProperty("--groups-client-height");
+      return;
+    }
+
+    shell.style.setProperty("--groups-client-height", `${availableHeight}px`);
   }
 
   openPublishModal(group) {
@@ -282,6 +350,7 @@ export default class GroupsController {
       this.groupInvitesView.render(invites);
       this.groupSentInvitesView.render(sentInvites);
       await this.activityFeedController.boot();
+      this.scheduleDesktopLayoutMeasure();
     } catch (err) {
       console.error(err);
 
@@ -291,6 +360,7 @@ export default class GroupsController {
       this.groupInvitesView.render(this.uiState.get("groupInvitesPreview", []));
       this.groupSentInvitesView.render(this.uiState.get("groupSentInvitesPreview", []));
       await this.activityFeedController.boot();
+      this.scheduleDesktopLayoutMeasure();
     }
   }
 
@@ -318,6 +388,7 @@ export default class GroupsController {
     this.uiState.set("groupsFilter", this.groupsFilter);
     this.updateFilterUi();
     this.groupListView.render(this.getFilteredGroups(this.groups));
+    this.scheduleDesktopLayoutMeasure();
   }
 
   updateFilterUi() {

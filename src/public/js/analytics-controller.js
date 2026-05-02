@@ -8,8 +8,16 @@ import WorkoutService from "./workout-service.js";
 export default class Controller {
 
   constructor() {
+    this.shellElement = document.getElementById("analytics-shell");
+    this.heroElement = document.getElementById("analytics-hero");
+    this.chartGridElement = document.getElementById("analytics-chart-grid");
+    this.focusGridElement = document.getElementById("analytics-focus-grid");
+    this.layoutMeasureRaf = null;
+    this.layoutObserver = null;
     this.initViews();
     this.registerGlobalEvents();
+    this.initLayoutObservers();
+    this.scheduleDesktopLayoutMeasure();
   }
 
   // -----------------------------
@@ -58,8 +66,83 @@ export default class Controller {
 
   onResize() {
     this.chartView.resize();
+    this.mapView.resize();
     this.cpChartView.resize();
     this.ftpChartView.resize();
     this.ctlChartView.resize();
+    this.scheduleDesktopLayoutMeasure();
+  }
+
+  initLayoutObservers() {
+    if (typeof ResizeObserver !== "function") {
+      return;
+    }
+
+    const observerTargets = [
+      document.querySelector(".app-topbar"),
+      this.heroElement,
+      this.chartGridElement,
+      this.focusGridElement
+    ].filter(Boolean);
+
+    if (!observerTargets.length) {
+      return;
+    }
+
+    this.layoutObserver = new ResizeObserver(() => {
+      this.scheduleDesktopLayoutMeasure(true);
+    });
+
+    observerTargets.forEach((target) => this.layoutObserver.observe(target));
+  }
+
+  scheduleDesktopLayoutMeasure(withRenderRefresh = false) {
+    if (!this.shellElement || !this.focusGridElement) {
+      return;
+    }
+
+    if (this.layoutMeasureRaf != null) {
+      cancelAnimationFrame(this.layoutMeasureRaf);
+    }
+
+    this.layoutMeasureRaf = requestAnimationFrame(() => {
+      this.layoutMeasureRaf = null;
+      this.updateDesktopLayoutMeasure(withRenderRefresh);
+    });
+  }
+
+  updateDesktopLayoutMeasure(withRenderRefresh = false) {
+    const shell = this.shellElement;
+    const focusGrid = this.focusGridElement;
+
+    if (!shell || !focusGrid) {
+      return;
+    }
+
+    const isDesktopLike = window.matchMedia("(min-width: 1200px)").matches;
+    const rect = focusGrid.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const availableHeight = Math.floor(viewportHeight - rect.top - 24);
+    const canUseClientLayout = isDesktopLike && availableHeight >= 420;
+
+    shell.classList.toggle("analytics-shell--client", canUseClientLayout);
+
+    if (!canUseClientLayout) {
+      shell.style.removeProperty("--analytics-focus-height");
+      if (withRenderRefresh) {
+        this.chartView.resize();
+        this.mapView.resize();
+      }
+      return;
+    }
+
+    shell.style.setProperty("--analytics-focus-height", `${availableHeight}px`);
+
+    if (withRenderRefresh) {
+      requestAnimationFrame(() => {
+        this.chartView.resize();
+        this.mapView.resize();
+      });
+    }
   }
 }

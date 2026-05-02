@@ -29,7 +29,13 @@ export default class Controller {
     this.mobileLibraryToggle = document.getElementById("dashboard-mobile-library-toggle");
     this.mobileLibraryBackdrop = document.getElementById("dashboard-mobile-library-backdrop");
     this.libraryColumn = document.querySelector(".dashboard-library-column");
+    this.shellElement = document.getElementById("dashboard-shell");
+    this.heroElement = document.getElementById("dashboard-hero");
+    this.masterDetailElement = document.getElementById("dashboard-master-detail");
+    this.detailGridElement = document.getElementById("dashboard-detail-grid");
     this.isMobileLibraryOpen = false;
+    this.layoutMeasureRaf = null;
+    this.layoutObserver = null;
     this.toast = this.toastElement && globalThis.bootstrap
       ? new globalThis.bootstrap.Toast(this.toastElement, {
           delay: 2800
@@ -147,6 +153,7 @@ export default class Controller {
     window.addEventListener("resize", () => this.onResize());
     this.mobileLibraryToggle?.addEventListener("click", () => this.toggleMobileLibrary());
     this.mobileLibraryBackdrop?.addEventListener("click", () => this.closeMobileLibrary());
+    this.initLayoutObservers();
   }
 
   async boot() {
@@ -154,6 +161,7 @@ export default class Controller {
       await this.loadShareableGroups();
       await this.libraryView.initialize();
       this.resetWorkspaceSummary();
+      this.scheduleDesktopLayoutMeasure();
       await this.restoreSelectedWorkout();
     } catch (err) {
       console.error(err);
@@ -193,6 +201,7 @@ export default class Controller {
       this.mapView.renderTrack(workout);
       this.libraryView.setSelectedWorkout(workout.id);
       this.updateWorkoutMeta(workout);
+      this.scheduleDesktopLayoutMeasure(true);
       this.closeMobileLibrary();
     } catch (err) {
       console.error(err);
@@ -323,8 +332,83 @@ export default class Controller {
 
   onResize() {
     this.chartView.resize();
+    this.mapView.resize();
+    this.scheduleDesktopLayoutMeasure();
     if (!window.matchMedia("(max-width: 991.98px)").matches) {
       this.closeMobileLibrary();
+    }
+  }
+
+  initLayoutObservers() {
+    if (typeof ResizeObserver !== "function") {
+      return;
+    }
+
+    const observerTargets = [
+      document.querySelector(".app-topbar"),
+      this.heroElement,
+      this.masterDetailElement
+    ].filter(Boolean);
+
+    if (!observerTargets.length) {
+      return;
+    }
+
+    this.layoutObserver = new ResizeObserver(() => {
+      this.scheduleDesktopLayoutMeasure(true);
+    });
+
+    observerTargets.forEach((target) => this.layoutObserver.observe(target));
+  }
+
+  scheduleDesktopLayoutMeasure(withRenderRefresh = false) {
+    if (!this.shellElement || !this.masterDetailElement) {
+      return;
+    }
+
+    if (this.layoutMeasureRaf != null) {
+      cancelAnimationFrame(this.layoutMeasureRaf);
+    }
+
+    this.layoutMeasureRaf = requestAnimationFrame(() => {
+      this.layoutMeasureRaf = null;
+      this.updateDesktopLayoutMeasure(withRenderRefresh);
+    });
+  }
+
+  updateDesktopLayoutMeasure(withRenderRefresh = false) {
+    const shell = this.shellElement;
+    const masterDetail = this.masterDetailElement;
+    const detailGrid = this.detailGridElement;
+
+    if (!shell || !masterDetail || !detailGrid) {
+      return;
+    }
+
+    const isDesktopLike = window.matchMedia("(min-width: 992px)").matches;
+    const rect = masterDetail.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const availableHeight = Math.floor(viewportHeight - rect.top - 24);
+    const canUseClientLayout = isDesktopLike && availableHeight >= 560;
+
+    shell.classList.toggle("dashboard-shell--client", canUseClientLayout);
+
+    if (!canUseClientLayout) {
+      shell.style.removeProperty("--dashboard-client-height");
+      if (withRenderRefresh) {
+        this.chartView.resize();
+        this.mapView.resize();
+      }
+      return;
+    }
+
+    shell.style.setProperty("--dashboard-client-height", `${availableHeight}px`);
+
+    if (withRenderRefresh) {
+      requestAnimationFrame(() => {
+        this.chartView.resize();
+        this.mapView.resize();
+      });
     }
   }
 

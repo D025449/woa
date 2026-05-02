@@ -11,6 +11,10 @@ body.dashboard-page {
   gap: 1.5rem;
 }
 
+.dashboard-shell--client {
+  --dashboard-client-height: auto;
+}
+
 .dashboard-toast {
   border-radius: 1rem;
   border: 1px solid var(--ui-warning-border);
@@ -99,6 +103,11 @@ body.dashboard-page {
   align-items: start;
 }
 
+.dashboard-shell--client .dashboard-master-detail {
+  min-height: var(--dashboard-client-height);
+  align-items: stretch;
+}
+
 .dashboard-library-column {
   min-height: 0;
 }
@@ -106,6 +115,25 @@ body.dashboard-page {
 .dashboard-library-section {
   position: sticky;
   top: 1.1rem;
+}
+
+.dashboard-shell--client .dashboard-library-column {
+  min-height: 0;
+}
+
+.dashboard-shell--client .dashboard-library-section {
+  position: sticky;
+  top: 1.1rem;
+  max-height: var(--dashboard-client-height);
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-shell--client .dashboard-table-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
 }
 
 .dashboard-workspace-panel {
@@ -298,6 +326,12 @@ body.dashboard-page {
   max-height: calc(100vh - 21rem);
   overflow: auto;
   padding-right: 0.25rem;
+}
+
+.dashboard-shell--client .workout-library-scroll {
+  max-height: none;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .workout-library-scroll::-webkit-scrollbar {
@@ -591,6 +625,23 @@ body.dashboard-page {
   align-items: stretch;
 }
 
+.dashboard-shell--client .dashboard-detail-grid {
+  height: var(--dashboard-client-height);
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.dashboard-shell--client .dashboard-detail-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.dashboard-shell--client .dashboard-detail-panel .dashboard-surface-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .dashboard-mobile-library-toggle {
   display: none;
   align-items: center;
@@ -616,6 +667,12 @@ body.dashboard-page {
 
 #workout-map {
   height: 340px !important;
+}
+
+.dashboard-shell--client #workout-chart,
+.dashboard-shell--client #workout-map {
+  height: 100% !important;
+  min-height: 0;
 }
 
 @media (max-width: 991.98px) {

@@ -31,16 +31,16 @@
 
         <div class="container-fluid px-3 px-xl-4 py-4">
 
-            <div class="dashboard-shell">
+            <div id="dashboard-shell" class="dashboard-shell">
 
-                <section class="dashboard-hero">
+                <section id="dashboard-hero" class="dashboard-hero">
                     <div>
                         <p class="dashboard-kicker"><%= t("dashboardNewPage.kicker") %></p>
                         <h1 id="dashboard-workout-count" class="dashboard-title"><%= t("dashboardNewPage.titleMain") %></h1>
                     </div>
                 </section>
 
-                <section class="dashboard-master-detail">
+                <section id="dashboard-master-detail" class="dashboard-master-detail">
                     <button id="dashboard-mobile-library-toggle" class="btn btn-outline-dark dashboard-mobile-library-toggle" type="button" aria-expanded="false">
                         <%= t("dashboardNewPage.mobileLibraryOpen") %>
                     </button>
@@ -110,8 +110,8 @@
                         </section>
                     </div>
 
-                    <section class="dashboard-detail-grid">
-                        <article id="dashboard-workspace-panel" class="dashboard-surface dashboard-workspace-panel">
+                    <section id="dashboard-detail-grid" class="dashboard-detail-grid">
+                        <article id="dashboard-workspace-panel" class="dashboard-surface dashboard-workspace-panel dashboard-detail-panel">
                         <div class="dashboard-section-header">
                             <div class="dashboard-workspace-header">
                                 <div>
@@ -145,7 +145,7 @@
                         </div>
                         </article>
 
-                        <aside class="dashboard-surface">
+                        <aside class="dashboard-surface dashboard-detail-panel">
                             <div class="dashboard-section-header">
                                 <div>
                                     <span class="dashboard-eyebrow"><%= t("dashboardNewPage.spatialEyebrow") %></span>

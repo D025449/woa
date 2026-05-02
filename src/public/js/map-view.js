@@ -166,6 +166,14 @@ export default class MapView {
     }
   }
 
+  resize() {
+    if (!this.map) {
+      return;
+    }
+
+    this.map.invalidateSize(false);
+  }
+
   // -----------------------------
   // GETTER
   // -----------------------------

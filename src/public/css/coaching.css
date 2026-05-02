@@ -11,6 +11,10 @@ body.coaching-page {
   gap: 1.5rem;
 }
 
+.coaching-shell--client {
+  --coaching-scroll-body-max-height: auto;
+}
+
 .coaching-hero,
 .coaching-surface {
   border: var(--ui-border-soft);
@@ -115,6 +119,17 @@ body.coaching-page {
 
 .coaching-body {
   padding: 1.35rem 1.4rem 1.45rem;
+}
+
+.coaching-shell--client .coaching-scroll-surface {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.coaching-shell--client .coaching-scroll-body {
+  max-height: var(--coaching-scroll-body-max-height);
+  overflow: auto;
 }
 
 .coaching-subgrid {

@@ -138,6 +138,9 @@ function escapeHtml(value) {
 
 export default class CoachingUI {
   constructor() {
+    this.shellElement = document.getElementById("coaching-shell");
+    this.heroElement = document.getElementById("coaching-hero");
+    this.planningSurfaceElement = document.getElementById("coaching-planning-surface");
     this.form = document.getElementById("coaching-form");
     this.generateButton = document.getElementById("coaching-generate-button");
     this.saveButton = document.getElementById("coaching-save-button");
@@ -155,15 +158,20 @@ export default class CoachingUI {
     this.editingWeekNumber = null;
     this.editingPlanName = false;
     this.hasPreviewInteraction = false;
+    this.layoutObserver = null;
+    this.layoutMeasureRaf = null;
 
     this.registerEvents();
     this.syncGoalPanels();
     this.loadContext();
     this.loadLatestPlan();
     this.loadPlanHistory();
+    this.initLayoutObservers();
+    this.scheduleDesktopLayoutMeasure();
   }
 
   registerEvents() {
+    window.addEventListener("resize", () => this.scheduleDesktopLayoutMeasure());
     this.goalEventRadio?.addEventListener("change", () => this.syncGoalPanels());
     this.goalPowerRadio?.addEventListener("change", () => this.syncGoalPanels());
     this.generateButton?.addEventListener("click", async () => {
@@ -260,6 +268,68 @@ export default class CoachingUI {
         return;
       }
     });
+  }
+
+  initLayoutObservers() {
+    if (typeof ResizeObserver !== "function") {
+      return;
+    }
+
+    const observerTargets = [
+      document.querySelector(".app-topbar"),
+      this.heroElement,
+      this.planningSurfaceElement
+    ].filter(Boolean);
+
+    if (!observerTargets.length) {
+      return;
+    }
+
+    this.layoutObserver = new ResizeObserver(() => {
+      this.scheduleDesktopLayoutMeasure();
+    });
+
+    observerTargets.forEach((target) => this.layoutObserver.observe(target));
+  }
+
+  scheduleDesktopLayoutMeasure() {
+    if (!this.shellElement || !this.planningSurfaceElement) {
+      return;
+    }
+
+    if (this.layoutMeasureRaf != null) {
+      cancelAnimationFrame(this.layoutMeasureRaf);
+    }
+
+    this.layoutMeasureRaf = requestAnimationFrame(() => {
+      this.layoutMeasureRaf = null;
+      this.updateDesktopLayoutMeasure();
+    });
+  }
+
+  updateDesktopLayoutMeasure() {
+    const shell = this.shellElement;
+    const planningSurface = this.planningSurfaceElement;
+
+    if (!shell || !planningSurface) {
+      return;
+    }
+
+    const isDesktopLike = window.matchMedia("(min-width: 1200px)").matches;
+    const rect = planningSurface.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const availableHeight = Math.floor(viewportHeight - rect.bottom - 32);
+    const bodyMaxHeight = Math.max(280, Math.min(520, Math.floor(availableHeight / 3)));
+    const canUseClientLayout = isDesktopLike && availableHeight >= 960;
+
+    shell.classList.toggle("coaching-shell--client", canUseClientLayout);
+
+    if (!canUseClientLayout) {
+      shell.style.removeProperty("--coaching-scroll-body-max-height");
+      return;
+    }
+
+    shell.style.setProperty("--coaching-scroll-body-max-height", `${bodyMaxHeight}px`);
   }
 
   syncGoalPanels() {
