@@ -29,11 +29,14 @@ export default class Controller {
     this.mobileLibraryToggle = document.getElementById("dashboard-mobile-library-toggle");
     this.mobileLibraryBackdrop = document.getElementById("dashboard-mobile-library-backdrop");
     this.libraryColumn = document.querySelector(".dashboard-library-column");
+    this.splitterElement = document.getElementById("dashboard-splitter");
     this.shellElement = document.getElementById("dashboard-shell");
     this.heroElement = document.getElementById("dashboard-hero");
     this.masterDetailElement = document.getElementById("dashboard-master-detail");
     this.detailGridElement = document.getElementById("dashboard-detail-grid");
     this.isMobileLibraryOpen = false;
+    this.libraryWidthPx = this.uiState.get("dashboardLibraryWidthPx", null);
+    this.splitterPointerId = null;
     this.layoutMeasureRaf = null;
     this.layoutObserver = null;
     this.toast = this.toastElement && globalThis.bootstrap
@@ -153,6 +156,7 @@ export default class Controller {
     window.addEventListener("resize", () => this.onResize());
     this.mobileLibraryToggle?.addEventListener("click", () => this.toggleMobileLibrary());
     this.mobileLibraryBackdrop?.addEventListener("click", () => this.closeMobileLibrary());
+    this.registerSplitterEvents();
     this.initLayoutObservers();
   }
 
@@ -333,10 +337,47 @@ export default class Controller {
   onResize() {
     this.chartView.resize();
     this.mapView.resize();
+    this.applyLibraryWidth();
     this.scheduleDesktopLayoutMeasure();
     if (!window.matchMedia("(max-width: 991.98px)").matches) {
       this.closeMobileLibrary();
     }
+  }
+
+  registerSplitterEvents() {
+    this.splitterElement?.addEventListener("pointerdown", (event) => {
+      if (!this.canUseDesktopSplitter()) {
+        return;
+      }
+
+      this.splitterPointerId = event.pointerId;
+      this.splitterElement?.setPointerCapture?.(event.pointerId);
+      this.splitterElement?.classList.add("is-active");
+      document.body.classList.add("overflow-hidden");
+      event.preventDefault();
+    });
+
+    this.splitterElement?.addEventListener("pointermove", (event) => {
+      if (this.splitterPointerId !== event.pointerId) {
+        return;
+      }
+
+      this.updateLibraryWidthFromPointer(event.clientX);
+    });
+
+    const finishDrag = (event) => {
+      if (this.splitterPointerId !== event.pointerId) {
+        return;
+      }
+
+      this.updateLibraryWidthFromPointer(event.clientX);
+      this.splitterPointerId = null;
+      this.splitterElement?.classList.remove("is-active");
+      document.body.classList.remove("overflow-hidden");
+    };
+
+    this.splitterElement?.addEventListener("pointerup", finishDrag);
+    this.splitterElement?.addEventListener("pointercancel", finishDrag);
   }
 
   initLayoutObservers() {
@@ -392,9 +433,11 @@ export default class Controller {
     const canUseClientLayout = isDesktopLike && availableHeight >= 560;
 
     shell.classList.toggle("dashboard-shell--client", canUseClientLayout);
+    this.splitterElement && (this.splitterElement.style.display = isDesktopLike ? "block" : "none");
 
     if (!canUseClientLayout) {
       shell.style.removeProperty("--dashboard-client-height");
+      this.applyLibraryWidth();
       if (withRenderRefresh) {
         this.chartView.resize();
         this.mapView.resize();
@@ -403,6 +446,7 @@ export default class Controller {
     }
 
     shell.style.setProperty("--dashboard-client-height", `${availableHeight}px`);
+    this.applyLibraryWidth();
 
     if (withRenderRefresh) {
       requestAnimationFrame(() => {
@@ -410,6 +454,41 @@ export default class Controller {
         this.mapView.resize();
       });
     }
+  }
+
+  canUseDesktopSplitter() {
+    return window.matchMedia("(min-width: 992px)").matches && !!this.masterDetailElement;
+  }
+
+  applyLibraryWidth() {
+    if (!this.masterDetailElement) {
+      return;
+    }
+
+    if (!this.canUseDesktopSplitter() || !Number.isFinite(this.libraryWidthPx)) {
+      this.masterDetailElement.style.removeProperty("--dashboard-library-width");
+      return;
+    }
+
+    this.masterDetailElement.style.setProperty("--dashboard-library-width", `${Math.round(this.libraryWidthPx)}px`);
+  }
+
+  updateLibraryWidthFromPointer(clientX) {
+    if (!this.masterDetailElement) {
+      return;
+    }
+
+    const rect = this.masterDetailElement.getBoundingClientRect();
+    const splitterWidth = this.splitterElement?.getBoundingClientRect?.().width || 8;
+    const minWidth = 280;
+    const maxWidth = Math.max(minWidth, rect.width - splitterWidth - 420);
+    const nextWidth = Math.max(minWidth, Math.min(maxWidth, clientX - rect.left));
+
+    this.libraryWidthPx = nextWidth;
+    this.uiState.set("dashboardLibraryWidthPx", nextWidth);
+    this.applyLibraryWidth();
+    this.chartView.resize();
+    this.mapView.resize();
   }
 
   toggleMobileLibrary() {

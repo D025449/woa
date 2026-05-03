@@ -344,6 +344,10 @@
   margin-bottom: 1rem;
 }
 
+.workout-library-toolbar > * {
+  align-self: center;
+}
+
 .dashboard-toolbar .btn,
 .workout-library-card .btn,
 .workout-library-load-more .btn {

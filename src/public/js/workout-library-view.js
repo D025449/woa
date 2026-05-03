@@ -12,6 +12,9 @@ export default class WorkoutLibraryView {
     this.headerElement = document.getElementById(handlers.headerElementId || "files_header");
     this.searchInput = document.getElementById(handlers.searchInputId || "workout-library-search");
     this.sortSelect = document.getElementById(handlers.sortSelectId || "workout-library-sort");
+    this.sortTrigger = document.getElementById("workout-library-sort-trigger");
+    this.sortTriggerLabel = document.getElementById("workout-library-sort-trigger-label");
+    this.sortMenu = document.getElementById("workout-library-sort-menu");
     this.loadMoreContainer = document.getElementById(handlers.loadMoreButtonId || "workout-library-load-more");
     this.loadMoreButton = this.loadMoreContainer?.querySelector("button") || null;
     this.activeFiltersElement = document.getElementById(handlers.activeFiltersId || "workout-library-active-filters");
@@ -45,6 +48,8 @@ export default class WorkoutLibraryView {
       this.sortSelect.value = this.sortValue;
     }
 
+    this.syncSortUi();
+
     this.updateScopeButtons();
 
     this.registerEvents();
@@ -72,8 +77,38 @@ export default class WorkoutLibraryView {
 
     this.sortSelect?.addEventListener("change", () => {
       this.sortValue = this.sortSelect?.value || "newest";
+      this.syncSortUi();
       this.handlers.onStateChange?.(this.getState());
       this.reload();
+    });
+
+    this.sortTrigger?.addEventListener("click", () => {
+      this.toggleSortMenu();
+    });
+
+    this.sortMenu?.querySelectorAll("[data-sort-option]").forEach((element) => {
+      element.addEventListener("click", () => {
+        const nextSort = element.getAttribute("data-sort-option") || "newest";
+        this.applySortValue(nextSort);
+        this.closeSortMenu();
+      });
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!this.sortTrigger || !this.sortMenu) {
+        return;
+      }
+
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (this.sortTrigger.contains(target) || this.sortMenu.contains(target)) {
+        return;
+      }
+
+      this.closeSortMenu();
     });
 
     [this.scopeMineButton, this.scopeSharedButton, this.scopeAllButton].forEach((button) => {
@@ -228,28 +263,10 @@ export default class WorkoutLibraryView {
 
     const chips = [];
     const search = (this.searchInput?.value || this.searchInputValue || "").trim();
-    const sort = this.sortSelect?.value || this.sortValue || "newest";
-    const scope = this.scopeValue || "mine";
-
     if (search) {
       chips.push({
         type: "search",
         label: `${this.t("activeSearch")}: ${search}`
-      });
-    }
-
-    if (scope !== "mine") {
-      const scopeLabel = scope === "shared" ? this.t("activeScopeShared") : this.t("activeScopeAll");
-      chips.push({
-        type: "scope",
-        label: `${this.t("activeScope")}: ${scopeLabel}`
-      });
-    }
-
-    if (sort !== "newest") {
-      chips.push({
-        type: "sort",
-        label: `${this.t("activeSort")}: ${this.getSortLabel(sort)}`
       });
     }
 
@@ -292,13 +309,18 @@ export default class WorkoutLibraryView {
     }
 
     if (type === "sort") {
-      this.sortValue = "newest";
-      if (this.sortSelect) {
-        this.sortSelect.value = "newest";
-      }
-      this.handlers.onStateChange?.(this.getState());
-      this.reload();
+      this.applySortValue("newest");
     }
+  }
+
+  applySortValue(value) {
+    this.sortValue = value || "newest";
+    if (this.sortSelect) {
+      this.sortSelect.value = this.sortValue;
+    }
+    this.syncSortUi();
+    this.handlers.onStateChange?.(this.getState());
+    this.reload();
   }
 
   applySearchValue(value) {
@@ -325,6 +347,45 @@ export default class WorkoutLibraryView {
       np: this.pageT("sortNp")
     };
     return labels[sort] || sort;
+  }
+
+  syncSortUi() {
+    const sort = this.sortSelect?.value || this.sortValue || "newest";
+
+    if (this.sortTriggerLabel) {
+      this.sortTriggerLabel.textContent = this.getSortLabel(sort);
+    }
+
+    this.sortMenu?.querySelectorAll("[data-sort-option]").forEach((element) => {
+      element.classList.toggle("is-active", element.getAttribute("data-sort-option") === sort);
+    });
+  }
+
+  toggleSortMenu() {
+    const isOpen = !this.sortMenu?.hasAttribute("hidden");
+    if (isOpen) {
+      this.closeSortMenu();
+      return;
+    }
+    this.openSortMenu();
+  }
+
+  openSortMenu() {
+    if (!this.sortMenu || !this.sortTrigger) {
+      return;
+    }
+    this.sortMenu.hidden = false;
+    this.sortTrigger.classList.add("is-open");
+    this.sortTrigger.setAttribute("aria-expanded", "true");
+  }
+
+  closeSortMenu() {
+    if (!this.sortMenu || !this.sortTrigger) {
+      return;
+    }
+    this.sortMenu.hidden = true;
+    this.sortTrigger.classList.remove("is-open");
+    this.sortTrigger.setAttribute("aria-expanded", "false");
   }
 
   updateLoadMoreButton() {
@@ -616,8 +677,8 @@ export default class WorkoutLibraryView {
     const draft = this.getShareDraft(workoutId);
     const shareError = this.shareErrors.get(workoutId) || "";
     const tone = this.getWorkoutTone(workout);
-    const contextLabel = this.getWorkoutContextLabel(workout, hasValidGps);
     const dimmedClass = hasSelection && !isSelected ? " is-dimmed" : "";
+    const tertiaryKpi = this.getTertiaryKpi(workout);
 
     return `
       <article
@@ -630,7 +691,6 @@ export default class WorkoutLibraryView {
         <div class="workout-library-card__head">
           <div class="workout-library-card__identity">
             <div class="workout-library-card__context">
-              <span class="workout-library-card__context-chip">${contextLabel}</span>
               <span class="workout-library-card__context-chip">${dayLabel}</span>
               ${timeLabel ? `<span class="workout-library-card__context-chip">${timeLabel}</span>` : ""}
             </div>
@@ -652,8 +712,8 @@ export default class WorkoutLibraryView {
               <span class="workout-library-kpi__value">${this.formatDistance(workout.total_distance)}</span>
             </div>
             <div class="workout-library-kpi">
-              <span class="workout-library-kpi__label">${this.t("avgSpeed")}</span>
-              <span class="workout-library-kpi__value">${this.formatSpeed(workout.avg_speed)}</span>
+              <span class="workout-library-kpi__label">${tertiaryKpi.label}</span>
+              <span class="workout-library-kpi__value">${tertiaryKpi.value}</span>
             </div>
           </div>
         </div>
@@ -668,7 +728,6 @@ export default class WorkoutLibraryView {
           <div class="workout-library-card__status-row">
             <div class="workout-library-tags">
               <span class="workout-library-tag">${hasValidGps ? this.t("gps") : this.t("noGps")}</span>
-              <span class="workout-library-tag">${workout.avg_power ? this.t("power") : this.t("basic")}</span>
               <span class="workout-library-tag">${shareTag}</span>
             </div>
           </div>
@@ -754,6 +813,20 @@ export default class WorkoutLibraryView {
     return `${Math.round(Number(value))} m`;
   }
 
+  getTertiaryKpi(workout) {
+    if (Number.isFinite(workout.avg_power) && Number(workout.avg_power) > 0) {
+      return {
+        label: this.t("avgPower"),
+        value: `${this.formatInt(workout.avg_power)} W`
+      };
+    }
+
+    return {
+      label: this.t("avgSpeed"),
+      value: this.formatSpeed(workout.avg_speed)
+    };
+  }
+
   getWorkoutTone(workout) {
     const durationSeconds = Number(workout.total_timer_time) || 0;
     const avgPower = Number(workout.avg_power) || 0;
@@ -772,14 +845,6 @@ export default class WorkoutLibraryView {
     }
 
     return "basic";
-  }
-
-  getWorkoutContextLabel(workout, hasValidGps) {
-    if (Number(workout.avg_power) > 0) {
-      return this.t("power");
-    }
-
-    return hasValidGps ? this.t("gps") : this.t("basic");
   }
 
   buildIdentitySummary(workout) {
