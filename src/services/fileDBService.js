@@ -582,13 +582,27 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     const countResult = await pool.query(countQuery, sqlParams);
 
     const totalRecords = parseInt(countResult.rows[0].total);
+    const summaryResult = await pool.query(`
+      SELECT
+        COUNT(*)::int AS workout_count,
+        COALESCE(SUM(total_timer_time), 0)::bigint AS total_timer_time,
+        COALESCE(SUM(total_distance), 0)::double precision AS total_distance
+      FROM workouts
+      WHERE uid = $1
+    `, [uid]);
+    const summaryRow = summaryResult.rows[0] || {};
 
     const enriched_recs = await FileDBService.post_calculations(uid, dataResult.rows, "year");
 
     return {
       data: enriched_recs,
       last_page: Math.ceil(totalRecords / size),
-      total_records: totalRecords
+      total_records: totalRecords,
+      own_summary: {
+        workout_count: Number(summaryRow.workout_count) || 0,
+        total_timer_time: Number(summaryRow.total_timer_time) || 0,
+        total_distance: Number(summaryRow.total_distance) || 0
+      }
     };
   }
   static async post_calculations(userid, workouts, grouping) {

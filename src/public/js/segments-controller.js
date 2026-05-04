@@ -1,8 +1,7 @@
 import MapView from "./segment-map-view.js";
-import ChartView from "./segment-chart-view.js";
 import TableView from "./segment-table-view.js";
+import SegmentBestEffortsCardView from "./segment-best-efforts-card-view.js";
 import SegmentElevationView from "./segment-elevation-view.js";
-import WorkoutService from "./workout-service.js";
 import MapSegment from "../../shared/MapSegment.js";
 import UIStateManager from "./UIStateManager.js"
 import confirmModal from "./confirm-modal.js";
@@ -20,9 +19,19 @@ export default class Controller {
     this.currentUserId = String(document.body?.dataset?.currentUserId || "");
     this.segmentScope = this.uiState.get("segmentScope", "mine");
     this.bestEffortsScope = this.uiState.get("segmentBestEffortsScope", "mine");
+    this.bestEffortsViewMode = this.uiState.get("segmentBestEffortsViewMode", "table");
     this.focusSegmentId = new URLSearchParams(window.location.search).get("focusSegmentId");
     this.restoredSegmentId = this.uiState.get("selectedSegmentId");
     this.focusApplied = false;
+    this.shellElement = document.querySelector(".segments-shell");
+    this.heroElement = document.querySelector(".segments-hero");
+    this.workspaceElement = document.getElementById("segments-workspace");
+    this.splitterElement = document.getElementById("segments-splitter");
+    this.layoutMeasureRaf = null;
+    this.layoutObserver = null;
+    this.mapWidthPx = this.uiState.get("segmentsMapWidthPx", null);
+    this.splitterPointerId = null;
+    this.detailActionsMenu = document.querySelector(".segments-detail-actions-menu");
     this.initViews();
     this.registerEvents();
   }
@@ -36,65 +45,23 @@ export default class Controller {
     this.mapView = new MapView("workout-map", this,
       {
         onSegmentOpen: async (e, segment) => {
-          this.selectSegment(segment);
-          await this.tableView.loadSegment(e, segment);
+          await this.handleSegmentOpen(e, segment);
         }
       }
 
     );
 
-    this.chartView = new ChartView("workout-chart", {
-      onChartHoverIndex: (idx) => {
-        this.mapView.moveMarkerToIndex(idx);
-      },
-
-      onZoomSegment: (start, end) => {
-        this.chartView.zoomToSegment(start, end);
-        this.mapView.highlightSegment({ start, end });
-      },
-
-      createMarkArea: (start, end) => {
-        // bewusst unverändert gelassen
-      },
-
-      onUpdateWorkout: (workout) => {
-        //this.chartView.updateWorkout(workout);
-        //this.mapView.renderTrack(workout);
-      }
-    });
-
     this.tableView = new TableView("#segment-table", {
       currentUserId: this.currentUserId,
       initialScope: this.bestEffortsScope,
+      onRowOpen: async () => {},
+      onRowDelete: async (row) => row
+    });
 
-      onRowOpen: async (e, row) => {
-        if (e.target.closest("button")) return;
-
-        this.chartView.showLoading();
-
-        try {
-          const segment = row.getData();
-          let workout = await WorkoutService.loadWorkoutByRow(segment.wid);
-          this.chartView.updateWorkout(workout, segment);
-          //this.mapView.renderTrack(workout);
-
-        } catch (err) {
-          console.error(err);
-
-        } finally {
-          this.chartView.hideLoading();
-        }
-      },
-
-      onRowDelete: async (row) => {
-        await WorkoutService.deleteWorkoutByRow(row);
-      },
-
-      onScopeChange: (scope) => {
-        this.bestEffortsScope = scope;
-        this.uiState.set("segmentBestEffortsScope", scope);
-      }
-
+    this.cardView = new SegmentBestEffortsCardView("#segment-best-efforts-cards", {
+      currentUserId: this.currentUserId,
+      initialScope: this.bestEffortsScope,
+      formatSegmentHeaderMarkup: (...args) => this.tableView.formatSegmentHeaderMarkup(...args)
     });
 
     this.elevationView = new SegmentElevationView(
@@ -124,10 +91,14 @@ export default class Controller {
     this.scopeMineButton = document.getElementById("segments-scope-mine");
     this.scopeSharedButton = document.getElementById("segments-scope-shared");
     this.scopeAllButton = document.getElementById("segments-scope-all");
+    this.bestEffortsViewTableButton = document.getElementById("segment-bestefforts-view-table");
+    this.bestEffortsViewCardsButton = document.getElementById("segment-bestefforts-view-cards");
     this.updateDeleteButton();
     this.updateShareUi();
     this.updateSegmentMeta();
     this.syncScopeButtons();
+    this.syncBestEffortsViewButtons();
+    this.applyBestEffortsViewMode();
   }
 
   // -----------------------------
@@ -135,6 +106,8 @@ export default class Controller {
   // -----------------------------
   registerEvents() {
     window.addEventListener("resize", () => this.onResize());
+    this.initLayoutObservers();
+    this.registerSplitterEvents();
     this.deleteButton?.addEventListener("click", () => this.deleteSelectedSegment());
     this.shareToggleButton?.addEventListener("click", () => this.toggleShareInline());
     this.shareModeSelect?.addEventListener("change", () => this.updateShareModeUi());
@@ -147,12 +120,198 @@ export default class Controller {
         await this.setSegmentScope(scope);
       });
     });
+    [this.tableView.scopeMineButton, this.tableView.scopeSharedButton, this.tableView.scopeAllButton].forEach((button) => {
+      button?.addEventListener("click", async () => {
+        const scope = button.dataset.segmentBesteffortsScope || "mine";
+        await this.setBestEffortsScope(scope);
+      });
+    });
+    [this.bestEffortsViewTableButton, this.bestEffortsViewCardsButton].forEach((button) => {
+      button?.addEventListener("click", async () => {
+        const mode = button.dataset.segmentBesteffortsView || "table";
+        await this.setBestEffortsViewMode(mode);
+      });
+    });
+    document.addEventListener("click", (event) => {
+      if (!this.detailActionsMenu?.open) {
+        return;
+      }
+
+      if (event.target?.closest?.(".segments-detail-actions-menu")) {
+        return;
+      }
+
+      this.closeDetailActionsMenu();
+    });
     this.loadShareableGroups();
+    this.scheduleDesktopLayoutMeasure();
   }
 
   onResize() {
-    this.chartView.resize();
-    this.elevationView.resize();
+    this.scheduleDesktopLayoutMeasure();
+    this.applyMapWidth();
+    this.scheduleChildResizes();
+  }
+
+  async handleSegmentOpen(e, segment) {
+    this.selectSegment(segment);
+    await this.loadSelectedSegmentBestEfforts();
+  }
+
+  registerSplitterEvents() {
+    this.splitterElement?.addEventListener("pointerdown", (event) => {
+      if (!this.canUseDesktopSplitter()) {
+        return;
+      }
+
+      this.splitterPointerId = event.pointerId;
+      this.splitterElement?.setPointerCapture?.(event.pointerId);
+      this.splitterElement?.classList.add("is-active");
+      document.body.classList.add("overflow-hidden");
+      event.preventDefault();
+    });
+
+    this.splitterElement?.addEventListener("pointermove", (event) => {
+      if (this.splitterPointerId !== event.pointerId) {
+        return;
+      }
+
+      this.updateMapWidthFromPointer(event.clientX);
+    });
+
+    const finishDrag = (event) => {
+      if (this.splitterPointerId !== event.pointerId) {
+        return;
+      }
+
+      this.updateMapWidthFromPointer(event.clientX);
+      this.splitterPointerId = null;
+      this.splitterElement?.classList.remove("is-active");
+      document.body.classList.remove("overflow-hidden");
+    };
+
+    this.splitterElement?.addEventListener("pointerup", finishDrag);
+    this.splitterElement?.addEventListener("pointercancel", finishDrag);
+  }
+
+  initLayoutObservers() {
+    if (typeof ResizeObserver !== "function") {
+      return;
+    }
+
+    const observerTargets = [
+      document.querySelector(".app-topbar"),
+      this.heroElement,
+      this.workspaceElement
+    ].filter(Boolean);
+
+    if (!observerTargets.length) {
+      return;
+    }
+
+    this.layoutObserver = new ResizeObserver(() => {
+      this.scheduleDesktopLayoutMeasure();
+    });
+
+    observerTargets.forEach((target) => this.layoutObserver.observe(target));
+  }
+
+  scheduleDesktopLayoutMeasure() {
+    if (!this.shellElement || !this.workspaceElement) {
+      return;
+    }
+
+    if (this.layoutMeasureRaf != null) {
+      cancelAnimationFrame(this.layoutMeasureRaf);
+    }
+
+    this.layoutMeasureRaf = requestAnimationFrame(() => {
+      this.layoutMeasureRaf = null;
+      this.updateDesktopLayoutMeasure();
+    });
+  }
+
+  updateDesktopLayoutMeasure() {
+    const shell = this.shellElement;
+    const workspace = this.workspaceElement;
+
+    if (!shell || !workspace) {
+      return;
+    }
+
+    const isDesktopLike = window.matchMedia("(min-width: 992px)").matches;
+    const rect = workspace.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const availableHeight = Math.floor(viewportHeight - rect.top - 24);
+    const canUseClientLayout = isDesktopLike && availableHeight >= 560;
+
+    shell.classList.toggle("segments-shell--client", canUseClientLayout);
+    this.splitterElement && (this.splitterElement.style.display = isDesktopLike ? "block" : "none");
+
+    if (!canUseClientLayout) {
+      shell.style.removeProperty("--segments-client-height");
+      shell.style.removeProperty("--segments-map-width");
+      this.scheduleChildResizes();
+      return;
+    }
+
+    shell.style.setProperty("--segments-client-height", `${availableHeight}px`);
+    this.applyMapWidth();
+    this.scheduleChildResizes();
+  }
+
+  canUseDesktopSplitter() {
+    return window.matchMedia("(min-width: 992px)").matches;
+  }
+
+  applyMapWidth() {
+    const workspace = this.workspaceElement;
+    if (!workspace) {
+      return;
+    }
+
+    if (!this.canUseDesktopSplitter() || !Number.isFinite(this.mapWidthPx)) {
+      workspace.style.removeProperty("--segments-map-width");
+      return;
+    }
+
+    workspace.style.setProperty("--segments-map-width", `${Math.round(this.mapWidthPx)}px`);
+  }
+
+  updateMapWidthFromPointer(clientX) {
+    const workspace = this.workspaceElement;
+    if (!workspace) {
+      return;
+    }
+
+    const rect = workspace.getBoundingClientRect();
+    const splitterWidth = this.splitterElement?.getBoundingClientRect?.().width || 8;
+    const minWidth = 320;
+    const maxWidth = Math.max(minWidth, rect.width - splitterWidth - 420);
+    const nextWidth = Math.min(Math.max(clientX - rect.left, minWidth), maxWidth);
+
+    this.mapWidthPx = nextWidth;
+    this.uiState.set("segmentsMapWidthPx", nextWidth);
+    this.applyMapWidth();
+    this.scheduleChildResizes();
+  }
+
+  scheduleChildResizes() {
+    requestAnimationFrame(() => {
+      this.mapView.resize();
+      this.elevationView.resize();
+      if (this.bestEffortsViewMode === "table") {
+        this.tableView.resize();
+      }
+
+      window.setTimeout(() => {
+        this.mapView.resize();
+        this.elevationView.resize();
+        if (this.bestEffortsViewMode === "table") {
+          this.tableView.resize();
+        }
+      }, 60);
+    });
   }
 
   syncScopeButtons() {
@@ -217,11 +376,28 @@ export default class Controller {
     this.loadSelectedSegmentSharing();
   }
 
+  async loadSelectedSegmentBestEfforts() {
+    if (!this.selectedSegment) {
+      return;
+    }
+
+    this.tableView.setScope(this.bestEffortsScope);
+    this.cardView.setScope(this.bestEffortsScope);
+
+    if (this.bestEffortsViewMode === "cards") {
+      await this.cardView.loadSegment(this.selectedSegment);
+      return;
+    }
+
+    await this.tableView.loadSegment(null, this.selectedSegment);
+  }
+
   clearSelectedSegment() {
     this.selectedSegment = null;
     this.selectedSegmentSharing = null;
     this.uiState.remove("selectedSegmentId");
     this.tableView.clear();
+    this.cardView.clear();
     this.elevationView.hide();
     if (this.segmentHeader) {
       this.segmentHeader.textContent = this.t("insightsTitle");
@@ -280,6 +456,45 @@ export default class Controller {
   updateBestEffortsScopeUi() {
     const isSharedSegment = Number(this.selectedSegment?.shareGroupCount || 0) > 0;
     this.tableView?.setScopeVisibility(!!isSharedSegment);
+  }
+
+  syncBestEffortsViewButtons() {
+    this.bestEffortsViewTableButton?.classList.toggle("active", this.bestEffortsViewMode === "table");
+    this.bestEffortsViewCardsButton?.classList.toggle("active", this.bestEffortsViewMode === "cards");
+  }
+
+  applyBestEffortsViewMode() {
+    const tableElement = document.getElementById("segment-table");
+    const cardsElement = document.getElementById("segment-best-efforts-cards");
+    tableElement?.classList.toggle("d-none", this.bestEffortsViewMode !== "table");
+    cardsElement?.classList.toggle("d-none", this.bestEffortsViewMode !== "cards");
+  }
+
+  async setBestEffortsViewMode(mode) {
+    const nextMode = mode === "cards" ? "cards" : "table";
+    if (nextMode === this.bestEffortsViewMode) {
+      return;
+    }
+
+    this.bestEffortsViewMode = nextMode;
+    this.uiState.set("segmentBestEffortsViewMode", nextMode);
+    this.syncBestEffortsViewButtons();
+    this.applyBestEffortsViewMode();
+    await this.loadSelectedSegmentBestEfforts();
+    this.scheduleChildResizes();
+  }
+
+  async setBestEffortsScope(scope) {
+    const nextScope = ["mine", "shared", "all"].includes(String(scope)) ? String(scope) : "mine";
+    if (nextScope === this.bestEffortsScope) {
+      return;
+    }
+
+    this.bestEffortsScope = nextScope;
+    this.uiState.set("segmentBestEffortsScope", nextScope);
+    this.tableView.setScope(nextScope);
+    this.cardView.setScope(nextScope);
+    await this.loadSelectedSegmentBestEfforts();
   }
 
   canEditSelectedSegment(segment = this.selectedSegment) {
@@ -342,6 +557,11 @@ export default class Controller {
     }
 
     this.shareInline?.classList.toggle("is-open");
+    this.closeDetailActionsMenu();
+  }
+
+  closeDetailActionsMenu() {
+    this.detailActionsMenu?.removeAttribute("open");
   }
 
   renderShareGroupOptions(selectedGroupIds = []) {

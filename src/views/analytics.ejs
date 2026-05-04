@@ -33,13 +33,27 @@
         <div class="container-fluid px-3 px-xl-4 py-4">
             <div id="analytics-shell" class="analytics-shell ui-page-shell">
 
-                <section id="analytics-hero" class="analytics-hero ui-hero">
+                <section id="analytics-hero" class="analytics-hero ui-hero ui-hero--compact">
                     <div>
                         <p class="analytics-kicker ui-hero__kicker"><%= t("analyticsPage.kicker") %></p>
                         <h1 class="analytics-title ui-hero__title"><%= t("analyticsPage.mainTitle") %></h1>
                         <p class="analytics-subtitle ui-hero__subtitle">
                             <%= t("analyticsPage.subtitle") %>
                         </p>
+                    </div>
+                    <div class="ui-hero__art" aria-hidden="true">
+                        <svg viewBox="0 0 64 64" fill="none">
+                            <defs>
+                                <linearGradient id="analyticsHeroGradient" x1="10" y1="50" x2="54" y2="12" gradientUnits="userSpaceOnUse">
+                                    <stop stop-color="#0f766e" />
+                                    <stop offset="1" stop-color="#2563eb" />
+                                </linearGradient>
+                            </defs>
+                            <path d="M12 50H54" stroke="rgba(148,163,184,0.34)" stroke-width="3" stroke-linecap="round" />
+                            <path d="M16 42L26 31L34 35L48 19" stroke="url(#analyticsHeroGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+                            <path d="M16 28L24 24L32 27L44 16" stroke="rgba(37,99,235,0.26)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+                            <circle cx="48" cy="19" r="4" fill="#2563eb" />
+                        </svg>
                     </div>
                 </section>
 

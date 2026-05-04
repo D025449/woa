@@ -42,6 +42,7 @@ export default class MapView {
     this.isSelecting = false;
     this.toggleBtn = document.getElementById("draw-segment-map-toggle");
     this.lookupBtn = document.getElementById("draw-segment-map-lookup");
+    this.actionsMenu = document.querySelector(".segments-map-actions-menu");
 
     this.toggleBtn?.addEventListener("click", () => {
       if (this.isSelecting) {
@@ -49,10 +50,24 @@ export default class MapView {
       } else {
         this.enableSelectionMode();
       }
+      this.closeActionsMenu();
     });
 
     this.lookupBtn?.addEventListener("click", async () => {
       await this.handleLookUpClick();
+      this.closeActionsMenu();
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!this.actionsMenu?.open) {
+        return;
+      }
+
+      if (event.target?.closest?.(".segments-map-actions-menu")) {
+        return;
+      }
+
+      this.closeActionsMenu();
     });
 
     this.syncSelectionUi();
@@ -154,6 +169,10 @@ export default class MapView {
       this.lookupBtn.classList.toggle("btn-outline-secondary", !this.isSelecting || !hasTwoPoints);
       this.lookupBtn.classList.toggle("active", this.isSelecting && hasTwoPoints);
     }
+  }
+
+  closeActionsMenu() {
+    this.actionsMenu?.removeAttribute("open");
   }
 
   handleMapClick(e) {
@@ -586,5 +605,9 @@ export default class MapView {
   // -----------------------------
   getTrackPoints() {
     return this.currentTrackPoints;
+  }
+
+  resize() {
+    this.map.invalidateSize(false);
   }
 }

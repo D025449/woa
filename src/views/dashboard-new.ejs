@@ -35,8 +35,21 @@
 
                 <section id="dashboard-hero" class="dashboard-hero">
                     <div>
-                        <p class="dashboard-kicker"><%= t("dashboardNewPage.kicker") %></p>
                         <h1 id="dashboard-workout-count" class="dashboard-title"><%= t("dashboardNewPage.titleMain") %></h1>
+                    </div>
+                    <div class="ui-hero__art" aria-hidden="true">
+                        <svg viewBox="0 0 64 64" fill="none">
+                            <defs>
+                                <linearGradient id="dashboardHeroWorkoutsGradient" x1="8" y1="50" x2="56" y2="14" gradientUnits="userSpaceOnUse">
+                                    <stop stop-color="#0f766e" />
+                                    <stop offset="1" stop-color="#2563eb" />
+                                </linearGradient>
+                            </defs>
+                            <path d="M10 46C16 37 21 30 28 31C34 32 35 42 42 42C48 42 51 32 54 18" stroke="url(#dashboardHeroWorkoutsGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+                            <path d="M10 51H54" stroke="rgba(148,163,184,0.38)" stroke-width="3" stroke-linecap="round" />
+                            <circle cx="28" cy="31" r="4" fill="#2563eb" />
+                            <circle cx="42" cy="42" r="4" fill="#0f766e" />
+                        </svg>
                     </div>
                 </section>
 
@@ -185,17 +198,26 @@
                             </div>
 
                             <div class="dashboard-toolbar dashboard-workspace-toolbar">
-                                <button id="draw-segment-toggle" class="btn btn-sm btn-outline-primary"
-                                    title="<%= t('dashboardNewPage.btnCreateSegmentTitle') %>">
-                                    <%= t("dashboardNewPage.btnCreateSegment") %>
-                                </button>
-                                <button id="draw-gps-segment-toggle" class="btn btn-sm btn-outline-success"
-                                    title="<%= t('dashboardNewPage.btnCreateGpsTitle') %>" disabled>
-                                    <%= t("dashboardNewPage.btnCreateGps") %>
-                                </button>
-                                <button id="delete-segments" class="btn btn-sm btn-outline-danger">
-                                    <%= t("dashboardNewPage.btnDeleteSegment") %>
-                                </button>
+                                <details class="dashboard-actions-menu">
+                                    <summary class="dashboard-actions-menu__trigger" aria-label="<%= t('dashboardNewPage.btnCreateSegment') %> / <%= t('dashboardNewPage.btnCreateGps') %> / <%= t('dashboardNewPage.btnDeleteSegment') %>">
+                                        <span></span><span></span><span></span>
+                                    </summary>
+                                    <div class="dashboard-actions-menu__panel">
+                                        <button id="draw-segment-toggle" class="dashboard-actions-menu__item dashboard-actions-menu__item--primary" type="button"
+                                            title="<%= t('dashboardNewPage.btnCreateSegmentTitle') %>">
+                                            <%= t("dashboardNewPage.btnCreateSegment") %>
+                                        </button>
+                                        <button id="draw-gps-segment-toggle" class="dashboard-actions-menu__item dashboard-actions-menu__item--success" type="button"
+                                            title="<%= t('dashboardNewPage.btnCreateGpsTitle') %>" disabled>
+                                            <%= t("dashboardNewPage.btnCreateGps") %>
+                                        </button>
+                                        <button id="delete-segments" class="dashboard-actions-menu__item dashboard-actions-menu__item--danger" type="button">
+                                            <%= t("dashboardNewPage.btnDeleteSegment") %>
+                                        </button>
+                                        <div id="dashboard-axis-toggle-slot" class="dashboard-actions-menu__toggle-slot"></div>
+                                        <div id="dashboard-series-toggle-slot" class="dashboard-actions-menu__series-slot"></div>
+                                    </div>
+                                </details>
                             </div>
                         </div>
 
@@ -209,7 +231,6 @@
                                 <div>
                                     <span class="dashboard-eyebrow"><%= t("dashboardNewPage.spatialEyebrow") %></span>
                                     <h2 class="dashboard-section-title"><%= t("dashboardNewPage.routeMapTitle") %></h2>
-                                    <p class="dashboard-section-copy"><%= t("dashboardNewPage.mapCopy") %></p>
                                 </div>
                             </div>
 

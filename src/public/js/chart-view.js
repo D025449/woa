@@ -16,6 +16,15 @@ export default class ChartView {
     this.currentWorkout = null;
     this.xAxisMode = "time";
     this.distanceAxisToggle = null;
+    this.seriesToggleSlot = document.getElementById("dashboard-series-toggle-slot");
+    this.seriesVisibility = {
+      power: true,
+      heartRate: true,
+      cadence: true,
+      speed: true,
+      altitude: true
+    };
+    this.seriesToggleButtons = new Map();
     this.distanceKmByIndex = null;
     this.mode = "";
     this.isHoveringSegmentArea = false;
@@ -25,6 +34,7 @@ export default class ChartView {
     this.createButton = document.getElementById('draw-segment-toggle');
     this.createGpsButton = document.getElementById('draw-gps-segment-toggle');
     this.deleteButton = document.getElementById('delete-segments');
+    this.actionsMenu = document.querySelector(".dashboard-actions-menu");
 
     this.initSegmentHoverTooltip();
     this.initUI();
@@ -52,11 +62,38 @@ export default class ChartView {
     });
 
     this.initAxisModeToggle();
+    this.initSeriesToggleControls();
+    this.initActionsMenuBehaviour();
     this.syncModeButtons();
   }
 
+  initActionsMenuBehaviour() {
+    if (!this.actionsMenu) {
+      return;
+    }
+
+    this.actionsMenu.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+
+    document.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (this.actionsMenu?.contains(target)) {
+        return;
+      }
+
+      this.actionsMenu?.removeAttribute("open");
+    });
+  }
+
   initAxisModeToggle() {
-    const toolbar = this.createButton?.closest(".dashboard-toolbar")
+    const slot = document.getElementById("dashboard-axis-toggle-slot");
+    const toolbar = slot
+      || this.createButton?.closest(".dashboard-toolbar")
       || this.deleteButton?.closest(".dashboard-toolbar")
       || this.createGpsButton?.closest(".dashboard-toolbar")
       || null;
@@ -108,8 +145,11 @@ export default class ChartView {
         formatter: (params) => this.formatTooltip(params)
       },
       animation: false,
-      legend: {},
-      grid: { top: 80 },
+      legend: {
+        show: false,
+        selected: this.getLegendSelection(labels)
+      },
+      grid: { top: 40 },
       xAxis: {
         type: "value",
         scale: true,
@@ -135,50 +175,9 @@ export default class ChartView {
         { type: "inside", xAxisIndex: 0, filterMode: "none" },
         { type: "slider", xAxisIndex: 0 }
       ],
-      series: [
-        {
-          name: labels.power,
-          type: "line",
-          showSymbol: false,
-          sampling: "lttb",
-          yAxisIndex: 0,
-          markArea: { data: [] },
-          encode: { x: "x", y: "Power" }
-        },
-        {
-          name: labels.heartRate,
-          type: "line",
-          showSymbol: false,
-          sampling: "lttb",
-          yAxisIndex: 1,
-          encode: { x: "x", y: "Heartrate" }
-        },
-        {
-          name: labels.cadence,
-          type: "line",
-          showSymbol: false,
-          sampling: "lttb",
-          yAxisIndex: 1,
-          encode: { x: "x", y: "Cadence" }
-        },
-        {
-          name: labels.speed,
-          type: "line",
-          showSymbol: false,
-          sampling: "lttb",
-          yAxisIndex: 2,
-          encode: { x: "x", y: "Speed" }
-        },
-        {
-          name: labels.altitude,
-          type: "line",
-          showSymbol: false,
-          sampling: "lttb",
-          yAxisIndex: 3,
-          encode: { x: "x", y: "Altitude" }
-        }
-      ]
+      series: this.buildSeriesDefinitions(labels)
     });
+    this.renderSeriesToggles(labels);
   }
 
   // -----------------------------
@@ -212,19 +211,13 @@ export default class ChartView {
         max: xRange.max,
         axisLabel: { formatter: (value) => this.formatXAxisLabel(value) }
       },
+      legend: {
+        selected: this.getLegendSelection(labels)
+      },
       dataset: { source }, //workout.series },
-      series: [
-        {
-          name: labels.power,
-          encode: { x: xField, y: "Power" },
-          markArea: { data: [] }
-        },
-        { name: labels.heartRate, encode: { x: xField, y: "Heartrate" } },
-        { name: labels.cadence, encode: { x: xField, y: "Cadence" } },
-        { name: labels.speed, encode: { x: xField, y: "Speed" } },
-        { name: labels.altitude, encode: { x: xField, y: "Altitude" } }
-      ]
+      series: this.buildSeriesDefinitions(labels, xField)
     });
+    this.renderSeriesToggles(labels);
     this.baseMarkAreas = this.buildMarkAreasForMode(workout);
     this.applyMarkAreas();
   }
@@ -257,19 +250,13 @@ export default class ChartView {
         max: xRange.max,
         axisLabel: { formatter: (value) => this.formatXAxisLabel(value) }
       },
+      legend: {
+        selected: this.getLegendSelection(labels)
+      },
       dataset: { source }, //workout.series },
-      series: [
-        {
-          name: labels.power,
-          encode: { x: xField, y: "Power" },
-          markArea: { data: [] }
-        },
-        { name: labels.heartRate, encode: { x: xField, y: "Heartrate" } },
-        { name: labels.cadence, encode: { x: xField, y: "Cadence" } },
-        { name: labels.speed, encode: { x: xField, y: "Speed" } },
-        { name: labels.altitude, encode: { x: xField, y: "Altitude" } }
-      ]
+      series: this.buildSeriesDefinitions(labels, xField)
     });
+    this.renderSeriesToggles(labels);
     this.baseMarkAreas = this.buildMarkAreasCPForMode(cpview);
     this.applyMarkAreas();
   }
@@ -539,6 +526,28 @@ export default class ChartView {
     timeButton.classList.toggle("btn-outline-dark", this.xAxisMode !== "time");
     distanceButton.classList.toggle("btn-dark", this.xAxisMode === "distance");
     distanceButton.classList.toggle("btn-outline-dark", this.xAxisMode !== "distance");
+  }
+
+  initSeriesToggleControls() {
+    if (!this.seriesToggleSlot) {
+      return;
+    }
+
+    this.seriesToggleSlot.addEventListener("click", (event) => {
+      const button = event.target?.closest?.("button[data-series-key]");
+      if (!button) {
+        return;
+      }
+
+      const seriesKey = button.dataset.seriesKey;
+      if (!seriesKey || !(seriesKey in this.seriesVisibility)) {
+        return;
+      }
+
+      this.seriesVisibility[seriesKey] = !this.seriesVisibility[seriesKey];
+      this.applySeriesSelection();
+      this.syncSeriesToggleState();
+    });
   }
 
   hasDistanceXAxis() {
@@ -965,6 +974,139 @@ export default class ChartView {
       axisSpeed: this.t("chart.axisSpeed"),
       axisAltitude: this.t("chart.axisAltitude")
     };
+  }
+
+  getSeriesPalette() {
+    return {
+      power: "#2563eb",
+      heartRate: "#16a34a",
+      cadence: "#f59e0b",
+      speed: "#ef4444",
+      altitude: "#38bdf8"
+    };
+  }
+
+  buildSeriesDefinitions(labels, xField = "x") {
+    const colors = this.getSeriesPalette();
+
+    return [
+      {
+        name: labels.power,
+        type: "line",
+        showSymbol: false,
+        sampling: "lttb",
+        yAxisIndex: 0,
+        markArea: { data: [] },
+        lineStyle: { color: colors.power, width: 1.8 },
+        itemStyle: { color: colors.power },
+        encode: { x: xField, y: "Power" }
+      },
+      {
+        name: labels.heartRate,
+        type: "line",
+        showSymbol: false,
+        sampling: "lttb",
+        yAxisIndex: 1,
+        lineStyle: { color: colors.heartRate, width: 1.7 },
+        itemStyle: { color: colors.heartRate },
+        encode: { x: xField, y: "Heartrate" }
+      },
+      {
+        name: labels.cadence,
+        type: "line",
+        showSymbol: false,
+        sampling: "lttb",
+        yAxisIndex: 1,
+        lineStyle: { color: colors.cadence, width: 1.7 },
+        itemStyle: { color: colors.cadence },
+        encode: { x: xField, y: "Cadence" }
+      },
+      {
+        name: labels.speed,
+        type: "line",
+        showSymbol: false,
+        sampling: "lttb",
+        yAxisIndex: 2,
+        lineStyle: { color: colors.speed, width: 1.7 },
+        itemStyle: { color: colors.speed },
+        encode: { x: xField, y: "Speed" }
+      },
+      {
+        name: labels.altitude,
+        type: "line",
+        showSymbol: false,
+        sampling: "lttb",
+        yAxisIndex: 3,
+        lineStyle: { color: colors.altitude, width: 1.7 },
+        itemStyle: { color: colors.altitude },
+        encode: { x: xField, y: "Altitude" }
+      }
+    ];
+  }
+
+  getLegendSelection(labels = this.getChartLabels()) {
+    return {
+      [labels.power]: this.seriesVisibility.power,
+      [labels.heartRate]: this.seriesVisibility.heartRate,
+      [labels.cadence]: this.seriesVisibility.cadence,
+      [labels.speed]: this.seriesVisibility.speed,
+      [labels.altitude]: this.seriesVisibility.altitude
+    };
+  }
+
+  getSeriesToggleDefinitions(labels = this.getChartLabels()) {
+    const colors = this.getSeriesPalette();
+    return [
+      { key: "power", label: labels.power, color: colors.power },
+      { key: "heartRate", label: labels.heartRate, color: colors.heartRate },
+      { key: "cadence", label: labels.cadence, color: colors.cadence },
+      { key: "speed", label: labels.speed, color: colors.speed },
+      { key: "altitude", label: labels.altitude, color: colors.altitude }
+    ];
+  }
+
+  renderSeriesToggles(labels = this.getChartLabels()) {
+    if (!this.seriesToggleSlot) {
+      return;
+    }
+
+    this.seriesToggleButtons.clear();
+    this.seriesToggleSlot.innerHTML = "";
+
+    this.getSeriesToggleDefinitions(labels).forEach((series) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "dashboard-series-toggle";
+      button.dataset.seriesKey = series.key;
+      button.innerHTML = `
+        <span class="dashboard-series-toggle__identity">
+          <span class="dashboard-series-toggle__swatch" style="background:${series.color};"></span>
+          <span class="dashboard-series-toggle__label">${series.label}</span>
+        </span>
+        <span class="dashboard-series-toggle__state" aria-hidden="true">✓</span>
+      `;
+      this.seriesToggleSlot.appendChild(button);
+      this.seriesToggleButtons.set(series.key, button);
+    });
+
+    this.syncSeriesToggleState();
+  }
+
+  syncSeriesToggleState() {
+    this.seriesToggleButtons.forEach((button, key) => {
+      const isActive = this.seriesVisibility[key] !== false;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+  }
+
+  applySeriesSelection() {
+    const labels = this.getChartLabels();
+    this.chart.setOption({
+      legend: {
+        selected: this.getLegendSelection(labels)
+      }
+    });
   }
 
   resize() { this.chart.resize(); }

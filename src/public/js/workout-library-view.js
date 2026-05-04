@@ -28,6 +28,7 @@ export default class WorkoutLibraryView {
     this.pageSize = handlers.pageSize || 24;
     this.lastPage = 1;
     this.totalRecords = 0;
+    this.ownSummary = null;
     this.pendingRequestId = 0;
     this.openShareWorkoutId = null;
     this.loadingShareWorkoutId = null;
@@ -186,6 +187,7 @@ export default class WorkoutLibraryView {
 
     this.totalRecords = result.total_records || 0;
     this.lastPage = result.last_page || 1;
+    this.ownSummary = result.own_summary || null;
     this.items = append
       ? [...this.items, ...(result.data || [])]
       : (result.data || []);
@@ -250,6 +252,18 @@ export default class WorkoutLibraryView {
 
   renderHeader() {
     if (!this.headerElement) {
+      return;
+    }
+
+    if (this.ownSummary) {
+      const countText = this.t("workoutCount", { count: this.ownSummary.workout_count || 0 });
+      const parts = [
+        countText,
+        this.formatAggregateHours(this.ownSummary.total_timer_time),
+        this.formatDistance(this.ownSummary.total_distance, 0)
+      ].filter(Boolean);
+
+      this.headerElement.textContent = parts.join(" • ");
       return;
     }
 
@@ -472,7 +486,10 @@ export default class WorkoutLibraryView {
 
   bindCardEvents() {
     this.container.querySelectorAll("[data-workout-open]").forEach((element) => {
-      element.addEventListener("click", () => {
+      element.addEventListener("click", (event) => {
+        if (event.target?.closest?.(".workout-library-actions-menu")) {
+          return;
+        }
         const workoutId = element.getAttribute("data-workout-open");
         this.handlers.onWorkoutOpen?.(workoutId);
       });
@@ -483,6 +500,18 @@ export default class WorkoutLibraryView {
         event.preventDefault();
         const workoutId = element.getAttribute("data-workout-open");
         this.handlers.onWorkoutOpen?.(workoutId);
+      });
+    });
+
+    this.container.querySelectorAll(".workout-library-actions-menu").forEach((element) => {
+      element.addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+    });
+
+    this.container.querySelectorAll(".workout-library-actions-menu__trigger").forEach((element) => {
+      element.addEventListener("click", (event) => {
+        event.stopPropagation();
       });
     });
 
@@ -678,7 +707,7 @@ export default class WorkoutLibraryView {
     const shareError = this.shareErrors.get(workoutId) || "";
     const tone = this.getWorkoutTone(workout);
     const dimmedClass = hasSelection && !isSelected ? " is-dimmed" : "";
-    const tertiaryKpi = this.getTertiaryKpi(workout);
+    const compactStat = this.getCompactStat(workout);
 
     return `
       <article
@@ -693,6 +722,8 @@ export default class WorkoutLibraryView {
             <div class="workout-library-card__context">
               <span class="workout-library-card__context-chip">${dayLabel}</span>
               ${timeLabel ? `<span class="workout-library-card__context-chip">${timeLabel}</span>` : ""}
+              <span class="workout-library-card__context-chip">${hasValidGps ? this.t("gps") : this.t("noGps")}</span>
+              <span class="workout-library-card__context-chip">${shareTag}</span>
             </div>
             <div class="workout-library-card__title">${this.t("workoutLabel", { id: workout.id })}</div>
             <div class="workout-library-card__meta">${this.buildIdentitySummary(workout)}</div>
@@ -711,10 +742,6 @@ export default class WorkoutLibraryView {
               <span class="workout-library-kpi__label">${this.t("distance")}</span>
               <span class="workout-library-kpi__value">${this.formatDistance(workout.total_distance)}</span>
             </div>
-            <div class="workout-library-kpi">
-              <span class="workout-library-kpi__label">${tertiaryKpi.label}</span>
-              <span class="workout-library-kpi__value">${tertiaryKpi.value}</span>
-            </div>
           </div>
         </div>
 
@@ -722,33 +749,47 @@ export default class WorkoutLibraryView {
           <div class="workout-library-stat-row">
             <span class="workout-library-stat"><span class="workout-library-stat__label">${this.t("avgPower")}</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_power)} W</span></span>
             <span class="workout-library-stat"><span class="workout-library-stat__label">NP</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_normalized_power)} W</span></span>
-            <span class="workout-library-stat"><span class="workout-library-stat__label">${this.t("avgHr")}</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_heart_rate)} bpm</span></span>
-            <span class="workout-library-stat"><span class="workout-library-stat__label">hm</span><span class="workout-library-stat__value">${this.formatAscentMeters(workout.total_ascent)}</span></span>
-          </div>
-          <div class="workout-library-card__status-row">
-            <div class="workout-library-tags">
-              <span class="workout-library-tag">${hasValidGps ? this.t("gps") : this.t("noGps")}</span>
-              <span class="workout-library-tag">${shareTag}</span>
-            </div>
-          </div>
-          <div class="workout-library-card__footer">
-            <div class="workout-library-actions">
-              ${isOwned ? `
-                <a
-                  class="btn btn-sm btn-outline-primary"
-                  href="/workouts/${workout.id}/export.fit"
-                  data-workout-export="${workout.id}"
-                  download>
-                  ${this.t("exportFit")}
-                </a>
-                <button class="btn btn-sm btn-outline-secondary" type="button" data-workout-share-toggle="${workout.id}">
-                  ${this.t("share")}
-                </button>
-                <button class="btn btn-sm btn-outline-danger" type="button" data-workout-delete="${workout.id}">
-                  ${this.t("delete")}
-                </button>
-              ` : ""}
-            </div>
+            ${compactStat ? `<span class="workout-library-stat"><span class="workout-library-stat__label">${compactStat.label}</span><span class="workout-library-stat__value">${compactStat.value}</span></span>` : ""}
+            ${isOwned ? `
+              <details class="workout-library-actions-menu">
+                <summary class="workout-library-actions-menu__trigger" aria-label="${this.t("share")} / ${this.t("delete")}">
+                  <span></span><span></span><span></span>
+                </summary>
+                <div class="workout-library-actions-menu__panel">
+                  <a
+                    class="workout-library-actions-menu__item workout-library-actions-menu__item--primary"
+                    href="/workouts/${workout.id}/export.fit"
+                    data-workout-export="${workout.id}"
+                    download>
+                    <span class="workout-library-actions-menu__icon" aria-hidden="true">
+                      <svg viewBox="0 0 20 20">
+                        <path d="M10 3.5v8.5M6.8 8.9 10 12.3l3.2-3.4M4 14.5h12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+                      </svg>
+                    </span>
+                    ${this.t("exportFit")}
+                  </a>
+                  <button class="workout-library-actions-menu__item workout-library-actions-menu__item--secondary" type="button" data-workout-share-toggle="${workout.id}">
+                    <span class="workout-library-actions-menu__icon" aria-hidden="true">
+                      <svg viewBox="0 0 20 20">
+                        <path d="M7.2 10.2 12.8 6.9M7.2 9.8l5.6 3.3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"></path>
+                        <circle cx="5.4" cy="10" r="2.1" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
+                        <circle cx="14.8" cy="5.8" r="2.1" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
+                        <circle cx="14.8" cy="14.2" r="2.1" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
+                      </svg>
+                    </span>
+                    ${this.t("share")}
+                  </button>
+                  <button class="workout-library-actions-menu__item workout-library-actions-menu__item--danger" type="button" data-workout-delete="${workout.id}">
+                    <span class="workout-library-actions-menu__icon" aria-hidden="true">
+                      <svg viewBox="0 0 20 20">
+                        <path d="M6.2 6.2h7.6M8 6.2V4.8h4v1.4M7.2 6.2l.45 8.1h4.7l.45-8.1M8.7 8.1v4.5M11.3 8.1v4.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+                      </svg>
+                    </span>
+                    ${this.t("delete")}
+                  </button>
+                </div>
+              </details>
+            ` : ""}
           </div>
           ${isOwned && isShareOpen ? `
             <div class="workout-share-inline">
@@ -793,8 +834,10 @@ export default class WorkoutLibraryView {
     `;
   }
 
-  formatDistance(value) {
-    return Number.isFinite(value) ? `${(Number(value) / 1000).toFixed(1)} km` : this.t("na");
+  formatDistance(value, fractionDigits = 1) {
+    return Number.isFinite(value)
+      ? `${(Number(value) / 1000).toFixed(fractionDigits)} km`
+      : this.t("na");
   }
 
   formatSpeed(value) {
@@ -813,18 +856,40 @@ export default class WorkoutLibraryView {
     return `${Math.round(Number(value))} m`;
   }
 
-  getTertiaryKpi(workout) {
-    if (Number.isFinite(workout.avg_power) && Number(workout.avg_power) > 0) {
+  formatAggregateHours(value) {
+    const seconds = Number(value) || 0;
+    const hours = seconds / 3600;
+    const formatter = new Intl.NumberFormat(this.locale || undefined, {
+      minimumFractionDigits: hours >= 100 ? 0 : 1,
+      maximumFractionDigits: hours >= 100 ? 0 : 1
+    });
+
+    return `${formatter.format(hours)} h`;
+  }
+
+  getCompactStat(workout) {
+    if (Number.isFinite(workout.avg_heart_rate) && Number(workout.avg_heart_rate) > 0) {
       return {
-        label: this.t("avgPower"),
-        value: `${this.formatInt(workout.avg_power)} W`
+        label: this.t("avgHr"),
+        value: `${this.formatInt(workout.avg_heart_rate)} bpm`
       };
     }
 
-    return {
-      label: this.t("avgSpeed"),
-      value: this.formatSpeed(workout.avg_speed)
-    };
+    if (Number.isFinite(workout.total_ascent) && Number(workout.total_ascent) > 0) {
+      return {
+        label: "hm",
+        value: this.formatAscentMeters(workout.total_ascent)
+      };
+    }
+
+    if (Number.isFinite(workout.avg_speed) && Number(workout.avg_speed) > 0) {
+      return {
+        label: this.t("avgSpeed"),
+        value: this.formatSpeed(workout.avg_speed)
+      };
+    }
+
+    return null;
   }
 
   getWorkoutTone(workout) {

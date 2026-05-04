@@ -170,6 +170,25 @@
   justify-content: flex-end;
 }
 
+.ui-hero__art {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 4.1rem;
+  height: 4.1rem;
+  border-radius: 1.2rem;
+  border: 1px solid var(--ui-card-border-soft);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.9));
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.06);
+  color: var(--ui-text-default);
+}
+
+.ui-hero__art svg {
+  width: 2.7rem;
+  height: 2.7rem;
+}
+
 .ui-hero__kicker {
   margin: 0 0 0.4rem;
   font-size: 0.75rem;
@@ -192,6 +211,28 @@
   margin: 0.75rem 0 0;
   font-size: 0.98rem;
   color: var(--ui-text-body);
+}
+
+.ui-hero--compact {
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+}
+
+.ui-hero--compact .ui-hero__kicker {
+  margin-bottom: 0.22rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+}
+
+.ui-hero--compact .ui-hero__title {
+  font-size: clamp(1.5rem, 2vw, 2.1rem);
+  line-height: 1;
+}
+
+.ui-hero--compact .ui-hero__subtitle {
+  margin-top: 0.35rem;
+  font-size: 0.9rem;
+  max-width: 46rem;
 }
 
 .ui-surface,
@@ -403,5 +444,15 @@
 
   .ui-hero__meta {
     justify-content: flex-start;
+  }
+
+  .ui-hero__art {
+    width: 3.5rem;
+    height: 3.5rem;
+  }
+
+  .ui-hero__art svg {
+    width: 2.3rem;
+    height: 2.3rem;
   }
 }

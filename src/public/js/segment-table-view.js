@@ -34,7 +34,7 @@ export default class TableView {
         console.log(response);
         const hdr = document.getElementById("segment-header");
         if (hdr) {
-          hdr.innerText = THAT.formatSegmentHeader(THAT.currentSegment, response.total_records);
+          hdr.innerHTML = THAT.formatSegmentHeaderMarkup(THAT.currentSegment, response.total_records);
         }
 
 
@@ -68,7 +68,7 @@ export default class TableView {
 
       ajaxConfig: "GET",
       layout: "fitColumns",
-      height: "300px",
+      height: "100%",
       sortMode: "remote",
       filterMode: "remote",
       paginationSize: 20,
@@ -230,17 +230,6 @@ export default class TableView {
 
       this.handlers.onRowOpen?.(e, row);
     });
-
-    [this.scopeMineButton, this.scopeSharedButton, this.scopeAllButton].forEach((button) => {
-      button?.addEventListener("click", async () => {
-        this.scopeValue = button.dataset.segmentBesteffortsScope || "mine";
-        this.updateScopeButtons();
-        this.handlers.onScopeChange?.(this.scopeValue);
-        if (this.currentSegment) {
-          await this.loadSegmentBestEfforts(this.currentSegment);
-        }
-      });
-    });
   }
 
   async loadSegment(e, segment) {
@@ -248,7 +237,7 @@ export default class TableView {
     this.stopBestEffortsPolling();
     const hdr = document.getElementById("segment-header");
     if (hdr) {
-      hdr.innerText = this.formatSegmentHeader(segment);
+      hdr.innerHTML = this.formatSegmentHeaderMarkup(segment);
     }
     await this.loadSegmentBestEfforts(segment);
 
@@ -272,6 +261,15 @@ export default class TableView {
     this.currentSegment = null;
     this.stopBestEffortsPolling();
     this.table.clearData();
+  }
+
+  setScope(scope) {
+    this.scopeValue = scope || "mine";
+    this.updateScopeButtons();
+  }
+
+  resize() {
+    this.table?.redraw?.(true);
   }
 
   shouldPollBestEfforts(segment) {
@@ -346,6 +344,49 @@ export default class TableView {
     const ownerPart = ownerLabel ? ` · ${this.t("table.ownerShort")}: ${ownerLabel}` : "";
     const matchPart = Number.isFinite(matchCount) ? ` · ${this.t("table.matches", { count: matchCount })}` : "";
     return `📍➡️📍 #${segment.id}: ${segment.start.name} - ${segment.end.name}: ${(segment.distance / 1000).toFixed(2)} km ${segment.ascent} hm${ownerPart}${matchPart}`;
+  }
+
+  escapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  formatSegmentHeaderMarkup(segment, matchCount = null) {
+    if (!segment) {
+      return this.escapeHtml(this.t("insightsTitle"));
+    }
+
+    const ownerLabel = segment.ownerDisplayName || segment.ownerEmail || null;
+    const ownerPart = ownerLabel ? ` · ${this.t("table.ownerShort")}: ${ownerLabel}` : "";
+    const matchPart = Number.isFinite(matchCount) ? ` · ${this.t("table.matches", { count: matchCount })}` : "";
+    const title = `#${segment.id}: ${segment.start.name} - ${segment.end.name}`;
+    const meta = `${(segment.distance / 1000).toFixed(2)} km · ${segment.ascent} hm${ownerPart}${matchPart}`;
+
+    return `
+      <span class="segments-detail-heading">
+        <span class="segments-detail-heading__icon" aria-hidden="true">
+          <svg viewBox="0 0 64 64" fill="none">
+            <defs>
+              <linearGradient id="segmentsDetailHeadingGradient" x1="12" y1="46" x2="52" y2="18" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#0f766e"></stop>
+                <stop offset="1" stop-color="#2563eb"></stop>
+              </linearGradient>
+            </defs>
+            <path d="M14 46C19 38 22 34 28 34C32 34 35 38 39 38C45 38 48 31 50 20" stroke="url(#segmentsDetailHeadingGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path>
+            <circle cx="14" cy="46" r="5" fill="#ffffff" stroke="#0f766e" stroke-width="3"></circle>
+            <circle cx="50" cy="20" r="5" fill="#ffffff" stroke="#2563eb" stroke-width="3"></circle>
+          </svg>
+        </span>
+        <span class="segments-detail-heading__copy">
+          <span class="segments-detail-heading__title">${this.escapeHtml(title)}</span>
+          <span class="segments-detail-heading__meta">${this.escapeHtml(meta)}</span>
+        </span>
+      </span>
+    `;
   }
 
 
