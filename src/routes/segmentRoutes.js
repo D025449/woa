@@ -589,6 +589,7 @@ router.get("/bestefforts/:id/data", authMiddleware, async (req, res, next) => {
     const sort = req.query.sort || [];
     const filters = req.query.filter || [];
     const scope = req.query.scope || req.body.scope || "mine";
+    const perUser = req.query.perUser || req.body.perUser || "all";
 
 
     const result = await SegmentDBService.getBestEffortsBySegment(
@@ -598,7 +599,8 @@ router.get("/bestefforts/:id/data", authMiddleware, async (req, res, next) => {
       size,
       sort,
       filters,
-      scope
+      scope,
+      perUser
     );
 
 

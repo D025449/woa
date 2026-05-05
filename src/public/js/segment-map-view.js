@@ -9,6 +9,11 @@ export default class MapView {
     this.locale = getCurrentLocale();
     this.SEMI_TO_DEG = 18000 / 2147483648;
     this.handlers = handlers;
+    this.baseLayerMode = "standard";
+    this.baseLayer = null;
+    this.baseLayerSlot = document.getElementById("segments-map-style-slot");
+    this.baseLayerMenu = document.getElementById("segments-map-tools-menu");
+    this.baseLayerButtons = new Map();
 
     this.map = L.map(containerId);
     this.trackLayer = L.layerGroup().addTo(this.map);
@@ -21,10 +26,6 @@ export default class MapView {
     this.map.getPane('segmentPane').style.zIndex = 500;
 
     this.lookupResultLayer = L.layerGroup().addTo(this.map);
-
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 18
-    }).addTo(this.map);
 
     this.hoverMarker = null;
     this.currentTrackPoints = [];
@@ -42,7 +43,11 @@ export default class MapView {
     this.isSelecting = false;
     this.toggleBtn = document.getElementById("draw-segment-map-toggle");
     this.lookupBtn = document.getElementById("draw-segment-map-lookup");
-    this.actionsMenu = document.querySelector(".segments-map-actions-menu");
+    this.actionsMenu = document.getElementById("segments-map-tools-menu");
+
+    this.setBaseLayer(this.baseLayerMode);
+    this.initBaseLayerControls();
+    this.initBaseLayerMenuBehaviour();
 
     this.toggleBtn?.addEventListener("click", () => {
       if (this.isSelecting) {
@@ -59,15 +64,16 @@ export default class MapView {
     });
 
     document.addEventListener("click", (event) => {
-      if (!this.actionsMenu?.open) {
+      if (!this.actionsMenu?.open && !this.baseLayerMenu?.open) {
         return;
       }
 
-      if (event.target?.closest?.(".segments-map-actions-menu")) {
+      if (event.target?.closest?.("#segments-map-tools-menu")) {
         return;
       }
 
       this.closeActionsMenu();
+      this.closeBaseLayerMenu();
     });
 
     this.syncSelectionUi();
@@ -175,6 +181,10 @@ export default class MapView {
     this.actionsMenu?.removeAttribute("open");
   }
 
+  closeBaseLayerMenu() {
+    this.baseLayerMenu?.removeAttribute("open");
+  }
+
   handleMapClick(e) {
     if (this.isSelecting === false) {
       return;
@@ -252,11 +262,13 @@ export default class MapView {
     // alte Sachen entfernen
     if (new_segs) {
       new_segs.forEach(s => {
-        this.renderSegment(s);
+        if (!this.controller.favoriteOnly || this.controller.isFavoriteSegment(s.id)) {
+          this.renderSegment(s);
+        }
       });
     } else {
       this.lookupResultLayer.clearLayers();
-      this.controller.mapSegments.forEach(s => {
+      this.controller.getRenderableSegments().forEach(s => {
         this.renderSegment(s);
       });
       //this.map.fitBounds(polyline.getBounds(), { padding: [10, 10] });
@@ -266,7 +278,7 @@ export default class MapView {
   refreshSegments() {
     this.segmentLayers.clear();
     this.lookupResultLayer.clearLayers();
-    this.controller.mapSegments.forEach(s => {
+    this.controller.getRenderableSegments().forEach(s => {
       this.renderSegment(s);
     });
   }
@@ -609,5 +621,130 @@ export default class MapView {
 
   resize() {
     this.map.invalidateSize(false);
+  }
+
+  setInitialState(state = {}) {
+    if (state?.baseLayerMode) {
+      this.setBaseLayer(state.baseLayerMode);
+    } else {
+      this.syncBaseLayerButtons();
+    }
+  }
+
+  initBaseLayerControls() {
+    if (!this.baseLayerSlot) {
+      return;
+    }
+
+    this.baseLayerSlot.innerHTML = "";
+    this.baseLayerButtons.clear();
+
+    this.getBaseLayerDefinitions().forEach((layer) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "segments-map-actions-menu__item segments-map-actions-menu__item--secondary";
+      button.dataset.mapStyle = layer.key;
+      button.textContent = layer.label;
+      this.baseLayerSlot.appendChild(button);
+      this.baseLayerButtons.set(layer.key, button);
+    });
+
+    this.baseLayerSlot.addEventListener("click", (event) => {
+      const button = event.target?.closest?.("button[data-map-style]");
+      if (!button) {
+        return;
+      }
+
+      const nextMode = button.dataset.mapStyle;
+      if (!nextMode) {
+        return;
+      }
+
+      this.setBaseLayer(nextMode);
+      this.closeBaseLayerMenu();
+    });
+
+    this.syncBaseLayerButtons();
+  }
+
+  initBaseLayerMenuBehaviour() {
+    if (!this.baseLayerMenu) {
+      return;
+    }
+
+    this.baseLayerMenu.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      if (this.baseLayerMenu?.open) {
+        this.closeBaseLayerMenu();
+        event.preventDefault();
+      }
+    });
+  }
+
+  getBaseLayerDefinitions() {
+    return [
+      { key: "standard", label: this.controller.t("mapStyleStandard") },
+      { key: "topo", label: this.controller.t("mapStyleTopo") },
+      { key: "outdoor", label: this.controller.t("mapStyleOutdoor") }
+    ];
+  }
+
+  getTileLayerConfig(mode) {
+    if (mode === "topo") {
+      return {
+        url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+        options: {
+          maxZoom: 17,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>'
+        }
+      };
+    }
+
+    if (mode === "outdoor") {
+      return {
+        url: "https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png",
+        options: {
+          maxZoom: 20,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, style: &copy; <a href="https://www.cyclosm.org/">CyclOSM</a>'
+        }
+      };
+    }
+
+    return {
+      url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      options: {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }
+    };
+  }
+
+  setBaseLayer(mode = "standard") {
+    const normalizedMode = ["standard", "topo", "outdoor"].includes(mode) ? mode : "standard";
+    const { url, options } = this.getTileLayerConfig(normalizedMode);
+
+    if (this.baseLayer) {
+      this.map.removeLayer(this.baseLayer);
+    }
+
+    this.baseLayer = L.tileLayer(url, options).addTo(this.map);
+    this.baseLayerMode = normalizedMode;
+    this.syncBaseLayerButtons();
+    this.handlers.onBaseLayerChange?.(normalizedMode);
+  }
+
+  syncBaseLayerButtons() {
+    this.baseLayerButtons.forEach((button, key) => {
+      const isActive = key === this.baseLayerMode;
+      button.classList.toggle("active", isActive);
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
   }
 }

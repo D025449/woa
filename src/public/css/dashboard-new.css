@@ -50,6 +50,56 @@ body.dashboard-page {
   color: var(--ui-text-strong);
 }
 
+.dashboard-quick-access {
+  margin-top: 0.48rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.dashboard-quick-access[hidden] {
+  display: none;
+}
+
+.dashboard-quick-access__group {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.dashboard-quick-access__label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ui-text-muted);
+}
+
+.dashboard-quick-access__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.dashboard-quick-access__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.24rem 0.55rem;
+  border: 1px solid var(--ui-card-border-soft);
+  border-radius: 999px;
+  background: var(--ui-bg-subtle);
+  color: var(--ui-text-default);
+  font-size: 0.76rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.dashboard-quick-access__chip:hover {
+  color: var(--ui-text-strong);
+  background: var(--ui-bg-subtle-soft);
+}
+
 .dashboard-hero .ui-hero__art {
   width: 3rem;
   height: 3rem;
@@ -168,6 +218,9 @@ body.dashboard-page {
 
 .dashboard-section-header {
   padding: 0.82rem 1rem 0.74rem;
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
+  background-clip: padding-box;
 }
 
 .dashboard-eyebrow {
@@ -277,18 +330,90 @@ body.dashboard-page {
   color: var(--ui-danger-text-dark);
 }
 
+.dashboard-actions-submenu {
+  position: relative;
+}
+
+.dashboard-actions-submenu__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  width: 100%;
+  padding: 0.54rem 0.72rem;
+  border: 0;
+  border-radius: 0.72rem;
+  background: transparent;
+  color: var(--ui-text-default);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.dashboard-actions-submenu__trigger::-webkit-details-marker {
+  display: none;
+}
+
+.dashboard-actions-submenu__trigger:hover {
+  background: var(--ui-bg-subtle);
+}
+
+.dashboard-actions-submenu__chevron {
+  color: var(--ui-text-muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.dashboard-actions-submenu__panel {
+  position: absolute;
+  top: -0.35rem;
+  right: calc(100% + 0.45rem);
+  z-index: 80;
+  min-width: 14rem;
+  padding: 0.35rem;
+  border: 1px solid var(--ui-card-border-soft);
+  border-radius: 0.9rem;
+  background: #ffffff;
+  box-shadow: var(--ui-shadow-floating);
+  display: none;
+}
+
+.dashboard-actions-submenu[open] .dashboard-actions-submenu__panel {
+  display: block;
+}
+
+.dashboard-actions-menu__group {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.dashboard-actions-menu__group-label {
+  padding: 0.12rem 0.25rem 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ui-text-muted);
+}
+
 .dashboard-actions-menu__toggle-slot {
-  padding-top: 0.2rem;
-  border-top: 1px solid var(--ui-divider-color);
-  margin-top: 0.12rem;
+  padding-top: 0.08rem;
 }
 
 .dashboard-actions-menu__series-slot {
   display: grid;
   gap: 0.16rem;
-  padding-top: 0.22rem;
+  padding-top: 0.08rem;
+}
+
+.dashboard-actions-menu__group + .dashboard-actions-menu__group,
+.dashboard-actions-submenu + .dashboard-actions-submenu,
+.dashboard-actions-submenu + .dashboard-actions-menu__group,
+.dashboard-actions-menu__group + .dashboard-actions-submenu {
+  padding-top: 0.35rem;
+  margin-top: 0.1rem;
   border-top: 1px solid var(--ui-divider-color);
-  margin-top: 0.12rem;
 }
 
 .dashboard-actions-menu__toggle-slot .btn-group {
@@ -498,6 +623,192 @@ body.dashboard-page {
   position: relative;
   flex: 0 1 195px;
   min-width: 195px;
+}
+
+.workout-library-toolbar__default {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.workout-library-selection-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  padding: 0;
+  border: 1px solid var(--ui-input-border);
+  border-radius: 999px;
+  background: var(--ui-bg-input);
+  color: var(--ui-text-muted);
+  flex: 0 0 auto;
+}
+
+.workout-library-selection-toggle:hover {
+  border-color: var(--ui-info-border-hover);
+  color: var(--ui-info-text);
+  box-shadow: var(--ui-shadow-chip-hover);
+}
+
+.workout-library-selection-toggle svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.workout-library-selection-toggle[aria-pressed="true"] {
+  border-color: var(--ui-info-border-hover);
+  color: var(--ui-info-text);
+  background: var(--ui-info-bg-soft);
+}
+
+.workout-library-selection-toggle--exit {
+  color: var(--ui-danger-text);
+}
+
+.workout-library-selection-toggle--exit:hover {
+  color: var(--ui-danger-text);
+  border-color: color-mix(in srgb, var(--ui-danger-text) 45%, var(--ui-input-border));
+}
+
+.workout-library-bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--ui-card-border-soft);
+  border-radius: 0.95rem;
+  background: var(--ui-bg-subtle);
+}
+
+.workout-library-bulk-bar__count {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ui-text-default);
+}
+
+.workout-library-bulk-bar__lead {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.workout-library-selection-toggle--favorite {
+  color: #b45309;
+}
+
+.workout-library-bulk-bar__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+}
+
+.workout-library-bulk-menu {
+  position: relative;
+}
+
+.workout-library-bulk-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.16rem;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--ui-card-border-soft);
+  border-radius: 999px;
+  background: var(--ui-bg-subtle);
+  cursor: pointer;
+  list-style: none;
+}
+
+.workout-library-bulk-menu__trigger::-webkit-details-marker {
+  display: none;
+}
+
+.workout-library-bulk-menu__trigger span {
+  width: 0.22rem;
+  height: 0.22rem;
+  border-radius: 999px;
+  background: var(--ui-text-muted);
+}
+
+.workout-library-bulk-menu__panel {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  z-index: 20;
+  min-width: 13rem;
+  padding: 0.35rem;
+  border: 1px solid var(--ui-card-border-soft);
+  border-radius: 0.9rem;
+  background: #ffffff;
+  box-shadow: var(--ui-shadow-floating);
+  display: grid;
+  gap: 0.18rem;
+}
+
+.workout-library-bulk-menu__item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0.54rem 0.72rem;
+  border: 0;
+  border-radius: 0.72rem;
+  background: transparent;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ui-text-default);
+  text-align: left;
+}
+
+.workout-library-bulk-menu__item:hover {
+  background: var(--ui-bg-subtle);
+}
+
+.workout-library-bulk-menu__item--danger {
+  color: var(--ui-danger-text);
+}
+
+.workout-library-bulk-share-inline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: flex-end;
+}
+
+.workout-library-bulk-share-groups {
+  display: none;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.workout-library-bulk-share-groups.is-visible {
+  display: flex;
+}
+
+.workout-library-bulk-share-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--ui-card-border-strong) 92%, transparent);
+  border-radius: 999px;
+  background: var(--ui-bg-subtle);
+  font-size: 0.82rem;
+  color: var(--ui-text-default);
 }
 
 .workout-library-sort__trigger {
@@ -859,6 +1170,51 @@ body.dashboard-page {
   gap: 0.3rem;
 }
 
+.workout-library-card__select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.95rem;
+  height: 1.95rem;
+  border: 1px solid var(--ui-card-border-soft);
+  border-radius: 999px;
+  background: var(--ui-bg-subtle);
+  cursor: pointer;
+}
+
+.workout-library-card__select input {
+  width: 0.95rem;
+  height: 0.95rem;
+  accent-color: var(--ui-info-border-hover);
+}
+
+.workout-library-card__favorite {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: 1px solid var(--ui-card-border-soft);
+  border-radius: 999px;
+  background: var(--ui-bg-subtle);
+  color: var(--ui-text-muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.workout-library-card__favorite:hover {
+  color: var(--ui-warning-text);
+  background: var(--ui-warning-bg);
+  border-color: var(--ui-warning-border);
+}
+
+.workout-library-card__favorite.is-active {
+  color: var(--ui-warning-text);
+  background: var(--ui-warning-bg);
+  border-color: var(--ui-warning-border);
+}
+
 .workout-library-card__context-chip {
   display: inline-flex;
   align-items: center;
@@ -1146,6 +1502,19 @@ body.dashboard-page {
 .dashboard-shell--client .dashboard-detail-panel .dashboard-surface-body {
   flex: 1 1 auto;
   min-height: 0;
+}
+
+.dashboard-detail-panel .dashboard-surface-body {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+}
+
+.dashboard-detail-panel > .dashboard-section-header {
+  position: relative;
+  z-index: 25;
 }
 
 .dashboard-mobile-library-toggle {

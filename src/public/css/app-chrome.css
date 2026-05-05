@@ -166,3 +166,30 @@ body.has-fixed-app-topbar {
     color: var(--ui-text-strong);
     text-decoration: underline;
 }
+
+.app-session-modal .modal-content {
+    border-radius: 1.35rem;
+    border: 1px solid var(--ui-card-border-faint);
+    background: var(--ui-bg-card-gradient);
+    box-shadow: var(--ui-shadow-floating);
+}
+
+.app-session-modal .modal-header,
+.app-session-modal .modal-footer {
+    border: 0;
+    padding-inline: 1.25rem;
+}
+
+.app-session-modal .modal-header {
+    padding-top: 1.1rem;
+    padding-bottom: 0.25rem;
+}
+
+.app-session-modal .modal-body {
+    padding: 0.5rem 1.25rem 0.75rem;
+}
+
+.app-session-modal .modal-title {
+    font-weight: 700;
+    color: var(--ui-text-strong);
+}

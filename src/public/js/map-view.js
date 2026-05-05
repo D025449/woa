@@ -2,6 +2,11 @@ export default class MapView {
 
   constructor(containerId) {
     this.SEMI_TO_DEG = 18000 / 2147483648;
+    this.baseLayerMode = "standard";
+    this.baseLayer = null;
+    this.baseLayerSlot = document.getElementById("dashboard-map-style-slot");
+    this.baseLayerMenu = document.getElementById("dashboard-map-style-menu");
+    this.baseLayerButtons = new Map();
 
     this.map = L.map(containerId);
     this.trackLayer = L.layerGroup().addTo(this.map);
@@ -13,13 +18,13 @@ export default class MapView {
     this.map.getPane('trackPane').style.zIndex = 400;
     this.map.getPane('segmentPane').style.zIndex = 500;
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 18
-    }).addTo(this.map);
-
     this.hoverMarker = null;
     this.currentTrackPoints = [];
     this.currentTrackSampleRate = 1;
+
+    this.setBaseLayer(this.baseLayerMode);
+    this.initBaseLayerControls();
+    this.initBaseLayerMenuBehaviour();
   }
 
   // -----------------------------
@@ -179,5 +184,149 @@ export default class MapView {
   // -----------------------------
   getTrackPoints() {
     return this.currentTrackPoints;
+  }
+
+  setInitialState(state = {}) {
+    if (state?.baseLayerMode) {
+      this.setBaseLayer(state.baseLayerMode);
+    } else {
+      this.syncBaseLayerButtons();
+    }
+  }
+
+  initBaseLayerControls() {
+    if (!this.baseLayerSlot) {
+      return;
+    }
+
+    this.baseLayerSlot.innerHTML = "";
+    this.baseLayerButtons.clear();
+
+    this.getBaseLayerDefinitions().forEach((layer) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "dashboard-series-toggle";
+      button.dataset.mapStyle = layer.key;
+      button.innerHTML = `
+        <span class="dashboard-series-toggle__identity">
+          <span class="dashboard-series-toggle__label">${layer.label}</span>
+        </span>
+        <span class="dashboard-series-toggle__state" aria-hidden="true">✓</span>
+      `;
+      this.baseLayerSlot.appendChild(button);
+      this.baseLayerButtons.set(layer.key, button);
+    });
+
+    this.baseLayerSlot.addEventListener("click", (event) => {
+      const button = event.target?.closest?.("button[data-map-style]");
+      if (!button) {
+        return;
+      }
+
+      const nextMode = button.dataset.mapStyle;
+      if (!nextMode) {
+        return;
+      }
+
+      this.setBaseLayer(nextMode);
+      this.baseLayerMenu?.removeAttribute("open");
+    });
+
+    this.syncBaseLayerButtons();
+  }
+
+  initBaseLayerMenuBehaviour() {
+    if (!this.baseLayerMenu) {
+      return;
+    }
+
+    this.baseLayerMenu.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+
+    document.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (this.baseLayerMenu?.contains(target)) {
+        return;
+      }
+
+      this.baseLayerMenu?.removeAttribute("open");
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      if (this.baseLayerMenu?.open) {
+        this.baseLayerMenu.removeAttribute("open");
+        event.preventDefault();
+      }
+    });
+  }
+
+  getBaseLayerDefinitions() {
+    const i18n = window.__I18N?.messages?.dashboardNewPage || {};
+    return [
+      { key: "standard", label: i18n.mapStyleStandard || "Standard" },
+      { key: "topo", label: i18n.mapStyleTopo || "Topo" },
+      { key: "outdoor", label: i18n.mapStyleOutdoor || "Outdoor" }
+    ];
+  }
+
+  getTileLayerConfig(mode) {
+    if (mode === "topo") {
+      return {
+        url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+        options: {
+          maxZoom: 17,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>'
+        }
+      };
+    }
+
+    if (mode === "outdoor") {
+      return {
+        url: "https://{s}.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png",
+        options: {
+          maxZoom: 20,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, style: &copy; <a href="https://www.cyclosm.org/">CyclOSM</a>'
+        }
+      };
+    }
+
+    return {
+      url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      options: {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      }
+    };
+  }
+
+  setBaseLayer(mode = "standard") {
+    const normalizedMode = ["standard", "topo", "outdoor"].includes(mode) ? mode : "standard";
+    const { url, options } = this.getTileLayerConfig(normalizedMode);
+
+    if (this.baseLayer) {
+      this.map.removeLayer(this.baseLayer);
+    }
+
+    this.baseLayer = L.tileLayer(url, options).addTo(this.map);
+    this.baseLayerMode = normalizedMode;
+    this.syncBaseLayerButtons();
+    this.onBaseLayerChange?.(normalizedMode);
+  }
+
+  syncBaseLayerButtons() {
+    this.baseLayerButtons.forEach((button, key) => {
+      const isActive = key === this.baseLayerMode;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
   }
 }

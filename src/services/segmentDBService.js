@@ -9,6 +9,39 @@ import WorkoutSharingService from "./workoutSharingService.js";
 
 export default class SegmentDBService {
 
+  static async getSegmentDistanceMap(segmentIds = []) {
+    const normalizedIds = [...new Set(
+      (Array.isArray(segmentIds) ? segmentIds : [])
+        .map((segmentId) => Number(segmentId))
+        .filter((segmentId) => Number.isInteger(segmentId) && segmentId > 0)
+    )];
+
+    if (!normalizedIds.length) {
+      return new Map();
+    }
+
+    const result = await pool.query(`
+      SELECT id, distance
+      FROM gps_segments
+      WHERE id = ANY($1::bigint[])
+    `, [normalizedIds]);
+
+    return new Map(
+      result.rows.map((row) => [Number(row.id), Number(row.distance) || 0])
+    );
+  }
+
+  static calculateNormalizedSegmentSpeed(distanceMeters, durationSeconds) {
+    const distance = Number(distanceMeters);
+    const duration = Number(durationSeconds);
+
+    if (!Number.isFinite(distance) || distance <= 0 || !Number.isFinite(duration) || duration <= 0) {
+      return null;
+    }
+
+    return Math.round(((distance * 3.6) / duration) * 10) / 10;
+  }
+
   static allowedColumns = [
     "id",
     "sid",
@@ -36,6 +69,7 @@ export default class SegmentDBService {
   ];
 
   static async storeSegmentBestEffortsV2(matches) {
+    const distanceMap = await SegmentDBService.getSegmentDistanceMap(matches.map((match) => match.segment_id));
 
     const gps_segments_be = [];
     matches.forEach(match => {
@@ -47,7 +81,10 @@ export default class SegmentDBService {
       const avg_power = match.power;
       const avg_heart_rate = match.hr;
       const avg_cadence = match.cadence;
-      const avg_speed = match.speed;
+      const avg_speed = SegmentDBService.calculateNormalizedSegmentSpeed(
+        distanceMap.get(Number(segment_id)),
+        duration
+      );
 
       gps_segments_be.push({
         segment_id,
@@ -141,6 +178,7 @@ export default class SegmentDBService {
 
 
   static async storeSegmentBestEfforts(matches, workoutObject) {
+    const distanceMap = await SegmentDBService.getSegmentDistanceMap(matches.map((match) => match.segment_id));
 
     const gps_segments_be = [];
     matches.forEach(match => {
@@ -153,7 +191,10 @@ export default class SegmentDBService {
       const avg_power = Math.round(averages.power ?? 0);
       const avg_heart_rate = Math.round(averages.hr ?? 0);
       const avg_cadence = Math.round(averages.cadence ?? 0);
-      const avg_speed = Math.round((averages.speed ?? 0) * 10) / 10;
+      const avg_speed = SegmentDBService.calculateNormalizedSegmentSpeed(
+        distanceMap.get(Number(segment_id)),
+        duration
+      );
 
       gps_segments_be.push({
         segment_id,
@@ -590,7 +631,7 @@ export default class SegmentDBService {
     return dataResult;
   }
 
-  static async getBestEffortsBySegment(uid, segid, page, size, sort, filter, scope = "mine") {
+  static async getBestEffortsBySegment(uid, segid, page, size, sort, filter, scope = "mine", perUser = "all") {
 
     const offset = (page - 1) * size;
 
@@ -607,6 +648,10 @@ export default class SegmentDBService {
     const normalizedScope = ["mine", "shared", "all"].includes(String(scope).toLowerCase())
       ? String(scope).toLowerCase()
       : "mine";
+    const normalizedPerUser = ["all", "1", "3"].includes(String(perUser).toLowerCase())
+      ? String(perUser).toLowerCase()
+      : "all";
+    const perUserLimit = normalizedPerUser === "all" ? null : Number(normalizedPerUser);
 
     let accessPredicate = `v.uid = $1`;
 
@@ -647,34 +692,65 @@ export default class SegmentDBService {
       baseWhere += ` AND (${adjustedWhere.replace("WHERE ", "")})`;
     }
 
+    const userRankWhere = Number.isInteger(perUserLimit) && perUserLimit > 0
+      ? `WHERE ranked.user_rank <= ${perUserLimit}`
+      : "";
+
     // -----------------------------------
     // DATA QUERY
     // -----------------------------------
 
     const dataQuery = `
+    WITH base AS (
+      SELECT 
+        v.id, 
+        v.sid,
+        v.wid,
+        v.uid,
+        v.start_time, 
+        v.duration, 
+        v.start_offset, 
+        v.end_offset, 
+        v.avg_power, 
+        v.avg_heart_rate, 
+        v.avg_cadence, 
+        v.avg_speed
+      FROM v_gps_segment_best_efforts v
+      ${baseWhere}
+    ),
+    ranked AS (
+      SELECT
+        base.*,
+        ROW_NUMBER() OVER (
+          PARTITION BY base.sid
+          ORDER BY base.duration ASC
+        ) AS rn,
+        ROW_NUMBER() OVER (
+          PARTITION BY base.sid, base.uid
+          ORDER BY base.duration ASC
+        ) AS user_rank
+      FROM base
+    )
     SELECT 
-      v.id, 
-      v.sid,
-      v.wid,
-      v.uid,
-      v.start_time, 
-      v.duration, 
-      v.start_offset, 
-      v.end_offset, 
-      v.avg_power, 
-      v.avg_heart_rate, 
-      v.avg_cadence, 
+      ranked.id,
+      ranked.sid,
+      ranked.wid,
+      ranked.uid,
+      ranked.start_time,
+      ranked.duration,
+      ranked.start_offset,
+      ranked.end_offset,
+      ranked.avg_power,
+      ranked.avg_heart_rate,
+      ranked.avg_cadence,
       owner.display_name AS owner_display_name,
       owner.email AS owner_email,
-      avg_speed,
-      ROW_NUMBER() OVER (
-        PARTITION BY sid
-        ORDER BY duration ASC
-      ) AS rn
-    FROM v_gps_segment_best_efforts v
+      ranked.avg_speed,
+      ranked.rn
+    FROM ranked
     LEFT JOIN users owner
-      ON owner.id = v.uid
-    ${baseWhere}
+      ON owner.id = ranked.uid
+    ${userRankWhere}
     ${orderSQL}
     LIMIT $${sqlParams.length + 1}
     OFFSET $${sqlParams.length + 2}
@@ -693,9 +769,27 @@ export default class SegmentDBService {
     // -----------------------------------
 
     const countQuery = `
+    WITH base AS (
+      SELECT 
+        v.id,
+        v.sid,
+        v.uid,
+        v.duration
+      FROM v_gps_segment_best_efforts v
+      ${baseWhere}
+    ),
+    ranked AS (
+      SELECT
+        base.*,
+        ROW_NUMBER() OVER (
+          PARTITION BY base.sid, base.uid
+          ORDER BY base.duration ASC
+        ) AS user_rank
+      FROM base
+    )
     SELECT COUNT(*) AS total
-    FROM v_gps_segment_best_efforts v
-    ${baseWhere}
+    FROM ranked
+    ${userRankWhere}
   `;
 
     const countResult = await pool.query(countQuery, sqlParams);

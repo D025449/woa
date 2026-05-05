@@ -11,6 +11,8 @@ export default class TableView {
     this.pollTimer = null;
     this.pollAttempt = 0;
     this.scopeValue = handlers.initialScope ?? "mine";
+    this.perUserValue = handlers.initialPerUser ?? "all";
+    this.fastestDuration = null;
     this.scopeMineButton = document.getElementById(handlers.scopeMineButtonId || "segment-bestefforts-scope-mine");
     this.scopeSharedButton = document.getElementById(handlers.scopeSharedButtonId || "segment-bestefforts-scope-shared");
     this.scopeAllButton = document.getElementById(handlers.scopeAllButtonId || "segment-bestefforts-scope-all");
@@ -28,15 +30,24 @@ export default class TableView {
   initTable() {
     const THAT = this;
     return new Tabulator(this.containerSelector, {
-      //ajaxURL: "/files/workouts",
+      ajaxURLGenerator: (url, config, params) => {
+        const search = new URLSearchParams();
+        search.set("scope", this.scopeValue || "mine");
+        search.set("perUser", this.perUserValue || "all");
+        search.set("page", String(params?.page || 1));
+        search.set("size", String(params?.size || 20));
+        search.set("sort", JSON.stringify(params?.sort || []));
+        search.set("filter", JSON.stringify(params?.filter || []));
+        return `${url}?${search.toString()}`;
+      },
 
       ajaxResponse: (url, params, response) => {
-        console.log(response);
+        const rows = Array.isArray(response?.data) ? response.data : [];
+        this.fastestDuration = rows.length ? Number(rows[0]?.duration) : null;
         const hdr = document.getElementById("segment-header");
         if (hdr) {
           hdr.innerHTML = THAT.formatSegmentHeaderMarkup(THAT.currentSegment, response.total_records);
         }
-
 
         return response;
       },
@@ -106,7 +117,20 @@ export default class TableView {
         title: this.t("table.duration"),
         field: "duration",
         sorter: "number",
-        formatter: (cell) => Utils.formatDuration(cell.getValue())
+        formatter: (cell) => {
+          const value = Number(cell.getValue());
+          const label = Utils.formatDuration(value);
+          if (this.perUserValue === "1") {
+            return `${label} <span class="segments-best-efforts-badge">PR</span>`;
+          }
+          return label;
+        }
+      },
+      {
+        title: this.t("table.gap"),
+        field: "duration",
+        sorter: false,
+        formatter: (cell) => this.formatGapToLeader(Number(cell.getValue()))
       },
       {
         title: this.t("table.workoutId"),
@@ -247,9 +271,7 @@ export default class TableView {
   }
 
   async loadSegmentBestEfforts(segment) {
-    //const segid 
-
-    await this.table.setData(`/segments/bestefforts/${segment.id}/data?scope=${encodeURIComponent(this.scopeValue || "mine")}`);
+    await this.table.setData(`/segments/bestefforts/${segment.id}/data`);
 
     if (this.shouldPollBestEfforts(segment)) {
       this.startBestEffortsPolling(segment.id);
@@ -260,12 +282,17 @@ export default class TableView {
   clear() {
     this.currentSegment = null;
     this.stopBestEffortsPolling();
+    this.fastestDuration = null;
     this.table.clearData();
   }
 
   setScope(scope) {
     this.scopeValue = scope || "mine";
     this.updateScopeButtons();
+  }
+
+  setPerUserFilter(value) {
+    this.perUserValue = ["all", "1", "3"].includes(String(value)) ? String(value) : "all";
   }
 
   resize() {
@@ -353,6 +380,19 @@ export default class TableView {
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
+  }
+
+  formatGapToLeader(duration) {
+    if (!Number.isFinite(duration) || !Number.isFinite(this.fastestDuration)) {
+      return this.t("na");
+    }
+
+    const delta = Math.max(0, duration - this.fastestDuration);
+    if (delta <= 0) {
+      return "—";
+    }
+
+    return `+${Utils.formatDuration(delta)}`;
   }
 
   formatSegmentHeaderMarkup(segment, matchCount = null) {

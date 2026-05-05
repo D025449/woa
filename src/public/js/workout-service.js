@@ -40,6 +40,26 @@ export default class WorkoutService {
     await row.delete();
   }
 
+  static async deleteWorkoutsByIds(workoutIds = []) {
+    for (const workoutId of workoutIds) {
+      const response = await fetch(`/files/workouts/${workoutId}`, {
+        method: "DELETE"
+      });
+
+      if (response.status === 401) {
+        window.location.href = "/";
+        return false;
+      }
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Delete failed (${response.status})`);
+      }
+    }
+
+    return true;
+  }
+
   static async loadWorkoutByRow(wid) {
     //console.log(row);
 

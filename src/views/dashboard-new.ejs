@@ -36,6 +36,16 @@
                 <section id="dashboard-hero" class="dashboard-hero">
                     <div>
                         <h1 id="dashboard-workout-count" class="dashboard-title"><%= t("dashboardNewPage.titleMain") %></h1>
+                        <div id="dashboard-quick-access" class="dashboard-quick-access" hidden>
+                            <div class="dashboard-quick-access__group">
+                                <span class="dashboard-quick-access__label"><%= t("dashboardNewPage.quickRecent") %></span>
+                                <div id="dashboard-recent-workouts" class="dashboard-quick-access__chips"></div>
+                            </div>
+                            <div class="dashboard-quick-access__group">
+                                <span class="dashboard-quick-access__label"><%= t("dashboardNewPage.quickFavorites") %></span>
+                                <div id="dashboard-favorite-workouts" class="dashboard-quick-access__chips"></div>
+                            </div>
+                        </div>
                     </div>
                     <div class="ui-hero__art" aria-hidden="true">
                         <svg viewBox="0 0 64 64" fill="none">
@@ -61,106 +71,167 @@
                         <section class="dashboard-section dashboard-library-section">
                             <div class="dashboard-table-body">
                                 <div class="workout-library-toolbar">
-                                    <div class="workout-library-scope-toggle" role="group" aria-label="<%= t('dashboardNewPage.filterAria') %>">
-                                        <button
-                                            id="workout-library-scope-mine"
-                                            class="btn btn-sm btn-outline-secondary active"
-                                            type="button"
-                                            data-workout-scope="mine">
-                                            <%= t("dashboardNewPage.filterMine") %>
-                                        </button>
-                                        <button
-                                            id="workout-library-scope-shared"
-                                            class="btn btn-sm btn-outline-secondary"
-                                            type="button"
-                                            data-workout-scope="shared">
-                                            <%= t("dashboardNewPage.filterShared") %>
-                                        </button>
-                                        <button
-                                            id="workout-library-scope-all"
-                                            class="btn btn-sm btn-outline-secondary"
-                                            type="button"
-                                            data-workout-scope="all">
-                                            <%= t("dashboardNewPage.filterAll") %>
-                                        </button>
-                                    </div>
-                                    <div class="workout-library-search-wrap">
-                                        <input
-                                            id="workout-library-search"
-                                            class="form-control workout-library-input"
-                                            type="search"
-                                            placeholder="<%= t('dashboardNewPage.searchPlaceholder') %>"
-                                        >
-                                        <details class="workout-library-search-help">
-                                            <summary class="workout-library-search-help__trigger" aria-label="<%= t('dashboardNewPage.library.searchHintOpen') %>">
+                                    <div id="workout-library-bulk-bar" class="workout-library-bulk-bar d-none">
+                                        <div class="workout-library-bulk-bar__lead">
+                                            <button
+                                                id="workout-library-bulk-exit"
+                                                class="workout-library-selection-toggle workout-library-selection-toggle--exit"
+                                                type="button"
+                                                aria-label="<%= t('dashboardNewPage.bulkCancel') %>">
                                                 <svg viewBox="0 0 20 20" aria-hidden="true">
-                                                    <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.5"></circle>
-                                                    <path d="M7.9 7.35C8.15 6.55 8.88 6 9.92 6C11.22 6 12.1 6.72 12.1 7.82C12.1 8.6 11.72 9.04 10.78 9.61C9.86 10.16 9.55 10.58 9.55 11.35V11.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
-                                                    <circle cx="9.55" cy="14.25" r="0.9" fill="currentColor"></circle>
+                                                    <rect x="3.5" y="3.5" width="13" height="13" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"></rect>
+                                                    <path d="M6.4 6.4L13.6 13.6M13.6 6.4L6.4 13.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path>
                                                 </svg>
-                                            </summary>
-                                            <div class="workout-library-hint__panel workout-library-search-help__panel">
-                                                <div class="workout-library-hint__group">
-                                                    <span class="workout-library-hint__group-title"><%= t("dashboardNewPage.library.searchHintCompareTitle") %></span>
-                                                    <div class="workout-library-hint__chips">
-                                                        <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-example="power > 200">power &gt; 200</button>
-                                                        <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-example="hr <= 150">hr &lt;= 150</button>
-                                                    </div>
-                                                </div>
-                                                <div class="workout-library-hint__group">
-                                                    <span class="workout-library-hint__group-title"><%= t("dashboardNewPage.library.searchHintScopedTitle") %></span>
-                                                    <div class="workout-library-hint__chips">
-                                                        <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-example="power:225">power:225</button>
-                                                        <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-example="date:2018-03">date:2018-03</button>
-                                                        <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-scope="power">power:</button>
-                                                        <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-scope="np">np:</button>
-                                                        <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-scope="hr">hr:</button>
-                                                        <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-scope="date">date:</button>
-                                                    </div>
-                                                </div>
+                                            </button>
+                                            <span id="workout-library-bulk-count" class="workout-library-bulk-bar__count"><%= t("dashboardNewPage.bulkNoneSelected") %></span>
+                                        </div>
+                                        <div class="workout-library-bulk-bar__actions">
+                                            <div id="workout-library-bulk-share-inline" class="workout-library-bulk-share-inline d-none">
+                                                <span class="small text-muted"><%= t("dashboardNewPage.library.visibility") %></span>
+                                                <select id="workout-library-bulk-share-mode" class="form-select form-select-sm" style="width: 140px;">
+                                                    <option value="private"><%= t("dashboardNewPage.library.sharePrivate") %></option>
+                                                    <option value="groups"><%= t("dashboardNewPage.library.shareGroups") %></option>
+                                                </select>
+                                                <div id="workout-library-bulk-share-groups" class="workout-library-bulk-share-groups"></div>
+                                                <button id="workout-library-bulk-share-cancel" class="btn btn-sm btn-outline-secondary" type="button"><%= t("dashboardNewPage.bulkCancel") %></button>
+                                                <button id="workout-library-bulk-share-apply" class="btn btn-sm btn-primary" type="button"><%= t("dashboardNewPage.library.apply") %></button>
                                             </div>
-                                        </details>
+                                            <details id="workout-library-bulk-actions-menu" class="workout-library-bulk-menu">
+                                                <summary class="workout-library-bulk-menu__trigger" aria-label="<%= t('dashboardNewPage.bulkActions') %>">
+                                                    <span></span><span></span><span></span>
+                                                </summary>
+                                                <div class="workout-library-bulk-menu__panel">
+                                                    <button id="workout-library-select-all-visible" class="workout-library-bulk-menu__item" type="button"><%= t("dashboardNewPage.bulkSelectAllVisible") %></button>
+                                                    <button id="workout-library-clear-selection" class="workout-library-bulk-menu__item" type="button"><%= t("dashboardNewPage.bulkClearSelection") %></button>
+                                                    <button id="workout-library-bulk-publish-toggle" class="workout-library-bulk-menu__item" type="button"><%= t("dashboardNewPage.bulkPublish") %></button>
+                                                    <button id="workout-library-bulk-delete" class="workout-library-bulk-menu__item workout-library-bulk-menu__item--danger" type="button"><%= t("dashboardNewPage.bulkDelete") %></button>
+                                                </div>
+                                            </details>
+                                        </div>
                                     </div>
-                                    <div id="workout-library-active-filters" class="workout-library-active-filters" hidden></div>
-                                    <div class="workout-library-sort">
-                                        <button id="workout-library-sort-trigger" class="workout-library-sort__trigger" type="button" aria-haspopup="menu" aria-expanded="false">
-                                            <span id="workout-library-sort-trigger-label"><%= t("dashboardNewPage.sortNewest") %></span>
+                                    <div id="workout-library-toolbar-default" class="workout-library-toolbar__default">
+                                        <button
+                                            id="workout-library-selection-toggle"
+                                            class="workout-library-selection-toggle"
+                                            type="button"
+                                            aria-pressed="false"
+                                            aria-label="<%= t('dashboardNewPage.bulkSelectMode') %>">
                                             <svg viewBox="0 0 20 20" aria-hidden="true">
-                                                <path d="M5.5 7.5L10 12l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                                                <rect x="3.5" y="3.5" width="13" height="13" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"></rect>
+                                                <path d="M6.75 10.15L8.95 12.35L13.35 7.95" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
                                             </svg>
                                         </button>
-                                        <div id="workout-library-sort-menu" class="workout-library-sort__menu" hidden>
-                                            <button class="workout-library-sort__option" type="button" data-sort-option="newest">
-                                                <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortNewest") %></span>
+                                        <button
+                                            id="workout-library-favorites-filter"
+                                            class="workout-library-selection-toggle workout-library-selection-toggle--favorite"
+                                            type="button"
+                                            aria-pressed="false"
+                                            aria-label="<%= t('dashboardNewPage.favoriteFilterLabel') %>">
+                                            <svg viewBox="0 0 20 20" aria-hidden="true">
+                                                <path d="M10 2.9l2.15 4.36 4.81.7-3.48 3.39.82 4.79L10 14.02 5.7 16.14l.82-4.79L3.04 7.96l4.81-.7L10 2.9z" fill="currentColor"></path>
+                                            </svg>
+                                        </button>
+                                        <div class="workout-library-scope-toggle" role="group" aria-label="<%= t('dashboardNewPage.filterAria') %>">
+                                            <button
+                                                id="workout-library-scope-mine"
+                                                class="btn btn-sm btn-outline-secondary active"
+                                                type="button"
+                                                data-workout-scope="mine">
+                                                <%= t("dashboardNewPage.filterMine") %>
                                             </button>
-                                            <button class="workout-library-sort__option" type="button" data-sort-option="uploaded">
-                                                <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortUploaded") %></span>
+                                            <button
+                                                id="workout-library-scope-shared"
+                                                class="btn btn-sm btn-outline-secondary"
+                                                type="button"
+                                                data-workout-scope="shared">
+                                                <%= t("dashboardNewPage.filterShared") %>
                                             </button>
-                                            <button class="workout-library-sort__option" type="button" data-sort-option="oldest">
-                                                <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortOldest") %></span>
-                                            </button>
-                                            <button class="workout-library-sort__option" type="button" data-sort-option="distance">
-                                                <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortDistance") %></span>
-                                            </button>
-                                            <button class="workout-library-sort__option" type="button" data-sort-option="duration">
-                                                <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortDuration") %></span>
-                                            </button>
-                                            <button class="workout-library-sort__option" type="button" data-sort-option="power">
-                                                <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortPower") %></span>
-                                            </button>
-                                            <button class="workout-library-sort__option" type="button" data-sort-option="np">
-                                                <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortNp") %></span>
+                                            <button
+                                                id="workout-library-scope-all"
+                                                class="btn btn-sm btn-outline-secondary"
+                                                type="button"
+                                                data-workout-scope="all">
+                                                <%= t("dashboardNewPage.filterAll") %>
                                             </button>
                                         </div>
-                                        <select id="workout-library-sort" class="form-select workout-library-select workout-library-sort__native">
-                                            <option value="newest"><%= t("dashboardNewPage.sortNewest") %></option>
-                                            <option value="uploaded"><%= t("dashboardNewPage.sortUploaded") %></option>
-                                            <option value="oldest"><%= t("dashboardNewPage.sortOldest") %></option>
-                                            <option value="distance"><%= t("dashboardNewPage.sortDistance") %></option>
-                                            <option value="duration"><%= t("dashboardNewPage.sortDuration") %></option>
-                                            <option value="power"><%= t("dashboardNewPage.sortPower") %></option>
-                                            <option value="np"><%= t("dashboardNewPage.sortNp") %></option>
-                                        </select>
+                                        <div class="workout-library-search-wrap">
+                                            <input
+                                                id="workout-library-search"
+                                                class="form-control workout-library-input"
+                                                type="search"
+                                                placeholder="<%= t('dashboardNewPage.searchPlaceholder') %>"
+                                            >
+                                            <details class="workout-library-search-help">
+                                                <summary class="workout-library-search-help__trigger" aria-label="<%= t('dashboardNewPage.library.searchHintOpen') %>">
+                                                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                                                        <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.5"></circle>
+                                                        <path d="M7.9 7.35C8.15 6.55 8.88 6 9.92 6C11.22 6 12.1 6.72 12.1 7.82C12.1 8.6 11.72 9.04 10.78 9.61C9.86 10.16 9.55 10.58 9.55 11.35V11.6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path>
+                                                        <circle cx="9.55" cy="14.25" r="0.9" fill="currentColor"></circle>
+                                                    </svg>
+                                                </summary>
+                                                <div class="workout-library-hint__panel workout-library-search-help__panel">
+                                                    <div class="workout-library-hint__group">
+                                                        <span class="workout-library-hint__group-title"><%= t("dashboardNewPage.library.searchHintCompareTitle") %></span>
+                                                        <div class="workout-library-hint__chips">
+                                                            <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-example="power > 200">power &gt; 200</button>
+                                                            <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-example="hr <= 150">hr &lt;= 150</button>
+                                                        </div>
+                                                    </div>
+                                                    <div class="workout-library-hint__group">
+                                                        <span class="workout-library-hint__group-title"><%= t("dashboardNewPage.library.searchHintScopedTitle") %></span>
+                                                        <div class="workout-library-hint__chips">
+                                                            <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-example="power:225">power:225</button>
+                                                            <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-example="date:2018-03">date:2018-03</button>
+                                                            <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-scope="power">power:</button>
+                                                            <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-scope="np">np:</button>
+                                                            <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-scope="hr">hr:</button>
+                                                            <button class="workout-library-hint__chip workout-library-hint__chip--action" type="button" data-search-scope="date">date:</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </details>
+                                        </div>
+                                        <div id="workout-library-active-filters" class="workout-library-active-filters" hidden></div>
+                                        <div class="workout-library-sort">
+                                            <button id="workout-library-sort-trigger" class="workout-library-sort__trigger" type="button" aria-haspopup="menu" aria-expanded="false">
+                                                <span id="workout-library-sort-trigger-label"><%= t("dashboardNewPage.sortNewest") %></span>
+                                                <svg viewBox="0 0 20 20" aria-hidden="true">
+                                                    <path d="M5.5 7.5L10 12l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                                                </svg>
+                                            </button>
+                                            <div id="workout-library-sort-menu" class="workout-library-sort__menu" hidden>
+                                                <button class="workout-library-sort__option" type="button" data-sort-option="newest">
+                                                    <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortNewest") %></span>
+                                                </button>
+                                                <button class="workout-library-sort__option" type="button" data-sort-option="uploaded">
+                                                    <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortUploaded") %></span>
+                                                </button>
+                                                <button class="workout-library-sort__option" type="button" data-sort-option="oldest">
+                                                    <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortOldest") %></span>
+                                                </button>
+                                                <button class="workout-library-sort__option" type="button" data-sort-option="distance">
+                                                    <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortDistance") %></span>
+                                                </button>
+                                                <button class="workout-library-sort__option" type="button" data-sort-option="duration">
+                                                    <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortDuration") %></span>
+                                                </button>
+                                                <button class="workout-library-sort__option" type="button" data-sort-option="power">
+                                                    <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortPower") %></span>
+                                                </button>
+                                                <button class="workout-library-sort__option" type="button" data-sort-option="np">
+                                                    <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortNp") %></span>
+                                                </button>
+                                            </div>
+                                            <select id="workout-library-sort" class="form-select workout-library-select workout-library-sort__native">
+                                                <option value="newest"><%= t("dashboardNewPage.sortNewest") %></option>
+                                                <option value="uploaded"><%= t("dashboardNewPage.sortUploaded") %></option>
+                                                <option value="oldest"><%= t("dashboardNewPage.sortOldest") %></option>
+                                                <option value="distance"><%= t("dashboardNewPage.sortDistance") %></option>
+                                                <option value="duration"><%= t("dashboardNewPage.sortDuration") %></option>
+                                                <option value="power"><%= t("dashboardNewPage.sortPower") %></option>
+                                                <option value="np"><%= t("dashboardNewPage.sortNp") %></option>
+                                            </select>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -214,8 +285,28 @@
                                         <button id="delete-segments" class="dashboard-actions-menu__item dashboard-actions-menu__item--danger" type="button">
                                             <%= t("dashboardNewPage.btnDeleteSegment") %>
                                         </button>
-                                        <div id="dashboard-axis-toggle-slot" class="dashboard-actions-menu__toggle-slot"></div>
-                                        <div id="dashboard-series-toggle-slot" class="dashboard-actions-menu__series-slot"></div>
+                                        <details class="dashboard-actions-submenu">
+                                            <summary class="dashboard-actions-submenu__trigger">
+                                                <span><%= t("dashboardNewPage.segmentTypesLabel") %></span>
+                                                <span class="dashboard-actions-submenu__chevron" aria-hidden="true">›</span>
+                                            </summary>
+                                            <div class="dashboard-actions-submenu__panel">
+                                                <div id="dashboard-segment-toggle-slot" class="dashboard-actions-menu__series-slot"></div>
+                                            </div>
+                                        </details>
+                                        <details class="dashboard-actions-submenu">
+                                            <summary class="dashboard-actions-submenu__trigger">
+                                                <span><%= t("dashboardNewPage.dataSourcesLabel") %></span>
+                                                <span class="dashboard-actions-submenu__chevron" aria-hidden="true">›</span>
+                                            </summary>
+                                            <div class="dashboard-actions-submenu__panel">
+                                                <div id="dashboard-series-toggle-slot" class="dashboard-actions-menu__series-slot"></div>
+                                            </div>
+                                        </details>
+                                        <div class="dashboard-actions-menu__group">
+                                            <div class="dashboard-actions-menu__group-label"><%= t("dashboardNewPage.axisModeLabel") %></div>
+                                            <div id="dashboard-axis-toggle-slot" class="dashboard-actions-menu__toggle-slot"></div>
+                                        </div>
                                     </div>
                                 </details>
                             </div>
@@ -231,6 +322,19 @@
                                 <div>
                                     <span class="dashboard-eyebrow"><%= t("dashboardNewPage.spatialEyebrow") %></span>
                                     <h2 class="dashboard-section-title"><%= t("dashboardNewPage.routeMapTitle") %></h2>
+                                </div>
+                                <div class="dashboard-toolbar dashboard-workspace-toolbar">
+                                    <details id="dashboard-map-style-menu" class="dashboard-actions-menu dashboard-actions-menu--map">
+                                        <summary class="dashboard-actions-menu__trigger" aria-label="<%= t('dashboardNewPage.mapStyleAria') %>">
+                                            <span></span><span></span><span></span>
+                                        </summary>
+                                        <div class="dashboard-actions-menu__panel">
+                                            <div class="dashboard-actions-menu__group">
+                                                <div class="dashboard-actions-menu__group-label"><%= t("dashboardNewPage.mapStyleLabel") %></div>
+                                                <div id="dashboard-map-style-slot" class="dashboard-actions-menu__series-slot"></div>
+                                            </div>
+                                        </div>
+                                    </details>
                                 </div>
                             </div>
 

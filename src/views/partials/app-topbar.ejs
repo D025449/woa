@@ -128,6 +128,35 @@
 
     </div>
 </nav>
+<div
+    class="modal fade app-session-modal"
+    id="app-session-modal"
+    tabindex="-1"
+    aria-hidden="true"
+    data-idle-warning-ms="1500000"
+    data-idle-logout-ms="1800000">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <h5 class="modal-title"><%= tr("common.session.warningTitle") %></h5>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2"><%= tr("common.session.warningCopy") %></p>
+                <p class="mb-0 text-muted small">
+                    <%= tr("common.session.countdownPrefix") %>
+                    <strong data-session-countdown>30</strong>
+                    <%= tr("common.session.secondsLabel") %>
+                </p>
+            </div>
+            <div class="modal-footer">
+                <a class="btn btn-outline-secondary" href="/logout"><%= tr("common.session.logoutNow") %></a>
+                <button type="button" class="btn btn-primary" data-session-keepalive>
+                    <%= tr("common.session.staySignedIn") %>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
     (function syncAppTopbarOffset() {
@@ -147,4 +176,125 @@
     document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => {
         bootstrap.Tooltip.getOrCreateInstance(el);
     });
+
+    (function setupIdleSessionWarning() {
+        const modalElement = document.getElementById("app-session-modal");
+        const keepAliveButton = modalElement?.querySelector("[data-session-keepalive]");
+        const countdownElement = modalElement?.querySelector("[data-session-countdown]");
+
+        if (!modalElement || !keepAliveButton || !countdownElement) {
+            return;
+        }
+
+        const warningMs = Number(modalElement.dataset.idleWarningMs || 0);
+        const logoutMs = Number(modalElement.dataset.idleLogoutMs || 0);
+
+        if (!warningMs || !logoutMs || logoutMs <= warningMs) {
+            return;
+        }
+
+        const modal = bootstrap.Modal.getOrCreateInstance(modalElement, {
+            backdrop: "static",
+            keyboard: false
+        });
+
+        let warningTimer = null;
+        let logoutTimer = null;
+        let countdownTimer = null;
+        let warningShownAt = 0;
+        let isWarningOpen = false;
+
+        const trackedEvents = ["pointerdown", "keydown", "mousemove", "scroll", "touchstart"];
+
+        const clearTimers = () => {
+            if (warningTimer) {
+                window.clearTimeout(warningTimer);
+                warningTimer = null;
+            }
+            if (logoutTimer) {
+                window.clearTimeout(logoutTimer);
+                logoutTimer = null;
+            }
+            if (countdownTimer) {
+                window.clearInterval(countdownTimer);
+                countdownTimer = null;
+            }
+        };
+
+        const updateCountdown = () => {
+            if (!warningShownAt) {
+                countdownElement.textContent = String(Math.round((logoutMs - warningMs) / 1000));
+                return;
+            }
+
+            const elapsed = Date.now() - warningShownAt;
+            const remainingMs = Math.max(0, logoutMs - warningMs - elapsed);
+            countdownElement.textContent = String(Math.ceil(remainingMs / 1000));
+        };
+
+        const scheduleIdleTimers = () => {
+            clearTimers();
+
+            warningTimer = window.setTimeout(() => {
+                warningShownAt = Date.now();
+                isWarningOpen = true;
+                updateCountdown();
+                modal.show();
+
+                countdownTimer = window.setInterval(updateCountdown, 250);
+                logoutTimer = window.setTimeout(() => {
+                    window.location.href = "/logout";
+                }, logoutMs - warningMs);
+            }, warningMs);
+        };
+
+        const dismissWarning = () => {
+            isWarningOpen = false;
+            warningShownAt = 0;
+            modal.hide();
+            scheduleIdleTimers();
+        };
+
+        const recordActivity = () => {
+            if (isWarningOpen) {
+                return;
+            }
+            scheduleIdleTimers();
+        };
+
+        trackedEvents.forEach((eventName) => {
+            window.addEventListener(eventName, recordActivity, { passive: true });
+        });
+
+        keepAliveButton.addEventListener("click", async () => {
+            keepAliveButton.disabled = true;
+            try {
+                const response = await fetch("/auth/session/keepalive", {
+                    credentials: "include",
+                    cache: "no-store"
+                });
+
+                if (!response.ok) {
+                    window.location.href = "/logout";
+                    return;
+                }
+
+                dismissWarning();
+            } catch {
+                window.location.href = "/logout";
+            } finally {
+                keepAliveButton.disabled = false;
+            }
+        });
+
+        modalElement.addEventListener("hidden.bs.modal", () => {
+            if (isWarningOpen) {
+                return;
+            }
+            updateCountdown();
+        });
+
+        updateCountdown();
+        scheduleIdleTimers();
+    })();
 </script>

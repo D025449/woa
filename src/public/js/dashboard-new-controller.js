@@ -5,6 +5,7 @@ import UIStateManager from "./UIStateManager.js";
 import WorkoutLibraryView from "./workout-library-view.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
 import Utils from "../../shared/Utils.js";
+import confirmModal from "./confirm-modal.js";
 
 export default class Controller {
 
@@ -17,8 +18,31 @@ export default class Controller {
     this.libraryState = this.uiState.get("workoutLibraryState", {
       search: "",
       sort: "newest",
-      scope: "mine"
+      scope: "mine",
+      favoritesOnly: false
     });
+    this.chartViewState = this.uiState.get("chartViewState", {
+      xAxisMode: "time",
+      seriesVisibility: {
+        power: true,
+        heartRate: true,
+        cadence: true,
+        speed: true,
+        altitude: true
+      },
+      segmentVisibility: {
+        criticalPower: true,
+        auto: true,
+        manual: true,
+        gps: true
+      }
+    });
+    this.libraryScrollTop = this.uiState.get("workoutLibraryScrollTop", 0);
+    this.mapViewState = this.uiState.get("dashboardMapViewState", {
+      baseLayerMode: "standard"
+    });
+    this.recentWorkoutIds = this.readStoredList("dashboardRecentWorkoutIds");
+    this.favoriteWorkoutIds = this.readStoredList("dashboardFavoriteWorkoutIds");
     this.detailCopyElement = document.getElementById("dashboard-detail-copy");
     this.workoutTitleElement = document.getElementById("dashboard-workout-title");
     this.workspacePanelElement = document.getElementById("dashboard-workspace-panel");
@@ -29,6 +53,10 @@ export default class Controller {
     this.mobileLibraryToggle = document.getElementById("dashboard-mobile-library-toggle");
     this.mobileLibraryBackdrop = document.getElementById("dashboard-mobile-library-backdrop");
     this.libraryColumn = document.querySelector(".dashboard-library-column");
+    this.libraryScrollElement = document.querySelector(".workout-library-scroll");
+    this.quickAccessElement = document.getElementById("dashboard-quick-access");
+    this.recentWorkoutsElement = document.getElementById("dashboard-recent-workouts");
+    this.favoriteWorkoutsElement = document.getElementById("dashboard-favorite-workouts");
     this.splitterElement = document.getElementById("dashboard-splitter");
     this.shellElement = document.getElementById("dashboard-shell");
     this.heroElement = document.getElementById("dashboard-hero");
@@ -55,8 +83,14 @@ export default class Controller {
   // -----------------------------
   initViews() {
     this.mapView = new MapView("workout-map");
+    this.mapView.onBaseLayerChange = (baseLayerMode) => {
+      this.mapViewState = { baseLayerMode };
+      this.uiState.set("dashboardMapViewState", this.mapViewState);
+    };
+    this.mapView.setInitialState(this.mapViewState);
 
     this.chartView = new ChartView("workout-chart", {
+      initialState: this.chartViewState,
       onChartHoverIndex: (idx) => {
         this.mapView.moveMarkerToIndex(idx);
       },
@@ -105,6 +139,11 @@ export default class Controller {
 
       onToast: (message) => {
         this.showToast(message);
+      },
+
+      onPreferencesChange: (state) => {
+        this.chartViewState = state;
+        this.uiState.set("chartViewState", state);
       }
     });
 
@@ -115,6 +154,8 @@ export default class Controller {
       initialSearch: this.libraryState?.search || "",
       initialSort: this.libraryState?.sort || "newest",
       initialScope: this.libraryState?.scope || "mine",
+      initialFavoriteFilterActive: !!this.libraryState?.favoritesOnly,
+      initialFavoriteWorkoutIds: this.favoriteWorkoutIds,
       onWorkoutOpen: async (workoutId) => {
         this.currentWorkoutId = workoutId;
         this.uiState.set("selectedWorkoutId", workoutId);
@@ -138,6 +179,12 @@ export default class Controller {
 
         this.libraryView.removeWorkout(workout.id);
       },
+      onBulkDelete: async (workouts) => {
+        await this.deleteSelectedWorkouts(workouts);
+      },
+      onBulkPublish: async (workouts, payload) => {
+        await this.publishSelectedWorkouts(workouts, payload);
+      },
       onWorkoutShareOpen: async (workout) => {
         return await WorkoutService.getWorkoutSharing(workout.id);
       },
@@ -145,6 +192,17 @@ export default class Controller {
         const data = await WorkoutService.updateWorkoutSharing(workout.id, payload);
         this.showToast(this.t("messages.workoutShareUpdated"));
         return data;
+      },
+      onFavoriteChange: (favoriteIds) => {
+        this.favoriteWorkoutIds = Array.isArray(favoriteIds) ? favoriteIds : [];
+        this.writeStoredList("dashboardFavoriteWorkoutIds", this.favoriteWorkoutIds);
+        this.renderQuickAccess();
+      },
+      onRendered: ({ append }) => {
+        if (!append) {
+          this.restoreLibraryScrollPosition();
+        }
+        this.renderQuickAccess();
       }
     });
   }
@@ -156,6 +214,11 @@ export default class Controller {
     window.addEventListener("resize", () => this.onResize());
     this.mobileLibraryToggle?.addEventListener("click", () => this.toggleMobileLibrary());
     this.mobileLibraryBackdrop?.addEventListener("click", () => this.closeMobileLibrary());
+    this.libraryScrollElement?.addEventListener("scroll", () => {
+      this.libraryScrollTop = this.libraryScrollElement.scrollTop;
+      this.uiState.set("workoutLibraryScrollTop", this.libraryScrollTop);
+    }, { passive: true });
+    document.addEventListener("keydown", (event) => this.handleGlobalShortcuts(event));
     this.registerSplitterEvents();
     this.initLayoutObservers();
   }
@@ -167,6 +230,8 @@ export default class Controller {
       this.resetWorkspaceSummary();
       this.scheduleDesktopLayoutMeasure();
       await this.restoreSelectedWorkout();
+      this.restoreLibraryScrollPosition();
+      this.renderQuickAccess();
     } catch (err) {
       console.error(err);
       this.showToast(this.t("messages.workoutLibraryLoadFailed"));
@@ -201,12 +266,14 @@ export default class Controller {
 
       this.currentWorkoutId = workout.id;
       this.uiState.set("selectedWorkoutId", workout.id);
+      this.pushRecentWorkout(workout.id);
       this.chartView.updateWorkout(workout);
       this.mapView.renderTrack(workout);
       this.libraryView.setSelectedWorkout(workout.id);
       this.updateWorkoutMeta(workout);
       this.scheduleDesktopLayoutMeasure(true);
       this.closeMobileLibrary();
+      this.renderQuickAccess();
     } catch (err) {
       console.error(err);
       this.resetWorkspaceSummary();
@@ -247,6 +314,155 @@ export default class Controller {
     this.sharedMetaElement.classList.remove("d-none");
     this.sharedMetaTextElement.textContent = this.t("messages.sharedBy", { owner: ownerLabel });
     this.detailCopyElement.textContent = headerDetailLine;
+  }
+
+  async deleteSelectedWorkouts(workouts = []) {
+    const ownWorkouts = Array.isArray(workouts) ? workouts.filter((workout) => workout?.is_owned) : [];
+    if (!ownWorkouts.length) {
+      return;
+    }
+
+    const ok = await confirmModal({
+      title: this.t("bulkDelete"),
+      message: this.t("bulkDeletePrompt", { count: ownWorkouts.length }),
+      acceptLabel: this.t("bulkDelete"),
+      cancelLabel: this.t("bulkCancel"),
+      acceptClass: "btn-danger"
+    });
+
+    if (!ok) {
+      return;
+    }
+
+    await WorkoutService.deleteWorkoutsByIds(ownWorkouts.map((workout) => workout.id));
+
+    ownWorkouts.forEach((workout) => {
+      if (String(workout.id) === String(this.currentWorkoutId)) {
+        this.currentWorkoutId = null;
+        this.uiState.remove("selectedWorkoutId");
+        this.resetWorkspaceSummary();
+      }
+      this.libraryView.removeWorkout(workout.id);
+    });
+
+    this.libraryView.setSelectionMode(false);
+    this.renderQuickAccess();
+  }
+
+  async publishSelectedWorkouts(workouts = [], payload = {}) {
+    const ownWorkouts = Array.isArray(workouts) ? workouts.filter((workout) => workout?.is_owned) : [];
+    if (!ownWorkouts.length) {
+      return;
+    }
+
+    for (const workout of ownWorkouts) {
+      const sharing = await WorkoutService.updateWorkoutSharing(workout.id, payload);
+      if (sharing) {
+        this.libraryView.setWorkoutSharing(workout.id, sharing);
+      }
+    }
+
+    this.showToast(this.t("messages.workoutShareUpdated"));
+    this.libraryView.setSelectionMode(false);
+  }
+
+  readStoredList(key) {
+    try {
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.map((value) => String(value)) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  writeStoredList(key, values) {
+    localStorage.setItem(key, JSON.stringify((values || []).map((value) => String(value)).slice(0, 8)));
+  }
+
+  pushRecentWorkout(workoutId) {
+    const nextId = String(workoutId);
+    this.recentWorkoutIds = [nextId, ...this.recentWorkoutIds.filter((value) => value !== nextId)].slice(0, 6);
+    this.writeStoredList("dashboardRecentWorkoutIds", this.recentWorkoutIds);
+  }
+
+  renderQuickAccess() {
+    if (!this.quickAccessElement || !this.recentWorkoutsElement || !this.favoriteWorkoutsElement) {
+      return;
+    }
+
+    const recentItems = this.recentWorkoutIds
+      .map((workoutId) => this.libraryView.getWorkoutById(workoutId))
+      .filter(Boolean)
+      .slice(0, 4);
+    const favoriteItems = this.favoriteWorkoutIds
+      .map((workoutId) => this.libraryView.getWorkoutById(workoutId))
+      .filter(Boolean)
+      .slice(0, 4);
+
+    this.recentWorkoutsElement.innerHTML = recentItems
+      .map((workout) => `<button class="dashboard-quick-access__chip" type="button" data-quick-workout-open="${workout.id}">#${workout.id}</button>`)
+      .join("");
+    this.favoriteWorkoutsElement.innerHTML = favoriteItems
+      .map((workout) => `<button class="dashboard-quick-access__chip" type="button" data-quick-workout-open="${workout.id}">★ #${workout.id}</button>`)
+      .join("");
+
+    this.quickAccessElement.hidden = recentItems.length === 0 && favoriteItems.length === 0;
+
+    this.quickAccessElement.querySelectorAll("[data-quick-workout-open]").forEach((element) => {
+      element.addEventListener("click", async () => {
+        const workoutId = element.getAttribute("data-quick-workout-open");
+        if (!workoutId) {
+          return;
+        }
+
+        this.currentWorkoutId = workoutId;
+        this.uiState.set("selectedWorkoutId", workoutId);
+        const url = new URL(window.location.href);
+        url.searchParams.set("workoutId", workoutId);
+        window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+        await this.openWorkout(workoutId);
+      });
+    });
+  }
+
+  restoreLibraryScrollPosition() {
+    if (!this.libraryScrollElement || !Number.isFinite(this.libraryScrollTop)) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      if (this.libraryScrollElement) {
+        this.libraryScrollElement.scrollTop = this.libraryScrollTop;
+      }
+    });
+  }
+
+  handleGlobalShortcuts(event) {
+    const target = event.target;
+    const isTypingContext = target instanceof HTMLElement && (
+      target.isContentEditable
+      || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)
+    );
+
+    if (event.key === "Escape" && !isTypingContext) {
+      if (this.libraryView.handleEscape()) {
+        event.preventDefault();
+      }
+      return;
+    }
+
+    if (event.key === "/" && !isTypingContext) {
+      event.preventDefault();
+      this.libraryView.searchInput?.focus();
+      this.libraryView.searchInput?.select?.();
+      return;
+    }
+
+    if ((event.key === "f" || event.key === "F") && !isTypingContext && this.currentWorkoutId) {
+      event.preventDefault();
+      this.libraryView.toggleFavoriteWorkout(String(this.currentWorkoutId));
+    }
   }
 
   resetWorkspaceSummary() {

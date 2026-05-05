@@ -1,13 +1,12 @@
 import { CognitoJwtVerifier } from "aws-jwt-verify";
 import UserDBService from "../services/userDBService.js";
+import { clearAuthCookies as clearAuthCookiesOnResponse, refreshAccessTokens, setAuthCookies } from "../services/authTokenService.js";
 
 let accessVerifier;
 let idVerifier;
 
 function clearAuthCookies(req, res) {
-  res.clearCookie("accessToken");
-  res.clearCookie("refreshToken");
-  res.clearCookie("idToken");
+  clearAuthCookiesOnResponse(res);
 
   if (req.session?.user_id || req.session?.user) {
     delete req.session.user_id;
@@ -54,18 +53,48 @@ export default async function authMiddleware(req, res, next) {
 
     }
 
-    const token = req.cookies.accessToken;
-    const idToken = req.cookies.idToken;
+    let token = req.cookies.accessToken;
+    let idToken = req.cookies.idToken;
+    const refreshToken = req.cookies.refreshToken;
 
     if (!token) {
       res.locals.user = null;
       return next();
     }
 
-    const accessPayload = await getAccessVerifier().verify(token);
-    const idPayload = idToken
+    let accessPayload;
+    let idPayload = idToken
       ? await getIdVerifier().verify(idToken).catch(() => null)
       : null;
+
+    try {
+      accessPayload = await getAccessVerifier().verify(token);
+    } catch (verifyError) {
+      if (!refreshToken) {
+        throw verifyError;
+      }
+
+      const refreshedTokens = await refreshAccessTokens(
+        refreshToken,
+        req.session?.user?.email || req.session?.user?.sub || ""
+      );
+
+      token = refreshedTokens.accessToken;
+      idToken = refreshedTokens.idToken || idToken;
+
+      if (!token) {
+        throw verifyError;
+      }
+
+      setAuthCookies(res, {
+        accessToken: token,
+        idToken
+      }, refreshToken);
+
+      accessPayload = await getAccessVerifier().verify(token);
+      idPayload = refreshedTokens.idPayload
+        || (idToken ? await getIdVerifier().verify(idToken).catch(() => null) : null);
+    }
 
     const user = {
       sub: accessPayload.sub,

@@ -1,6 +1,7 @@
 import { CognitoJwtVerifier } from "aws-jwt-verify";
 import UserDBService from "../services/userDBService.js"
 import { normalizeSupportedLocale } from "../i18n/index.js";
+import { clearAuthCookies, refreshAccessTokens, setAuthCookies } from "../services/authTokenService.js";
 
 let accessVerifier;
 let idVerifier;
@@ -28,10 +29,7 @@ function getIdVerifier() {
 }
 
 function clearAuthState(req, res) {
-  res.clearCookie("accessToken");
-  res.clearCookie("refreshToken");
-  res.clearCookie("idToken");
-
+  clearAuthCookies(res);
   if (req.session?.user_id || req.session?.user) {
     delete req.session.user_id;
     delete req.session.user;
@@ -41,10 +39,9 @@ function clearAuthState(req, res) {
 export default async function authGlobal(req, res, next) {
 
   try {
-
-    // Der aktuelle Token hat Vorrang vor einer möglicherweise alten Session.
-    const token = req.cookies.accessToken;
-    const idToken = req.cookies.idToken;
+    let token = req.cookies.accessToken;
+    let idToken = req.cookies.idToken;
+    const refreshToken = req.cookies.refreshToken;
 
     if (!token && req.session?.user_id && req.session?.user?.sub) {
       if (req.session?.user?.account_status === "deleted") {
@@ -72,11 +69,39 @@ export default async function authGlobal(req, res, next) {
     if (!token) {
       return next();
     }
-
-    const accessPayload = await getAccessVerifier().verify(token);
-    const idPayload = idToken
+    let accessPayload;
+    let idPayload = idToken
       ? await getIdVerifier().verify(idToken).catch(() => null)
       : null;
+
+    try {
+      accessPayload = await getAccessVerifier().verify(token);
+    } catch (verifyError) {
+      if (!refreshToken) {
+        throw verifyError;
+      }
+
+      const refreshedTokens = await refreshAccessTokens(
+        refreshToken,
+        req.session?.user?.email || req.session?.user?.sub || ""
+      );
+
+      token = refreshedTokens.accessToken;
+      idToken = refreshedTokens.idToken || idToken;
+
+      if (!token) {
+        throw verifyError;
+      }
+
+      setAuthCookies(res, {
+        accessToken: token,
+        idToken
+      }, refreshToken);
+
+      accessPayload = await getAccessVerifier().verify(token);
+      idPayload = refreshedTokens.idPayload
+        || (idToken ? await getIdVerifier().verify(idToken).catch(() => null) : null);
+    }
 
     const user = {
       sub: accessPayload.sub,

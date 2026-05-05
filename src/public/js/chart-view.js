@@ -17,6 +17,7 @@ export default class ChartView {
     this.xAxisMode = "time";
     this.distanceAxisToggle = null;
     this.seriesToggleSlot = document.getElementById("dashboard-series-toggle-slot");
+    this.segmentToggleSlot = document.getElementById("dashboard-segment-toggle-slot");
     this.seriesVisibility = {
       power: true,
       heartRate: true,
@@ -24,7 +25,14 @@ export default class ChartView {
       speed: true,
       altitude: true
     };
+    this.segmentVisibility = {
+      criticalPower: true,
+      auto: true,
+      manual: true,
+      gps: true
+    };
     this.seriesToggleButtons = new Map();
+    this.segmentToggleButtons = new Map();
     this.distanceKmByIndex = null;
     this.mode = "";
     this.isHoveringSegmentArea = false;
@@ -35,6 +43,8 @@ export default class ChartView {
     this.createGpsButton = document.getElementById('draw-gps-segment-toggle');
     this.deleteButton = document.getElementById('delete-segments');
     this.actionsMenu = document.querySelector(".dashboard-actions-menu");
+
+    this.applyInitialPreferences(handlers.initialState || null);
 
     this.initSegmentHoverTooltip();
     this.initUI();
@@ -62,9 +72,42 @@ export default class ChartView {
     });
 
     this.initAxisModeToggle();
+    this.initSegmentToggleControls();
     this.initSeriesToggleControls();
     this.initActionsMenuBehaviour();
     this.syncModeButtons();
+  }
+
+  applyInitialPreferences(state) {
+    if (!state || typeof state !== "object") {
+      return;
+    }
+
+    if (state.xAxisMode === "time" || state.xAxisMode === "distance") {
+      this.xAxisMode = state.xAxisMode;
+    }
+
+    if (state.seriesVisibility && typeof state.seriesVisibility === "object") {
+      this.seriesVisibility = {
+        ...this.seriesVisibility,
+        ...state.seriesVisibility
+      };
+    }
+
+    if (state.segmentVisibility && typeof state.segmentVisibility === "object") {
+      this.segmentVisibility = {
+        ...this.segmentVisibility,
+        ...state.segmentVisibility
+      };
+    }
+  }
+
+  emitPreferenceChange() {
+    this.handlers.onPreferencesChange?.({
+      xAxisMode: this.xAxisMode,
+      seriesVisibility: { ...this.seriesVisibility },
+      segmentVisibility: { ...this.segmentVisibility }
+    });
   }
 
   initActionsMenuBehaviour() {
@@ -76,10 +119,26 @@ export default class ChartView {
       event.stopPropagation();
     });
 
+    this.actionsMenu.querySelectorAll(".dashboard-actions-submenu").forEach((submenu) => {
+      submenu.addEventListener("toggle", () => {
+        if (!submenu.open) {
+          return;
+        }
+
+        this.actionsMenu
+          ?.querySelectorAll(".dashboard-actions-submenu")
+          ?.forEach((otherSubmenu) => {
+            if (otherSubmenu !== submenu) {
+              otherSubmenu.removeAttribute("open");
+            }
+          });
+      });
+    });
+
     document.addEventListener("click", (event) => {
       const target = event.target;
       if (!(target instanceof Node)) {
-        return;
+          return;
       }
 
       if (this.actionsMenu?.contains(target)) {
@@ -87,6 +146,24 @@ export default class ChartView {
       }
 
       this.actionsMenu?.removeAttribute("open");
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      const openSubmenu = this.actionsMenu?.querySelector(".dashboard-actions-submenu[open]");
+      if (openSubmenu) {
+        openSubmenu.removeAttribute("open");
+        event.preventDefault();
+        return;
+      }
+
+      if (this.actionsMenu?.open) {
+        this.actionsMenu.removeAttribute("open");
+        event.preventDefault();
+      }
     });
   }
 
@@ -177,6 +254,7 @@ export default class ChartView {
       ],
       series: this.buildSeriesDefinitions(labels)
     });
+    this.renderSegmentToggles();
     this.renderSeriesToggles(labels);
   }
 
@@ -217,6 +295,7 @@ export default class ChartView {
       dataset: { source }, //workout.series },
       series: this.buildSeriesDefinitions(labels, xField)
     });
+    this.renderSegmentToggles();
     this.renderSeriesToggles(labels);
     this.baseMarkAreas = this.buildMarkAreasForMode(workout);
     this.applyMarkAreas();
@@ -256,6 +335,7 @@ export default class ChartView {
       dataset: { source }, //workout.series },
       series: this.buildSeriesDefinitions(labels, xField)
     });
+    this.renderSegmentToggles();
     this.renderSeriesToggles(labels);
     this.baseMarkAreas = this.buildMarkAreasCPForMode(cpview);
     this.applyMarkAreas();
@@ -505,6 +585,7 @@ export default class ChartView {
     }
     this.xAxisMode = normalized;
     this.syncXAxisModeButtons();
+    this.emitPreferenceChange();
     if (this.currentWorkout) {
       this.updateWorkout(this.currentWorkout);
     }
@@ -547,6 +628,31 @@ export default class ChartView {
       this.seriesVisibility[seriesKey] = !this.seriesVisibility[seriesKey];
       this.applySeriesSelection();
       this.syncSeriesToggleState();
+      this.emitPreferenceChange();
+    });
+  }
+
+  initSegmentToggleControls() {
+    if (!this.segmentToggleSlot) {
+      return;
+    }
+
+    this.segmentToggleSlot.addEventListener("click", (event) => {
+      const button = event.target?.closest?.("button[data-segment-key]");
+      if (!button) {
+        return;
+      }
+
+      const segmentKey = button.dataset.segmentKey;
+      if (!segmentKey || !(segmentKey in this.segmentVisibility)) {
+        return;
+      }
+
+      this.segmentVisibility[segmentKey] = !this.segmentVisibility[segmentKey];
+      this.syncSegmentToggleState();
+      this.baseMarkAreas = this.buildMarkAreasForMode(this.currentWorkout);
+      this.applyMarkAreas();
+      this.emitPreferenceChange();
     });
   }
 
@@ -641,12 +747,16 @@ export default class ChartView {
   }
 
   buildMarkAreasForMode(workout) {
-    const areas = buildMarkAreas(workout);
-    if (this.xAxisMode !== "distance" || !this.hasDistanceXAxis()) {
-      return areas;
+    if (!workout) {
+      return [];
     }
 
-    return areas.map((area) => ([
+    const areas = buildMarkAreas(workout);
+    if (this.xAxisMode !== "distance" || !this.hasDistanceXAxis()) {
+      return this.filterMarkAreasByVisibility(areas);
+    }
+
+    return this.filterMarkAreasByVisibility(areas).map((area) => ([
       {
         ...area[0],
         xAxis: this.xIndexToValue(area[0].xAxis)
@@ -883,6 +993,9 @@ export default class ChartView {
       if (segment.rowstate === "DEL") {
         return false;
       }
+      if (!this.isSegmentTypeVisible(segment)) {
+        return false;
+      }
       return index >= segment.start_offset && index <= segment.end_offset;
     }) ?? [];
 
@@ -1065,6 +1178,15 @@ export default class ChartView {
     ];
   }
 
+  getSegmentToggleDefinitions() {
+    return [
+      { key: "criticalPower", label: this.t("segmentTypeCriticalPower"), color: "rgba(17, 230, 42, 0.2)" },
+      { key: "auto", label: this.t("segmentTypeAuto"), color: "rgba(0, 123, 255, 0.3)" },
+      { key: "manual", label: this.t("segmentTypeManual"), color: "rgba(255, 0, 0, 0.3)" },
+      { key: "gps", label: this.t("segmentTypeGps"), color: "rgba(17, 230, 42, 0.2)" }
+    ];
+  }
+
   renderSeriesToggles(labels = this.getChartLabels()) {
     if (!this.seriesToggleSlot) {
       return;
@@ -1092,11 +1214,78 @@ export default class ChartView {
     this.syncSeriesToggleState();
   }
 
+  renderSegmentToggles() {
+    if (!this.segmentToggleSlot) {
+      return;
+    }
+
+    this.segmentToggleButtons.clear();
+    this.segmentToggleSlot.innerHTML = "";
+
+    this.getSegmentToggleDefinitions().forEach((segmentType) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "dashboard-series-toggle";
+      button.dataset.segmentKey = segmentType.key;
+      button.innerHTML = `
+        <span class="dashboard-series-toggle__identity">
+          <span class="dashboard-series-toggle__swatch" style="background:${segmentType.color};"></span>
+          <span class="dashboard-series-toggle__label">${segmentType.label}</span>
+        </span>
+        <span class="dashboard-series-toggle__state" aria-hidden="true">✓</span>
+      `;
+      this.segmentToggleSlot.appendChild(button);
+      this.segmentToggleButtons.set(segmentType.key, button);
+    });
+
+    this.syncSegmentToggleState();
+  }
+
   syncSeriesToggleState() {
     this.seriesToggleButtons.forEach((button, key) => {
       const isActive = this.seriesVisibility[key] !== false;
       button.classList.toggle("is-active", isActive);
       button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+  }
+
+  syncSegmentToggleState() {
+    this.segmentToggleButtons.forEach((button, key) => {
+      const isActive = this.segmentVisibility[key] !== false;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+  }
+
+  isSegmentTypeVisible(segment) {
+    if (!segment) {
+      return false;
+    }
+
+    if (segment.isGPSSegment || segment.segmenttype === "gps") {
+      return this.segmentVisibility.gps !== false;
+    }
+
+    if (segment.segmenttype === "crit") {
+      return this.segmentVisibility.criticalPower !== false;
+    }
+
+    if (segment.segmenttype === "auto") {
+      return this.segmentVisibility.auto !== false;
+    }
+
+    return this.segmentVisibility.manual !== false;
+  }
+
+  filterMarkAreasByVisibility(areas = []) {
+    return areas.filter((area) => {
+      const segmentId = area?.[0]?.segmentId;
+      if (segmentId == null) {
+        return true;
+      }
+
+      const segment = this.currentWorkout?.segments?.find((entry) => entry.id === segmentId);
+      return this.isSegmentTypeVisible(segment);
     });
   }
 

@@ -56,6 +56,17 @@ export async function createApp() {
         next();
     });
 
+    app.get("/auth/session/keepalive", (req, res) => {
+        if (!req.user?.id) {
+            return res.status(401).json({ error: "Unauthorized" });
+        }
+
+        return res.json({
+            ok: true,
+            now: Date.now()
+        });
+    });
+
     app.use("/files", fileRoutes);
     app.use("/workouts", workoutRoutes);
 

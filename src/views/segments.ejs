@@ -43,6 +43,16 @@
                         <p class="segments-subtitle ui-hero__subtitle">
                             <%= t("segmentsPage.subtitle") %>
                         </p>
+                        <div id="segments-quick-access" class="segments-quick-access" hidden>
+                            <div class="segments-quick-access__group">
+                                <span class="segments-quick-access__label"><%= t("segmentsPage.quickRecent") %></span>
+                                <div id="segments-recent-list" class="segments-quick-access__chips"></div>
+                            </div>
+                            <div class="segments-quick-access__group">
+                                <span class="segments-quick-access__label"><%= t("segmentsPage.quickFavorites") %></span>
+                                <div id="segments-favorite-list" class="segments-quick-access__chips"></div>
+                            </div>
+                        </div>
                     </div>
 
                     <div class="segments-hero-meta ui-hero__meta">
@@ -57,6 +67,11 @@
                                 <%= t("segmentsPage.scopeAll") %>
                             </button>
                         </div>
+                        <button id="segments-favorites-filter" class="segments-favorite-filter" type="button" aria-pressed="false" title="<%= t('segmentsPage.favoriteFilterLabel') %>">
+                            <svg viewBox="0 0 20 20" aria-hidden="true">
+                                <path d="M10 2.9l2.15 4.36 4.81.7-3.48 3.39.82 4.79L10 14.02 5.7 16.14l.82-4.79L3.04 7.96l4.81-.7L10 2.9z" fill="currentColor"></path>
+                            </svg>
+                        </button>
                         <div class="ui-hero__art" aria-hidden="true">
                             <svg viewBox="0 0 64 64" fill="none">
                                 <defs>
@@ -86,7 +101,7 @@
                             </div>
 
                             <div class="segments-toolbar ui-toolbar ui-toolbar--end">
-                                <details class="segments-map-actions-menu">
+                                <details id="segments-map-tools-menu" class="segments-map-actions-menu">
                                     <summary class="segments-map-actions-menu__trigger" aria-label="<%= t('segmentsPage.btnCreate') %> / <%= t('segmentsPage.lookup') %>">
                                         <span aria-hidden="true">•••</span>
                                     </summary>
@@ -124,6 +139,11 @@
                                             </span>
                                             <span><%= t("segmentsPage.lookup") %></span>
                                         </button>
+
+                                        <div class="segments-map-actions-menu__group">
+                                            <div class="segments-map-actions-menu__label"><%= t("segmentsPage.mapStyleLabel") %></div>
+                                            <div id="segments-map-style-slot" class="segments-map-actions-menu__styles"></div>
+                                        </div>
                                     </div>
                                 </details>
                             </div>
@@ -150,6 +170,9 @@
                             </div>
 
                             <div class="segments-toolbar ui-toolbar ui-toolbar--end">
+                                <button id="segment-favorite-toggle" class="segments-favorite-toggle d-none" type="button" aria-pressed="false" title="<%= t('segmentsPage.favoriteToggleTitle') %>">
+                                    <span aria-hidden="true">★</span>
+                                </button>
                                 <details class="segments-detail-actions-menu">
                                     <summary class="segments-detail-actions-menu__trigger" aria-label="<%= t('segmentsPage.share') %> / <%= t('segmentsPage.deleteSegment') %>">
                                         <span aria-hidden="true">•••</span>
@@ -213,30 +236,65 @@
                                 <div class="segments-panel-header">
                                     <h3 class="segments-panel-title"><%= t("segmentsPage.bestEffortsTitle") %></h3>
                                     <div class="segments-best-efforts-header-controls">
-                                        <div class="segments-best-efforts-view-toggle ui-toggle-group ui-toggle-group--light" role="group" aria-label="<%= t('segmentsPage.bestEffortsViewAria') %>">
-                                            <button id="segment-bestefforts-view-table" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-view="table">
-                                                <%= t("segmentsPage.bestEffortsViewTable") %>
-                                            </button>
-                                            <button id="segment-bestefforts-view-cards" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-view="cards">
-                                                <%= t("segmentsPage.bestEffortsViewCards") %>
-                                            </button>
-                                        </div>
-                                        <div class="segment-bestefforts-scope-toggle ui-toggle-group ui-toggle-group--light" role="group" aria-label="<%= t('segmentsPage.bestEffortsScopeAria') %>">
-                                            <button id="segment-bestefforts-scope-mine" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-scope="mine">
-                                                <%= t("segmentsPage.bestEffortsScopeMine") %>
-                                            </button>
-                                            <button id="segment-bestefforts-scope-shared" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-scope="shared">
-                                                <%= t("segmentsPage.bestEffortsScopeShared") %>
-                                            </button>
-                                            <button id="segment-bestefforts-scope-all" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-scope="all">
-                                                <%= t("segmentsPage.bestEffortsScopeAll") %>
-                                            </button>
-                                        </div>
+                                        <details class="segments-best-efforts-menu">
+                                            <summary class="segments-best-efforts-menu__trigger" aria-label="<%= t('segmentsPage.bestEffortsMenuAria') %>">
+                                                <span aria-hidden="true">•••</span>
+                                            </summary>
+                                            <div class="segments-best-efforts-menu__panel">
+                                                <div class="segments-best-efforts-menu__group">
+                                                    <div class="segments-best-efforts-menu__label"><%= t("segmentsPage.bestEffortsViewLabel") %></div>
+                                                    <div class="segments-best-efforts-view-toggle ui-toggle-group ui-toggle-group--light" role="group" aria-label="<%= t('segmentsPage.bestEffortsViewAria') %>">
+                                                        <button id="segment-bestefforts-view-table" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-view="table">
+                                                            <%= t("segmentsPage.bestEffortsViewTable") %>
+                                                        </button>
+                                                        <button id="segment-bestefforts-view-cards" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-view="cards">
+                                                            <%= t("segmentsPage.bestEffortsViewCards") %>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <div class="segments-best-efforts-menu__group">
+                                                    <div class="segments-best-efforts-menu__label"><%= t("segmentsPage.bestEffortsScopeLabel") %></div>
+                                                    <div class="segment-bestefforts-scope-toggle ui-toggle-group ui-toggle-group--light" role="group" aria-label="<%= t('segmentsPage.bestEffortsScopeAria') %>">
+                                                        <button id="segment-bestefforts-scope-mine" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-scope="mine">
+                                                            <%= t("segmentsPage.bestEffortsScopeMine") %>
+                                                        </button>
+                                                        <button id="segment-bestefforts-scope-shared" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-scope="shared">
+                                                            <%= t("segmentsPage.bestEffortsScopeShared") %>
+                                                        </button>
+                                                        <button id="segment-bestefforts-scope-all" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-scope="all">
+                                                            <%= t("segmentsPage.bestEffortsScopeAll") %>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <div class="segments-best-efforts-menu__group">
+                                                    <div class="segments-best-efforts-menu__label"><%= t("segmentsPage.bestEffortsPerUserLabel") %></div>
+                                                    <div class="segments-best-efforts-per-user-toggle ui-toggle-group ui-toggle-group--light" role="group" aria-label="<%= t('segmentsPage.bestEffortsPerUserAria') %>">
+                                                        <button id="segment-bestefforts-per-user-all" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-per-user="all">
+                                                            <%= t("segmentsPage.bestEffortsPerUserAll") %>
+                                                        </button>
+                                                        <button id="segment-bestefforts-per-user-1" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-per-user="1">
+                                                            <%= t("segmentsPage.bestEffortsPerUserOne") %>
+                                                        </button>
+                                                        <button id="segment-bestefforts-per-user-3" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-per-user="3">
+                                                            <%= t("segmentsPage.bestEffortsPerUserThree") %>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <div class="segments-best-efforts-menu__group">
+                                                    <button id="segment-bestefforts-my-pr" class="segments-best-efforts-menu__action" type="button">
+                                                        <%= t("segmentsPage.bestEffortsMyPr") %>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </details>
                                     </div>
                                 </div>
                                 <div class="segments-panel-body segments-panel-body--table">
                                     <div id="segment-table" class="segments-best-efforts-surface"></div>
                                     <div id="segment-best-efforts-cards" class="segments-best-efforts-cards d-none"></div>
+                                    <div id="segment-best-efforts-load-more" class="segments-best-efforts-load-more d-none">
+                                        <button class="btn btn-outline-secondary btn-sm" type="button"><%= t("dashboardNewPage.loadMore") %></button>
+                                    </div>
                                 </div>
                             </div>
                         </div>

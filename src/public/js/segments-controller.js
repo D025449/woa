@@ -20,6 +20,10 @@ export default class Controller {
     this.segmentScope = this.uiState.get("segmentScope", "mine");
     this.bestEffortsScope = this.uiState.get("segmentBestEffortsScope", "mine");
     this.bestEffortsViewMode = this.uiState.get("segmentBestEffortsViewMode", "table");
+    this.bestEffortsPerUser = this.uiState.get("segmentBestEffortsPerUser", "all");
+    this.favoriteOnly = !!this.uiState.get("segmentFavoriteOnly", false);
+    this.recentSegmentIds = this.readStoredList("segmentsRecentIds");
+    this.favoriteSegmentIds = this.readStoredList("segmentsFavoriteIds");
     this.focusSegmentId = new URLSearchParams(window.location.search).get("focusSegmentId");
     this.restoredSegmentId = this.uiState.get("selectedSegmentId");
     this.focusApplied = false;
@@ -30,8 +34,14 @@ export default class Controller {
     this.layoutMeasureRaf = null;
     this.layoutObserver = null;
     this.mapWidthPx = this.uiState.get("segmentsMapWidthPx", null);
+    this.mapViewState = this.uiState.get("segmentsMapViewState", {
+      baseLayerMode: "standard"
+    });
     this.splitterPointerId = null;
     this.detailActionsMenu = document.querySelector(".segments-detail-actions-menu");
+    this.quickAccessElement = document.getElementById("segments-quick-access");
+    this.recentSegmentsElement = document.getElementById("segments-recent-list");
+    this.favoriteSegmentsElement = document.getElementById("segments-favorite-list");
     this.initViews();
     this.registerEvents();
   }
@@ -46,14 +56,20 @@ export default class Controller {
       {
         onSegmentOpen: async (e, segment) => {
           await this.handleSegmentOpen(e, segment);
+        },
+        onBaseLayerChange: (baseLayerMode) => {
+          this.mapViewState = { baseLayerMode };
+          this.uiState.set("segmentsMapViewState", this.mapViewState);
         }
       }
 
     );
+    this.mapView.setInitialState(this.mapViewState);
 
     this.tableView = new TableView("#segment-table", {
       currentUserId: this.currentUserId,
       initialScope: this.bestEffortsScope,
+      initialPerUser: this.bestEffortsPerUser,
       onRowOpen: async () => {},
       onRowDelete: async (row) => row
     });
@@ -61,6 +77,7 @@ export default class Controller {
     this.cardView = new SegmentBestEffortsCardView("#segment-best-efforts-cards", {
       currentUserId: this.currentUserId,
       initialScope: this.bestEffortsScope,
+      initialPerUser: this.bestEffortsPerUser,
       formatSegmentHeaderMarkup: (...args) => this.tableView.formatSegmentHeaderMarkup(...args)
     });
 
@@ -93,11 +110,20 @@ export default class Controller {
     this.scopeAllButton = document.getElementById("segments-scope-all");
     this.bestEffortsViewTableButton = document.getElementById("segment-bestefforts-view-table");
     this.bestEffortsViewCardsButton = document.getElementById("segment-bestefforts-view-cards");
+    this.bestEffortsPerUserAllButton = document.getElementById("segment-bestefforts-per-user-all");
+    this.bestEffortsPerUserOneButton = document.getElementById("segment-bestefforts-per-user-1");
+    this.bestEffortsPerUserThreeButton = document.getElementById("segment-bestefforts-per-user-3");
+    this.bestEffortsMenu = document.querySelector(".segments-best-efforts-menu");
+    this.favoriteToggleButton = document.getElementById("segment-favorite-toggle");
+    this.favoriteFilterButton = document.getElementById("segments-favorites-filter");
+    this.bestEffortsMyPrButton = document.getElementById("segment-bestefforts-my-pr");
     this.updateDeleteButton();
     this.updateShareUi();
     this.updateSegmentMeta();
     this.syncScopeButtons();
+    this.syncFavoriteFilterButton();
     this.syncBestEffortsViewButtons();
+    this.syncBestEffortsPerUserButtons();
     this.applyBestEffortsViewMode();
   }
 
@@ -109,6 +135,10 @@ export default class Controller {
     this.initLayoutObservers();
     this.registerSplitterEvents();
     this.deleteButton?.addEventListener("click", () => this.deleteSelectedSegment());
+    this.favoriteToggleButton?.addEventListener("click", () => this.toggleSelectedSegmentFavorite());
+    this.favoriteFilterButton?.addEventListener("click", async () => {
+      await this.toggleFavoriteFilter();
+    });
     this.shareToggleButton?.addEventListener("click", () => this.toggleShareInline());
     this.shareModeSelect?.addEventListener("change", () => this.updateShareModeUi());
     this.shareSaveButton?.addEventListener("click", async () => {
@@ -132,19 +162,56 @@ export default class Controller {
         await this.setBestEffortsViewMode(mode);
       });
     });
-    document.addEventListener("click", (event) => {
-      if (!this.detailActionsMenu?.open) {
+    [this.bestEffortsPerUserAllButton, this.bestEffortsPerUserOneButton, this.bestEffortsPerUserThreeButton].forEach((button) => {
+      button?.addEventListener("click", async () => {
+        const mode = button.dataset.segmentBesteffortsPerUser || "all";
+        await this.setBestEffortsPerUser(mode);
+      });
+    });
+    this.bestEffortsMyPrButton?.addEventListener("click", async () => {
+      await this.activateMyPrFocus();
+      this.bestEffortsMenu?.removeAttribute("open");
+    });
+    this.detailActionsMenu?.querySelector("summary")?.addEventListener("click", (event) => {
+      if (!this.isShareInlineOpen()) {
         return;
       }
 
-      if (event.target?.closest?.(".segments-detail-actions-menu")) {
-        return;
-      }
-
+      event.preventDefault();
+      this.closeShareInline();
       this.closeDetailActionsMenu();
+    });
+    document.addEventListener("click", (event) => {
+      const clickedInsideDetailMenu = !!event.target?.closest?.(".segments-detail-actions-menu");
+      const clickedInsideShareInline = !!event.target?.closest?.("#segment-share-inline");
+      const clickedInsideBestEffortsMenu = !!event.target?.closest?.(".segments-best-efforts-menu");
+
+      if (this.detailActionsMenu?.open && !clickedInsideDetailMenu) {
+        this.closeDetailActionsMenu();
+      }
+
+      if (this.isShareInlineOpen() && !clickedInsideDetailMenu && !clickedInsideShareInline) {
+        this.closeShareInline();
+      }
+
+      if (this.bestEffortsMenu?.open && !clickedInsideBestEffortsMenu) {
+        this.bestEffortsMenu.removeAttribute("open");
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") {
+        this.handleGlobalShortcuts(event);
+        return;
+      }
+
+      this.mapView.disableSelectionMode();
+      this.closeShareInline();
+      this.closeDetailActionsMenu();
+      this.bestEffortsMenu?.removeAttribute("open");
     });
     this.loadShareableGroups();
     this.scheduleDesktopLayoutMeasure();
+    this.renderQuickAccess();
   }
 
   onResize() {
@@ -320,6 +387,10 @@ export default class Controller {
     this.scopeAllButton?.classList.toggle("active", this.segmentScope === "all");
   }
 
+  syncFavoriteFilterButton() {
+    this.favoriteFilterButton?.setAttribute("aria-pressed", this.favoriteOnly ? "true" : "false");
+  }
+
   async setSegmentScope(scope) {
     const normalizedScope = ["mine", "shared", "all"].includes(String(scope))
       ? String(scope)
@@ -342,6 +413,19 @@ export default class Controller {
     this.mapView.refreshSegments();
     this.focusApplied = false;
     await this.mapView.loadSegmentsForViewport(this.mapView.map.getBounds());
+  }
+
+  async toggleFavoriteFilter() {
+    this.favoriteOnly = !this.favoriteOnly;
+    this.uiState.set("segmentFavoriteOnly", this.favoriteOnly);
+    this.syncFavoriteFilterButton();
+
+    if (this.favoriteOnly && this.selectedSegment?.id && !this.isFavoriteSegment(this.selectedSegment.id)) {
+      this.clearSelectedSegment();
+    }
+
+    this.mapView.refreshSegments();
+    this.renderQuickAccess();
   }
 
   isSegmentVisibleInCurrentScope(segment) {
@@ -367,11 +451,14 @@ export default class Controller {
     this.selectedSegment = segment;
     this.selectedSegmentSharing = null;
     this.uiState.set("selectedSegmentId", segment?.id ?? null);
+    this.pushRecentSegment(segment?.id);
     this.mapView.selectSegment(segment);
     this.elevationView.updateSegment(segment);
     this.updateDeleteButton();
     this.updateShareUi();
     this.updateSegmentMeta();
+    this.updateFavoriteUi();
+    this.renderQuickAccess();
     this.updateBestEffortsScopeUi();
     this.loadSelectedSegmentSharing();
   }
@@ -383,6 +470,8 @@ export default class Controller {
 
     this.tableView.setScope(this.bestEffortsScope);
     this.cardView.setScope(this.bestEffortsScope);
+    this.tableView.setPerUserFilter(this.bestEffortsPerUser);
+    this.cardView.setPerUserFilter(this.bestEffortsPerUser);
 
     if (this.bestEffortsViewMode === "cards") {
       await this.cardView.loadSegment(this.selectedSegment);
@@ -407,6 +496,7 @@ export default class Controller {
     this.updateDeleteButton();
     this.updateShareUi();
     this.updateSegmentMeta();
+    this.updateFavoriteUi();
     this.updateBestEffortsScopeUi();
   }
 
@@ -416,6 +506,153 @@ export default class Controller {
     const isEditable = this.canEditSelectedSegment();
     this.deleteButton.classList.toggle("d-none", !isEditable);
     this.deleteButton.disabled = !isEditable;
+  }
+
+  readStoredList(key) {
+    try {
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.map((value) => String(value)) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  writeStoredList(key, values) {
+    localStorage.setItem(key, JSON.stringify((values || []).map((value) => String(value)).slice(0, 8)));
+  }
+
+  pushRecentSegment(segmentId) {
+    if (!segmentId) {
+      return;
+    }
+
+    const nextId = String(segmentId);
+    this.recentSegmentIds = [nextId, ...this.recentSegmentIds.filter((value) => value !== nextId)].slice(0, 6);
+    this.writeStoredList("segmentsRecentIds", this.recentSegmentIds);
+  }
+
+  isFavoriteSegment(segmentId) {
+    return this.favoriteSegmentIds.includes(String(segmentId));
+  }
+
+  getRenderableSegments() {
+    if (!this.favoriteOnly) {
+      return this.mapSegments;
+    }
+
+    return this.mapSegments.filter((segment) => this.isFavoriteSegment(segment.id));
+  }
+
+  updateFavoriteUi() {
+    const segmentId = this.selectedSegment?.id;
+    const isVisible = !!segmentId;
+    this.favoriteToggleButton?.classList.toggle("d-none", !isVisible);
+    this.favoriteToggleButton?.classList.toggle("is-active", isVisible && this.isFavoriteSegment(segmentId));
+    this.favoriteToggleButton?.setAttribute("aria-pressed", isVisible && this.isFavoriteSegment(segmentId) ? "true" : "false");
+  }
+
+  toggleSelectedSegmentFavorite() {
+    if (!this.selectedSegment?.id) {
+      return;
+    }
+
+    const segmentId = String(this.selectedSegment.id);
+    if (this.isFavoriteSegment(segmentId)) {
+      this.favoriteSegmentIds = this.favoriteSegmentIds.filter((value) => value !== segmentId);
+    } else {
+      this.favoriteSegmentIds = [segmentId, ...this.favoriteSegmentIds.filter((value) => value !== segmentId)].slice(0, 6);
+    }
+
+    this.writeStoredList("segmentsFavoriteIds", this.favoriteSegmentIds);
+    this.updateFavoriteUi();
+    this.renderQuickAccess();
+  }
+
+  renderQuickAccess() {
+    if (!this.quickAccessElement || !this.recentSegmentsElement || !this.favoriteSegmentsElement) {
+      return;
+    }
+
+    const mapById = new Map(this.mapSegments.map((segment) => [String(segment.id), segment]));
+    const recentSegments = this.recentSegmentIds.map((id) => mapById.get(String(id))).filter(Boolean).slice(0, 4);
+    const favoriteSegments = this.favoriteSegmentIds.map((id) => mapById.get(String(id))).filter(Boolean).slice(0, 4);
+
+    this.recentSegmentsElement.innerHTML = recentSegments
+      .map((segment) => `<button class="segments-quick-access__chip" type="button" data-quick-segment-open="${segment.id}">#${segment.id}</button>`)
+      .join("");
+    this.favoriteSegmentsElement.innerHTML = favoriteSegments
+      .map((segment) => `<button class="segments-quick-access__chip" type="button" data-quick-segment-open="${segment.id}">★ #${segment.id}</button>`)
+      .join("");
+
+    this.quickAccessElement.hidden = recentSegments.length === 0 && favoriteSegments.length === 0;
+
+    this.quickAccessElement.querySelectorAll("[data-quick-segment-open]").forEach((element) => {
+      element.addEventListener("click", async () => {
+        const segmentId = element.getAttribute("data-quick-segment-open");
+        if (!segmentId) {
+          return;
+        }
+
+        const segment = this.mapSegments.find((entry) => String(entry.id) === String(segmentId))
+          || await MapSegment.getSegmentById(segmentId);
+
+        if (!segment) {
+          return;
+        }
+
+        const existing = this.mapSegments.some((entry) => String(entry.id) === String(segment.id));
+        if (!existing) {
+          this.mapSegments.push(segment);
+          this.mapView.renderSegment(segment);
+        }
+
+        this.selectSegment(segment);
+        this.mapView.focusSegment(segment);
+        const url = new URL(window.location.href);
+        url.searchParams.set("focusSegmentId", String(segment.id));
+        window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+        await this.loadSelectedSegmentBestEfforts();
+      });
+    });
+  }
+
+  handleGlobalShortcuts(event) {
+    const target = event.target;
+    const isTypingContext = target instanceof HTMLElement && (
+      target.isContentEditable
+      || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)
+    );
+
+    if (isTypingContext) {
+      return;
+    }
+
+    if (event.key === "1") {
+      event.preventDefault();
+      this.setBestEffortsViewMode("table");
+      return;
+    }
+
+    if (event.key === "2") {
+      event.preventDefault();
+      this.setBestEffortsViewMode("cards");
+      return;
+    }
+
+    if ((event.key === "f" || event.key === "F") && this.selectedSegment?.id) {
+      event.preventDefault();
+      this.toggleSelectedSegmentFavorite();
+      if (this.favoriteOnly) {
+        this.mapView.refreshSegments();
+      }
+      return;
+    }
+
+    if ((event.key === "p" || event.key === "P")) {
+      event.preventDefault();
+      this.activateMyPrFocus();
+    }
   }
 
   updateSegmentMeta() {
@@ -463,6 +700,12 @@ export default class Controller {
     this.bestEffortsViewCardsButton?.classList.toggle("active", this.bestEffortsViewMode === "cards");
   }
 
+  syncBestEffortsPerUserButtons() {
+    this.bestEffortsPerUserAllButton?.classList.toggle("active", this.bestEffortsPerUser === "all");
+    this.bestEffortsPerUserOneButton?.classList.toggle("active", this.bestEffortsPerUser === "1");
+    this.bestEffortsPerUserThreeButton?.classList.toggle("active", this.bestEffortsPerUser === "3");
+  }
+
   applyBestEffortsViewMode() {
     const tableElement = document.getElementById("segment-table");
     const cardsElement = document.getElementById("segment-best-efforts-cards");
@@ -494,6 +737,33 @@ export default class Controller {
     this.uiState.set("segmentBestEffortsScope", nextScope);
     this.tableView.setScope(nextScope);
     this.cardView.setScope(nextScope);
+    await this.loadSelectedSegmentBestEfforts();
+  }
+
+  async setBestEffortsPerUser(mode) {
+    const nextMode = ["all", "1", "3"].includes(String(mode)) ? String(mode) : "all";
+    if (nextMode === this.bestEffortsPerUser) {
+      return;
+    }
+
+    this.bestEffortsPerUser = nextMode;
+    this.uiState.set("segmentBestEffortsPerUser", nextMode);
+    this.tableView.setPerUserFilter(nextMode);
+    this.cardView.setPerUserFilter(nextMode);
+    this.syncBestEffortsPerUserButtons();
+    await this.loadSelectedSegmentBestEfforts();
+  }
+
+  async activateMyPrFocus() {
+    this.bestEffortsScope = "mine";
+    this.bestEffortsPerUser = "1";
+    this.uiState.set("segmentBestEffortsScope", "mine");
+    this.uiState.set("segmentBestEffortsPerUser", "1");
+    this.tableView.setScope("mine");
+    this.cardView.setScope("mine");
+    this.tableView.setPerUserFilter("1");
+    this.cardView.setPerUserFilter("1");
+    this.syncBestEffortsPerUserButtons();
     await this.loadSelectedSegmentBestEfforts();
   }
 
@@ -544,11 +814,19 @@ export default class Controller {
     this.shareToggleButton?.classList.toggle("d-none", !isShareableGpsSegment);
 
     if (!isShareableGpsSegment) {
-      this.shareInline?.classList.remove("is-open");
+      this.closeShareInline();
       if (this.shareStatus) {
         this.shareStatus.textContent = "";
       }
     }
+  }
+
+  isShareInlineOpen() {
+    return this.shareInline?.classList.contains("is-open");
+  }
+
+  closeShareInline() {
+    this.shareInline?.classList.remove("is-open");
   }
 
   toggleShareInline() {
@@ -556,7 +834,12 @@ export default class Controller {
       return;
     }
 
-    this.shareInline?.classList.toggle("is-open");
+    if (this.isShareInlineOpen()) {
+      this.closeShareInline();
+      return;
+    }
+
+    this.shareInline?.classList.add("is-open");
     this.closeDetailActionsMenu();
   }
 
@@ -676,7 +959,7 @@ export default class Controller {
       }
       this.updateBestEffortsScopeUi();
 
-      this.shareInline?.classList.remove("is-open");
+      this.closeShareInline();
     } catch (error) {
       console.error(error);
       window.alert(error.message || this.t("messages.couldNotSaveSharing"));
@@ -758,7 +1041,7 @@ export default class Controller {
     this.focusApplied = true;
     this.selectSegment(segment);
     this.mapView.focusSegment(segment);
-    await this.tableView.loadSegment({ type: "focus" }, segment);
+    await this.loadSelectedSegmentBestEfforts();
 
     const nextUrl = new URL(window.location.href);
     nextUrl.searchParams.delete("focusSegmentId");
