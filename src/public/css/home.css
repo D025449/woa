@@ -6,6 +6,10 @@ body.home-page {
   color: var(--ui-page-text);
 }
 
+body.home-page.has-fixed-app-topbar {
+  padding-top: var(--app-topbar-offset, 78px);
+}
+
 .home-client-container {
   overflow: hidden;
 }
@@ -202,6 +206,21 @@ body.home-page {
   color: var(--ui-text-body);
 }
 
+.home-hero-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  align-items: stretch;
+  min-width: 12rem;
+}
+
+.home-hero-actions .btn {
+  border-radius: 999px;
+  padding: 0.78rem 1rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .home-chip-group {
   display: flex;
   gap: 0.75rem;
@@ -250,6 +269,12 @@ body.home-page {
   border-color: var(--ui-info-border);
   box-shadow: var(--ui-shadow-hover);
   text-decoration: none;
+}
+
+.home-tile--static:hover {
+  transform: none;
+  border-color: var(--ui-card-border-faint);
+  box-shadow: var(--ui-shadow-md);
 }
 
 .home-tile::after {
@@ -303,6 +328,16 @@ body.home-page {
     linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(240, 253, 250, 0.92));
 }
 
+.home-tile__icon--groups {
+  background:
+    linear-gradient(180deg, rgba(240, 253, 250, 0.96), rgba(239, 246, 255, 0.92));
+}
+
+.home-tile__icon--feed {
+  background:
+    linear-gradient(180deg, rgba(239, 246, 255, 0.96), rgba(248, 250, 252, 0.92));
+}
+
 .home-tile__eyebrow {
   display: block;
   margin-bottom: 0.35rem;
@@ -353,70 +388,44 @@ body.home-page {
   align-items: stretch;
 }
 
-.home-auth-panel,
-.home-auth-card {
-  border: 1px solid var(--ui-card-border-faint);
-  border-radius: 1.5rem;
-  background: var(--ui-bg-surface-gradient);
-  box-shadow: var(--ui-shadow-md);
+.home-auth-grid--stacked {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
 }
 
-.home-auth-panel {
-  padding: 1.5rem 1.6rem;
+.home-tile-grid--guest {
+  margin-top: 0;
 }
 
-.home-auth-features {
-  display: grid;
-  gap: 0.95rem;
-  margin-top: 1.3rem;
+body.home-page:not(.has-fixed-app-topbar) .home-hero {
+  padding: 1.1rem 1.3rem;
+  gap: 0.9rem;
 }
 
-.home-auth-feature {
-  padding: 1rem;
-  border-radius: 1.1rem;
-  background: var(--ui-bg-subtle);
-  border: 1px solid var(--ui-card-border-muted);
+body.home-page:not(.has-fixed-app-topbar) .home-kicker {
+  margin-bottom: 0.22rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
 }
 
-.home-auth-feature__title {
-  margin: 0 0 0.25rem;
-  font-size: 0.96rem;
-  font-weight: 700;
-  color: var(--ui-text-strong);
+body.home-page:not(.has-fixed-app-topbar) .home-title {
+  font-size: clamp(1.7rem, 2.4vw, 2.3rem);
+  line-height: 0.98;
 }
 
-.home-auth-feature__copy {
-  margin: 0;
-  font-size: 0.9rem;
-  color: var(--ui-text-muted);
+body.home-page:not(.has-fixed-app-topbar) .home-subtitle {
+  margin-top: 0.42rem;
+  font-size: 0.92rem;
+  max-width: 38rem;
 }
 
-.home-auth-card {
-  overflow: hidden;
+.home-subtitle--supporting {
+  max-width: 44rem;
 }
 
-.home-auth-card__header {
-  padding: 1.1rem 1.35rem 1rem;
-  border-bottom: 1px solid var(--ui-divider-color);
-  background: linear-gradient(180deg, var(--ui-bg-subtle), var(--ui-bg-panel-soft));
-}
-
-.home-auth-card__title {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--ui-text-strong);
-}
-
-.home-auth-card__body {
-  padding: 1.35rem;
-}
-
-.home-auth-card__body .btn {
-  border-radius: 999px;
-  padding: 0.85rem 1rem;
-  font-weight: 700;
+body.home-page:not(.has-fixed-app-topbar) .home-hero-actions--guest {
+  min-width: 11rem;
+  gap: 0.55rem;
 }
 
 .home-activity-panel {

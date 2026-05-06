@@ -238,12 +238,10 @@
       "signUp": "Sign up",
       "heroKicker": "Welcome",
       "heroTitle": "Training Analysis Workspace",
-      "heroSubtitle": "Upload workouts, analyze performance and segments, and move between map, timeline, and training data in one consistent interface.",
-      "chipFocus": "Focus",
-      "chipFocusValue": "Analytics · Segments · Upload",
+      "heroSubtitle": "Upload workouts, analyze performance and segments, and move between map, timeline, and training data.",
       "platformKicker": "Platform",
       "platformTitle": "Welcome to the App",
-      "platformCopy": "If you are not signed in yet, you now land on a compact start page instead of jumping straight into a deep analysis view. From here you can sign in or create an account.",
+      "platformCopy": "Sign in or create an account to continue.",
       "featureUploadTitle": "Workout Upload",
       "featureUploadCopy": "Import FIT and ZIP files and track processing.",
       "featureSegmentsTitle": "Segment Analysis",
@@ -269,7 +267,13 @@
       "uploadEyebrow": "Import",
       "uploadTitle": "Upload",
       "uploadCopy": "Upload new workouts and keep your training history up to date.",
-      "uploadCta": "Open upload"
+      "uploadCta": "Open upload",
+      "groupsEyebrow": "Collaboration",
+      "groupsTitle": "Groups",
+      "groupsCopy": "Create groups and share your workouts and segments with others.",
+      "feedEyebrow": "Activity",
+      "feedTitle": "Activity Feed",
+      "feedCopy": "Get updates from members of your groups about new workouts and segments."
     }
   },
   "upload": {

@@ -233,12 +233,10 @@
       "signUp": "S’inscrire",
       "heroKicker": "Bienvenue",
       "heroTitle": "Espace d'analyse d'entraînement",
-      "heroSubtitle": "Importez des entraînements, analysez performances et segments, et naviguez entre carte, timeline et données dans une interface cohérente.",
-      "chipFocus": "Focus",
-      "chipFocusValue": "Analyses · Segments · Import",
+      "heroSubtitle": "Importez des entraînements, analysez performances et segments, et naviguez entre carte, timeline et données.",
       "platformKicker": "Plateforme",
       "platformTitle": "Bienvenue dans l’application",
-      "platformCopy": "Si vous n'êtes pas encore connecté, vous arrivez d'abord sur une page d'accueil compacte au lieu d'une vue d'analyse profonde. Depuis ici, vous pouvez vous connecter ou créer un compte.",
+      "platformCopy": "Connectez-vous ou créez un compte pour continuer.",
       "featureUploadTitle": "Import d'entraînements",
       "featureUploadCopy": "Importez des fichiers FIT et ZIP et suivez le traitement.",
       "featureSegmentsTitle": "Analyse de segments",
@@ -264,7 +262,13 @@
       "uploadEyebrow": "Import",
       "uploadTitle": "Téléverser",
       "uploadCopy": "Importe de nouveaux workouts et garde ton historique à jour.",
-      "uploadCta": "Ouvrir l’import"
+      "uploadCta": "Ouvrir l’import",
+      "groupsEyebrow": "Collaboration",
+      "groupsTitle": "Groupes",
+      "groupsCopy": "Crée des groupes et partage tes entraînements et segments avec d’autres.",
+      "feedEyebrow": "Activité",
+      "feedTitle": "Activity Feed",
+      "feedCopy": "Reçois des nouvelles des membres de tes groupes sur les nouveaux entraînements et segments."
     }
   },
   "upload": {

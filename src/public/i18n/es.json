@@ -233,12 +233,10 @@
       "signUp": "Registrarse",
       "heroKicker": "Bienvenido",
       "heroTitle": "Espacio de análisis de entrenamiento",
-      "heroSubtitle": "Sube entrenamientos, analiza rendimiento y segmentos, y muévete entre mapa, línea temporal y datos en una sola interfaz coherente.",
-      "chipFocus": "Enfoque",
-      "chipFocusValue": "Analíticas · Segmentos · Subida",
+      "heroSubtitle": "Sube entrenamientos, analiza rendimiento y segmentos, y muévete entre mapa, línea temporal y datos.",
       "platformKicker": "Plataforma",
       "platformTitle": "Bienvenido a la aplicación",
-      "platformCopy": "Si aún no has iniciado sesión, primero verás una página de inicio compacta en lugar de saltar directamente a una vista de análisis profunda. Desde aquí puedes iniciar sesión o crear una cuenta.",
+      "platformCopy": "Inicia sesión o crea una cuenta para continuar.",
       "featureUploadTitle": "Subida de entrenamientos",
       "featureUploadCopy": "Importa archivos FIT y ZIP y sigue el procesamiento.",
       "featureSegmentsTitle": "Análisis de segmentos",
@@ -264,7 +262,13 @@
       "uploadEyebrow": "Importador",
       "uploadTitle": "Subir",
       "uploadCopy": "Sube nuevos entrenamientos y mantén tu historial al día.",
-      "uploadCta": "Abrir subida"
+      "uploadCta": "Abrir subida",
+      "groupsEyebrow": "Colaboración",
+      "groupsTitle": "Grupos",
+      "groupsCopy": "Crea grupos y comparte tus entrenamientos y segmentos con otras personas.",
+      "feedEyebrow": "Actividad",
+      "feedTitle": "Activity Feed",
+      "feedCopy": "Recibe novedades de los miembros de tus grupos sobre nuevos entrenamientos y segmentos."
     }
   },
   "upload": {

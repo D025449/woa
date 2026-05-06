@@ -3,19 +3,8 @@ import GroupInvitesView from "./group-invites-view.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
 
 document.addEventListener("DOMContentLoaded", async () => {
-  const t = createTranslator("groups");
-  const locale = getCurrentLocale();
   const shellFrame = document.getElementById("home-shell-frame");
   const shell = document.getElementById("home-shell");
-
-  const controller = new ActivityFeedController({
-    namespace: "homeActivityFeed",
-    idPrefix: "home",
-    listSelector: "#home-feed-list",
-    t,
-    locale
-  });
-
   let layoutRaf = null;
   let layoutObserver = null;
 
@@ -24,14 +13,24 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
 
+    const topbar = document.querySelector(".app-topbar, .home-topbar");
     const container = document.querySelector(".home-client-container");
     const bodyStyles = window.getComputedStyle(document.body);
     const containerStyles = container ? window.getComputedStyle(container) : null;
+    const topbarHeight = topbar?.offsetHeight || 0;
+    const fixedTopbarOffset = topbar?.classList.contains("fixed-top") ? topbarHeight + 12 : 0;
     const bodyOffsetTop = parseFloat(bodyStyles.paddingTop || "0") || 0;
+    const reservedTopOffset = fixedTopbarOffset || bodyOffsetTop || topbarHeight;
     const paddingTop = containerStyles ? parseFloat(containerStyles.paddingTop || "0") : 0;
     const paddingBottom = containerStyles ? parseFloat(containerStyles.paddingBottom || "0") : 0;
     const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-    const availableHeight = Math.max(520, viewportHeight - bodyOffsetTop - paddingTop - paddingBottom);
+    const availableHeight = Math.max(520, viewportHeight - reservedTopOffset - paddingTop - paddingBottom);
+
+    if (fixedTopbarOffset) {
+      document.documentElement.style.setProperty("--app-topbar-offset", `${fixedTopbarOffset}px`);
+      document.body.classList.add("has-fixed-app-topbar");
+    }
+
     shellFrame.style.setProperty("--home-client-height", `${availableHeight}px`);
     shell.classList.add("home-shell--client");
   }
@@ -46,6 +45,26 @@ document.addEventListener("DOMContentLoaded", async () => {
       measureClientLayout();
     });
   }
+
+  scheduleClientLayoutMeasure();
+
+  const feedList = document.querySelector("#home-feed-list");
+  const invitesContainer = document.querySelector("#home-group-invites-list");
+
+  if (!feedList || !invitesContainer) {
+    return;
+  }
+
+  const t = createTranslator("groups");
+  const locale = getCurrentLocale();
+
+  const controller = new ActivityFeedController({
+    namespace: "homeActivityFeed",
+    idPrefix: "home",
+    listSelector: "#home-feed-list",
+    t,
+    locale
+  });
 
   const invitesView = new GroupInvitesView("#home-group-invites-list", {
     onAcceptInvite: async (invite) => {
@@ -121,6 +140,5 @@ document.addEventListener("DOMContentLoaded", async () => {
     invitesView.render([]);
   }
 
-  scheduleClientLayoutMeasure();
   await controller.boot();
 });

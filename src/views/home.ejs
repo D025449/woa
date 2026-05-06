@@ -191,7 +191,6 @@
                     </section>
                 </section>
             </div>
-            <%- include("partials/app-footer") %>
             </div>
         </div>
         <script>
@@ -199,96 +198,169 @@
         </script>
         <script type="module" src="/js/home-ui.js"></script>
     <% } else { %>
-        <nav class="navbar navbar-dark home-topbar">
+        <nav class="navbar navbar-dark home-topbar fixed-top">
             <div class="container-fluid px-3 px-xl-4">
                 <span class="navbar-brand"><%= t("home.guest.brand") %></span>
                 <div class="d-flex align-items-center gap-2">
-                    <div class="dropdown">
-                        <button
-                            class="btn btn-outline-light btn-sm dropdown-toggle"
-                            type="button"
-                            data-bs-toggle="dropdown"
-                            aria-expanded="false">
-                            <%= t("common.nav.about") %>
-                        </button>
-                        <ul class="dropdown-menu dropdown-menu-end public-topbar-dropdown">
-                            <li>
-                                <a class="dropdown-item" href="/impressum">
-                                    <%= t("common.footer.legalNotice") %>
-                                </a>
-                            </li>
-                            <li>
-                                <a class="dropdown-item" href="/datenschutz">
-                                    <%= t("common.footer.privacy") %>
-                                </a>
-                            </li>
-                        </ul>
-                    </div>
                     <a class="btn btn-outline-light btn-sm" href="/login"><%= t("home.guest.login") %></a>
                     <a class="btn btn-light btn-sm" href="/signup"><%= t("home.guest.signUp") %></a>
                 </div>
             </div>
         </nav>
 
-        <div class="container py-4 py-lg-5">
-            <div class="home-shell">
-                <section class="home-hero">
-                    <div>
-                        <p class="home-kicker"><%= t("home.guest.heroKicker") %></p>
-                        <h1 class="home-title"><%= t("home.guest.heroTitle") %></h1>
-                        <p class="home-subtitle">
-                            <%= t("home.guest.heroSubtitle") %>
-                        </p>
-                    </div>
-
-                    <div class="home-chip-group">
-                        <span class="home-chip">
-                            <span class="home-chip-label"><%= t("home.guest.chipFocus") %></span>
-                            <span><%= t("home.guest.chipFocusValue") %></span>
-                        </span>
-                    </div>
-                </section>
-
-                <section class="home-auth-grid">
-                    <div class="home-auth-panel">
-                        <p class="home-kicker"><%= t("home.guest.platformKicker") %></p>
-                        <h2 class="home-title" style="font-size: clamp(1.7rem, 2.2vw, 2.3rem);"><%= t("home.guest.platformTitle") %></h2>
-                        <p class="home-subtitle" style="max-width:none;">
-                            <%= t("home.guest.platformCopy") %>
-                        </p>
-
-                        <div class="home-auth-features">
-                            <div class="home-auth-feature">
-                                <h3 class="home-auth-feature__title"><%= t("home.guest.featureUploadTitle") %></h3>
-                                <p class="home-auth-feature__copy"><%= t("home.guest.featureUploadCopy") %></p>
-                            </div>
-                            <div class="home-auth-feature">
-                                <h3 class="home-auth-feature__title"><%= t("home.guest.featureSegmentsTitle") %></h3>
-                                <p class="home-auth-feature__copy"><%= t("home.guest.featureSegmentsCopy") %></p>
-                            </div>
-                            <div class="home-auth-feature">
-                                <h3 class="home-auth-feature__title"><%= t("home.guest.featureAnalyticsTitle") %></h3>
-                                <p class="home-auth-feature__copy"><%= t("home.guest.featureAnalyticsCopy") %></p>
-                            </div>
+        <div class="container-fluid px-3 px-xl-4 py-4 home-client-container">
+            <div id="home-shell-frame" class="home-shell-frame">
+                <div id="home-shell" class="home-shell">
+                    <section class="home-hero">
+                        <div>
+                            <p class="home-kicker"><%= t("home.guest.heroKicker") %></p>
+                            <h1 class="home-title"><%= t("home.guest.heroTitle") %></h1>
+                            <p class="home-subtitle">
+                                <%= t("home.guest.heroSubtitle") %>
+                            </p>
+                            <p class="home-subtitle home-subtitle--supporting">
+                                <%= t("home.guest.platformCopy") %>
+                            </p>
                         </div>
-                    </div>
 
-                    <div class="home-auth-card">
-                        <div class="home-auth-card__header">
-                            <h2 class="home-auth-card__title"><%= t("home.guest.continueTitle") %></h2>
+                        <div class="home-hero-actions home-hero-actions--guest">
+                            <a class="btn btn-primary" href="/login"><%= t("home.guest.login") %></a>
+                            <a class="btn btn-outline-primary" href="/signup"><%= t("home.guest.createAccount") %></a>
                         </div>
-                        <div class="home-auth-card__body">
-                            <div class="d-grid gap-3">
-                                <a class="btn btn-primary" href="/login"><%= t("home.guest.login") %></a>
-                                <a class="btn btn-outline-primary" href="/signup"><%= t("home.guest.createAccount") %></a>
-                            </div>
+                    </section>
+
+                    <section class="home-tile-grid home-tile-grid--guest" aria-label="<%= t('home.guest.platformTitle') %>">
+                        <div class="home-tile home-tile--static">
+                            <span class="home-tile__icon home-tile__icon--workouts" aria-hidden="true">
+                                <svg viewBox="0 0 64 64" fill="none">
+                                    <defs>
+                                        <linearGradient id="homeGuestTileWorkoutsGradient" x1="8" y1="50" x2="56" y2="14" gradientUnits="userSpaceOnUse">
+                                            <stop stop-color="#0f766e" />
+                                            <stop offset="1" stop-color="#2563eb" />
+                                        </linearGradient>
+                                    </defs>
+                                    <path d="M10 46C16 37 21 30 28 31C34 32 35 42 42 42C48 42 51 32 54 18" stroke="url(#homeGuestTileWorkoutsGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+                                    <path d="M10 51H54" stroke="rgba(148,163,184,0.38)" stroke-width="3" stroke-linecap="round" />
+                                    <circle cx="28" cy="31" r="4" fill="#2563eb" />
+                                    <circle cx="42" cy="42" r="4" fill="#0f766e" />
+                                </svg>
+                            </span>
+                            <span class="home-tile__eyebrow"><%= t("home.tiles.workoutEyebrow") %></span>
+                            <h3 class="home-tile__title"><%= t("home.tiles.workoutTitle") %></h3>
+                            <p class="home-tile__copy"><%= t("home.tiles.workoutCopy") %></p>
                         </div>
-                    </div>
-                </section>
+
+                        <div class="home-tile home-tile--static">
+                            <span class="home-tile__icon home-tile__icon--segments" aria-hidden="true">
+                                <svg viewBox="0 0 64 64" fill="none">
+                                    <defs>
+                                        <linearGradient id="homeGuestTileSegmentsGradient" x1="12" y1="46" x2="52" y2="18" gradientUnits="userSpaceOnUse">
+                                            <stop stop-color="#0f766e" />
+                                            <stop offset="1" stop-color="#2563eb" />
+                                        </linearGradient>
+                                    </defs>
+                                    <path d="M14 46C19 38 22 34 28 34C32 34 35 38 39 38C45 38 48 31 50 20" stroke="url(#homeGuestTileSegmentsGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+                                    <circle cx="14" cy="46" r="5" fill="#ffffff" stroke="#0f766e" stroke-width="3" />
+                                    <circle cx="50" cy="20" r="5" fill="#ffffff" stroke="#2563eb" stroke-width="3" />
+                                    <path d="M28 48H50" stroke="rgba(148,163,184,0.34)" stroke-width="3" stroke-linecap="round" stroke-dasharray="4 6" />
+                                </svg>
+                            </span>
+                            <span class="home-tile__eyebrow"><%= t("home.tiles.segmentsEyebrow") %></span>
+                            <h3 class="home-tile__title"><%= t("home.tiles.segmentsTitle") %></h3>
+                            <p class="home-tile__copy"><%= t("home.tiles.segmentsCopy") %></p>
+                        </div>
+
+                        <div class="home-tile home-tile--static">
+                            <span class="home-tile__icon home-tile__icon--analytics" aria-hidden="true">
+                                <svg viewBox="0 0 64 64" fill="none">
+                                    <defs>
+                                        <linearGradient id="homeGuestTileAnalyticsGradient" x1="10" y1="50" x2="54" y2="12" gradientUnits="userSpaceOnUse">
+                                            <stop stop-color="#0f766e" />
+                                            <stop offset="1" stop-color="#2563eb" />
+                                        </linearGradient>
+                                    </defs>
+                                    <path d="M12 50H54" stroke="rgba(148,163,184,0.34)" stroke-width="3" stroke-linecap="round" />
+                                    <path d="M16 42L26 31L34 35L48 19" stroke="url(#homeGuestTileAnalyticsGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+                                    <path d="M16 28L24 24L32 27L44 16" stroke="rgba(37,99,235,0.26)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+                                    <circle cx="48" cy="19" r="4" fill="#2563eb" />
+                                </svg>
+                            </span>
+                            <span class="home-tile__eyebrow"><%= t("home.tiles.analyticsEyebrow") %></span>
+                            <h3 class="home-tile__title"><%= t("home.tiles.analyticsTitle") %></h3>
+                            <p class="home-tile__copy"><%= t("home.tiles.analyticsCopy") %></p>
+                        </div>
+
+                        <div class="home-tile home-tile--static">
+                            <span class="home-tile__icon home-tile__icon--upload" aria-hidden="true">
+                                <svg viewBox="0 0 64 64" fill="none">
+                                    <defs>
+                                        <linearGradient id="homeGuestTileUploadGradient" x1="18" y1="18" x2="46" y2="48" gradientUnits="userSpaceOnUse">
+                                            <stop stop-color="#2563eb" />
+                                            <stop offset="1" stop-color="#0f766e" />
+                                        </linearGradient>
+                                    </defs>
+                                    <rect x="14" y="37" width="36" height="13" rx="6.5" stroke="rgba(148,163,184,0.38)" stroke-width="3" />
+                                    <path d="M32 16V39" stroke="url(#homeGuestTileUploadGradient)" stroke-width="4" stroke-linecap="round" />
+                                    <path d="M23 26L32 16L41 26" stroke="url(#homeGuestTileUploadGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+                                    <path d="M18 44H46" stroke="rgba(37,99,235,0.22)" stroke-width="3" stroke-linecap="round" />
+                                </svg>
+                            </span>
+                            <span class="home-tile__eyebrow"><%= t("home.tiles.uploadEyebrow") %></span>
+                            <h3 class="home-tile__title"><%= t("home.tiles.uploadTitle") %></h3>
+                            <p class="home-tile__copy"><%= t("home.tiles.uploadCopy") %></p>
+                        </div>
+
+                        <div class="home-tile home-tile--static">
+                            <span class="home-tile__icon home-tile__icon--groups" aria-hidden="true">
+                                <svg viewBox="0 0 64 64" fill="none">
+                                    <defs>
+                                        <linearGradient id="homeGuestTileGroupsGradient" x1="14" y1="46" x2="50" y2="18" gradientUnits="userSpaceOnUse">
+                                            <stop stop-color="#0f766e" />
+                                            <stop offset="1" stop-color="#2563eb" />
+                                        </linearGradient>
+                                    </defs>
+                                    <circle cx="22" cy="25" r="7" stroke="url(#homeGuestTileGroupsGradient)" stroke-width="4" />
+                                    <circle cx="42" cy="24" r="6" stroke="url(#homeGuestTileGroupsGradient)" stroke-width="4" opacity="0.9" />
+                                    <circle cx="32" cy="41" r="7" stroke="url(#homeGuestTileGroupsGradient)" stroke-width="4" opacity="0.82" />
+                                    <path d="M27.5 29.5L36.5 35.5" stroke="rgba(37,99,235,0.4)" stroke-width="3.5" stroke-linecap="round" />
+                                    <path d="M36.5 29L33.5 34" stroke="rgba(15,118,110,0.42)" stroke-width="3.5" stroke-linecap="round" />
+                                    <path d="M19 47H45" stroke="rgba(148,163,184,0.34)" stroke-width="3" stroke-linecap="round" />
+                                </svg>
+                            </span>
+                            <span class="home-tile__eyebrow"><%= t("home.tiles.groupsEyebrow") %></span>
+                            <h3 class="home-tile__title"><%= t("home.tiles.groupsTitle") %></h3>
+                            <p class="home-tile__copy"><%= t("home.tiles.groupsCopy") %></p>
+                        </div>
+
+                        <div class="home-tile home-tile--static">
+                            <span class="home-tile__icon home-tile__icon--feed" aria-hidden="true">
+                                <svg viewBox="0 0 64 64" fill="none">
+                                    <defs>
+                                        <linearGradient id="homeGuestTileFeedGradient" x1="14" y1="46" x2="50" y2="18" gradientUnits="userSpaceOnUse">
+                                            <stop stop-color="#0f766e" />
+                                            <stop offset="1" stop-color="#2563eb" />
+                                        </linearGradient>
+                                    </defs>
+                                    <rect x="15" y="16" width="34" height="32" rx="8" stroke="url(#homeGuestTileFeedGradient)" stroke-width="4" />
+                                    <path d="M23 26H41" stroke="rgba(37,99,235,0.34)" stroke-width="3.5" stroke-linecap="round" />
+                                    <path d="M23 33H41" stroke="rgba(15,118,110,0.34)" stroke-width="3.5" stroke-linecap="round" />
+                                    <path d="M23 40H35" stroke="rgba(148,163,184,0.42)" stroke-width="3.5" stroke-linecap="round" />
+                                    <circle cx="50" cy="21" r="5" fill="#2563eb" />
+                                </svg>
+                            </span>
+                            <span class="home-tile__eyebrow"><%= t("home.tiles.feedEyebrow") %></span>
+                            <h3 class="home-tile__title"><%= t("home.tiles.feedTitle") %></h3>
+                            <p class="home-tile__copy"><%= t("home.tiles.feedCopy") %></p>
+                        </div>
+                    </section>
+
+                </div>
             </div>
         </div>
-
-        <%- include("partials/app-footer") %>
+        <script>
+            window.__I18N = <%- JSON.stringify(i18n || { locale: "en", messages: {} }) %>;
+        </script>
+        <script type="module" src="/js/home-ui.js"></script>
     <% } %>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>

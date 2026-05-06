@@ -233,12 +233,10 @@
       "signUp": "Registrati",
       "heroKicker": "Benvenuto",
       "heroTitle": "Workspace analisi allenamento",
-      "heroSubtitle": "Carica allenamenti, analizza prestazioni e segmenti e passa tra mappa, timeline e dati in un'unica interfaccia coerente.",
-      "chipFocus": "Focus",
-      "chipFocusValue": "Analisi · Segmenti · Upload",
+      "heroSubtitle": "Carica allenamenti, analizza prestazioni e segmenti e passa tra mappa, timeline e dati.",
       "platformKicker": "Piattaforma",
       "platformTitle": "Benvenuto nell'app",
-      "platformCopy": "Se non hai ancora effettuato l'accesso, arrivi prima su una pagina iniziale compatta invece di entrare subito in una vista di analisi profonda. Da qui puoi accedere o creare un account.",
+      "platformCopy": "Accedi o crea un account per continuare.",
       "featureUploadTitle": "Upload allenamenti",
       "featureUploadCopy": "Importa file FIT e ZIP e monitora l'elaborazione.",
       "featureSegmentsTitle": "Analisi segmenti",
@@ -264,7 +262,13 @@
       "uploadEyebrow": "Importazione",
       "uploadTitle": "Caricamento",
       "uploadCopy": "Carica nuovi allenamenti e mantieni aggiornata la tua cronologia.",
-      "uploadCta": "Apri upload"
+      "uploadCta": "Apri upload",
+      "groupsEyebrow": "Collaborazione",
+      "groupsTitle": "Gruppi",
+      "groupsCopy": "Crea gruppi e condividi i tuoi allenamenti e segmenti con altri.",
+      "feedEyebrow": "Attività",
+      "feedTitle": "Activity Feed",
+      "feedCopy": "Ricevi aggiornamenti dai membri dei tuoi gruppi su nuovi allenamenti e segmenti."
     }
   },
   "upload": {
