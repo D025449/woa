@@ -2,6 +2,7 @@ import { createTranslator } from "./i18n.js";
 
 export function createUploadUI() {
     const t = createTranslator("upload");
+    const FILE_STATUS_FILTER_STORAGE_KEY = "upload.fileStatusFilter";
     const elements = {
         form: document.getElementById('uploadForm'),
         fileInput: document.getElementById('file'),
@@ -23,8 +24,14 @@ export function createUploadUI() {
 
         processingProgressBar: document.getElementById('processingProgressBar'),
         processingPercentText: document.getElementById('processingPercentText'),
-        processingDetailText: document.getElementById('processingDetailText')
+        processingDetailText: document.getElementById('processingDetailText'),
+        importFileStatusPanel: document.getElementById('importFileStatusPanel'),
+        importFileStatusList: document.getElementById('importFileStatusList'),
+        importFileStatusFilterAll: document.getElementById('importFileStatusFilterAll'),
+        importFileStatusFilterFailed: document.getElementById('importFileStatusFilterFailed')
     };
+    let fileStatusFilter = readStoredFileStatusFilter();
+    let importFileStatuses = [];
 
     function showStatusArea() {
         elements.statusArea.classList.remove('d-none');
@@ -66,6 +73,82 @@ export function createUploadUI() {
 
     function clearMessage() {
         elements.response.innerHTML = '';
+    }
+
+    function renderImportFileStatuses(items = importFileStatuses) {
+        if (!elements.importFileStatusPanel || !elements.importFileStatusList) {
+            return;
+        }
+
+        importFileStatuses = Array.isArray(items) ? items : [];
+
+        if (!importFileStatuses.length) {
+            elements.importFileStatusPanel.classList.add('d-none');
+            elements.importFileStatusList.innerHTML = '';
+            return;
+        }
+
+        const visibleItems = fileStatusFilter === 'failed'
+            ? importFileStatuses.filter((item) => String(item?.status || '').toLowerCase() === 'failed')
+            : importFileStatuses;
+
+        elements.importFileStatusPanel.classList.remove('d-none');
+        elements.importFileStatusList.innerHTML = visibleItems.map((item) => {
+            const status = String(item?.status || 'queued').toLowerCase();
+            const entryName = escapeHtml(item?.entryName || t("statusUnknownFile"));
+            const sourceName = item?.sourceName ? escapeHtml(item.sourceName) : '';
+            const message = item?.message ? escapeHtml(item.message) : '';
+            return `
+                <article class="upload-file-status upload-file-status--${escapeHtml(status)}">
+                    <div class="upload-file-status__main">
+                        <div class="upload-file-status__name">${entryName}</div>
+                        ${sourceName ? `<div class="upload-file-status__source">${sourceName}</div>` : ''}
+                    </div>
+                    <div class="upload-file-status__meta">
+                        <span class="upload-file-status__badge upload-file-status__badge--${escapeHtml(status)}">${escapeHtml(t(`status${status.charAt(0).toUpperCase()}${status.slice(1)}`))}</span>
+                        ${message ? `<div class="upload-file-status__message">${message}</div>` : ''}
+                    </div>
+                </article>
+            `;
+        }).join('');
+
+        if (!visibleItems.length) {
+            elements.importFileStatusList.innerHTML = `<div class="upload-file-status-empty">${escapeHtml(t("fileStatusFilterEmpty"))}</div>`;
+        }
+    }
+
+    function setImportFileStatusFilter(nextFilter = 'all') {
+        fileStatusFilter = nextFilter === 'failed' ? 'failed' : 'all';
+        persistFileStatusFilter(fileStatusFilter);
+        elements.importFileStatusFilterAll?.classList.toggle('active', fileStatusFilter === 'all');
+        elements.importFileStatusFilterFailed?.classList.toggle('active', fileStatusFilter === 'failed');
+        renderImportFileStatuses(importFileStatuses);
+    }
+
+    function readStoredFileStatusFilter() {
+        try {
+            const storedValue = window.localStorage.getItem(FILE_STATUS_FILTER_STORAGE_KEY);
+            return storedValue === 'failed' ? 'failed' : 'all';
+        } catch (_error) {
+            return 'all';
+        }
+    }
+
+    function persistFileStatusFilter(value) {
+        try {
+            window.localStorage.setItem(FILE_STATUS_FILTER_STORAGE_KEY, value === 'failed' ? 'failed' : 'all');
+        } catch (_error) {
+            // Ignore storage failures and keep the UI usable.
+        }
+    }
+
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     function getSelectedFiles() {
@@ -153,8 +236,17 @@ export function createUploadUI() {
         elements.fileInput.addEventListener('change', updateFilePickerLabel);
     }
 
+    elements.importFileStatusFilterAll?.addEventListener('click', () => {
+        setImportFileStatusFilter('all');
+    });
+
+    elements.importFileStatusFilterFailed?.addEventListener('click', () => {
+        setImportFileStatusFilter('failed');
+    });
+
     syncSharePanel();
     updateFilePickerLabel();
+    setImportFileStatusFilter('all');
 
     return {
         elements,
@@ -167,6 +259,8 @@ export function createUploadUI() {
         setSuccess,
         setInfo,
         clearMessage,
+        renderImportFileStatuses,
+        setImportFileStatusFilter,
         getSelectedFiles,
         getSelectedShareMode,
         getSelectedGroupIds,

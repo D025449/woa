@@ -61,6 +61,7 @@ router.get("/:id", authMiddleware, async (req, res, next) => {
       status: job.status,
       stage: job.stage,
       progressPercent: Number(job.progressPercent || 0),
+      fileStatuses: Array.isArray(job.fileStatuses) ? job.fileStatuses : [],
       totalFiles: job.totalFiles,
       processedFiles: job.processedFiles,
       failedFiles: job.failedFiles,

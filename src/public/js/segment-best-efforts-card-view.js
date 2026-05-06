@@ -89,7 +89,12 @@ export default class SegmentBestEffortsCardView {
 
     if (!rows.length) {
       if (!append) {
-        this.container.innerHTML = `<div class="segments-best-efforts-empty">${this.t("bestEffortsEmpty")}</div>`;
+        this.container.innerHTML = `
+          <div class="segments-best-efforts-empty">
+            <div class="segments-best-efforts-empty__title">${this.t("bestEffortsEmptyTitle")}</div>
+            <div class="segments-best-efforts-empty__copy">${this.t("bestEffortsEmpty")}</div>
+          </div>
+        `;
       }
       return;
     }
@@ -165,6 +170,7 @@ export default class SegmentBestEffortsCardView {
     const hdr = document.getElementById("segment-header");
     if (hdr && this.handlers.formatSegmentHeaderMarkup) {
       hdr.innerHTML = this.handlers.formatSegmentHeaderMarkup(segment, matchCount);
+      this.handlers.onHeaderRendered?.();
     }
   }
 

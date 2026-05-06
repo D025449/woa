@@ -6,10 +6,57 @@ import { createTranslator } from "./i18n.js";
 const ui = createUploadUI();
 const t = createTranslator("upload");
 const uploadUsage = globalThis.uploadUsage || { storedWorkout: null };
+const uploadShell = document.getElementById("upload-shell");
 
 initializeShareGroups();
 initializeUsageWarning();
+initializeClientLayout();
 ui.elements.form.addEventListener('submit', handleUploadSubmit);
+
+function initializeClientLayout() {
+    if (!uploadShell) {
+        return;
+    }
+
+    let rafId = null;
+    let resizeObserver = null;
+
+    const measure = () => {
+        const container = document.querySelector(".upload-client-container");
+        const bodyStyles = window.getComputedStyle(document.body);
+        const containerStyles = container ? window.getComputedStyle(container) : null;
+        const bodyOffsetTop = parseFloat(bodyStyles.paddingTop || "0") || 0;
+        const paddingTop = containerStyles ? parseFloat(containerStyles.paddingTop || "0") : 0;
+        const paddingBottom = containerStyles ? parseFloat(containerStyles.paddingBottom || "0") : 0;
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+        const availableHeight = Math.max(560, viewportHeight - bodyOffsetTop - paddingTop - paddingBottom);
+        uploadShell.style.setProperty("--upload-client-height", `${availableHeight}px`);
+        uploadShell.classList.add("upload-shell--client");
+    };
+
+    const schedule = () => {
+        if (rafId) {
+            window.cancelAnimationFrame(rafId);
+        }
+        rafId = window.requestAnimationFrame(() => {
+            rafId = null;
+            measure();
+        });
+    };
+
+    window.addEventListener("resize", schedule);
+
+    if (typeof ResizeObserver === "function") {
+        const topbar = document.querySelector(".app-topbar");
+        const hero = document.querySelector(".upload-hero");
+        resizeObserver = new ResizeObserver(() => {
+            schedule();
+        });
+        [topbar, hero, uploadShell].filter(Boolean).forEach((element) => resizeObserver.observe(element));
+    }
+
+    schedule();
+}
 
 function initializeUsageWarning() {
     const alertEl = document.getElementById("upload-limit-alert");
@@ -74,6 +121,7 @@ async function handleUploadSubmit(event) {
         ui.setPhase(t("phasePreparingUpload"));
         ui.setUploadProgress(0, '');
         ui.setProcessingProgress(0, '');
+        ui.renderImportFileStatuses([]);
         ui.setInfo(t("infoUploading"));
 
         const importResult = await uploadFilesAndStartImport({
@@ -109,6 +157,7 @@ async function handleUploadSubmit(event) {
         pollImportStatus(importResult.jobId, {
             onUpdate(job) {
                 ui.setPhase(formatStage(job.stage, job.status));
+                ui.renderImportFileStatuses(job.fileStatuses || []);
 
                 const progressPercent = Number(job.progressPercent || 0);
 

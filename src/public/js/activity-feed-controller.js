@@ -21,7 +21,13 @@ export default class ActivityFeedController {
     this.feedFilterAllButton = document.getElementById(`${idPrefix}-feed-filter-all`);
     this.feedActorAllButton = document.getElementById(`${idPrefix}-feed-actor-all`);
     this.feedActorOthersButton = document.getElementById(`${idPrefix}-feed-actor-others`);
+    this.feedLoadMoreContainer = document.getElementById(`${idPrefix}-feed-load-more`);
+    this.feedLoadMoreButton = this.feedLoadMoreContainer?.querySelector("button") || null;
     this.t = t;
+    this.pageSize = 10;
+    this.page = 1;
+    this.hasMore = false;
+    this.items = [];
     this.feedView = new GroupFeedView(listSelector, {
       onDismissFeedEvent: async (item) => {
         await this.dismissFeedEvent(item);
@@ -43,6 +49,15 @@ export default class ActivityFeedController {
         await this.setFeedActorFilter(nextFilter);
       });
     });
+
+    this.feedLoadMoreButton?.addEventListener("click", async () => {
+      if (!this.hasMore) {
+        return;
+      }
+
+      this.page += 1;
+      await this.loadFeed({ append: true });
+    });
   }
 
   async boot() {
@@ -50,18 +65,21 @@ export default class ActivityFeedController {
     this.updateFeedActorFilterUi();
 
     try {
-      const feedItems = await this.fetchFeed();
-      this.uiState.set("feedPreview", feedItems);
-      this.feedView.render(feedItems);
+      this.page = 1;
+      await this.loadFeed({ append: false });
     } catch (err) {
       console.error(err);
-      this.feedView.render(this.uiState.get("feedPreview", []));
+      const preview = this.uiState.get("feedPreview", []);
+      this.items = Array.isArray(preview) ? preview : [];
+      this.feedView.render(this.items);
+      this.updateLoadMoreUi();
     }
   }
 
-  async fetchFeed() {
+  async fetchFeed({ page = 1 } = {}) {
     const params = new URLSearchParams({
-      limit: "20",
+      limit: String(this.pageSize),
+      offset: String(Math.max(0, page - 1) * this.pageSize),
       range: this.feedFilter,
       actorScope: this.feedActorFilter
     });
@@ -84,15 +102,23 @@ export default class ActivityFeedController {
     return result.data || [];
   }
 
+  async loadFeed({ append = false } = {}) {
+    const feedItems = await this.fetchFeed({ page: this.page });
+    this.hasMore = feedItems.length === this.pageSize;
+    this.items = append ? [...this.items, ...feedItems] : [...feedItems];
+    this.uiState.set("feedPreview", this.items);
+    this.feedView.render(this.items);
+    this.updateLoadMoreUi();
+  }
+
   async setFeedFilter(nextFilter) {
     this.feedFilter = ["1d", "7d", "all"].includes(nextFilter) ? nextFilter : "7d";
     this.uiState.set("feedFilter", this.feedFilter);
     this.updateFeedFilterUi();
 
     try {
-      const feedItems = await this.fetchFeed();
-      this.uiState.set("feedPreview", feedItems);
-      this.feedView.render(feedItems);
+      this.page = 1;
+      await this.loadFeed({ append: false });
     } catch (err) {
       console.error(err);
     }
@@ -104,9 +130,8 @@ export default class ActivityFeedController {
     this.updateFeedActorFilterUi();
 
     try {
-      const feedItems = await this.fetchFeed();
-      this.uiState.set("feedPreview", feedItems);
-      this.feedView.render(feedItems);
+      this.page = 1;
+      await this.loadFeed({ append: false });
     } catch (err) {
       console.error(err);
     }
@@ -121,6 +146,15 @@ export default class ActivityFeedController {
   updateFeedActorFilterUi() {
     this.feedActorAllButton?.classList.toggle("active", this.feedActorFilter !== "others");
     this.feedActorOthersButton?.classList.toggle("active", this.feedActorFilter === "others");
+  }
+
+  updateLoadMoreUi() {
+    if (!this.feedLoadMoreContainer || !this.feedLoadMoreButton) {
+      return;
+    }
+
+    this.feedLoadMoreContainer.classList.toggle("d-none", !this.hasMore);
+    this.feedLoadMoreButton.disabled = !this.hasMore;
   }
 
   async dismissFeedEvent(item) {
@@ -145,7 +179,8 @@ export default class ActivityFeedController {
         throw new Error(result.error || this.t("messages.failedDismissFeed", { status: response.status }));
       }
 
-      await this.boot();
+      this.page = 1;
+      await this.loadFeed({ append: false });
     } catch (err) {
       console.error(err);
       window.alert(err.message || this.t("messages.couldNotDismissFeed"));

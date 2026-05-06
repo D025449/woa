@@ -8,6 +8,8 @@
     const allLabel = labels.all || tr("groups.filters.all");
     const allUsersLabel = labels.allUsers || tr("groups.filters.allUsers");
     const othersOnlyLabel = labels.othersOnly || tr("groups.filters.othersOnly");
+    const loadMoreLabel = labels.loadMore || "Load more";
+    const showLoadMore = Boolean(typeof loadMoreEnabled === "boolean" ? loadMoreEnabled : false);
 %>
 <section class="<%= surfaceClass %>">
     <div class="<%= headerClass %>">
@@ -76,5 +78,10 @@
 
     <div class="<%= bodyClass %>">
         <div id="<%= idPrefix %>-feed-list"></div>
+        <% if (showLoadMore) { %>
+            <div id="<%= idPrefix %>-feed-load-more" class="home-feed-load-more d-none">
+                <button class="btn btn-outline-primary" type="button"><%= loadMoreLabel %></button>
+            </div>
+        <% } %>
     </div>
 </section>

@@ -140,19 +140,7 @@ export default class WorkoutSharingService {
   }
 
   static async getSharingForWorkout(userId, workoutId) {
-    const workoutResult = await pool.query(`
-      SELECT id
-      FROM workouts
-      WHERE id = $1
-        AND uid = $2
-      LIMIT 1
-    `, [workoutId, userId]);
-
-    if (workoutResult.rowCount === 0) {
-      const error = new Error("Workout not found");
-      error.statusCode = 404;
-      throw error;
-    }
+    await this.getAccessibleWorkout(userId, workoutId);
 
     const sharesResult = await pool.query(`
       SELECT

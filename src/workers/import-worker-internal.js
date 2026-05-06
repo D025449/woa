@@ -98,6 +98,41 @@ export async function createApp() {
     };
   }
 
+  function createFileStatusKey(sourceName, entryName) {
+    return `${sourceName || ""}::${entryName || ""}`;
+  }
+
+  function buildFileStatusEntry({ sourceName = null, entryName, status = "queued", message = null, workoutId = null }) {
+    return {
+      key: createFileStatusKey(sourceName, entryName),
+      sourceName,
+      entryName,
+      status,
+      message,
+      workoutId
+    };
+  }
+
+  async function persistFileStatuses(jobId, fileStatuses) {
+    await updateImportJob(jobId, {
+      fileStatuses
+    });
+  }
+
+  async function updateSingleFileStatus(jobId, fileStatuses, matcher, patch = {}) {
+    const index = fileStatuses.findIndex(matcher);
+    if (index === -1) {
+      return;
+    }
+
+    fileStatuses[index] = {
+      ...fileStatuses[index],
+      ...patch
+    };
+
+    await persistFileStatuses(jobId, fileStatuses);
+  }
+
   async function processSegmentBestEffortsJob(uid, segmentIds) {
     await SegmentDBService.updateBestEffortsStatus(uid, segmentIds, "processing", null);
 
@@ -329,9 +364,17 @@ export async function createApp() {
 
 
   async function processSingleLocalFitFile(jobId, filePath, uid, originalFileName, shareConfig = null) {
+    const fileStatuses = [
+      buildFileStatusEntry({
+        entryName: originalFileName || path.basename(filePath),
+        status: "processing"
+      })
+    ];
+
     await updateImportJob(jobId, {
       status: "processing",
       stage: "parsing_fit_files",
+      fileStatuses,
       totalFiles: 1,
       processedFiles: 0,
       failedFiles: 0,
@@ -349,14 +392,36 @@ export async function createApp() {
         shareConfig
       });
 
+      fileStatuses[0] = {
+        ...fileStatuses[0],
+        status: "completed"
+      };
+
       await updateImportJob(jobId, {
         status: "completed",
         stage: "completed",
+        fileStatuses,
         totalFiles: 1,
         processedFiles: 1,
         failedFiles: 0,
         progressPercent: 100
       });
+    } catch (error) {
+      fileStatuses[0] = {
+        ...fileStatuses[0],
+        status: "failed",
+        message: error.message || "Unknown import error"
+      };
+      await updateImportJob(jobId, {
+        status: "failed",
+        stage: "failed",
+        fileStatuses,
+        totalFiles: 1,
+        processedFiles: 0,
+        failedFiles: 1,
+        errorMessage: error.message || "Unknown import error"
+      });
+      throw error;
     } finally {
       await fs.promises.rm(filePath, { force: true });
     }
@@ -395,11 +460,18 @@ export async function createApp() {
       });
 
       const totalFiles = fitEntries.length;
+      const fileStatuses = fitEntries.map((entry) =>
+        buildFileStatusEntry({
+          sourceName: path.basename(zipPath),
+          entryName: entry.path
+        })
+      );
       const allowance = await EntitlementService.checkAllowance(uid, "stored_workout", totalFiles);
       if (!allowance.allowed) {
         await updateImportJob(jobId, {
           status: "failed",
           stage: "failed",
+          fileStatuses,
           totalFiles,
           processedFiles: 0,
           failedFiles: 0,
@@ -410,6 +482,7 @@ export async function createApp() {
 
       await updateImportJob(jobId, {
         stage: "parsing_fit_files",
+        fileStatuses,
         totalFiles,
         processedFiles: 0,
         failedFiles: 0,
@@ -425,6 +498,12 @@ export async function createApp() {
 
       for (const entry of fitEntries) {
         try {
+          await updateSingleFileStatus(
+            jobId,
+            fileStatuses,
+            (item) => item.key === createFileStatusKey(path.basename(zipPath), entry.path),
+            { status: "processing", message: null }
+          );
           const bufferStartedAt = Date.now();
           const buffer = await entry.buffer();
           batchTrace.add("entryBufferMs", Date.now() - bufferStartedAt);
@@ -442,6 +521,12 @@ export async function createApp() {
           batchTrace.add("persistWorkoutMs", Date.now() - persistStartedAt);
 
           processedFiles += 1;
+          await updateSingleFileStatus(
+            jobId,
+            fileStatuses,
+            (item) => item.key === createFileStatusKey(path.basename(zipPath), entry.path),
+            { status: "completed", message: null }
+          );
 
           const progressPercent =
             totalFiles === 0
@@ -465,6 +550,12 @@ export async function createApp() {
           }
         } catch (error) {
           failedFiles += 1;
+          await updateSingleFileStatus(
+            jobId,
+            fileStatuses,
+            (item) => item.key === createFileStatusKey(path.basename(zipPath), entry.path),
+            { status: "failed", message: error.message || "Unknown import error" }
+          );
 
           console.error("FIT processing failed", {
             jobId,
@@ -484,6 +575,7 @@ export async function createApp() {
       const savingStartedAt = Date.now();
       await updateImportJob(jobId, {
         stage: "saving_results",
+        fileStatuses,
         progressPercent: 98
       });
       batchTrace.add("updateJobMs", Date.now() - savingStartedAt);
@@ -492,6 +584,7 @@ export async function createApp() {
       await updateImportJob(jobId, {
         status: "completed",
         stage: "completed",
+        fileStatuses,
         progressPercent: 100
       });
       batchTrace.add("updateJobMs", Date.now() - completedStartedAt);
@@ -539,11 +632,43 @@ export async function createApp() {
 
     const totalFilesPerInput = await Promise.all(files.map((filePath) => countFitEntries(filePath)));
     const totalFiles = totalFilesPerInput.reduce((sum, count) => sum + count, 0);
+    const fileStatuses = [];
+
+    for (let i = 0; i < files.length; i += 1) {
+      const filePath = files[i];
+      const originalFileName = originalFileNames[i] || path.basename(filePath);
+      const lowerPath = filePath.toLowerCase();
+
+      if (lowerPath.endsWith(".fit")) {
+        fileStatuses.push(buildFileStatusEntry({
+          entryName: originalFileName
+        }));
+        continue;
+      }
+
+      if (lowerPath.endsWith(".zip")) {
+        const zipDirectory = await unzipper.Open.file(filePath);
+        const fitEntries = zipDirectory.files.filter((entry) =>
+          entry.type === "File" &&
+          entry.path.toLowerCase().endsWith(".fit") &&
+          (!entry.path.startsWith("__MACOSX/"))
+        );
+
+        fitEntries.forEach((entry) => {
+          fileStatuses.push(buildFileStatusEntry({
+            sourceName: originalFileName,
+            entryName: entry.path
+          }));
+        });
+      }
+    }
+
     const allowance = await EntitlementService.checkAllowance(uid, "stored_workout", totalFiles);
     if (!allowance.allowed) {
       await updateImportJob(jobId, {
         status: "failed",
         stage: "failed",
+        fileStatuses,
         totalFiles,
         processedFiles: 0,
         failedFiles: 0,
@@ -558,6 +683,7 @@ export async function createApp() {
 
     await updateImportJob(jobId, {
       stage: "parsing_fit_files",
+      fileStatuses,
       totalFiles,
       processedFiles: 0,
       failedFiles: 0,
@@ -575,6 +701,12 @@ export async function createApp() {
 
         if (lowerPath.endsWith(".fit")) {
           try {
+          await updateSingleFileStatus(
+            jobId,
+            fileStatuses,
+            (item) => item.key === createFileStatusKey(null, originalFileName),
+            { status: "processing", message: null }
+          );
           const persistStartedAt = Date.now();
           const buffer = await fs.promises.readFile(filePath);
           const parsed = await parseFitBuffer(buffer);
@@ -586,8 +718,20 @@ export async function createApp() {
           });
           batchTrace.add("persistWorkoutMs", Date.now() - processStartedAt);
           processedFiles += 1;
+          await updateSingleFileStatus(
+            jobId,
+            fileStatuses,
+            (item) => item.key === createFileStatusKey(null, originalFileName),
+            { status: "completed", message: null }
+          );
           } catch (error) {
             failedFiles += 1;
+            await updateSingleFileStatus(
+              jobId,
+              fileStatuses,
+              (item) => item.key === createFileStatusKey(null, originalFileName),
+              { status: "failed", message: error.message || "Unknown import error" }
+            );
             console.error("FIT processing failed", {
               jobId,
               entryName: originalFileName,
@@ -607,6 +751,12 @@ export async function createApp() {
 
             const processZipFitEntry = async (entry) => {
               try {
+                await updateSingleFileStatus(
+                  jobId,
+                  fileStatuses,
+                  (item) => item.key === createFileStatusKey(originalFileName, entry.path),
+                  { status: "processing", message: null }
+                );
                 const bufferStartedAt = Date.now();
                 const buffer = await entry.buffer();
                 batchTrace.add("entryBufferMs", Date.now() - bufferStartedAt);
@@ -621,8 +771,20 @@ export async function createApp() {
                 batchTrace.add("persistWorkoutMs", Date.now() - persistStartedAt);
 
                 processedFiles += 1;
+                await updateSingleFileStatus(
+                  jobId,
+                  fileStatuses,
+                  (item) => item.key === createFileStatusKey(originalFileName, entry.path),
+                  { status: "completed", message: null }
+                );
               } catch (error) {
                 failedFiles += 1;
+                await updateSingleFileStatus(
+                  jobId,
+                  fileStatuses,
+                  (item) => item.key === createFileStatusKey(originalFileName, entry.path),
+                  { status: "failed", message: error.message || "Unknown import error" }
+                );
                 console.error("FIT processing failed", {
                   jobId,
                   entryName: entry.path,
@@ -675,6 +837,7 @@ export async function createApp() {
 
         const updateStartedAt = Date.now();
         await updateImportJob(jobId, {
+          fileStatuses,
           processedFiles,
           failedFiles,
           progressPercent
@@ -693,6 +856,7 @@ export async function createApp() {
       const savingStartedAt = Date.now();
       await updateImportJob(jobId, {
         stage: "saving_results",
+        fileStatuses,
         progressPercent: 98
       });
       batchTrace.add("updateJobMs", Date.now() - savingStartedAt);
@@ -701,6 +865,7 @@ export async function createApp() {
       await updateImportJob(jobId, {
         status: "completed",
         stage: "completed",
+        fileStatuses,
         totalFiles,
         processedFiles,
         failedFiles,

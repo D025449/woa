@@ -6,8 +6,59 @@ body.upload-page {
   color: var(--ui-page-text);
 }
 
+.upload-client-container {
+  overflow: hidden;
+}
+
+.upload-shell {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.upload-shell--client {
+  --upload-client-height: auto;
+  min-height: var(--upload-client-height);
+  max-height: var(--upload-client-height);
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
 .upload-stage-body {
   padding: 1.35rem 1.4rem 1.5rem;
+}
+
+.upload-shell--client .upload-stage {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.upload-shell--client .upload-stage-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.upload-shell--client .upload-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  align-items: stretch;
+  overflow: hidden;
+  margin: 0;
+  --bs-gutter-y: 0;
+}
+
+.upload-shell--client .upload-workspace__col {
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  margin-top: 0;
+  padding-top: 0;
 }
 
 .upload-limit-alert {
@@ -18,8 +69,56 @@ body.upload-page {
 .upload-form-panel {
   border: 1px solid color-mix(in srgb, var(--ui-border-color-soft) 82%, transparent);
   border-radius: var(--ui-card-radius-panel);
+  border-bottom-left-radius: var(--ui-card-radius-panel);
+  border-bottom-right-radius: var(--ui-card-radius-panel);
   background: var(--ui-bg-overlay-soft);
+  background-clip: padding-box;
   padding: var(--ui-card-padding-panel);
+}
+
+.upload-shell--client .upload-form-panel,
+.upload-shell--client .upload-status-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+}
+
+.upload-shell--client .upload-form-panel {
+  overflow: hidden;
+  padding-right: 0;
+}
+
+.upload-shell--client .upload-status-panel {
+  overflow: hidden;
+}
+
+.upload-form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.upload-shell--client .upload-form-stack {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 0.9rem;
+  padding-bottom: 0.5rem;
+}
+
+.upload-shell--client .upload-form-panel form {
+  flex: 0 0 auto;
+  min-height: auto;
+  overflow: visible;
+  padding-right: 0;
+}
+
+.upload-shell--client #response {
+  flex: 0 0 auto;
+  margin-top: 0 !important;
+  padding-bottom: 0.35rem;
 }
 
 .upload-form-panel .form-label {
@@ -104,11 +203,32 @@ body.upload-page {
   letter-spacing: 0.01em;
 }
 
+.upload-form-panel .d-grid {
+  margin-top: 1rem;
+}
+
 .upload-status-panel {
   border: 1px solid color-mix(in srgb, var(--ui-border-color-soft) 82%, transparent);
   border-radius: var(--ui-card-radius-panel);
+  border-bottom-left-radius: var(--ui-card-radius-panel);
+  border-bottom-right-radius: var(--ui-card-radius-panel);
   background: var(--ui-bg-subtle);
+  background-clip: padding-box;
   padding: var(--ui-card-padding-relaxed);
+}
+
+.upload-status-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.upload-shell--client .upload-status-stack {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 0.1rem;
+  padding-bottom: 0.5rem;
 }
 
 .upload-phase-card {
@@ -132,6 +252,148 @@ body.upload-page {
   margin-top: 1rem;
 }
 
+.upload-file-status-panel {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1.15rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--ui-divider-color);
+}
+
+.upload-shell--client .upload-file-status-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.upload-file-status-panel__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.85rem;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.upload-file-status-panel__eyebrow {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ui-text-muted);
+}
+
+.upload-file-status-panel__title {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--ui-text-strong);
+}
+
+.upload-file-status-list {
+  display: grid;
+  gap: 0.65rem;
+  max-height: 20rem;
+  overflow: auto;
+  padding-right: 0.1rem;
+}
+
+.upload-file-status-filter .btn {
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.upload-shell--client .upload-file-status-list {
+  max-height: none;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.upload-file-status {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.85rem;
+  align-items: start;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--ui-card-border-faint);
+  border-radius: 1rem;
+  background: var(--ui-bg-card-soft);
+}
+
+.upload-file-status__main {
+  min-width: 0;
+}
+
+.upload-file-status__name {
+  font-weight: 700;
+  color: var(--ui-text-strong);
+  word-break: break-word;
+}
+
+.upload-file-status__source {
+  margin-top: 0.2rem;
+  font-size: 0.8rem;
+  color: var(--ui-text-muted);
+  word-break: break-word;
+}
+
+.upload-file-status__meta {
+  display: grid;
+  justify-items: end;
+  gap: 0.3rem;
+  min-width: 8rem;
+}
+
+.upload-file-status__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.28rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--ui-card-border-faint);
+  font-size: 0.77rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.upload-file-status__badge--queued {
+  background: var(--ui-status-neutral-bg);
+  color: var(--ui-text-default);
+}
+
+.upload-file-status__badge--processing {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+  border-color: rgba(37, 99, 235, 0.22);
+}
+
+.upload-file-status__badge--completed {
+  background: rgba(15, 118, 110, 0.12);
+  color: #0f766e;
+  border-color: rgba(15, 118, 110, 0.22);
+}
+
+.upload-file-status__badge--failed {
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
+  border-color: rgba(220, 38, 38, 0.22);
+}
+
+.upload-file-status__message {
+  font-size: 0.8rem;
+  color: var(--ui-danger-text);
+  text-align: right;
+  word-break: break-word;
+}
+
+.upload-file-status-empty {
+  border: 1px dashed var(--ui-border-color-emphasis);
+  border-radius: 1rem;
+  padding: 0.95rem 1rem;
+  background: var(--ui-bg-subtle);
+  color: var(--ui-text-muted);
+  font-size: 0.9rem;
+}
+
 .upload-progress-block .progress {
   height: 0.72rem;
   border-radius: 999px;
@@ -139,5 +401,12 @@ body.upload-page {
 }
 
 #response .alert {
+  margin-bottom: 0;
   border-radius: 1rem;
+}
+
+@media (min-width: 992px) {
+  .upload-shell--client .upload-workspace {
+    align-items: stretch;
+  }
 }

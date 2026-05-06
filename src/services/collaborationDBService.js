@@ -417,6 +417,7 @@ export default class CollaborationDBService {
 
   static async listFeedForUser(userId, options = {}) {
     const limit = Math.max(1, Math.min(Number(options.limit) || 25, 100));
+    const offset = Math.max(0, Number(options.offset) || 0);
     const range = String(options.range || "7d").toLowerCase();
     const actorScope = String(options.actorScope || "all").toLowerCase();
     let rangeFilter = "";
@@ -470,7 +471,8 @@ export default class CollaborationDBService {
         gfe.created_at
       ORDER BY gfe.created_at DESC, gfe.id DESC
       LIMIT $2
-    `, [userId, limit]);
+      OFFSET $3
+    `, [userId, limit, offset]);
 
     return result.rows;
   }

@@ -62,6 +62,8 @@ export default class Controller {
     this.heroElement = document.getElementById("dashboard-hero");
     this.masterDetailElement = document.getElementById("dashboard-master-detail");
     this.detailGridElement = document.getElementById("dashboard-detail-grid");
+    this.prevWorkoutButton = document.getElementById("dashboard-workout-prev");
+    this.nextWorkoutButton = document.getElementById("dashboard-workout-next");
     this.isMobileLibraryOpen = false;
     this.libraryWidthPx = this.uiState.get("dashboardLibraryWidthPx", null);
     this.splitterPointerId = null;
@@ -74,6 +76,7 @@ export default class Controller {
       : null;
     this.shareableGroups = [];
     this.initViews();
+    this.didRestoreMapViewState = false;
     this.registerEvents();
     this.boot();
   }
@@ -86,8 +89,12 @@ export default class Controller {
     this.mapView.onBaseLayerChange = (baseLayerMode) => {
       this.mapViewState = { baseLayerMode };
       this.uiState.set("dashboardMapViewState", this.mapViewState);
+      if (this.didRestoreMapViewState) {
+        this.showToast(this.t("messages.mapStyleChanged", { style: this.t(`mapStyle${baseLayerMode.charAt(0).toUpperCase()}${baseLayerMode.slice(1)}`) }));
+      }
     };
     this.mapView.setInitialState(this.mapViewState);
+    this.didRestoreMapViewState = true;
 
     this.chartView = new ChartView("workout-chart", {
       initialState: this.chartViewState,
@@ -198,11 +205,15 @@ export default class Controller {
         this.writeStoredList("dashboardFavoriteWorkoutIds", this.favoriteWorkoutIds);
         this.renderQuickAccess();
       },
+      onFavoriteToggle: ({ isFavorite }) => {
+        this.showToast(isFavorite ? this.t("messages.favoriteAdded") : this.t("messages.favoriteRemoved"));
+      },
       onRendered: ({ append }) => {
         if (!append) {
           this.restoreLibraryScrollPosition();
         }
         this.renderQuickAccess();
+        this.updateDetailNavigation();
       }
     });
   }
@@ -221,6 +232,12 @@ export default class Controller {
     document.addEventListener("keydown", (event) => this.handleGlobalShortcuts(event));
     this.registerSplitterEvents();
     this.initLayoutObservers();
+    this.prevWorkoutButton?.addEventListener("click", async () => {
+      await this.openRelativeWorkout(-1);
+    });
+    this.nextWorkoutButton?.addEventListener("click", async () => {
+      await this.openRelativeWorkout(1);
+    });
   }
 
   async boot() {
@@ -274,6 +291,7 @@ export default class Controller {
       this.scheduleDesktopLayoutMeasure(true);
       this.closeMobileLibrary();
       this.renderQuickAccess();
+      this.updateDetailNavigation();
     } catch (err) {
       console.error(err);
       this.resetWorkspaceSummary();
@@ -281,6 +299,42 @@ export default class Controller {
     } finally {
       this.chartView.hideLoading();
     }
+  }
+
+  getNavigableWorkoutIds() {
+    return this.libraryView.getRenderableItems().map((workout) => String(workout.id));
+  }
+
+  updateDetailNavigation() {
+    const ids = this.getNavigableWorkoutIds();
+    const currentId = this.currentWorkoutId ? String(this.currentWorkoutId) : null;
+    const index = currentId ? ids.indexOf(currentId) : -1;
+    const hasPrev = index > 0;
+    const hasNext = index >= 0 && index < ids.length - 1;
+
+    this.prevWorkoutButton && (this.prevWorkoutButton.disabled = !hasPrev);
+    this.nextWorkoutButton && (this.nextWorkoutButton.disabled = !hasNext);
+  }
+
+  async openRelativeWorkout(direction = 1) {
+    const ids = this.getNavigableWorkoutIds();
+    const currentId = this.currentWorkoutId ? String(this.currentWorkoutId) : null;
+    const index = currentId ? ids.indexOf(currentId) : -1;
+    if (index < 0) {
+      return;
+    }
+
+    const nextId = ids[index + (direction < 0 ? -1 : 1)];
+    if (!nextId) {
+      return;
+    }
+
+    this.currentWorkoutId = nextId;
+    this.uiState.set("selectedWorkoutId", nextId);
+    const url = new URL(window.location.href);
+    url.searchParams.set("workoutId", nextId);
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    await this.openWorkout(nextId);
   }
 
   async restoreSelectedWorkout() {
@@ -473,6 +527,7 @@ export default class Controller {
     if (this.detailCopyElement) {
       this.detailCopyElement.textContent = "";
     }
+    this.updateDetailNavigation();
   }
 
   buildWorkoutDetailLine(workout) {

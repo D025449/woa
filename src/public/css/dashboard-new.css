@@ -252,6 +252,32 @@ body.dashboard-page {
   gap: 0.5rem;
 }
 
+.dashboard-detail-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.dashboard-detail-nav__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--ui-card-border-soft);
+  border-radius: 999px;
+  background: var(--ui-bg-subtle);
+  color: var(--ui-text-default);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.dashboard-detail-nav__button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
 .dashboard-actions-menu {
   position: relative;
 }
@@ -811,6 +837,28 @@ body.dashboard-page {
   color: var(--ui-text-default);
 }
 
+.workout-library-empty {
+  display: grid;
+  gap: 0.55rem;
+  padding: 1rem 1.1rem;
+  border: 1px dashed var(--ui-card-border-soft);
+  border-radius: 1rem;
+  background: var(--ui-bg-subtle);
+  color: var(--ui-text-default);
+}
+
+.workout-library-empty__title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--ui-text-strong);
+}
+
+.workout-library-empty__copy {
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: var(--ui-text-body);
+}
+
 .workout-library-sort__trigger {
   display: inline-flex;
   align-items: center;
@@ -1168,6 +1216,7 @@ body.dashboard-page {
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;
+  position: relative;
 }
 
 .workout-library-card__select {
@@ -1229,6 +1278,12 @@ body.dashboard-page {
   text-transform: uppercase;
 }
 
+.workout-library-card__context-chip--button {
+  position: relative;
+  border: 0;
+  cursor: pointer;
+}
+
 .workout-library-card__title {
   font-size: 1rem;
   font-weight: 700;
@@ -1247,6 +1302,36 @@ body.dashboard-page {
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--ui-text-default);
+}
+
+.workout-library-visibility-popover {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 40;
+  min-width: 11.5rem;
+  max-width: 14rem;
+  padding: 0.5rem;
+  border: 1px solid var(--ui-card-border-soft);
+  border-radius: 0.9rem;
+  background: #ffffff;
+  box-shadow: var(--ui-shadow-floating);
+}
+
+.workout-library-visibility-popover__list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.workout-library-visibility-popover__item,
+.workout-library-visibility-popover__empty {
+  display: block;
+  padding: 0.42rem 0.55rem;
+  border-radius: 0.7rem;
+  background: var(--ui-bg-subtle);
+  color: var(--ui-text-default);
+  font-size: 0.76rem;
+  font-weight: 600;
 }
 
 .workout-library-card__kpi-strip {

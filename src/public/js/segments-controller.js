@@ -27,6 +27,8 @@ export default class Controller {
     this.focusSegmentId = new URLSearchParams(window.location.search).get("focusSegmentId");
     this.restoredSegmentId = this.uiState.get("selectedSegmentId");
     this.focusApplied = false;
+    this.segmentVisibilityPopoverOpen = false;
+    this.segmentVisibilityPopoverLoading = false;
     this.shellElement = document.querySelector(".segments-shell");
     this.heroElement = document.querySelector(".segments-hero");
     this.workspaceElement = document.getElementById("segments-workspace");
@@ -42,7 +44,15 @@ export default class Controller {
     this.quickAccessElement = document.getElementById("segments-quick-access");
     this.recentSegmentsElement = document.getElementById("segments-recent-list");
     this.favoriteSegmentsElement = document.getElementById("segments-favorite-list");
+    this.prevSegmentButton = document.getElementById("segment-prev");
+    this.nextSegmentButton = document.getElementById("segment-next");
+    this.toastElement = document.getElementById("segments-toast");
+    this.toastBodyElement = document.getElementById("segments-toast-body");
+    this.toast = this.toastElement && globalThis.bootstrap
+      ? new globalThis.bootstrap.Toast(this.toastElement, { delay: 2800 })
+      : null;
     this.initViews();
+    this.didRestoreMapViewState = false;
     this.registerEvents();
   }
 
@@ -60,16 +70,22 @@ export default class Controller {
         onBaseLayerChange: (baseLayerMode) => {
           this.mapViewState = { baseLayerMode };
           this.uiState.set("segmentsMapViewState", this.mapViewState);
+          if (this.didRestoreMapViewState) {
+            this.showToast(this.t("messages.mapStyleChanged", { style: this.t(`mapStyle${baseLayerMode.charAt(0).toUpperCase()}${baseLayerMode.slice(1)}`) }));
+          }
         }
       }
 
     );
     this.mapView.setInitialState(this.mapViewState);
+    this.didRestoreMapViewState = true;
 
     this.tableView = new TableView("#segment-table", {
       currentUserId: this.currentUserId,
       initialScope: this.bestEffortsScope,
       initialPerUser: this.bestEffortsPerUser,
+      formatSegmentVisibilityBadge: (segment) => this.formatSegmentVisibilityBadge(segment),
+      onHeaderRendered: () => this.bindSegmentHeaderEvents(),
       onRowOpen: async () => {},
       onRowDelete: async (row) => row
     });
@@ -78,7 +94,8 @@ export default class Controller {
       currentUserId: this.currentUserId,
       initialScope: this.bestEffortsScope,
       initialPerUser: this.bestEffortsPerUser,
-      formatSegmentHeaderMarkup: (...args) => this.tableView.formatSegmentHeaderMarkup(...args)
+      formatSegmentHeaderMarkup: (...args) => this.tableView.formatSegmentHeaderMarkup(...args),
+      onHeaderRendered: () => this.bindSegmentHeaderEvents()
     });
 
     this.elevationView = new SegmentElevationView(
@@ -197,6 +214,12 @@ export default class Controller {
       if (this.bestEffortsMenu?.open && !clickedInsideBestEffortsMenu) {
         this.bestEffortsMenu.removeAttribute("open");
       }
+
+      const clickedInsideVisibilityToggle = !!event.target?.closest?.("[data-segment-visibility-toggle]");
+      const clickedInsideVisibilityPopover = !!event.target?.closest?.("[data-segment-visibility-popover]");
+      if (this.segmentVisibilityPopoverOpen && !clickedInsideVisibilityToggle && !clickedInsideVisibilityPopover) {
+        this.closeSegmentVisibilityPopover();
+      }
     });
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") {
@@ -208,10 +231,17 @@ export default class Controller {
       this.closeShareInline();
       this.closeDetailActionsMenu();
       this.bestEffortsMenu?.removeAttribute("open");
+      this.closeSegmentVisibilityPopover();
     });
     this.loadShareableGroups();
     this.scheduleDesktopLayoutMeasure();
     this.renderQuickAccess();
+    this.prevSegmentButton?.addEventListener("click", async () => {
+      await this.openRelativeSegment(-1);
+    });
+    this.nextSegmentButton?.addEventListener("click", async () => {
+      await this.openRelativeSegment(1);
+    });
   }
 
   onResize() {
@@ -461,6 +491,40 @@ export default class Controller {
     this.renderQuickAccess();
     this.updateBestEffortsScopeUi();
     this.loadSelectedSegmentSharing();
+    this.updateDetailNavigation();
+  }
+
+  refreshSelectedSegmentHeader() {
+    if (!this.segmentHeader) {
+      return;
+    }
+
+    if (!this.selectedSegment) {
+      this.segmentHeader.textContent = this.t("insightsTitle");
+      return;
+    }
+
+    const activeMatchCount = this.bestEffortsViewMode === "cards"
+      ? this.cardView?.lastMatchCount ?? null
+      : this.tableView?.table?.getDataCount?.("active");
+
+    this.segmentHeader.innerHTML = this.tableView.formatSegmentHeaderMarkup(this.selectedSegment, activeMatchCount);
+    this.bindSegmentHeaderEvents();
+  }
+
+  bindSegmentHeaderEvents() {
+    this.segmentHeader?.querySelectorAll("[data-segment-visibility-toggle]").forEach((element) => {
+      element.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        await this.toggleSelectedSegmentVisibilityPopover();
+      });
+    });
+
+    this.segmentHeader?.querySelectorAll("[data-segment-visibility-popover]").forEach((element) => {
+      element.addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+    });
   }
 
   async loadSelectedSegmentBestEfforts() {
@@ -484,13 +548,12 @@ export default class Controller {
   clearSelectedSegment() {
     this.selectedSegment = null;
     this.selectedSegmentSharing = null;
+    this.closeSegmentVisibilityPopover({ render: false });
     this.uiState.remove("selectedSegmentId");
     this.tableView.clear();
     this.cardView.clear();
     this.elevationView.hide();
-    if (this.segmentHeader) {
-      this.segmentHeader.textContent = this.t("insightsTitle");
-    }
+    this.refreshSelectedSegmentHeader();
     this.mapView.selectSegment(null);
     this.mapView.hideMarker();
     this.updateDeleteButton();
@@ -498,6 +561,7 @@ export default class Controller {
     this.updateSegmentMeta();
     this.updateFavoriteUi();
     this.updateBestEffortsScopeUi();
+    this.updateDetailNavigation();
   }
 
   updateDeleteButton() {
@@ -567,6 +631,43 @@ export default class Controller {
     this.writeStoredList("segmentsFavoriteIds", this.favoriteSegmentIds);
     this.updateFavoriteUi();
     this.renderQuickAccess();
+    this.showToast(this.isFavoriteSegment(segmentId) ? this.t("messages.favoriteAdded") : this.t("messages.favoriteRemoved"));
+  }
+
+  getNavigableSegments() {
+    return this.getRenderableSegments();
+  }
+
+  updateDetailNavigation() {
+    const segments = this.getNavigableSegments();
+    const currentId = this.selectedSegment?.id == null ? null : String(this.selectedSegment.id);
+    const index = currentId ? segments.findIndex((segment) => String(segment.id) === currentId) : -1;
+    const hasPrev = index > 0;
+    const hasNext = index >= 0 && index < segments.length - 1;
+
+    this.prevSegmentButton && (this.prevSegmentButton.disabled = !hasPrev);
+    this.nextSegmentButton && (this.nextSegmentButton.disabled = !hasNext);
+  }
+
+  async openRelativeSegment(direction = 1) {
+    const segments = this.getNavigableSegments();
+    const currentId = this.selectedSegment?.id == null ? null : String(this.selectedSegment.id);
+    const index = currentId ? segments.findIndex((segment) => String(segment.id) === currentId) : -1;
+    if (index < 0) {
+      return;
+    }
+
+    const nextSegment = segments[index + (direction < 0 ? -1 : 1)];
+    if (!nextSegment) {
+      return;
+    }
+
+    this.selectSegment(nextSegment);
+    this.mapView.focusSegment(nextSegment);
+    const url = new URL(window.location.href);
+    url.searchParams.set("focusSegmentId", String(nextSegment.id));
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    await this.loadSelectedSegmentBestEfforts();
   }
 
   renderQuickAccess() {
@@ -688,6 +789,118 @@ export default class Controller {
     this.segmentSharedMetaText.textContent = isOwnedByCurrentUser
       ? this.t("messages.visibleOnlyToYou")
       : this.t("messages.privateBy", { owner: ownerLabel });
+  }
+
+  formatSegmentVisibilityBadge(segment = this.selectedSegment) {
+    if (!segment) {
+      return "";
+    }
+
+    const shareMode = this.selectedSegmentSharing?.shareMode;
+    const shareGroupCount = Array.isArray(this.selectedSegmentSharing?.groupIds)
+      ? this.selectedSegmentSharing.groupIds.length
+      : Number(segment?.shareGroupCount || 0);
+    const isShared = shareMode === "groups" || shareGroupCount > 0;
+    const label = isShared
+      ? this.t("shareTagGroups", { count: shareGroupCount })
+      : this.t("sharePrivate");
+    const modifier = isShared ? " segments-detail-heading__visibility--shared" : "";
+    const popover = isShared && this.segmentVisibilityPopoverOpen ? this.renderSegmentVisibilityPopover() : "";
+
+    if (!isShared) {
+      return ` <span class="segments-detail-heading__visibility${modifier}">${this.escapeHtml(label)}</span>`;
+    }
+
+    return ` <button class="segments-detail-heading__visibility${modifier}" type="button" data-segment-visibility-toggle="true">${this.escapeHtml(label)}</button>${popover}`;
+  }
+
+  renderSegmentVisibilityPopover() {
+    const groups = this.getSelectedSegmentGroupNames();
+
+    return `
+      <div class="segments-detail-visibility-popover" data-segment-visibility-popover="true">
+        ${this.segmentVisibilityPopoverLoading ? `
+          <div class="segments-detail-visibility-popover__empty">${this.t("messages.loading")}</div>
+        ` : groups.length ? `
+          <div class="segments-detail-visibility-popover__list">
+            ${groups.map((groupName) => `<span class="segments-detail-visibility-popover__item">${this.escapeHtml(groupName)}</span>`).join("")}
+          </div>
+        ` : `
+          <div class="segments-detail-visibility-popover__empty">${this.t("shareGroups")}</div>
+        `}
+      </div>
+    `;
+  }
+
+  getSelectedSegmentGroupNames() {
+    const ids = Array.isArray(this.selectedSegmentSharing?.groupIds)
+      ? this.selectedSegmentSharing.groupIds.map((value) => Number(value))
+      : [];
+
+    return ids.map((groupId) => {
+      const group = this.shareableGroups.find((entry) => Number(entry.id) === Number(groupId));
+      return group?.name || `#${groupId}`;
+    });
+  }
+
+  closeSegmentVisibilityPopover({ render = true } = {}) {
+    if (!this.segmentVisibilityPopoverOpen && !this.segmentVisibilityPopoverLoading) {
+      return;
+    }
+
+    this.segmentVisibilityPopoverOpen = false;
+    this.segmentVisibilityPopoverLoading = false;
+    if (render) {
+      this.refreshSelectedSegmentHeader();
+    }
+  }
+
+  async toggleSelectedSegmentVisibilityPopover() {
+    const segment = this.selectedSegment;
+    if (!segment) {
+      return;
+    }
+
+    const shareCount = Array.isArray(this.selectedSegmentSharing?.groupIds)
+      ? this.selectedSegmentSharing.groupIds.length
+      : Number(segment?.shareGroupCount || 0);
+
+    if (shareCount <= 0) {
+      return;
+    }
+
+    if (this.segmentVisibilityPopoverOpen) {
+      this.closeSegmentVisibilityPopover();
+      return;
+    }
+
+    this.segmentVisibilityPopoverOpen = true;
+    this.refreshSelectedSegmentHeader();
+
+    if (Array.isArray(this.selectedSegmentSharing?.groupIds) && this.selectedSegmentSharing.groupIds.length) {
+      return;
+    }
+
+    this.segmentVisibilityPopoverLoading = true;
+    this.refreshSelectedSegmentHeader();
+
+    try {
+      await this.loadSelectedSegmentSharing();
+    } finally {
+      this.segmentVisibilityPopoverLoading = false;
+      if (this.segmentVisibilityPopoverOpen) {
+        this.refreshSelectedSegmentHeader();
+      }
+    }
+  }
+
+  escapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
   }
 
   updateBestEffortsScopeUi() {
@@ -898,10 +1111,11 @@ export default class Controller {
       this.updateShareModeUi();
 
       if (this.shareStatus) {
-        this.shareStatus.textContent = data.shareMode === "groups"
+      this.shareStatus.textContent = data.shareMode === "groups"
           ? this.t("messages.groupsActive", { count: (data.groupIds || []).length })
           : this.t("sharePrivate");
       }
+      this.refreshSelectedSegmentHeader();
       this.updateBestEffortsScopeUi();
     } catch (error) {
       console.error(error);
@@ -909,6 +1123,7 @@ export default class Controller {
       if (this.shareStatus) {
         this.shareStatus.textContent = this.t("messages.couldNotLoadSharing");
       }
+      this.refreshSelectedSegmentHeader();
       this.updateBestEffortsScopeUi();
     }
   }
@@ -957,13 +1172,24 @@ export default class Controller {
           ? this.t("messages.groupsActive", { count: (data.groupIds || []).length })
           : this.t("sharePrivate");
       }
+      this.refreshSelectedSegmentHeader();
       this.updateBestEffortsScopeUi();
+      this.showToast(this.t("messages.segmentShareUpdated"));
 
       this.closeShareInline();
     } catch (error) {
       console.error(error);
       window.alert(error.message || this.t("messages.couldNotSaveSharing"));
     }
+  }
+
+  showToast(message) {
+    if (!this.toast || !this.toastBodyElement) {
+      return;
+    }
+
+    this.toastBodyElement.innerHTML = message;
+    this.toast.show();
   }
 
   async deleteSelectedSegment() {

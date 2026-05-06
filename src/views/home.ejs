@@ -29,8 +29,9 @@
                 : t("home.auth.heroTitle");
         %>
 
-        <div class="container-fluid px-3 px-xl-4 py-4">
-            <div class="home-shell">
+        <div class="container-fluid px-3 px-xl-4 py-4 home-client-container">
+            <div id="home-shell-frame" class="home-shell-frame">
+            <div id="home-shell" class="home-shell">
                 <section class="home-hero">
                     <div>
                         <h1 class="home-title"><%= homeHeroTitle %></h1>
@@ -153,8 +154,10 @@
                             last7Days: t("groups.filters.last7Days"),
                             all: t("groups.filters.all"),
                             allUsers: t("groups.filters.allUsers"),
-                            othersOnly: t("groups.filters.othersOnly")
+                            othersOnly: t("groups.filters.othersOnly"),
+                            loadMore: t("dashboardNewPage.loadMore")
                         },
+                        loadMoreEnabled: true,
                         defaultRange: "7d",
                         defaultActorScope: "all"
                     }) %>
@@ -188,9 +191,9 @@
                     </section>
                 </section>
             </div>
+            <%- include("partials/app-footer") %>
+            </div>
         </div>
-
-        <%- include("partials/app-footer") %>
         <script>
             window.__I18N = <%- JSON.stringify(i18n || { locale: "en", messages: {} }) %>;
         </script>

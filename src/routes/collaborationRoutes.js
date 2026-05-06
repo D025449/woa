@@ -202,6 +202,7 @@ router.get("/feed", authMiddleware, async (req, res, next) => {
   try {
     const data = await CollaborationDBService.listFeedForUser(req.user.id, {
       limit: req.query.limit,
+      offset: req.query.offset,
       range: req.query.range,
       actorScope: req.query.actorScope
     });

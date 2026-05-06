@@ -6,6 +6,10 @@ body.home-page {
   color: var(--ui-page-text);
 }
 
+.home-client-container {
+  overflow: hidden;
+}
+
 .app-topbar,
 .home-topbar {
   background: var(--ui-topbar-bg) !important;
@@ -141,6 +145,23 @@ body.home-page {
 .home-shell {
   display: grid;
   gap: 1.5rem;
+}
+
+.home-shell-frame {
+  --home-client-height: auto;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 1rem;
+  min-height: var(--home-client-height);
+  max-height: var(--home-client-height);
+  overflow: hidden;
+}
+
+.home-shell--client {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
 }
 
 .home-hero {
@@ -413,6 +434,12 @@ body.home-page {
   align-items: start;
 }
 
+.home-shell--client .home-collab-grid {
+  min-height: 0;
+  align-items: stretch;
+  overflow: hidden;
+}
+
 .home-section-header {
   display: flex;
   justify-content: space-between;
@@ -474,6 +501,24 @@ body.home-page {
   color: var(--ui-text-muted);
 }
 
+.home-shell--client .home-activity-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.home-shell--client .home-surface-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  height: 100%;
+}
+
 .home-surface-body .groups-empty,
 .home-surface-body .groups-preview-card,
 .home-surface-body .groups-preview-kicker,
@@ -508,6 +553,18 @@ body.home-page {
 .home-surface-body #home-group-invites-list {
   display: grid;
   gap: 1rem;
+}
+
+.home-feed-load-more {
+  display: flex;
+  justify-content: center;
+  padding-top: 0.15rem;
+}
+
+.home-feed-load-more .btn {
+  border-radius: 999px;
+  font-weight: 700;
+  padding-inline: 1rem;
 }
 
 .home-surface-body .groups-preview-kicker {
@@ -552,6 +609,10 @@ body.home-page {
   text-align: center;
   color: var(--ui-text-muted);
   font-size: 0.88rem;
+}
+
+.home-shell-frame .app-footer {
+  margin-top: 0;
 }
 
 .app-footer a {

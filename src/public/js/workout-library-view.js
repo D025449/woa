@@ -59,6 +59,8 @@ export default class WorkoutLibraryView {
     this.shareableGroups = [];
     this.shareDrafts = new Map();
     this.shareErrors = new Map();
+    this.openVisibilityWorkoutId = null;
+    this.loadingVisibilityWorkoutId = null;
 
     this.searchInputValue = handlers.initialSearch ?? "";
     this.sortValue = handlers.initialSort ?? "newest";
@@ -124,6 +126,13 @@ export default class WorkoutLibraryView {
 
     document.addEventListener("click", (event) => {
       if (!this.sortTrigger || !this.sortMenu) {
+        if (
+          this.openVisibilityWorkoutId &&
+          !event.target?.closest?.("[data-workout-visibility-toggle]") &&
+          !event.target?.closest?.("[data-workout-visibility-popover]")
+        ) {
+          this.closeVisibilityPopover();
+        }
         return;
       }
 
@@ -137,6 +146,24 @@ export default class WorkoutLibraryView {
       }
 
       this.closeSortMenu();
+
+      if (
+        this.openVisibilityWorkoutId &&
+        !event.target?.closest?.("[data-workout-visibility-toggle]") &&
+        !event.target?.closest?.("[data-workout-visibility-popover]")
+      ) {
+        this.closeVisibilityPopover();
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      if (this.openVisibilityWorkoutId || this.loadingVisibilityWorkoutId) {
+        this.closeVisibilityPopover();
+      }
     });
 
     [this.scopeMineButton, this.scopeSharedButton, this.scopeAllButton].forEach((button) => {
@@ -519,7 +546,22 @@ export default class WorkoutLibraryView {
     return true;
   }
 
+  closeVisibilityPopover() {
+    if (!this.openVisibilityWorkoutId && !this.loadingVisibilityWorkoutId) {
+      return false;
+    }
+
+    this.openVisibilityWorkoutId = null;
+    this.loadingVisibilityWorkoutId = null;
+    this.render();
+    return true;
+  }
+
   handleEscape() {
+    if (this.closeVisibilityPopover()) {
+      return true;
+    }
+
     if (this.bulkShareInline && !this.bulkShareInline.classList.contains("d-none")) {
       this.closeBulkSharePanel();
       return true;
@@ -629,9 +671,11 @@ export default class WorkoutLibraryView {
     const renderableItems = this.getRenderableItems();
 
     if (renderableItems.length === 0) {
+      const emptyState = this.buildEmptyState();
       this.container.innerHTML = `
         <div class="workout-library-empty">
-          ${this.t("empty")}
+          <div class="workout-library-empty__title">${emptyState.title}</div>
+          <div class="workout-library-empty__copy">${emptyState.copy}</div>
         </div>
       `;
       return;
@@ -702,6 +746,19 @@ export default class WorkoutLibraryView {
           return;
         }
         this.toggleFavoriteWorkout(workoutId);
+      });
+    });
+
+    this.container.querySelectorAll("[data-workout-visibility-toggle]").forEach((element) => {
+      element.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        await this.toggleVisibilityPopover(element.getAttribute("data-workout-visibility-toggle"));
+      });
+    });
+
+    this.container.querySelectorAll("[data-workout-visibility-popover]").forEach((element) => {
+      element.addEventListener("click", (event) => {
+        event.stopPropagation();
       });
     });
 
@@ -893,6 +950,10 @@ export default class WorkoutLibraryView {
     const shareTag = shareMode === "groups"
       ? this.t("shareTagGroups", { count: Number(workout.share_group_count) || 0 })
       : this.t("sharePrivate");
+    const isShared = shareMode === "groups";
+    const isVisibilityOpen = this.openVisibilityWorkoutId === workoutId;
+    const isVisibilityLoading = this.loadingVisibilityWorkoutId === workoutId;
+    const visibilityGroups = isShared ? this.getSharingGroupNames(workout.sharing) : [];
     const draft = this.getShareDraft(workoutId);
     const shareError = this.shareErrors.get(workoutId) || "";
     const tone = this.getWorkoutTone(workout);
@@ -917,7 +978,26 @@ export default class WorkoutLibraryView {
               <span class="workout-library-card__context-chip">${dayLabel}</span>
               ${timeLabel ? `<span class="workout-library-card__context-chip">${timeLabel}</span>` : ""}
               <span class="workout-library-card__context-chip">${hasValidGps ? this.t("gps") : this.t("noGps")}</span>
-              <span class="workout-library-card__context-chip">${shareTag}</span>
+              ${isShared ? `
+                <button class="workout-library-card__context-chip workout-library-card__context-chip--button" type="button" data-workout-visibility-toggle="${workoutId}">
+                  ${shareTag}
+                </button>
+                ${isVisibilityOpen ? `
+                  <div class="workout-library-visibility-popover" data-workout-visibility-popover="${workoutId}">
+                    ${isVisibilityLoading ? `
+                      <div class="workout-library-visibility-popover__empty">${this.t("loadingSharing")}</div>
+                    ` : visibilityGroups.length ? `
+                      <div class="workout-library-visibility-popover__list">
+                        ${visibilityGroups.map((groupName) => `<span class="workout-library-visibility-popover__item">${this.escapeHtml(groupName)}</span>`).join("")}
+                      </div>
+                    ` : `
+                      <div class="workout-library-visibility-popover__empty">${this.t("shareGroups")}</div>
+                    `}
+                  </div>
+                ` : ""}
+              ` : `
+                <span class="workout-library-card__context-chip">${shareTag}</span>
+              `}
               <button class="workout-library-card__favorite${isFavorite ? " is-active" : ""}" type="button" data-workout-favorite-toggle="${workoutId}" aria-label="${this.t("favoriteToggle")}">★</button>
             </div>
             <div class="workout-library-card__title">${this.t("workoutLabel", { id: workout.id })}</div>
@@ -1035,6 +1115,69 @@ export default class WorkoutLibraryView {
       : this.t("na");
   }
 
+  escapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  getSharingGroupNames(sharing) {
+    const ids = Array.isArray(sharing?.groupIds) ? sharing.groupIds.map((value) => Number(value)) : [];
+    if (!ids.length) {
+      return [];
+    }
+
+    return ids.map((groupId) => {
+      const group = this.shareableGroups.find((entry) => Number(entry.id) === Number(groupId));
+      return group?.name || `#${groupId}`;
+    });
+  }
+
+  async toggleVisibilityPopover(workoutId) {
+    const targetId = String(workoutId || "");
+    const workout = this.items.find((entry) => String(entry.id) === targetId);
+    if (!workout) {
+      return;
+    }
+
+    const shareMode = workout.sharing?.shareMode || (Number(workout.share_group_count) > 0 ? "groups" : "private");
+    if (shareMode !== "groups") {
+      return;
+    }
+
+    if (this.openVisibilityWorkoutId === targetId) {
+      this.closeVisibilityPopover();
+      return;
+    }
+
+    this.openVisibilityWorkoutId = targetId;
+    this.render();
+
+    if (Array.isArray(workout.sharing?.groupIds) && workout.sharing.groupIds.length) {
+      return;
+    }
+
+    this.loadingVisibilityWorkoutId = targetId;
+    this.render();
+
+    try {
+      const sharing = await this.handlers.onWorkoutShareOpen?.(workout);
+      if (sharing) {
+        this.setWorkoutSharing(targetId, sharing);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      this.loadingVisibilityWorkoutId = null;
+      if (this.openVisibilityWorkoutId === targetId) {
+        this.render();
+      }
+    }
+  }
+
   formatSpeed(value) {
     return Number.isFinite(value) ? `${Number(value).toFixed(1)} km/h` : this.t("na");
   }
@@ -1127,6 +1270,7 @@ export default class WorkoutLibraryView {
 
   toggleFavoriteWorkout(workoutId) {
     const key = String(workoutId);
+    const isActive = !this.favoriteWorkoutIds.has(key);
     if (this.favoriteWorkoutIds.has(key)) {
       this.favoriteWorkoutIds.delete(key);
     } else {
@@ -1134,7 +1278,47 @@ export default class WorkoutLibraryView {
     }
 
     this.handlers.onFavoriteChange?.([...this.favoriteWorkoutIds]);
+    this.handlers.onFavoriteToggle?.({
+      workoutId: key,
+      isFavorite: isActive
+    });
     this.render();
+  }
+
+  buildEmptyState() {
+    if (this.favoriteFilterActive) {
+      return {
+        title: this.pageT("emptyFavoritesTitle"),
+        copy: this.pageT("emptyFavoritesCopy")
+      };
+    }
+
+    const search = (this.searchInput?.value || this.searchInputValue || "").trim();
+    if (search) {
+      return {
+        title: this.pageT("emptySearchTitle"),
+        copy: this.pageT("emptySearchCopy", { search })
+      };
+    }
+
+    if (this.scopeValue === "shared") {
+      return {
+        title: this.pageT("emptySharedTitle"),
+        copy: this.pageT("emptySharedCopy")
+      };
+    }
+
+    if (this.scopeValue === "all") {
+      return {
+        title: this.pageT("emptyAllTitle"),
+        copy: this.pageT("emptyAllCopy")
+      };
+    }
+
+    return {
+      title: this.pageT("emptyDefaultTitle"),
+      copy: this.pageT("emptyDefaultCopy")
+    };
   }
 
   setSelectionMode(isActive) {

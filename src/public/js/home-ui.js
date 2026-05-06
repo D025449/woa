@@ -5,6 +5,8 @@ import { createTranslator, getCurrentLocale } from "./i18n.js";
 document.addEventListener("DOMContentLoaded", async () => {
   const t = createTranslator("groups");
   const locale = getCurrentLocale();
+  const shellFrame = document.getElementById("home-shell-frame");
+  const shell = document.getElementById("home-shell");
 
   const controller = new ActivityFeedController({
     namespace: "homeActivityFeed",
@@ -13,6 +15,37 @@ document.addEventListener("DOMContentLoaded", async () => {
     t,
     locale
   });
+
+  let layoutRaf = null;
+  let layoutObserver = null;
+
+  function measureClientLayout() {
+    if (!shellFrame || !shell) {
+      return;
+    }
+
+    const container = document.querySelector(".home-client-container");
+    const bodyStyles = window.getComputedStyle(document.body);
+    const containerStyles = container ? window.getComputedStyle(container) : null;
+    const bodyOffsetTop = parseFloat(bodyStyles.paddingTop || "0") || 0;
+    const paddingTop = containerStyles ? parseFloat(containerStyles.paddingTop || "0") : 0;
+    const paddingBottom = containerStyles ? parseFloat(containerStyles.paddingBottom || "0") : 0;
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const availableHeight = Math.max(520, viewportHeight - bodyOffsetTop - paddingTop - paddingBottom);
+    shellFrame.style.setProperty("--home-client-height", `${availableHeight}px`);
+    shell.classList.add("home-shell--client");
+  }
+
+  function scheduleClientLayoutMeasure() {
+    if (layoutRaf) {
+      window.cancelAnimationFrame(layoutRaf);
+    }
+
+    layoutRaf = window.requestAnimationFrame(() => {
+      layoutRaf = null;
+      measureClientLayout();
+    });
+  }
 
   const invitesView = new GroupInvitesView("#home-group-invites-list", {
     onAcceptInvite: async (invite) => {
@@ -68,6 +101,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   controller.registerEvents();
+  window.addEventListener("resize", scheduleClientLayoutMeasure);
+
+  if (typeof ResizeObserver === "function") {
+    const topbar = document.querySelector(".app-topbar");
+    const hero = document.querySelector(".home-hero");
+    const tiles = document.querySelector(".home-tile-grid");
+    layoutObserver = new ResizeObserver(() => {
+      scheduleClientLayoutMeasure();
+    });
+    [topbar, hero, tiles, shellFrame].filter(Boolean).forEach((element) => layoutObserver.observe(element));
+  }
 
   try {
     const invites = await fetchInvites();
@@ -77,5 +121,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     invitesView.render([]);
   }
 
+  scheduleClientLayoutMeasure();
   await controller.boot();
 });

@@ -47,6 +47,7 @@ export default class TableView {
         const hdr = document.getElementById("segment-header");
         if (hdr) {
           hdr.innerHTML = THAT.formatSegmentHeaderMarkup(THAT.currentSegment, response.total_records);
+          this.handlers.onHeaderRendered?.();
         }
 
         return response;
@@ -262,6 +263,7 @@ export default class TableView {
     const hdr = document.getElementById("segment-header");
     if (hdr) {
       hdr.innerHTML = this.formatSegmentHeaderMarkup(segment);
+      this.handlers.onHeaderRendered?.();
     }
     await this.loadSegmentBestEfforts(segment);
 
@@ -404,6 +406,7 @@ export default class TableView {
     const ownerPart = ownerLabel ? ` · ${this.t("table.ownerShort")}: ${ownerLabel}` : "";
     const matchPart = Number.isFinite(matchCount) ? ` · ${this.t("table.matches", { count: matchCount })}` : "";
     const title = `#${segment.id}: ${segment.start.name} - ${segment.end.name}`;
+    const visibilityBadge = this.handlers.formatSegmentVisibilityBadge?.(segment) || "";
     const meta = `${(segment.distance / 1000).toFixed(2)} km · ${segment.ascent} hm${ownerPart}${matchPart}`;
 
     return `
@@ -423,7 +426,7 @@ export default class TableView {
         </span>
         <span class="segments-detail-heading__copy">
           <span class="segments-detail-heading__title">${this.escapeHtml(title)}</span>
-          <span class="segments-detail-heading__meta">${this.escapeHtml(meta)}</span>
+          <span class="segments-detail-heading__meta">${this.escapeHtml(meta)}${visibilityBadge}</span>
         </span>
       </span>
     `;

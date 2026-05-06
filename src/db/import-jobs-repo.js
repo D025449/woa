@@ -19,10 +19,11 @@ export async function createImportJob({
             status,
             stage,
             progress_percent,
+            file_statuses,
             processed_files,
             failed_files
         ) 
-        values ($1, $2::jsonb, $3::jsonb, $4, 'queued', 'waiting_for_worker', 0, 0, 0) returning id
+        values ($1, $2::jsonb, $3::jsonb, $4, 'queued', 'waiting_for_worker', 0, '[]'::jsonb, 0, 0) returning id
         `,
         [
             uid,
@@ -47,6 +48,7 @@ export async function getImportJobById(id) {
             status,
             stage,
             progress_percent as "progressPercent",
+            file_statuses as "fileStatuses",
             total_files as "totalFiles",
             processed_files as "processedFiles",
             failed_files as "failedFiles",
@@ -67,6 +69,7 @@ export async function updateImportJob(id, patch) {
         status: 'status',
         stage: 'stage',
         progressPercent: 'progress_percent',
+        fileStatuses: 'file_statuses',
         totalFiles: 'total_files',
         processedFiles: 'processed_files',
         failedFiles: 'failed_files',
@@ -82,7 +85,11 @@ export async function updateImportJob(id, patch) {
         if (!dbField) continue;
 
         updates.push(`${dbField} = $${index}`);
-        values.push(value);
+        if (key === 'fileStatuses') {
+            values.push(JSON.stringify(Array.isArray(value) ? value : []));
+        } else {
+            values.push(value);
+        }
         index += 1;
     }
 

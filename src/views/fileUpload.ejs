@@ -19,8 +19,8 @@
         showDashboardNewLink: true
     }) %>
 
-    <div class="container-fluid px-3 px-xl-4 py-4">
-        <div class="upload-shell ui-page-shell">
+    <div class="container-fluid px-3 px-xl-4 py-4 upload-client-container">
+        <div id="upload-shell" class="upload-shell ui-page-shell">
             <section class="upload-hero ui-hero ui-hero--compact">
                 <div>
                     <p class="upload-kicker ui-hero__kicker"><%= t("uploadPage.heroKicker") %></p>
@@ -44,92 +44,110 @@
 
                 <div class="upload-stage-body">
                     <div id="upload-limit-alert" class="upload-limit-alert d-none" role="alert"></div>
-                    <div class="row g-4">
-                        <div class="col-lg-6">
+                    <div class="row g-4 upload-workspace">
+                        <div class="col-lg-6 upload-workspace__col">
                             <div class="upload-form-panel h-100">
-                                <form id="uploadForm">
-                                    <div class="mb-3">
-                                        <label for="file" class="form-label">
-                                            <%= t("uploadPage.selectFiles") %>
-                                        </label>
-                                        <input type="file" class="d-none" id="file" name="files" multiple required>
-                                        <div class="d-flex align-items-center gap-2">
-                                            <button type="button" id="filePickerButton" class="btn btn-outline-secondary btn-sm"><%= t("uploadPage.chooseFiles") %></button>
-                                            <span id="filePickerLabel" class="small text-muted"><%= t("uploadPage.noFilesSelected") %></span>
-                                        </div>
-                                    </div>
-
-                                    <div class="upload-share-shell">
-                                        <div>
-                                            <label class="form-label"><%= t("uploadPage.visibilityLabel") %></label>
-                                            <div class="upload-share-choice">
-                                                <label class="upload-share-option">
-                                                    <input type="radio" name="shareMode" value="private" checked>
-                                                    <span>
-                                                        <strong><%= t("uploadPage.private") %></strong>
-                                                        <small><%= t("uploadPage.privateCopy") %></small>
-                                                    </span>
-                                                </label>
-                                                <label class="upload-share-option">
-                                                    <input type="radio" name="shareMode" value="groups">
-                                                    <span>
-                                                        <strong><%= t("uploadPage.shareWithGroups") %></strong>
-                                                        <small><%= t("uploadPage.shareWithGroupsCopy") %></small>
-                                                    </span>
-                                                </label>
+                                <div class="upload-form-stack">
+                                    <form id="uploadForm">
+                                        <div class="mb-3">
+                                            <label for="file" class="form-label">
+                                                <%= t("uploadPage.selectFiles") %>
+                                            </label>
+                                            <input type="file" class="d-none" id="file" name="files" multiple required>
+                                            <div class="d-flex align-items-center gap-2">
+                                                <button type="button" id="filePickerButton" class="btn btn-outline-secondary btn-sm"><%= t("uploadPage.chooseFiles") %></button>
+                                                <span id="filePickerLabel" class="small text-muted"><%= t("uploadPage.noFilesSelected") %></span>
                                             </div>
                                         </div>
 
-                                        <div id="groupSharePanel" class="upload-share-panel d-none">
-                                            <p id="groupShareHint" class="upload-share-hint">
-                                                <%= t("uploadPage.groupShareHint") %>
-                                            </p>
-                                            <div id="groupShareList" class="upload-share-list"></div>
+                                        <div class="upload-share-shell">
+                                            <div>
+                                                <label class="form-label"><%= t("uploadPage.visibilityLabel") %></label>
+                                                <div class="upload-share-choice">
+                                                    <label class="upload-share-option">
+                                                        <input type="radio" name="shareMode" value="private" checked>
+                                                        <span>
+                                                            <strong><%= t("uploadPage.private") %></strong>
+                                                            <small><%= t("uploadPage.privateCopy") %></small>
+                                                        </span>
+                                                    </label>
+                                                    <label class="upload-share-option">
+                                                        <input type="radio" name="shareMode" value="groups">
+                                                        <span>
+                                                            <strong><%= t("uploadPage.shareWithGroups") %></strong>
+                                                            <small><%= t("uploadPage.shareWithGroupsCopy") %></small>
+                                                        </span>
+                                                    </label>
+                                                </div>
+                                            </div>
+
+                                            <div id="groupSharePanel" class="upload-share-panel d-none">
+                                                <p id="groupShareHint" class="upload-share-hint">
+                                                    <%= t("uploadPage.groupShareHint") %>
+                                                </p>
+                                                <div id="groupShareList" class="upload-share-list"></div>
+                                            </div>
                                         </div>
-                                    </div>
 
-                                    <div class="d-grid">
-                                        <button type="submit" id="submitButton" class="btn btn-primary upload-primary-btn">
-                                            <%= t("uploadPage.startUpload") %>
-                                        </button>
-                                    </div>
-                                </form>
+                                        <div class="d-grid">
+                                            <button type="submit" id="submitButton" class="btn btn-primary upload-primary-btn">
+                                                <%= t("uploadPage.startUpload") %>
+                                            </button>
+                                        </div>
+                                    </form>
 
-                                <div id="response" class="mt-3"></div>
+                                    <div id="response" class="mt-3"></div>
+                                </div>
                             </div>
                         </div>
 
-                        <div class="col-lg-6">
+                        <div class="col-lg-6 upload-workspace__col">
                             <div id="statusArea" class="upload-status-panel d-none h-100">
-                                <div class="upload-phase-card">
-                                    <span class="upload-phase-label"><%= t("uploadPage.currentPhase") %></span>
-                                    <div id="phaseText" class="fw-semibold"><%= t("uploadPage.ready") %></div>
-                                </div>
+                                <div class="upload-status-stack">
+                                    <div class="upload-phase-card">
+                                        <span class="upload-phase-label"><%= t("uploadPage.currentPhase") %></span>
+                                        <div id="phaseText" class="fw-semibold"><%= t("uploadPage.ready") %></div>
+                                    </div>
 
-                                <div class="upload-progress-block">
-                                    <div class="d-flex justify-content-between">
-                                        <span><%= t("uploadPage.upload") %></span>
-                                        <span id="uploadPercentText">0%</span>
-                                    </div>
-                                    <div class="progress">
-                                        <div id="uploadProgressBar" class="progress-bar" role="progressbar"
-                                            style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                    <div class="upload-progress-block">
+                                        <div class="d-flex justify-content-between">
+                                            <span><%= t("uploadPage.upload") %></span>
+                                            <span id="uploadPercentText">0%</span>
                                         </div>
+                                        <div class="progress">
+                                            <div id="uploadProgressBar" class="progress-bar" role="progressbar"
+                                                style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                            </div>
+                                        </div>
+                                        <div id="uploadDetailText" class="small text-muted mt-1"></div>
                                     </div>
-                                    <div id="uploadDetailText" class="small text-muted mt-1"></div>
-                                </div>
 
-                                <div class="upload-progress-block">
-                                    <div class="d-flex justify-content-between">
-                                        <span><%= t("uploadPage.processing") %></span>
-                                        <span id="processingPercentText">0%</span>
-                                    </div>
-                                    <div class="progress">
-                                        <div id="processingProgressBar" class="progress-bar bg-success" role="progressbar"
-                                            style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                    <div class="upload-progress-block">
+                                        <div class="d-flex justify-content-between">
+                                            <span><%= t("uploadPage.processing") %></span>
+                                            <span id="processingPercentText">0%</span>
                                         </div>
+                                        <div class="progress">
+                                            <div id="processingProgressBar" class="progress-bar bg-success" role="progressbar"
+                                                style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                            </div>
+                                        </div>
+                                        <div id="processingDetailText" class="small text-muted mt-1"></div>
                                     </div>
-                                    <div id="processingDetailText" class="small text-muted mt-1"></div>
+
+                                    <div id="importFileStatusPanel" class="upload-file-status-panel d-none">
+                                        <div class="upload-file-status-panel__header">
+                                            <div>
+                                                <span class="upload-file-status-panel__eyebrow"><%= t("uploadPage.fileStatusEyebrow") %></span>
+                                                <div class="upload-file-status-panel__title"><%= t("uploadPage.fileStatusTitle") %></div>
+                                            </div>
+                                            <div class="upload-file-status-filter ui-toggle-group ui-toggle-group--light" role="group" aria-label="<%= t('uploadPage.fileStatusFilterAria') %>">
+                                                <button id="importFileStatusFilterAll" class="btn btn-sm btn-outline-secondary active" type="button"><%= t("uploadPage.fileStatusFilterAll") %></button>
+                                                <button id="importFileStatusFilterFailed" class="btn btn-sm btn-outline-secondary" type="button"><%= t("uploadPage.fileStatusFilterFailed") %></button>
+                                            </div>
+                                        </div>
+                                        <div id="importFileStatusList" class="upload-file-status-list"></div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
