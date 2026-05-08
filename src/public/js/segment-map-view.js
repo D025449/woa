@@ -152,7 +152,7 @@ export default class MapView {
   disableSelectionMode() {
     this.isSelecting = false;
     this.resetLookupSelection();
-    this.map.getContainer().style.cursor = "";
+    this.map.getContainer().style.cursor = "crosshair";
     this.syncSelectionUi();
   }
 

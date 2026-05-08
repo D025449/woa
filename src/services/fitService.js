@@ -582,7 +582,7 @@ export default class FitProcessor {
       }
     }
 
-    const validGps = validCount > 0;
+    const validGps = reduced.length >= 2;
 
     let trailingConstantTailLength = 0;
     for (let i = records.length - 1; i > 0; i--) {
@@ -617,14 +617,16 @@ export default class FitProcessor {
     if (
       debugEnabled ||
       diagnostics.suspiciousConstantTail ||
-      diagnostics.jumpRejectedCount > 0
+      diagnostics.jumpRejectedCount > 0 ||
+      (validCount > 0 && reduced.length < 2)
     ) {
       console.log("[gps-cleaning]", {
         ...diagnostics,
         sampleRate,
         precision,
         validGps,
-        validCount
+        validCount,
+        reducedTrackPointCount: reduced.length
       });
     }
 

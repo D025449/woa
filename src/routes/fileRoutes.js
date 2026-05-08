@@ -65,6 +65,33 @@ router.delete("/workouts/:id", authMiddleware, requireActiveAccountWrite, async 
   }
 });
 
+router.post("/workouts/bulk-delete", authMiddleware, requireActiveAccountWrite, async (req, res) => {
+  const uid = req.user.id;
+  const workoutIds = Array.isArray(req.body?.workoutIds) ? req.body.workoutIds : [];
+  const normalizedIds = [...new Set(
+    workoutIds
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value > 0)
+  )];
+
+  if (!normalizedIds.length) {
+    return res.status(400).json({ error: "No valid workout ids provided" });
+  }
+
+  try {
+    const result = await FileDBService.deleteWorkouts(uid, normalizedIds);
+    return res.json({
+      ok: true,
+      deletedIds: result.deletedIds,
+      requestedCount: normalizedIds.length,
+      deletedCount: result.rowCount
+    });
+  } catch (err) {
+    console.error("POST /files/workouts/bulk-delete failed:", err);
+    return res.status(500).json({ error: "Failed to bulk delete workouts" });
+  }
+});
+
 
 router.get('/uploadUI', checkAuth, async (req, res) => {
   console.log(req.user);

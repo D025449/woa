@@ -66,20 +66,46 @@ export default function confirmModal({
   acceptButton.classList.add(...String(acceptClass).split(" ").filter(Boolean));
 
   return new Promise((resolve) => {
-    let resolved = false;
+    let settled = false;
+    let pendingResult = false;
+    const previousActiveElement =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
-    const finalize = (value) => {
-      if (resolved) {
+    const blurModalFocus = () => {
+      const activeElement = document.activeElement;
+      if (
+        activeElement instanceof HTMLElement &&
+        modalElement.contains(activeElement)
+      ) {
+        activeElement.blur();
+      }
+    };
+
+    const finish = (value) => {
+      if (settled) {
         return;
       }
-      resolved = true;
+      settled = true;
       cleanup();
+      if (previousActiveElement && document.contains(previousActiveElement)) {
+        previousActiveElement.focus();
+      }
       resolve(value);
     };
 
-    const onAccept = () => finalize(true);
-    const onCancel = () => finalize(false);
-    const onHidden = () => finalize(false);
+    const requestClose = (value) => {
+      if (settled) {
+        return;
+      }
+
+      pendingResult = value;
+      blurModalFocus();
+      modal.hide();
+    };
+
+    const onAccept = () => requestClose(true);
+    const onCancel = () => requestClose(false);
+    const onHidden = () => finish(pendingResult);
 
     const cleanup = () => {
       acceptButton.removeEventListener("click", onAccept);
@@ -96,8 +122,5 @@ export default function confirmModal({
     Promise.resolve().then(() => {
       cancelButton.focus();
     });
-  }).then((accepted) => {
-    modal.hide();
-    return accepted;
   });
 }

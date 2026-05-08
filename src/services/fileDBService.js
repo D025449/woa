@@ -436,6 +436,36 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
 
   }
 
+  static async deleteWorkouts(uid, workoutIds = []) {
+    const normalizedIds = [...new Set(
+      (Array.isArray(workoutIds) ? workoutIds : [])
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value > 0)
+    )];
+
+    if (!normalizedIds.length) {
+      return {
+        rowCount: 0,
+        deletedIds: []
+      };
+    }
+
+    const result = await pool.query(
+      `
+      DELETE FROM workouts
+      WHERE uid = $1
+        AND id = ANY($2::int[])
+      RETURNING id
+      `,
+      [uid, normalizedIds]
+    );
+
+    return {
+      rowCount: result.rowCount,
+      deletedIds: result.rows.map((row) => Number(row.id))
+    };
+  }
+
   static async getWorkoutRecords() {
     throw new Error("Legacy workout data endpoint is no longer supported");
   }
@@ -1290,6 +1320,17 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
 
     const geom = `LINESTRING(${coords})`;
     timing.mark("build-geometry-wkt");
+
+    if (fileRow.validGps && points_count < 2) {
+      console.warn("[db.insert-file] forcing GPS invalid because track has fewer than 2 points", {
+        uid: fileRow.uid,
+        startTime: fileRow.start_time,
+        pointsCount: points_count
+      });
+      fileRow.validGps = false;
+      fileRow.bbox = null;
+      sampleRateGPS = 1;
+    }
 
 
     const {

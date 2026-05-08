@@ -611,8 +611,24 @@ export default class WorkoutLibraryView {
 
   removeWorkout(workoutId) {
     const targetId = String(workoutId);
+    const removedWorkout = this.items.find((workout) => String(workout.id) === targetId) || null;
     this.items = this.items.filter((workout) => String(workout.id) !== targetId);
     this.totalRecords = Math.max(0, this.totalRecords - 1);
+
+    if (removedWorkout?.is_owned && this.ownSummary) {
+      this.ownSummary = {
+        ...this.ownSummary,
+        workout_count: Math.max(0, Number(this.ownSummary.workout_count || 0) - 1),
+        total_timer_time: Math.max(
+          0,
+          Number(this.ownSummary.total_timer_time || 0) - Number(removedWorkout.total_timer_time || 0)
+        ),
+        total_distance: Math.max(
+          0,
+          Number(this.ownSummary.total_distance || 0) - Number(removedWorkout.total_distance || 0)
+        )
+      };
+    }
 
     if (this.selectedWorkoutId === targetId) {
       this.selectedWorkoutId = null;

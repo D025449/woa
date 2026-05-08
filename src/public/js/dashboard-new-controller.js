@@ -423,16 +423,20 @@ export default class Controller {
       return;
     }
 
-    await WorkoutService.deleteWorkoutsByIds(ownWorkouts.map((workout) => workout.id));
+    const deletedIds = new Set(
+      await WorkoutService.deleteWorkoutsByIds(ownWorkouts.map((workout) => workout.id))
+    );
 
-    ownWorkouts.forEach((workout) => {
+    ownWorkouts
+      .filter((workout) => deletedIds.has(Number(workout.id)))
+      .forEach((workout) => {
       if (String(workout.id) === String(this.currentWorkoutId)) {
         this.currentWorkoutId = null;
         this.uiState.remove("selectedWorkoutId");
         this.resetWorkspaceSummary();
       }
       this.libraryView.removeWorkout(workout.id);
-    });
+      });
 
     this.libraryView.setSelectionMode(false);
     this.renderQuickAccess();

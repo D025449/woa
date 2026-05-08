@@ -41,23 +41,47 @@ export default class WorkoutService {
   }
 
   static async deleteWorkoutsByIds(workoutIds = []) {
-    for (const workoutId of workoutIds) {
-      const response = await fetch(`/files/workouts/${workoutId}`, {
-        method: "DELETE"
-      });
+    const normalizedIds = [...new Set(
+      (Array.isArray(workoutIds) ? workoutIds : [])
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value > 0)
+    )];
 
-      if (response.status === 401) {
-        window.location.href = "/";
-        return false;
-      }
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Delete failed (${response.status})`);
-      }
+    if (!normalizedIds.length) {
+      return [];
     }
 
-    return true;
+    const response = await fetch("/files/workouts/bulk-delete", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        workoutIds: normalizedIds
+      })
+    });
+
+    if (response.status === 401) {
+      window.location.href = "/";
+      return [];
+    }
+
+    if (!response.ok) {
+      let message = `Bulk delete failed (${response.status})`;
+      try {
+        const result = await response.json();
+        message = result.error || message;
+      } catch {
+        const text = await response.text();
+        if (text) {
+          message = text;
+        }
+      }
+      throw new Error(message);
+    }
+
+    const result = await response.json();
+    return Array.isArray(result.deletedIds) ? result.deletedIds : [];
   }
 
   static async loadWorkoutByRow(wid) {

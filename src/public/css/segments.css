@@ -326,6 +326,13 @@ body.segments-page {
     border-bottom-right-radius: 1.5rem;
 }
 
+.segments-map-body .leaflet-container,
+.segments-map-body .leaflet-grab,
+.segments-map-body .leaflet-dragging,
+.segments-map-body .leaflet-interactive {
+    cursor: crosshair !important;
+}
+
 .segments-map-actions-menu {
     position: relative;
 }
