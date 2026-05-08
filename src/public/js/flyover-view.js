@@ -32,6 +32,7 @@ export default class FlyoverView {
     this.lastRenderedTrackFeature = null;
     this.didFinishInitialIdle = false;
     this.playbackTrackPoints = [];
+    this.activePlaybackTrackPoints = [];
     this.playbackFrame = null;
     this.playbackStartTime = 0;
     this.playbackDurationMs = 0;
@@ -40,10 +41,23 @@ export default class FlyoverView {
     this.playbackProgress = 0;
     this.lastWorkoutIdentity = null;
     this.isRenderReady = false;
+    this.isPlaybackReady = false;
+    this.isPlaybackPending = false;
+    this.isApproachRunning = false;
+    this.hasCompletedInitialApproach = false;
+    this.isReturnFlightRunning = false;
     this.wantsPlayback = false;
     this.playbackEnsureTimer = null;
+    this.approachTimer = null;
+    this.returnFlightTimer = null;
+    this.playbackReadyTimer = null;
+    this.renderCycleId = 0;
     this.terrainEnabled = true;
     this.hasTerrainFailure = false;
+    this.lastDebugLogAt = 0;
+    this.lastPlaybackTickLogAt = 0;
+    this.lastKnownTerrainElevation = null;
+    this.overviewCameraState = null;
     this.hasRenderableTrack = typeof hasRenderableTrack === "function"
       ? hasRenderableTrack
       : (item) => !!item?.validGps && Array.isArray(item?.track) && item.track.length > 1;
@@ -69,6 +83,11 @@ export default class FlyoverView {
 
     this.modalElement?.addEventListener("shown.bs.modal", () => {
       this.isRenderReady = false;
+      this.isPlaybackReady = false;
+      this.isApproachRunning = false;
+      this.hasCompletedInitialApproach = false;
+      this.isReturnFlightRunning = false;
+      this.overviewCameraState = null;
       this.updatePlaybackUi();
       this.ensureMap();
       this.runModalResizeSequence();
@@ -86,8 +105,16 @@ export default class FlyoverView {
         window.clearTimeout(this.modalResizeTimer);
         this.modalResizeTimer = null;
       }
+      this.clearPlaybackReadyTimer();
+      if (this.approachTimer) {
+        window.clearTimeout(this.approachTimer);
+        this.approachTimer = null;
+      }
+      if (this.returnFlightTimer) {
+        window.clearTimeout(this.returnFlightTimer);
+        this.returnFlightTimer = null;
+      }
       this.resetPlaybackState({ clearTrack: true });
-      this.destroyMap();
     });
 
     if (typeof globalThis.ResizeObserver === "function" && this.mapElement) {
@@ -110,24 +137,37 @@ export default class FlyoverView {
         lookAheadMeters: 0,
         baseAltitudeMeters: 4.6,
         slopeAltitudeMeters: 5.4,
+        bearingSmoothingFactor: 0.1,
         verticalFieldOfViewRadians: 0.82,
         fallbackZoom: 16.1,
         fallbackPitch: 80
       },
       action: {
         followDistanceMeters: 0.08,
-        lookAheadMeters: 0,
-        baseAltitudeMeters: 0.04,
-        slopeAltitudeMeters: 0.12,
-        verticalFieldOfViewRadians: 1.52,
+        lookAheadMeters: 1.8,
+        baseAltitudeMeters: 0.005,
+        slopeAltitudeMeters: 0.04,
+        bearingSmoothingFactor: 0.06,
+        verticalFieldOfViewRadians: 1.42,
         fallbackZoom: 14.1,
-        fallbackPitch: 86
+        fallbackPitch: 84
+      },
+      firstPerson: {
+        followDistanceMeters: 0.18,
+        lookAheadMeters: 3.5,
+        baseAltitudeMeters: 1.2,
+        slopeAltitudeMeters: 0.55,
+        bearingSmoothingFactor: 0.08,
+        verticalFieldOfViewRadians: 1.18,
+        fallbackZoom: 15.9,
+        fallbackPitch: 88
       },
       cinematic: {
         followDistanceMeters: 9.5,
         lookAheadMeters: 32,
         baseAltitudeMeters: 5.8,
         slopeAltitudeMeters: 6.5,
+        bearingSmoothingFactor: 0.08,
         verticalFieldOfViewRadians: 0.68,
         fallbackZoom: 16.8,
         fallbackPitch: 76
@@ -137,6 +177,7 @@ export default class FlyoverView {
         lookAheadMeters: 28,
         baseAltitudeMeters: 8.5,
         slopeAltitudeMeters: 8,
+        bearingSmoothingFactor: 0.07,
         verticalFieldOfViewRadians: 0.74,
         fallbackZoom: 17.3,
         fallbackPitch: 72
@@ -373,6 +414,45 @@ export default class FlyoverView {
     }
   }
 
+  clearPlaybackReadyTimer() {
+    if (!this.playbackReadyTimer) {
+      return;
+    }
+
+    window.clearTimeout(this.playbackReadyTimer);
+    this.playbackReadyTimer = null;
+  }
+
+  schedulePlaybackReady() {
+    const cycleId = ++this.renderCycleId;
+    this.isPlaybackReady = false;
+    this.updatePlaybackUi();
+    this.clearPlaybackReadyTimer();
+
+    const markReady = () => {
+      if (cycleId !== this.renderCycleId) {
+        return;
+      }
+
+      this.isPlaybackReady = true;
+      this.updatePlaybackUi();
+
+      if (this.wantsPlayback && !this.isPlaying) {
+        this.ensurePlaybackRunning();
+      }
+    };
+
+    this.playbackReadyTimer = window.setTimeout(() => {
+      this.playbackReadyTimer = null;
+      markReady();
+    }, 700);
+
+    this.map?.once?.("idle", () => {
+      this.clearPlaybackReadyTimer();
+      markReady();
+    });
+  }
+
   runModalResizeSequence() {
     this.map?.resize?.();
     this.requestRenderCurrentWorkout();
@@ -431,6 +511,7 @@ export default class FlyoverView {
     this.applyViewportToTrack();
 
     this.isRenderReady = true;
+    this.schedulePlaybackReady();
     this.updatePlaybackUi();
     this.updateSummary();
 
@@ -506,13 +587,27 @@ export default class FlyoverView {
   togglePlayback() {
     if (this.isPlaying) {
       this.wantsPlayback = false;
+      this.isPlaybackPending = false;
+      this.isApproachRunning = false;
       this.clearPlaybackEnsureTimer();
       this.pausePlayback();
       this.updatePlaybackUi();
       return;
     }
 
+    if (this.isPlaybackPending || this.isApproachRunning || this.isReturnFlightRunning) {
+      return;
+    }
+
     this.wantsPlayback = true;
+    this.isPlaybackPending = true;
+    console.log("[FlyoverPlaybackTrace] click->pending", {
+      preset: this.cameraPresetKey,
+      isRenderReady: this.isRenderReady,
+      isPlaybackReady: this.isPlaybackReady,
+      trackPoints: this.playbackTrackPoints.length
+    });
+    this.updatePlaybackUi();
     this.ensurePlaybackRunning();
   }
 
@@ -530,6 +625,8 @@ export default class FlyoverView {
       return;
     }
 
+    this.activePlaybackTrackPoints = this.playbackTrackPoints.map((point) => ({ ...point }));
+
     if (this.playbackProgress >= 1 || this.playbackProgress < 0) {
       this.playbackProgress = 0;
     }
@@ -540,29 +637,51 @@ export default class FlyoverView {
     }
 
     this.isPlaying = true;
+    this.isApproachRunning = false;
+    this.isReturnFlightRunning = false;
+    this.hasCompletedInitialApproach = true;
     this.wantsPlayback = false;
+    this.isPlaybackPending = false;
     this.clearPlaybackEnsureTimer();
     this.playbackDurationMs = this.resolvePlaybackDurationMs(this.currentWorkout, this.playbackTrackPoints);
+    console.log("[FlyoverPlaybackTrace] start", {
+      preset: this.cameraPresetKey,
+      trackPoints: this.playbackTrackPoints.length,
+      durationMs: this.playbackDurationMs
+    });
     this.playbackStartTime = performance.now() - (this.playbackProgress * this.playbackDurationMs);
     this.updatePlaybackUi();
 
     const tick = (now) => {
       if (!this.isPlaying) {
+        console.log("[FlyoverPlaybackTrace] tick-abort:not-playing");
         return;
       }
 
-      if (!Array.isArray(this.playbackTrackPoints) || this.playbackTrackPoints.length < 2) {
+      if (!Array.isArray(this.activePlaybackTrackPoints) || this.activePlaybackTrackPoints.length < 2) {
+        console.log("[FlyoverPlaybackTrace] tick-abort:no-track");
         this.stopPlayback({ resetPlayhead: true });
         return;
       }
 
       const elapsed = now - this.playbackStartTime;
-      const progress = Math.min(1, elapsed / this.playbackDurationMs);
+      const progress = Math.max(0, Math.min(1, elapsed / this.playbackDurationMs));
       this.playbackProgress = progress;
+      if (now - this.lastPlaybackTickLogAt > 1200) {
+        this.lastPlaybackTickLogAt = now;
+        console.log("[FlyoverPlaybackTrace] tick", {
+          preset: this.cameraPresetKey,
+          elapsedMs: Math.round(elapsed),
+          progress: Number(progress.toFixed(4)),
+          durationMs: this.playbackDurationMs
+        });
+      }
       this.applyPlaybackProgress(progress);
 
       if (progress >= 1) {
+        console.log("[FlyoverPlaybackTrace] complete");
         this.stopPlayback({ resetPlayhead: false });
+        this.startReturnFlight();
         this.updatePlaybackUi();
         return;
       }
@@ -575,6 +694,7 @@ export default class FlyoverView {
 
   pausePlayback() {
     this.isPlaying = false;
+    console.log("[FlyoverPlaybackTrace] pause");
     if (this.playbackFrame) {
       window.cancelAnimationFrame(this.playbackFrame);
       this.playbackFrame = null;
@@ -584,16 +704,25 @@ export default class FlyoverView {
   ensurePlaybackRunning() {
     if (this.isPlaying) {
       this.wantsPlayback = false;
+      this.isPlaybackPending = false;
       this.clearPlaybackEnsureTimer();
       return;
     }
 
     if (!this.wantsPlayback) {
+      this.isPlaybackPending = false;
       this.clearPlaybackEnsureTimer();
       return;
     }
 
-    if (!this.map || !this.isRenderReady) {
+    if (!this.map || !this.isRenderReady || !this.isPlaybackReady) {
+      console.log("[FlyoverPlaybackTrace] wait", {
+        preset: this.cameraPresetKey,
+        hasMap: !!this.map,
+        isRenderReady: this.isRenderReady,
+        isPlaybackReady: this.isPlaybackReady,
+        trackPoints: this.playbackTrackPoints.length
+      });
       this.queuePlaybackEnsure();
       return;
     }
@@ -605,6 +734,11 @@ export default class FlyoverView {
 
     if (this.playbackTrackPoints.length < 2) {
       this.queuePlaybackEnsure();
+      return;
+    }
+
+    if (!this.hasCompletedInitialApproach && this.playbackProgress <= 0) {
+      this.startInitialApproach();
       return;
     }
 
@@ -637,7 +771,19 @@ export default class FlyoverView {
 
   stopPlayback({ resetPlayhead = true } = {}) {
     this.wantsPlayback = false;
+    this.isPlaybackPending = false;
+    this.isApproachRunning = false;
+    this.isReturnFlightRunning = false;
+    if (this.approachTimer) {
+      window.clearTimeout(this.approachTimer);
+      this.approachTimer = null;
+    }
+    if (this.returnFlightTimer) {
+      window.clearTimeout(this.returnFlightTimer);
+      this.returnFlightTimer = null;
+    }
     this.clearPlaybackEnsureTimer();
+    console.log("[FlyoverPlaybackTrace] stop", { resetPlayhead });
     this.pausePlayback();
 
     if (resetPlayhead) {
@@ -652,6 +798,18 @@ export default class FlyoverView {
 
   resetPlaybackState({ clearTrack = false } = {}) {
     this.wantsPlayback = false;
+    this.isPlaybackPending = false;
+    this.isApproachRunning = false;
+    this.hasCompletedInitialApproach = false;
+    this.isReturnFlightRunning = false;
+    if (this.approachTimer) {
+      window.clearTimeout(this.approachTimer);
+      this.approachTimer = null;
+    }
+    if (this.returnFlightTimer) {
+      window.clearTimeout(this.returnFlightTimer);
+      this.returnFlightTimer = null;
+    }
     this.clearPlaybackEnsureTimer();
     this.pausePlayback();
     this.playbackProgress = 0;
@@ -659,6 +817,10 @@ export default class FlyoverView {
     this.playbackDurationMs = 0;
     this.lastCameraBearing = 18;
     this.isRenderReady = false;
+    this.isPlaybackReady = false;
+    this.lastKnownTerrainElevation = null;
+    this.overviewCameraState = null;
+    this.activePlaybackTrackPoints = [];
     if (clearTrack) {
       this.playbackTrackPoints = [];
       this.lastRenderedTrackFeature = null;
@@ -669,17 +831,97 @@ export default class FlyoverView {
     this.updatePlaybackUi();
   }
 
-  applyPlaybackProgress(progress) {
-    if (!this.map || this.playbackTrackPoints.length < 2) {
+  startInitialApproach() {
+    if (!this.map || this.isApproachRunning || this.playbackTrackPoints.length < 2) {
       return;
     }
 
-    const scaled = progress * (this.playbackTrackPoints.length - 1);
+    const preset = this.getCameraPreset();
+    const riderPoint = this.playbackTrackPoints[0];
+    const nextPoint = this.playbackTrackPoints[1] || riderPoint;
+    const bearing = this.computeBearing(riderPoint, nextPoint);
+    const cameraPoint = this.projectPoint(riderPoint, bearing + 180, preset.followDistanceMeters);
+    if (!this.overviewCameraState) {
+      this.overviewCameraState = {
+        center: this.map.getCenter?.(),
+        zoom: this.map.getZoom?.(),
+        pitch: this.map.getPitch?.(),
+        bearing: this.map.getBearing?.()
+      };
+    }
+
+    this.isApproachRunning = true;
+    this.isPlaybackPending = true;
+    this.updatePlaybackUi();
+    console.log("[FlyoverPlaybackTrace] approach-start", {
+      preset: this.cameraPresetKey,
+      riderPoint,
+      cameraPoint
+    });
+
+    this.map.easeTo({
+      center: [cameraPoint.lng, cameraPoint.lat],
+      zoom: preset.fallbackZoom,
+      pitch: preset.fallbackPitch,
+      bearing,
+      duration: 2400,
+      essential: true
+    });
+
+    this.approachTimer = window.setTimeout(() => {
+      this.approachTimer = null;
+      this.isApproachRunning = false;
+      if (!this.wantsPlayback || !this.modalElement?.classList.contains("show")) {
+        this.isPlaybackPending = false;
+        this.updatePlaybackUi();
+        return;
+      }
+
+      this.startPlayback();
+    }, 2450);
+  }
+
+  startReturnFlight() {
+    if (!this.map || !this.overviewCameraState) {
+      return;
+    }
+
+    this.isReturnFlightRunning = true;
+    console.log("[FlyoverPlaybackTrace] return-start");
+
+    this.returnFlightTimer = window.setTimeout(() => {
+      this.returnFlightTimer = null;
+      if (!this.modalElement?.classList.contains("show")) {
+        this.isReturnFlightRunning = false;
+        return;
+      }
+
+      this.map.easeTo({
+        center: this.overviewCameraState.center,
+        zoom: this.overviewCameraState.zoom,
+        pitch: this.overviewCameraState.pitch,
+        bearing: this.overviewCameraState.bearing,
+        duration: 2400,
+        essential: true
+      });
+
+      window.setTimeout(() => {
+        this.isReturnFlightRunning = false;
+      }, 2450);
+    }, 2000);
+  }
+
+  applyPlaybackProgress(progress) {
+    if (!this.map || this.activePlaybackTrackPoints.length < 2) {
+      return;
+    }
+
+    const scaled = progress * (this.activePlaybackTrackPoints.length - 1);
     const index = Math.floor(scaled);
-    const nextIndex = Math.min(index + 1, this.playbackTrackPoints.length - 1);
+    const nextIndex = Math.min(index + 1, this.activePlaybackTrackPoints.length - 1);
     const localT = scaled - index;
-    const current = this.playbackTrackPoints[index];
-    const next = this.playbackTrackPoints[nextIndex];
+    const current = this.activePlaybackTrackPoints[index];
+    const next = this.activePlaybackTrackPoints[nextIndex];
     if (!current || !next) {
       this.stopPlayback({ resetPlayhead: true });
       return;
@@ -687,11 +929,15 @@ export default class FlyoverView {
 
     const lng = current.lng + (next.lng - current.lng) * localT;
     const lat = current.lat + (next.lat - current.lat) * localT;
+    const preset = this.getCameraPreset();
     const bearing = this.computeBearing(current, next);
-    const smoothedBearing = this.smoothBearing(this.lastCameraBearing, bearing, 0.14);
+    const smoothedBearing = this.smoothBearing(
+      this.lastCameraBearing,
+      bearing,
+      preset.bearingSmoothingFactor ?? 0.1
+    );
     this.lastCameraBearing = smoothedBearing;
     this.updatePlayheadPoint({ lng, lat });
-    const preset = this.getCameraPreset();
     const riderPoint = { lng, lat, alt: current.alt ?? null };
     const cameraPoint = this.projectPoint(riderPoint, smoothedBearing + 180, preset.followDistanceMeters);
     const slopeFactor = this.computeSlopeFactor(current, next);
@@ -757,14 +1003,28 @@ export default class FlyoverView {
       }
     }
 
-    const terrainAtCamera = this.readTerrainElevation(cameraPoint);
-    const terrainAtRider = this.readTerrainElevation(riderPoint);
-    const terrainAtLookAhead = this.readTerrainElevation(lookAtPoint);
+    const terrainAtCamera = this.resolveTerrainElevation(cameraPoint, riderPoint?.alt ?? null);
+    const terrainAtRider = this.resolveTerrainElevation(riderPoint, riderPoint?.alt ?? null);
+    const terrainAtLookAhead = this.resolveTerrainElevation(lookAtPoint, riderPoint?.alt ?? null);
+    const terrainBase = terrainAtCamera ?? terrainAtRider ?? this.resolveFallbackElevation(riderPoint?.alt ?? null);
+    const cameraAltitude = terrainBase + preset.baseAltitudeMeters + slopeFactor * preset.slopeAltitudeMeters;
+
+    this.debugCameraState({
+      preset,
+      bearing,
+      slopeFactor,
+      cameraPoint,
+      riderPoint,
+      lookAtPoint,
+      terrainAtCamera,
+      terrainAtRider,
+      terrainAtLookAhead,
+      cameraAltitude
+    });
 
     if (typeof this.map.getFreeCameraOptions === "function" && typeof globalThis.maplibregl?.MercatorCoordinate?.fromLngLat === "function") {
       try {
         const freeCamera = this.map.getFreeCameraOptions();
-        const cameraAltitude = (terrainAtCamera ?? terrainAtRider ?? 0) + preset.baseAltitudeMeters + slopeFactor * preset.slopeAltitudeMeters;
         freeCamera.position = globalThis.maplibregl.MercatorCoordinate.fromLngLat(
           [cameraPoint.lng, cameraPoint.lat],
           cameraAltitude
@@ -792,6 +1052,44 @@ export default class FlyoverView {
     });
   }
 
+  debugCameraState({
+    preset,
+    bearing,
+    slopeFactor,
+    cameraPoint,
+    riderPoint,
+    lookAtPoint,
+    terrainAtCamera,
+    terrainAtRider,
+    terrainAtLookAhead,
+    cameraAltitude
+  }) {
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    if (now - this.lastDebugLogAt < 500) {
+      return;
+    }
+
+    this.lastDebugLogAt = now;
+
+    console.log("[FlyoverCameraDebug]", {
+      preset: this.cameraPresetKey,
+      bearing: Number(bearing?.toFixed?.(2) ?? bearing),
+      slopeFactor: Number(slopeFactor?.toFixed?.(3) ?? slopeFactor),
+      followDistanceMeters: preset.followDistanceMeters,
+      lookAheadMeters: preset.lookAheadMeters,
+      baseAltitudeMeters: preset.baseAltitudeMeters,
+      slopeAltitudeMeters: preset.slopeAltitudeMeters,
+      verticalFieldOfViewRadians: preset.verticalFieldOfViewRadians,
+      terrainAtCamera,
+      terrainAtRider,
+      terrainAtLookAhead,
+      cameraAltitude,
+      cameraPoint,
+      riderPoint,
+      lookAtPoint
+    });
+  }
+
   computeSlopeFactor(from, to) {
     const fromAlt = Number(from?.alt);
     const toAlt = Number(to?.alt);
@@ -814,6 +1112,28 @@ export default class FlyoverView {
     } catch {
       return null;
     }
+  }
+
+  resolveTerrainElevation(point, fallbackAlt = null) {
+    const terrainValue = this.readTerrainElevation(point);
+    if (Number.isFinite(terrainValue)) {
+      this.lastKnownTerrainElevation = terrainValue;
+      return terrainValue;
+    }
+
+    return this.resolveFallbackElevation(fallbackAlt);
+  }
+
+  resolveFallbackElevation(fallbackAlt = null) {
+    if (Number.isFinite(this.lastKnownTerrainElevation)) {
+      return this.lastKnownTerrainElevation;
+    }
+
+    if (Number.isFinite(Number(fallbackAlt))) {
+      return Number(fallbackAlt);
+    }
+
+    return 0;
   }
 
   updatePlayheadPoint(point) {
@@ -845,7 +1165,7 @@ export default class FlyoverView {
       return;
     }
 
-    const canPlay = this.isRenderReady && this.playbackTrackPoints.length > 1;
+    const canPlay = this.isRenderReady && this.isPlaybackReady && this.playbackTrackPoints.length > 1 && !this.isPlaybackPending;
     this.playToggleButton.disabled = !canPlay;
     this.playToggleButton.setAttribute("aria-pressed", this.isPlaying ? "true" : "false");
     const playIcon = this.playToggleButton.querySelector(".dashboard-3d-modal__play-icon--play");
@@ -857,7 +1177,7 @@ export default class FlyoverView {
     if (label) {
       label.textContent = this.isPlaying
         ? this.t("map3dPause")
-        : !canPlay
+        : (!this.isRenderReady || !this.isPlaybackReady || this.isPlaybackPending)
           ? this.t("messages.loading")
           : this.t("map3dPlay");
     }

@@ -199,8 +199,9 @@ export default class FitProcessor {
   // -----------------------------
   // MAIN PIPELINE
   // -----------------------------
-  static processFitRecords(fitFile) {
+  static processFitRecords(fitFile, options = {}) {
     const timing = FitProcessor.createStepLogger("fit.process-fit-records", {
+      sourceName: options?.sourceName ?? null,
       recordCount: fitFile?.records?.length ?? 0,
       sessionCount: fitFile?.sessions?.length ?? 0
     });
@@ -236,7 +237,10 @@ export default class FitProcessor {
     FitProcessor.cleanAltitude(records);
     timing.mark("clean-altitude");
 
-    const gps_track = FitProcessor.cleanGPSAndBuildTrack(records, { sampleRate: 5 });
+    const gps_track = FitProcessor.cleanGPSAndBuildTrack(records, {
+      sampleRate: 5,
+      sourceName: options?.sourceName ?? null
+    });
     timing.mark("clean-gps-build-track", {
       gpsPointCount: gps_track?.track?.length ?? 0,
       validGps: !!gps_track?.validGps
@@ -360,12 +364,33 @@ export default class FitProcessor {
 
 
   static cleanGPSAndBuildTrack(records, options = {}) {
-    const MAX_SPEED = 40;
+    const MAX_STEP_DISTANCE_METERS = 40;
+    const MIN_RELOCK_SEQUENCE = 3;
+    const MAX_INTERPOLATION_GAP = 8;
 
     const {
       sampleRate = 1,
-      precision = 5
+      precision = 5,
+      sourceName = null
     } = options;
+
+    const debugEnabled = process.env.GPS_IMPORT_DEBUG === "1";
+    const diagnostics = {
+      sourceName,
+      totalRecords: records.length,
+      initialInvalidCount: 0,
+      jumpRejectedCount: 0,
+      firstJumpRejectedIndex: null,
+      firstJumpRejectedTimestamp: null,
+      maxAcceptedDistanceMeters: 0,
+      maxRejectedDistanceMeters: 0,
+      interpolatedBetweenCount: 0,
+      carriedFromPrevCount: 0,
+      carriedFromNextCount: 0,
+      trailingConstantTailLength: 0,
+      trailingConstantTailStartIndex: null,
+      suspiciousConstantTail: false
+    };
 
     function haversine(a, b) {
       const R = 6371000;
@@ -385,7 +410,18 @@ export default class FitProcessor {
       return 2 * R * Math.atan2(Math.sqrt(aVal), Math.sqrt(1 - aVal));
     }
 
+    for (let i = 0; i < records.length; i++) {
+      const r = records[i];
+      if (!Object.hasOwn(r, "__raw_position_lat")) {
+        r.__raw_position_lat = r.position_lat;
+      }
+      if (!Object.hasOwn(r, "__raw_position_long")) {
+        r.__raw_position_long = r.position_long;
+      }
+    }
+
     let lastValid = null;
+    let relockCandidate = [];
 
     // -------------------------
     // PASS 1: Clean
@@ -399,6 +435,7 @@ export default class FitProcessor {
         (r.position_lat === 0 && r.position_long === 0);
 
       if (invalid) {
+        diagnostics.initialInvalidCount += 1;
         r.position_lat = null;
         r.position_long = null;
         continue;
@@ -410,22 +447,82 @@ export default class FitProcessor {
       }
 
       const dist = haversine(lastValid, r);
-
-      if (dist > MAX_SPEED) {
-        r.position_lat = null;
-        r.position_long = null;
-      } else {
+      if (dist <= MAX_STEP_DISTANCE_METERS) {
+        diagnostics.maxAcceptedDistanceMeters = Math.max(diagnostics.maxAcceptedDistanceMeters, dist);
         lastValid = r;
+        relockCandidate = [];
+        continue;
+      }
+
+      diagnostics.maxRejectedDistanceMeters = Math.max(diagnostics.maxRejectedDistanceMeters, dist);
+      if (diagnostics.firstJumpRejectedIndex == null) {
+        diagnostics.firstJumpRejectedIndex = i;
+        diagnostics.firstJumpRejectedTimestamp = r.timestamp ?? null;
+      }
+      const rawCandidate = {
+        index: i,
+        timestamp: r.timestamp ?? null,
+        position_lat: Number(r.__raw_position_lat),
+        position_long: Number(r.__raw_position_long)
+      };
+
+      rawCandidate.position_lat = Number.isFinite(rawCandidate.position_lat) ? rawCandidate.position_lat : null;
+      rawCandidate.position_long = Number.isFinite(rawCandidate.position_long) ? rawCandidate.position_long : null;
+
+      diagnostics.jumpRejectedCount += 1;
+      r.position_lat = null;
+      r.position_long = null;
+
+      if (rawCandidate.position_lat == null || rawCandidate.position_long == null) {
+        relockCandidate = [];
+        continue;
+      }
+
+      if (relockCandidate.length === 0) {
+        relockCandidate.push(rawCandidate);
+        continue;
+      }
+
+      const prevCandidate = relockCandidate[relockCandidate.length - 1];
+      const candidateDist = haversine(prevCandidate, rawCandidate);
+
+      if (candidateDist <= MAX_STEP_DISTANCE_METERS) {
+        relockCandidate.push(rawCandidate);
+      } else {
+        relockCandidate = [rawCandidate];
+      }
+
+      if (relockCandidate.length >= MIN_RELOCK_SEQUENCE) {
+        diagnostics.relockCount = (diagnostics.relockCount ?? 0) + 1;
+        diagnostics.lastRelockIndex = i;
+        diagnostics.lastRelockTimestamp = r.timestamp ?? null;
+
+        for (const candidate of relockCandidate) {
+          const target = records[candidate.index];
+          target.position_lat = candidate.position_lat;
+          target.position_long = candidate.position_long;
+          diagnostics.recoveredPointCount = (diagnostics.recoveredPointCount ?? 0) + 1;
+        }
+
+        lastValid = records[relockCandidate[relockCandidate.length - 1].index];
+        diagnostics.maxAcceptedDistanceMeters = Math.max(diagnostics.maxAcceptedDistanceMeters, candidateDist);
+        relockCandidate = [];
       }
     }
 
     // -------------------------
     // PASS 2: Interpolation
     // -------------------------
+    let currentGapLength = 0;
     for (let i = 0; i < records.length; i++) {
       const r = records[i];
 
-      if (r.position_lat != null && r.position_long != null) continue;
+      if (r.position_lat != null && r.position_long != null) {
+        currentGapLength = 0;
+        continue;
+      }
+
+      currentGapLength += 1;
 
       let prev = null;
       let next = null;
@@ -444,15 +541,12 @@ export default class FitProcessor {
         }
       }
 
-      if (prev && next) {
+      const canBridgeGap = prev && next && currentGapLength <= MAX_INTERPOLATION_GAP;
+
+      if (canBridgeGap) {
+        diagnostics.interpolatedBetweenCount += 1;
         r.position_lat = (prev.position_lat + next.position_lat) / 2;
         r.position_long = (prev.position_long + next.position_long) / 2;
-      } else if (prev) {
-        r.position_lat = prev.position_lat;
-        r.position_long = prev.position_long;
-      } else if (next) {
-        r.position_lat = next.position_lat;
-        r.position_long = next.position_long;
       }
     }
 
@@ -489,6 +583,55 @@ export default class FitProcessor {
     }
 
     const validGps = validCount > 0;
+
+    let trailingConstantTailLength = 0;
+    for (let i = records.length - 1; i > 0; i--) {
+      const current = records[i];
+      const previous = records[i - 1];
+      if (
+        current?.position_lat == null ||
+        current?.position_long == null ||
+        previous?.position_lat == null ||
+        previous?.position_long == null
+      ) {
+        break;
+      }
+
+      if (
+        current.position_lat === previous.position_lat &&
+        current.position_long === previous.position_long
+      ) {
+        trailingConstantTailLength += 1;
+        continue;
+      }
+
+      break;
+    }
+
+    diagnostics.trailingConstantTailLength = trailingConstantTailLength;
+    diagnostics.trailingConstantTailStartIndex =
+      trailingConstantTailLength > 0 ? records.length - trailingConstantTailLength - 1 : null;
+    diagnostics.suspiciousConstantTail =
+      trailingConstantTailLength >= Math.max(25, Math.floor(records.length * 0.05));
+
+    if (
+      debugEnabled ||
+      diagnostics.suspiciousConstantTail ||
+      diagnostics.jumpRejectedCount > 0
+    ) {
+      console.log("[gps-cleaning]", {
+        ...diagnostics,
+        sampleRate,
+        precision,
+        validGps,
+        validCount
+      });
+    }
+
+    for (let i = 0; i < records.length; i++) {
+      delete records[i].__raw_position_lat;
+      delete records[i].__raw_position_long;
+    }
 
     // einfacher TrackHash
     const trackHash = validGps

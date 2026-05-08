@@ -171,7 +171,9 @@ export async function createApp() {
     let dbrow = null;
 
     try {
-      const { aggregated, segments, gps_track, workoutObject } = processFitRecords(fitJsonObject);
+      const { aggregated, segments, gps_track, workoutObject } = processFitRecords(fitJsonObject, {
+        sourceName: context.entryName || null
+      });
       timing.mark("process-fit-records", {
         segmentCount: segments?.length ?? 0,
         gpsPointCount: gps_track?.track?.length ?? 0,
@@ -253,7 +255,9 @@ export async function createApp() {
 
   async function processFitJsonWithMetrics(fitJsonObject, uid, batchTrace, shareConfig = null, context = {}) {
     const processFitRecordsStartedAt = Date.now();
-    const { aggregated, segments, gps_track, workoutObject } = processFitRecords(fitJsonObject);
+    const { aggregated, segments, gps_track, workoutObject } = processFitRecords(fitJsonObject, {
+      sourceName: context.entryName || null
+    });
     batchTrace?.add("processFitRecordsMs", Date.now() - processFitRecordsStartedAt);
 
     const fitFile = {
