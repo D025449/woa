@@ -407,6 +407,7 @@
     "bulkDelete": "Eliminar entrenamientos seleccionados",
     "bulkCancel": "Cancelar",
     "bulkSelectAllVisible": "Seleccionar visibles",
+    "bulkSelectLoaded": "Seleccionar cargados",
     "bulkClearSelection": "Borrar selección",
     "bulkActions": "Acciones de selección",
     "bulkPublish": "Publicar entrenamientos seleccionados",

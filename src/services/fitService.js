@@ -234,8 +234,18 @@ export default class FitProcessor {
       filledRecordCount: records.length
     });
 
-    FitProcessor.cleanAltitude(records);
+    FitProcessor.cleanAltitude(records, {
+      sourceName: options?.sourceName ?? null
+    });
     timing.mark("clean-altitude");
+
+    if (process.env.ALTITUDE_IMPORT_DEBUG === "1") {
+      console.log("[altitude-record-stats]", {
+        sourceName: options?.sourceName ?? null,
+        stage: "post-clean-records",
+        ...FitProcessor.describeAltitudeRecordStats(records)
+      });
+    }
 
     const gps_track = FitProcessor.cleanGPSAndBuildTrack(records, {
       sampleRate: 5,
@@ -248,6 +258,14 @@ export default class FitProcessor {
 
     const workoutObject = Workout.fromRecords(records, { validGps: gps_track.validGps, startTime: startdate });
     timing.mark("workout-from-records");
+
+    if (process.env.ALTITUDE_IMPORT_DEBUG === "1") {
+      console.log("[altitude-workout-stats]", {
+        sourceName: options?.sourceName ?? null,
+        stage: "post-workout-from-records",
+        ...FitProcessor.describeWorkoutAltitudeStats(workoutObject)
+      });
+    }
 
     const segments = SegmentService.createSgmentsFromIntervals(
       IntervalDetector.detect(records),
@@ -292,8 +310,26 @@ export default class FitProcessor {
     const {
       minAltitude = -500,
       maxAltitude = 9000,
-      maxStepPerSecond = 25
+      maxStepPerSecond = 25,
+      sourceName = null
     } = options;
+
+    const debugEnabled = process.env.ALTITUDE_IMPORT_DEBUG === "1";
+    const diagnostics = {
+      sourceName,
+      totalRecords: Array.isArray(records) ? records.length : 0,
+      rawFiniteCount: 0,
+      rawZeroCount: 0,
+      rawNullishCount: 0,
+      normalizedNullCount: 0,
+      spikeRejectedCount: 0,
+      interpolatedCount: 0,
+      carriedFromPrevCount: 0,
+      carriedFromNextCount: 0,
+      forcedZeroFallbackCount: 0,
+      finalFiniteCount: 0,
+      finalZeroCount: 0
+    };
 
     const toFinite = (value) => {
       const n = Number(value);
@@ -301,8 +337,21 @@ export default class FitProcessor {
     };
 
     for (let i = 0; i < records.length; i++) {
-      const alt = toFinite(records[i]?.altitude);
+      const rawAlt = toFinite(records[i]?.altitude);
+      if (rawAlt == null) {
+        diagnostics.rawNullishCount += 1;
+      } else {
+        diagnostics.rawFiniteCount += 1;
+        if (rawAlt === 0) {
+          diagnostics.rawZeroCount += 1;
+        }
+      }
+
+      const alt = rawAlt;
       records[i].altitude = (alt == null || alt < minAltitude || alt > maxAltitude) ? null : alt;
+      if (records[i].altitude == null) {
+        diagnostics.normalizedNullCount += 1;
+      }
     }
 
     for (let i = 1; i < records.length - 1; i++) {
@@ -324,6 +373,7 @@ export default class FitProcessor {
         neighborDelta <= maxStepPerSecond
       ) {
         records[i].altitude = null;
+        diagnostics.spikeRejectedCount += 1;
       }
     }
 
@@ -348,14 +398,104 @@ export default class FitProcessor {
       if (Number.isFinite(prevAlt) && Number.isFinite(nextAlt)) {
         const t = (i - prevIdx) / (nextIdx - prevIdx);
         records[i].altitude = prevAlt + ((nextAlt - prevAlt) * t);
+        diagnostics.interpolatedCount += 1;
       } else if (Number.isFinite(prevAlt)) {
         records[i].altitude = prevAlt;
+        diagnostics.carriedFromPrevCount += 1;
       } else if (Number.isFinite(nextAlt)) {
         records[i].altitude = nextAlt;
+        diagnostics.carriedFromNextCount += 1;
       } else {
         records[i].altitude = 0;
+        diagnostics.forcedZeroFallbackCount += 1;
       }
     }
+
+    for (let i = 0; i < records.length; i++) {
+      const alt = toFinite(records[i]?.altitude);
+      if (alt == null) {
+        continue;
+      }
+      diagnostics.finalFiniteCount += 1;
+      if (alt === 0) {
+        diagnostics.finalZeroCount += 1;
+      }
+    }
+
+    if (
+      debugEnabled ||
+      diagnostics.forcedZeroFallbackCount > 0 ||
+      (diagnostics.rawFiniteCount > 0 && diagnostics.finalZeroCount > diagnostics.rawZeroCount)
+    ) {
+      console.log("[altitude-cleaning]", diagnostics);
+    }
+  }
+
+  static describeAltitudeRecordStats(records = []) {
+    const altitudes = (Array.isArray(records) ? records : [])
+      .map((record) => Number(record?.altitude))
+      .filter((value) => Number.isFinite(value));
+
+    if (!altitudes.length) {
+      return {
+        count: 0,
+        zeroCount: 0,
+        min: null,
+        max: null,
+        first: null,
+        last: null
+      };
+    }
+
+    return {
+      count: altitudes.length,
+      zeroCount: altitudes.filter((value) => value === 0).length,
+      min: Math.min(...altitudes),
+      max: Math.max(...altitudes),
+      first: altitudes[0],
+      last: altitudes[altitudes.length - 1]
+    };
+  }
+
+  static describeWorkoutAltitudeStats(workoutObject) {
+    if (!workoutObject || !Number.isInteger(workoutObject.length) || workoutObject.length <= 0) {
+      return {
+        count: 0,
+        zeroCount: 0,
+        min: null,
+        max: null,
+        first: null,
+        last: null
+      };
+    }
+
+    const altitudes = [];
+    for (let i = 0; i < workoutObject.length; i++) {
+      const value = Number(workoutObject.getAltitudeAt(i));
+      if (Number.isFinite(value)) {
+        altitudes.push(value);
+      }
+    }
+
+    if (!altitudes.length) {
+      return {
+        count: 0,
+        zeroCount: 0,
+        min: null,
+        max: null,
+        first: null,
+        last: null
+      };
+    }
+
+    return {
+      count: altitudes.length,
+      zeroCount: altitudes.filter((value) => value === 0).length,
+      min: Math.min(...altitudes),
+      max: Math.max(...altitudes),
+      first: altitudes[0],
+      last: altitudes[altitudes.length - 1]
+    };
   }
 
   // -----------------------------

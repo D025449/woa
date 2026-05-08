@@ -77,7 +77,9 @@ export default class Workout {
             this.cumHr = new Uint32Array(this.length);
             this.cumCadence = new Uint32Array(this.length);
             this.cumSpeed = new Uint32Array(this.length);
-            this.cumAltitude = new Int32Array(this.length);
+            // Altitude can overflow Int32 when we cumulatively sum absolute meter samples
+            // over long workouts, so keep the in-memory cumulative altitude in Float64.
+            this.cumAltitude = new Float64Array(this.length);
 
             let p = 0, hr = 0, cad = 0, speed = 0, alt = 0;
             for (let i = 0; i < this.length; i++) {

@@ -10,6 +10,7 @@ import WorkoutSharingService from "../services/workoutSharingService.js";
 import SegmentDBService from "../services/segmentDBService.js";
 import { enqueueSegmentBestEfforts } from "../services/segment-best-efforts-service.js";
 import FitExportService from "../services/fitExportService.js";
+import WorkoutThumbnailService from "../services/workoutThumbnailService.js";
 
 const router = express.Router();
 
@@ -209,6 +210,32 @@ router.get("/:id/track", authMiddleware, async (req, res) => {
   } catch (err) {
     console.error("Track load error:", err);
     return res.status(err.statusCode || 500).json({ error: err.message || "Internal server error" });
+  }
+});
+
+router.get("/:id/thumbnail", authMiddleware, async (req, res) => {
+  try {
+    const workoutId = Number(req.params.id);
+    const uid = req.user?.id;
+
+    if (!Number.isFinite(workoutId) || workoutId <= 0) {
+      return res.status(400).json({ error: "Invalid workout id" });
+    }
+
+    await WorkoutSharingService.getAccessibleWorkout(uid, workoutId);
+    const thumbnail = await WorkoutThumbnailService.getThumbnail(workoutId);
+
+    if (!thumbnail?.content) {
+      return res.status(404).end();
+    }
+
+    res.setHeader("Content-Type", thumbnail.mimeType || "image/svg+xml");
+    res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
+
+    return res.send(thumbnail.content);
+  } catch (err) {
+    console.error("GET /workouts/:id/thumbnail failed:", err);
+    return res.status(err.statusCode || 500).json({ error: err.message || "Failed to load workout thumbnail" });
   }
 });
 

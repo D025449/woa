@@ -17,6 +17,7 @@ import { FileDBService } from "../services/fileDBService.js";
 import SegmentDBService from "../services/segmentDBService.js";
 import EntitlementService from "../services/entitlementService.js";
 import WorkoutSharingService from "../services/workoutSharingService.js";
+import WorkoutThumbnailService from "../services/workoutThumbnailService.js";
 
 import { redisConnection } from "../queue/connection.js";
 import S3Service from "../services/s3Service.js";
@@ -63,6 +64,7 @@ export async function createApp() {
       parseFitMs: 0,
       persistWorkoutMs: 0,
       updateJobMs: 0,
+      renderThumbnailMs: 0,
       processFitRecordsMs: 0,
       mapAggregatedRowMs: 0,
       insertFileMs: 0,
@@ -189,6 +191,21 @@ export async function createApp() {
         workoutId: dbrow?.id
       });
 
+      if (dbrow?.id) {
+        const thumbnailPayload = WorkoutThumbnailService.createThumbnailPayload({
+          gpsTrack: gps_track?.track ?? null,
+          workoutObject
+        });
+        if (thumbnailPayload) {
+          const thumbnailStartedAt = Date.now();
+          await WorkoutThumbnailService.upsertThumbnail(dbrow.id, thumbnailPayload);
+          batchTrace?.add("renderThumbnailMs", Date.now() - thumbnailStartedAt);
+          timing.mark("store-thumbnail", {
+            thumbnailKind: thumbnailPayload.kind
+          });
+        }
+      }
+
       if (dbrow?.id && shareConfig?.shareMode === "groups" && Array.isArray(shareConfig.groupIds) && shareConfig.groupIds.length > 0) {
         const sharedGroupIds = await WorkoutSharingService.createSharesForWorkout({
           workoutId: dbrow.id,
@@ -271,6 +288,18 @@ export async function createApp() {
     const insertStartedAt = Date.now();
     const dbrow = await FileDBService.insertFile(fileRow, segments, gps_track, workoutObject);
     batchTrace?.add("insertFileMs", Date.now() - insertStartedAt);
+
+    if (dbrow?.id) {
+      const thumbnailPayload = WorkoutThumbnailService.createThumbnailPayload({
+        gpsTrack: gps_track?.track ?? null,
+        workoutObject
+      });
+      if (thumbnailPayload) {
+        const thumbnailStartedAt = Date.now();
+        await WorkoutThumbnailService.upsertThumbnail(dbrow.id, thumbnailPayload);
+        batchTrace?.add("renderThumbnailMs", Date.now() - thumbnailStartedAt);
+      }
+    }
 
     if (dbrow?.id && shareConfig?.shareMode === "groups" && Array.isArray(shareConfig.groupIds) && shareConfig.groupIds.length > 0) {
       const shareStartedAt = Date.now();

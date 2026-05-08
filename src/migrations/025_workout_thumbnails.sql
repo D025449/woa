@@ -1,0 +1,13 @@
+-- Active: 1776863449169@@127.0.0.1@5432@cwa24_prod
+CREATE TABLE IF NOT EXISTS workout_thumbnails (
+  workout_id BIGINT PRIMARY KEY
+    REFERENCES workouts(id)
+    ON DELETE CASCADE,
+  kind TEXT NOT NULL,
+  mime_type TEXT NOT NULL,
+  width INTEGER NOT NULL,
+  height INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

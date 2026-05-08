@@ -503,6 +503,11 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       owner.display_name AS owner_display_name,
       owner.email AS owner_email,
       (workouts.uid = $1)::boolean AS is_owned,
+      EXISTS(
+        SELECT 1
+        FROM workout_thumbnails wt
+        WHERE wt.workout_id = workouts.id
+      ) AS has_thumbnail,
       (
         SELECT COUNT(*)
         FROM workout_group_shares wgs

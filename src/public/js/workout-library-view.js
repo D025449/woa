@@ -1037,50 +1037,64 @@ export default class WorkoutLibraryView {
         </div>
 
         <div class="workout-library-card__body">
-          <div class="workout-library-stat-row">
-            <span class="workout-library-stat"><span class="workout-library-stat__label">${this.t("avgPower")}</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_power)} W</span></span>
-            <span class="workout-library-stat"><span class="workout-library-stat__label">NP</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_normalized_power)} W</span></span>
-            ${compactStat ? `<span class="workout-library-stat"><span class="workout-library-stat__label">${compactStat.label}</span><span class="workout-library-stat__value">${compactStat.value}</span></span>` : ""}
-            ${isOwned ? `
-              <details class="workout-library-actions-menu">
-                <summary class="workout-library-actions-menu__trigger" aria-label="${this.t("share")} / ${this.t("delete")}">
-                  <span></span><span></span><span></span>
-                </summary>
-                <div class="workout-library-actions-menu__panel">
-                  <a
-                    class="workout-library-actions-menu__item workout-library-actions-menu__item--primary"
-                    href="/workouts/${workout.id}/export.fit"
-                    data-workout-export="${workout.id}"
-                    download>
-                    <span class="workout-library-actions-menu__icon" aria-hidden="true">
-                      <svg viewBox="0 0 20 20">
-                        <path d="M10 3.5v8.5M6.8 8.9 10 12.3l3.2-3.4M4 14.5h12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
-                      </svg>
-                    </span>
-                    ${this.t("exportFit")}
-                  </a>
-                  <button class="workout-library-actions-menu__item workout-library-actions-menu__item--secondary" type="button" data-workout-share-toggle="${workout.id}">
-                    <span class="workout-library-actions-menu__icon" aria-hidden="true">
-                      <svg viewBox="0 0 20 20">
-                        <path d="M7.2 10.2 12.8 6.9M7.2 9.8l5.6 3.3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"></path>
-                        <circle cx="5.4" cy="10" r="2.1" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
-                        <circle cx="14.8" cy="5.8" r="2.1" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
-                        <circle cx="14.8" cy="14.2" r="2.1" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
-                      </svg>
-                    </span>
-                    ${this.t("share")}
-                  </button>
-                  <button class="workout-library-actions-menu__item workout-library-actions-menu__item--danger" type="button" data-workout-delete="${workout.id}">
-                    <span class="workout-library-actions-menu__icon" aria-hidden="true">
-                      <svg viewBox="0 0 20 20">
-                        <path d="M6.2 6.2h7.6M8 6.2V4.8h4v1.4M7.2 6.2l.45 8.1h4.7l.45-8.1M8.7 8.1v4.5M11.3 8.1v4.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
-                      </svg>
-                    </span>
-                    ${this.t("delete")}
-                  </button>
-                </div>
-              </details>
-            ` : ""}
+          <div class="workout-library-card__body-main">
+            <div class="workout-library-card__thumb-shell${workout.has_thumbnail ? " has-image" : ""}">
+              ${workout.has_thumbnail ? `
+                <img
+                  class="workout-library-card__thumb-image"
+                  src="/workouts/${workout.id}/thumbnail"
+                  alt=""
+                  loading="lazy"
+                  decoding="async">
+              ` : `
+                <div class="workout-library-card__thumb-placeholder">${hasValidGps ? "GPS" : "DATA"}</div>
+              `}
+            </div>
+            <div class="workout-library-card__body-copy">
+              <span class="workout-library-stat"><span class="workout-library-stat__label">${this.t("avgPower")}</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_power)} W</span></span>
+              <span class="workout-library-stat"><span class="workout-library-stat__label">NP</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_normalized_power)} W</span></span>
+              ${compactStat ? `<span class="workout-library-stat"><span class="workout-library-stat__label">${compactStat.label}</span><span class="workout-library-stat__value">${compactStat.value}</span></span>` : ""}
+              ${isOwned ? `
+                <details class="workout-library-actions-menu workout-library-actions-menu--inline">
+                  <summary class="workout-library-actions-menu__trigger" aria-label="${this.t("share")} / ${this.t("delete")}">
+                    <span></span><span></span><span></span>
+                  </summary>
+                  <div class="workout-library-actions-menu__panel">
+                    <a
+                      class="workout-library-actions-menu__item workout-library-actions-menu__item--primary"
+                      href="/workouts/${workout.id}/export.fit"
+                      data-workout-export="${workout.id}"
+                      download>
+                      <span class="workout-library-actions-menu__icon" aria-hidden="true">
+                        <svg viewBox="0 0 20 20">
+                          <path d="M10 3.5v8.5M6.8 8.9 10 12.3l3.2-3.4M4 14.5h12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+                        </svg>
+                      </span>
+                      ${this.t("exportFit")}
+                    </a>
+                    <button class="workout-library-actions-menu__item workout-library-actions-menu__item--secondary" type="button" data-workout-share-toggle="${workout.id}">
+                      <span class="workout-library-actions-menu__icon" aria-hidden="true">
+                        <svg viewBox="0 0 20 20">
+                          <path d="M7.2 10.2 12.8 6.9M7.2 9.8l5.6 3.3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"></path>
+                          <circle cx="5.4" cy="10" r="2.1" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
+                          <circle cx="14.8" cy="5.8" r="2.1" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
+                          <circle cx="14.8" cy="14.2" r="2.1" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
+                        </svg>
+                      </span>
+                      ${this.t("share")}
+                    </button>
+                    <button class="workout-library-actions-menu__item workout-library-actions-menu__item--danger" type="button" data-workout-delete="${workout.id}">
+                      <span class="workout-library-actions-menu__icon" aria-hidden="true">
+                        <svg viewBox="0 0 20 20">
+                          <path d="M6.2 6.2h7.6M8 6.2V4.8h4v1.4M7.2 6.2l.45 8.1h4.7l.45-8.1M8.7 8.1v4.5M11.3 8.1v4.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+                        </svg>
+                      </span>
+                      ${this.t("delete")}
+                    </button>
+                  </div>
+                </details>
+              ` : ""}
+            </div>
           </div>
           ${isOwned && isShareOpen ? `
             <div class="workout-share-inline">
@@ -1271,6 +1285,10 @@ export default class WorkoutLibraryView {
 
     if (Number.isFinite(workout.total_distance) && Number(workout.total_distance) > 0) {
       summary.push(this.formatDistance(workout.total_distance));
+    }
+
+    if (Number.isFinite(workout.total_ascent) && Number(workout.total_ascent) > 0) {
+      summary.push(this.formatAscentMeters(workout.total_ascent));
     }
 
     if (Number.isFinite(workout.avg_speed) && Number(workout.avg_speed) > 0) {

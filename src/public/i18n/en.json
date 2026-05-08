@@ -420,6 +420,7 @@
     "bulkDelete": "Delete selected workouts",
     "bulkCancel": "Cancel",
     "bulkSelectAllVisible": "Select visible",
+    "bulkSelectLoaded": "Select loaded",
     "bulkClearSelection": "Clear selected",
     "bulkActions": "Selection actions",
     "bulkPublish": "Publish selected workouts",
