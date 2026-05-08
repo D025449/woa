@@ -1,5 +1,6 @@
 import MapView from "./map-view.js";
 import ChartView from "./chart-view.js";
+import FlyoverView from "./flyover-view.js";
 import WorkoutService from "./workout-service.js";
 import UIStateManager from "./UIStateManager.js";
 import WorkoutLibraryView from "./workout-library-view.js";
@@ -41,6 +42,7 @@ export default class Controller {
     this.mapViewState = this.uiState.get("dashboardMapViewState", {
       baseLayerMode: "standard"
     });
+    this.maptilerApiKey = String(globalThis.__APP_CONFIG?.maptilerApiKey || "").trim();
     this.recentWorkoutIds = this.readStoredList("dashboardRecentWorkoutIds");
     this.favoriteWorkoutIds = this.readStoredList("dashboardFavoriteWorkoutIds");
     this.detailCopyElement = document.getElementById("dashboard-detail-copy");
@@ -52,6 +54,7 @@ export default class Controller {
     this.toastBodyElement = document.getElementById("dashboard-toast-body");
     this.mobileLibraryToggle = document.getElementById("dashboard-mobile-library-toggle");
     this.mobileLibraryBackdrop = document.getElementById("dashboard-mobile-library-backdrop");
+    this.map3dToggleButton = document.getElementById("dashboard-map-3d-toggle");
     this.libraryColumn = document.querySelector(".dashboard-library-column");
     this.libraryScrollElement = document.querySelector(".workout-library-scroll");
     this.quickAccessElement = document.getElementById("dashboard-quick-access");
@@ -114,6 +117,8 @@ export default class Controller {
       onUpdateWorkout: (workout) => {
         this.chartView.updateWorkout(workout);
         this.mapView.renderTrack(workout);
+        this.flyoverView?.setWorkout(workout);
+        this.update3dMapButton();
       },
 
       onGpsSegmentCreated: (gpsSegment) => {
@@ -152,6 +157,17 @@ export default class Controller {
         this.chartViewState = state;
         this.uiState.set("chartViewState", state);
       }
+    });
+
+    this.flyoverView = new FlyoverView({
+      modalElementId: "dashboard-3d-modal",
+      mapElementId: "dashboard-3d-map",
+      summaryElementId: "dashboard-3d-summary",
+      playToggleButtonId: "dashboard-3d-play-toggle",
+      presetSelectId: "dashboard-3d-preset",
+      presetStorageKey: "dashboardFlyoverCameraPreset",
+      apiKey: this.maptilerApiKey,
+      t: (key) => this.t(key)
     });
 
     this.libraryView = new WorkoutLibraryView("#workout-library", {
@@ -230,6 +246,7 @@ export default class Controller {
       this.uiState.set("workoutLibraryScrollTop", this.libraryScrollTop);
     }, { passive: true });
     document.addEventListener("keydown", (event) => this.handleGlobalShortcuts(event));
+    this.map3dToggleButton?.addEventListener("click", () => this.open3dMap());
     this.registerSplitterEvents();
     this.initLayoutObservers();
     this.prevWorkoutButton?.addEventListener("click", async () => {
@@ -286,6 +303,7 @@ export default class Controller {
       this.pushRecentWorkout(workout.id);
       this.chartView.updateWorkout(workout);
       this.mapView.renderTrack(workout);
+      this.flyoverView.setWorkout(workout);
       this.libraryView.setSelectedWorkout(workout.id);
       this.updateWorkoutMeta(workout);
       this.scheduleDesktopLayoutMeasure(true);
@@ -298,7 +316,24 @@ export default class Controller {
       this.showToast(this.t("messages.workoutOpenFailed"));
     } finally {
       this.chartView.hideLoading();
+      this.update3dMapButton();
     }
+  }
+
+  open3dMap() {
+    if (!this.maptilerApiKey) {
+      this.showToast(this.t("messages.map3dKeyMissing"));
+      return;
+    }
+
+    const workout = this.chartView.currentWorkout;
+    if (!workout?.validGps || !Array.isArray(workout?.track) || workout.track.length < 2) {
+      this.showToast(this.t("messages.map3dNoGps"));
+      return;
+    }
+
+    this.flyoverView.setWorkout(workout);
+    this.flyoverView.open();
   }
 
   getNavigableWorkoutIds() {
@@ -527,7 +562,23 @@ export default class Controller {
     if (this.detailCopyElement) {
       this.detailCopyElement.textContent = "";
     }
+    this.flyoverView?.setWorkout(null);
+    this.update3dMapButton();
     this.updateDetailNavigation();
+  }
+
+  update3dMapButton() {
+    if (!this.map3dToggleButton) {
+      return;
+    }
+
+    const workout = this.chartView?.currentWorkout;
+    const canOpen = !!this.maptilerApiKey
+      && !!workout?.validGps
+      && Array.isArray(workout?.track)
+      && workout.track.length > 1;
+
+    this.map3dToggleButton.disabled = !canOpen;
   }
 
   buildWorkoutDetailLine(workout) {

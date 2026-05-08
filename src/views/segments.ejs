@@ -12,10 +12,12 @@
     <script src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
     <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator_bootstrap5.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
     <link rel="stylesheet" href="/css/ui-system.css">
     <link rel="stylesheet" href="/css/segments.css">
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 
 </head>
 
@@ -56,22 +58,6 @@
                     </div>
 
                     <div class="segments-hero-meta ui-hero__meta">
-                        <div class="segments-scope-toggle ui-toggle-group ui-toggle-group--light" role="group" aria-label="<%= t('segmentsPage.scopeAria') %>">
-                            <button id="segments-scope-mine" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="mine">
-                                <%= t("segmentsPage.scopeMine") %>
-                            </button>
-                            <button id="segments-scope-shared" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="shared">
-                                <%= t("segmentsPage.scopeShared") %>
-                            </button>
-                            <button id="segments-scope-all" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="all">
-                                <%= t("segmentsPage.scopeAll") %>
-                            </button>
-                        </div>
-                        <button id="segments-favorites-filter" class="segments-favorite-filter" type="button" aria-pressed="false" title="<%= t('segmentsPage.favoriteFilterLabel') %>">
-                            <svg viewBox="0 0 20 20" aria-hidden="true">
-                                <path d="M10 2.9l2.15 4.36 4.81.7-3.48 3.39.82 4.79L10 14.02 5.7 16.14l.82-4.79L3.04 7.96l4.81-.7L10 2.9z" fill="currentColor"></path>
-                            </svg>
-                        </button>
                         <div class="ui-hero__art" aria-hidden="true">
                             <svg viewBox="0 0 64 64" fill="none">
                                 <defs>
@@ -101,6 +87,25 @@
                             </div>
 
                             <div class="segments-toolbar ui-toolbar ui-toolbar--end">
+                                <div class="segments-map-scope-toggle" role="group" aria-label="<%= t('segmentsPage.scopeAria') %>">
+                                    <button id="segments-scope-mine" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="mine">
+                                        <%= t("segmentsPage.scopeMine") %>
+                                    </button>
+                                    <button id="segments-scope-shared" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="shared">
+                                        <%= t("segmentsPage.scopeShared") %>
+                                    </button>
+                                    <button id="segments-scope-all" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="all">
+                                        <%= t("segmentsPage.scopeAll") %>
+                                    </button>
+                                </div>
+                                <button id="segments-favorites-filter" class="segments-favorite-filter" type="button" aria-pressed="false" title="<%= t('segmentsPage.favoriteFilterLabel') %>">
+                                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                                        <path d="M10 2.9l2.15 4.36 4.81.7-3.48 3.39.82 4.79L10 14.02 5.7 16.14l.82-4.79L3.04 7.96l4.81-.7L10 2.9z" fill="currentColor"></path>
+                                    </svg>
+                                </button>
+                                <button id="segments-map-3d-toggle" class="btn btn-outline-secondary btn-sm" type="button">
+                                    <%= t("segmentsPage.map3dOpen") %>
+                                </button>
                                 <details id="segments-map-tools-menu" class="segments-map-actions-menu">
                                     <summary class="segments-map-actions-menu__trigger" aria-label="<%= t('segmentsPage.btnCreate') %> / <%= t('segmentsPage.lookup') %>">
                                         <span aria-hidden="true">•••</span>
@@ -314,6 +319,44 @@
             </div>
         </div>
 
+        <div class="modal fade dashboard-3d-modal" id="segments-3d-modal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-fullscreen-lg-down modal-xl modal-dialog-centered">
+                <div class="modal-content border-0 shadow">
+                    <div class="modal-header">
+                        <div>
+                            <p class="dashboard-eyebrow mb-1"><%= t("segmentsPage.map3dEyebrow") %></p>
+                            <h2 class="modal-title mb-0"><%= t("segmentsPage.map3dTitle") %></h2>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="dashboard-3d-modal__stage">
+                            <div id="segments-3d-map" class="dashboard-3d-modal__map"></div>
+                            <div class="dashboard-3d-modal__controls">
+                                <button id="segments-3d-play-toggle" class="dashboard-3d-modal__play" type="button" aria-pressed="false" title="<%= t('segmentsPage.map3dPlay') %>">
+                                    <span class="dashboard-3d-modal__play-icon dashboard-3d-modal__play-icon--play" aria-hidden="true">▶</span>
+                                    <span class="dashboard-3d-modal__play-icon dashboard-3d-modal__play-icon--pause d-none" aria-hidden="true">❚❚</span>
+                                    <span class="dashboard-3d-modal__play-label"><%= t("segmentsPage.map3dPlay") %></span>
+                                </button>
+                                <label class="dashboard-3d-modal__preset">
+                                    <span class="dashboard-3d-modal__preset-label"><%= t("segmentsPage.map3dPresetLabel") %></span>
+                                    <select id="segments-3d-preset" class="form-select form-select-sm dashboard-3d-modal__preset-select">
+                                        <option value="standard"><%= t("segmentsPage.map3dPresetStandard") %></option>
+                                        <option value="action"><%= t("segmentsPage.map3dPresetAction") %></option>
+                                        <option value="cinematic"><%= t("segmentsPage.map3dPresetCinematic") %></option>
+                                        <option value="drone"><%= t("segmentsPage.map3dPresetDrone") %></option>
+                                    </select>
+                                </label>
+                            </div>
+                            <div class="dashboard-3d-modal__overlay">
+                                <div id="segments-3d-summary" class="dashboard-3d-modal__summary"><%= t("segmentsPage.map3dEmpty") %></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     <% } else { %>
 
             <div class="container py-5 text-center">
@@ -332,6 +375,9 @@
                 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
                 <script>
                     window.__I18N = <%- JSON.stringify(i18n || { locale: "en", messages: {} }) %>;
+                    window.__APP_CONFIG = {
+                        maptilerApiKey: <%- JSON.stringify(maptilerApiKey || "") %>
+                    };
                 </script>
 
                 <script type="module" src="/js/segments-ui.js"></script>

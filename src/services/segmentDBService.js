@@ -342,7 +342,17 @@ export default class SegmentDBService {
       LEFT JOIN users owner
         ON owner.id = s.uid
       WHERE s.id = $1
-        AND s.uid = $2
+        AND (
+          s.uid = $2
+          OR EXISTS (
+            SELECT 1
+            FROM gps_segment_group_shares sgs
+            INNER JOIN group_members gm
+              ON gm.group_id = sgs.group_id
+            WHERE sgs.segment_id = s.id
+              AND gm.user_id = $2
+          )
+        )
     `, [segmentId, uid]);
 
     return result.rows[0] ? SegmentDBService.mapSegment(result.rows[0]) : null;

@@ -2,6 +2,7 @@ import MapView from "./segment-map-view.js";
 import TableView from "./segment-table-view.js";
 import SegmentBestEffortsCardView from "./segment-best-efforts-card-view.js";
 import SegmentElevationView from "./segment-elevation-view.js";
+import FlyoverView from "./flyover-view.js";
 import MapSegment from "../../shared/MapSegment.js";
 import UIStateManager from "./UIStateManager.js"
 import confirmModal from "./confirm-modal.js";
@@ -36,6 +37,7 @@ export default class Controller {
     this.layoutMeasureRaf = null;
     this.layoutObserver = null;
     this.mapWidthPx = this.uiState.get("segmentsMapWidthPx", null);
+    this.maptilerApiKey = String(globalThis.__APP_CONFIG?.maptilerApiKey || "").trim();
     this.mapViewState = this.uiState.get("segmentsMapViewState", {
       baseLayerMode: "standard"
     });
@@ -46,6 +48,7 @@ export default class Controller {
     this.favoriteSegmentsElement = document.getElementById("segments-favorite-list");
     this.prevSegmentButton = document.getElementById("segment-prev");
     this.nextSegmentButton = document.getElementById("segment-next");
+    this.map3dToggleButton = document.getElementById("segments-map-3d-toggle");
     this.toastElement = document.getElementById("segments-toast");
     this.toastBodyElement = document.getElementById("segments-toast-body");
     this.toast = this.toastElement && globalThis.bootstrap
@@ -79,6 +82,20 @@ export default class Controller {
     );
     this.mapView.setInitialState(this.mapViewState);
     this.didRestoreMapViewState = true;
+
+    this.flyoverView = new FlyoverView({
+      modalElementId: "segments-3d-modal",
+      mapElementId: "segments-3d-map",
+      summaryElementId: "segments-3d-summary",
+      playToggleButtonId: "segments-3d-play-toggle",
+      presetSelectId: "segments-3d-preset",
+      presetStorageKey: "segmentsFlyoverCameraPreset",
+      apiKey: this.maptilerApiKey,
+      t: (key) => this.t(key),
+      hasRenderableTrack: (segment) => Array.isArray(segment?.track) && segment.track.length > 1,
+      buildSummary: (segment) => this.buildSegment3dSummary(segment),
+      resolvePlaybackDurationMs: (segment, points) => this.resolveSegmentFlyoverDurationMs(segment, points)
+    });
 
     this.tableView = new TableView("#segment-table", {
       currentUserId: this.currentUserId,
@@ -156,6 +173,7 @@ export default class Controller {
     this.favoriteFilterButton?.addEventListener("click", async () => {
       await this.toggleFavoriteFilter();
     });
+    this.map3dToggleButton?.addEventListener("click", () => this.open3dMap());
     this.shareToggleButton?.addEventListener("click", () => this.toggleShareInline());
     this.shareModeSelect?.addEventListener("change", () => this.updateShareModeUi());
     this.shareSaveButton?.addEventListener("click", async () => {
@@ -477,16 +495,39 @@ export default class Controller {
     return isOwnedByCurrentUser;
   }
 
+  resolveScopeForSegment(segment) {
+    if (!segment) {
+      return this.segmentScope;
+    }
+
+    const ownerId = segment.uid == null ? "" : String(segment.uid);
+    const isOwnedByCurrentUser = ownerId !== "" && ownerId === this.currentUserId;
+    return isOwnedByCurrentUser ? "mine" : "all";
+  }
+
+  applySegmentScopeForFocusedSegment(segment) {
+    const nextScope = this.resolveScopeForSegment(segment);
+    if (!nextScope || nextScope === this.segmentScope) {
+      return;
+    }
+
+    this.segmentScope = nextScope;
+    this.uiState.set("segmentScope", nextScope);
+    this.syncScopeButtons();
+  }
+
   selectSegment(segment) {
     this.selectedSegment = segment;
     this.selectedSegmentSharing = null;
     this.uiState.set("selectedSegmentId", segment?.id ?? null);
     this.pushRecentSegment(segment?.id);
+    this.flyoverView?.setWorkout(segment);
     this.mapView.selectSegment(segment);
     this.elevationView.updateSegment(segment);
     this.updateDeleteButton();
     this.updateShareUi();
     this.updateSegmentMeta();
+    this.update3dMapButton();
     this.updateFavoriteUi();
     this.renderQuickAccess();
     this.updateBestEffortsScopeUi();
@@ -553,12 +594,14 @@ export default class Controller {
     this.tableView.clear();
     this.cardView.clear();
     this.elevationView.hide();
+    this.flyoverView?.setWorkout(null);
     this.refreshSelectedSegmentHeader();
     this.mapView.selectSegment(null);
     this.mapView.hideMarker();
     this.updateDeleteButton();
     this.updateShareUi();
     this.updateSegmentMeta();
+    this.update3dMapButton();
     this.updateFavoriteUi();
     this.updateBestEffortsScopeUi();
     this.updateDetailNavigation();
@@ -570,6 +613,65 @@ export default class Controller {
     const isEditable = this.canEditSelectedSegment();
     this.deleteButton.classList.toggle("d-none", !isEditable);
     this.deleteButton.disabled = !isEditable;
+  }
+
+  open3dMap() {
+    if (!this.maptilerApiKey) {
+      this.showToast(this.t("messages.map3dKeyMissing"));
+      return;
+    }
+
+    if (!this.selectedSegment || !Array.isArray(this.selectedSegment.track) || this.selectedSegment.track.length < 2) {
+      this.showToast(this.t("messages.map3dNoGps"));
+      return;
+    }
+
+    this.flyoverView?.setWorkout(this.selectedSegment);
+    this.flyoverView?.open();
+  }
+
+  update3dMapButton() {
+    if (!this.map3dToggleButton) {
+      return;
+    }
+
+    const canOpen = !!this.maptilerApiKey
+      && Array.isArray(this.selectedSegment?.track)
+      && this.selectedSegment.track.length > 1;
+
+    this.map3dToggleButton.disabled = !canOpen;
+  }
+
+  buildSegment3dSummary(segment) {
+    if (!segment) {
+      return this.t("map3dEmpty");
+    }
+
+    const distanceKm = Number(segment.distance) > 0
+      ? `${(Number(segment.distance) / 1000).toFixed(1)} km`
+      : null;
+    const ascentHm = Number(segment.ascent) > 0
+      ? `${Math.round(Number(segment.ascent))} hm`
+      : null;
+
+    return [
+      segment.name || `${segment.start?.name || ""} – ${segment.end?.name || ""}`.trim() || this.t("map3dTitle"),
+      distanceKm,
+      ascentHm
+    ].filter(Boolean).join(" · ");
+  }
+
+  resolveSegmentFlyoverDurationMs(segment, points) {
+    const distanceMeters = Number(segment?.distance);
+    const pointCount = Array.isArray(points) ? points.length : 0;
+
+    if (Number.isFinite(distanceMeters) && distanceMeters > 0) {
+      const metersPerSecond = 600 / 3.6;
+      const durationMs = (distanceMeters / metersPerSecond) * 1000;
+      return Math.max(6000, Math.min(240000, durationMs));
+    }
+
+    return Math.min(100000, Math.max(40000, pointCount * 107));
   }
 
   readStoredList(key) {
@@ -1233,7 +1335,7 @@ export default class Controller {
     );
 
     if (segment && !this.isSegmentVisibleInCurrentScope(segment)) {
-      segment = null;
+      this.applySegmentScopeForFocusedSegment(segment);
     }
 
     if (!segment) {
@@ -1247,11 +1349,7 @@ export default class Controller {
       }
 
       if (!this.isSegmentVisibleInCurrentScope(segment)) {
-        if (!this.focusSegmentId) {
-          this.uiState.remove("selectedSegmentId");
-        }
-        this.focusApplied = true;
-        return;
+        this.applySegmentScopeForFocusedSegment(segment);
       }
 
       const alreadyPresent = this.mapSegments.some(

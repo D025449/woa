@@ -556,7 +556,8 @@ export async function createApp() {
 
         res.render("dashboard-new", {
             userInfo: req.user,
-            isAuthenticated: true
+            isAuthenticated: true,
+            maptilerApiKey: process.env.MAPTILER_API_KEY || ""
         });
 
     });
@@ -598,7 +599,8 @@ export async function createApp() {
 
         res.render("segments", {
             userInfo: req.user,
-            isAuthenticated: true
+            isAuthenticated: true,
+            maptilerApiKey: process.env.MAPTILER_API_KEY || ""
         });
 
     });

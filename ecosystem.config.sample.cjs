@@ -24,7 +24,8 @@ module.exports = {
 
   
                 AWS_REGION: "eu-central-1",
-                S3_BUCKET: "cwa24bucketprod"                
+                S3_BUCKET: "cwa24bucketprod",
+                MAPTILER_API_KEY: "5skswLRJEAWeN8oBIVtQ"           
             }
         },
         {
