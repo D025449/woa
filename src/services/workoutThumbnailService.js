@@ -108,7 +108,7 @@ function createLinePathFromSeries(values = [], options = {}) {
   }).join(" ");
 }
 
-function buildSvgShell({ title, bodyMarkup, accent = "#2563eb" }) {
+function buildSvgShell({ title, bodyMarkup, accent = "#2563eb", showAccentBar = true }) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${SVG_WIDTH}" height="${SVG_HEIGHT}" viewBox="0 0 ${SVG_WIDTH} ${SVG_HEIGHT}" role="img" aria-label="${escapeXml(title)}">
   <defs>
@@ -122,7 +122,7 @@ function buildSvgShell({ title, bodyMarkup, accent = "#2563eb" }) {
     </linearGradient>
   </defs>
   <rect x="0" y="0" width="${SVG_WIDTH}" height="${SVG_HEIGHT}" rx="20" fill="url(#thumb-bg)"/>
-  <rect x="0" y="0" width="8" height="${SVG_HEIGHT}" rx="8" fill="url(#thumb-accent)"/>
+  ${showAccentBar ? `<rect x="0" y="0" width="8" height="${SVG_HEIGHT}" rx="8" fill="url(#thumb-accent)"/>` : ""}
   ${bodyMarkup}
 </svg>`;
 }
@@ -160,7 +160,8 @@ function buildRouteThumbnail(track = []) {
     content: buildSvgShell({
       title: "Workout route thumbnail",
       bodyMarkup,
-      accent: "#16a34a"
+      accent: "#16a34a",
+      showAccentBar: false
     })
   };
 }
@@ -212,7 +213,8 @@ function buildCompositeProfileThumbnail({ altitudes = [], powers = [] } = {}) {
     content: buildSvgShell({
       title: "Workout profile thumbnail",
       bodyMarkup,
-      accent: "#2563eb"
+      accent: "#2563eb",
+      showAccentBar: false
     })
   };
 }

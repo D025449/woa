@@ -975,6 +975,18 @@ export default class WorkoutLibraryView {
     const tone = this.getWorkoutTone(workout);
     const dimmedClass = hasSelection && !isSelected ? " is-dimmed" : "";
     const compactStat = this.getCompactStat(workout);
+    const ascentStat = Number.isFinite(workout.total_ascent) && Number(workout.total_ascent) > 0
+      ? {
+          label: "hm",
+          value: this.formatAscentMeters(workout.total_ascent)
+        }
+      : null;
+    const speedStat = Number.isFinite(workout.avg_speed) && Number(workout.avg_speed) > 0
+      ? {
+          label: "km/h",
+          value: this.formatSpeed(workout.avg_speed)
+        }
+      : null;
     const isFavorite = this.favoriteWorkoutIds.has(workoutId);
     const isSelectable = this.selectionMode && isOwned;
     const isSelectedForBulk = this.selectedWorkoutIds.has(workoutId);
@@ -1017,7 +1029,6 @@ export default class WorkoutLibraryView {
               <button class="workout-library-card__favorite${isFavorite ? " is-active" : ""}" type="button" data-workout-favorite-toggle="${workoutId}" aria-label="${this.t("favoriteToggle")}">★</button>
             </div>
             <div class="workout-library-card__title">${this.t("workoutLabel", { id: workout.id })}</div>
-            <div class="workout-library-card__meta">${this.buildIdentitySummary(workout)}</div>
             ${workout.is_owned ? "" : `
               <div class="workout-library-card__owner">
                 ${this.t("sharedBy", { owner: workout.owner_display_name || workout.owner_email || this.t("anotherUser") })}
@@ -1051,9 +1062,15 @@ export default class WorkoutLibraryView {
               `}
             </div>
             <div class="workout-library-card__body-copy">
-              <span class="workout-library-stat"><span class="workout-library-stat__label">${this.t("avgPower")}</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_power)} W</span></span>
-              <span class="workout-library-stat"><span class="workout-library-stat__label">NP</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_normalized_power)} W</span></span>
-              ${compactStat ? `<span class="workout-library-stat"><span class="workout-library-stat__label">${compactStat.label}</span><span class="workout-library-stat__value">${compactStat.value}</span></span>` : ""}
+              <div class="workout-library-card__body-copy-group">
+                <span class="workout-library-stat"><span class="workout-library-stat__label">${this.t("avgPower")}</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_power)} W</span></span>
+                <span class="workout-library-stat"><span class="workout-library-stat__label">NP</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_normalized_power)} W</span></span>
+                ${compactStat ? `<span class="workout-library-stat"><span class="workout-library-stat__label">${compactStat.label}</span><span class="workout-library-stat__value">${compactStat.value}</span></span>` : ""}
+              </div>
+              <div class="workout-library-card__body-copy-group">
+                ${ascentStat ? `<span class="workout-library-stat"><span class="workout-library-stat__label">${ascentStat.label}</span><span class="workout-library-stat__value">${ascentStat.value}</span></span>` : ""}
+                ${speedStat ? `<span class="workout-library-stat"><span class="workout-library-stat__label">${speedStat.label}</span><span class="workout-library-stat__value">${speedStat.value}</span></span>` : ""}
+              </div>
               ${isOwned ? `
                 <details class="workout-library-actions-menu workout-library-actions-menu--inline">
                   <summary class="workout-library-actions-menu__trigger" aria-label="${this.t("share")} / ${this.t("delete")}">
@@ -1282,10 +1299,6 @@ export default class WorkoutLibraryView {
 
   buildIdentitySummary(workout) {
     const summary = [];
-
-    if (Number.isFinite(workout.total_distance) && Number(workout.total_distance) > 0) {
-      summary.push(this.formatDistance(workout.total_distance));
-    }
 
     if (Number.isFinite(workout.total_ascent) && Number(workout.total_ascent) > 0) {
       summary.push(this.formatAscentMeters(workout.total_ascent));
