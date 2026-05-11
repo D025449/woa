@@ -133,8 +133,12 @@ export default class FlyoverView {
   createCameraPresets() {
     return {
       standard: {
+        useFreeCamera: true,
         followDistanceMeters: 6.2,
         lookAheadMeters: 0,
+        climbLookAheadMeters: 0,
+        lookAtHeightMeters: 0.05,
+        climbLookAtHeightMeters: 0,
         baseAltitudeMeters: 4.6,
         slopeAltitudeMeters: 5.4,
         bearingSmoothingFactor: 0.1,
@@ -143,18 +147,28 @@ export default class FlyoverView {
         fallbackPitch: 80
       },
       action: {
-        followDistanceMeters: 0.08,
-        lookAheadMeters: 1.8,
-        baseAltitudeMeters: 0.005,
-        slopeAltitudeMeters: 0.04,
+        useFreeCamera: false,
+        followDistanceMeters: 0.04,
+        lookAheadMeters: 6.5,
+        climbLookAheadMeters: 18,
+        lookAtHeightMeters: 0.05,
+        climbLookAtHeightMeters: 0,
+        baseAltitudeMeters: 0,
+        slopeAltitudeMeters: 0.015,
         bearingSmoothingFactor: 0.06,
-        verticalFieldOfViewRadians: 1.42,
-        fallbackZoom: 14.1,
-        fallbackPitch: 84
+        verticalFieldOfViewRadians: 2.97,
+        fallbackZoom: 17.8,
+        fallbackPitch: 89,
+        fallbackOffsetX: 0,
+        fallbackOffsetY: 180
       },
       firstPerson: {
+        useFreeCamera: true,
         followDistanceMeters: 0.18,
         lookAheadMeters: 3.5,
+        climbLookAheadMeters: 0,
+        lookAtHeightMeters: 0.05,
+        climbLookAtHeightMeters: 0,
         baseAltitudeMeters: 1.2,
         slopeAltitudeMeters: 0.55,
         bearingSmoothingFactor: 0.08,
@@ -163,8 +177,12 @@ export default class FlyoverView {
         fallbackPitch: 88
       },
       cinematic: {
+        useFreeCamera: true,
         followDistanceMeters: 9.5,
         lookAheadMeters: 32,
+        climbLookAheadMeters: 0,
+        lookAtHeightMeters: 0.05,
+        climbLookAtHeightMeters: 0,
         baseAltitudeMeters: 5.8,
         slopeAltitudeMeters: 6.5,
         bearingSmoothingFactor: 0.08,
@@ -173,8 +191,12 @@ export default class FlyoverView {
         fallbackPitch: 76
       },
       drone: {
+        useFreeCamera: true,
         followDistanceMeters: 14,
         lookAheadMeters: 28,
+        climbLookAheadMeters: 0,
+        lookAtHeightMeters: 0.05,
+        climbLookAtHeightMeters: 0,
         baseAltitudeMeters: 8.5,
         slopeAltitudeMeters: 8,
         bearingSmoothingFactor: 0.07,
@@ -941,8 +963,9 @@ export default class FlyoverView {
     const riderPoint = { lng, lat, alt: current.alt ?? null };
     const cameraPoint = this.projectPoint(riderPoint, smoothedBearing + 180, preset.followDistanceMeters);
     const slopeFactor = this.computeSlopeFactor(current, next);
-    const lookAtPoint = preset.lookAheadMeters > 0
-      ? this.projectPoint(riderPoint, smoothedBearing, preset.lookAheadMeters)
+    const effectiveLookAheadMeters = preset.lookAheadMeters + slopeFactor * (preset.climbLookAheadMeters ?? 0);
+    const lookAtPoint = effectiveLookAheadMeters > 0
+      ? this.projectPoint(riderPoint, smoothedBearing, effectiveLookAheadMeters)
       : riderPoint;
     this.applyFollowCamera(cameraPoint, riderPoint, lookAtPoint, smoothedBearing, slopeFactor, preset);
   }
@@ -997,7 +1020,7 @@ export default class FlyoverView {
 
     if (typeof this.map.setVerticalFieldOfView === "function" && Number.isFinite(preset.verticalFieldOfViewRadians)) {
       try {
-        this.map.setVerticalFieldOfView(preset.verticalFieldOfViewRadians);
+        this.map.setVerticalFieldOfView(preset.verticalFieldOfViewRadians * 180 / Math.PI);
       } catch {
         // ignore FOV errors and continue with the current camera setup
       }
@@ -1006,8 +1029,17 @@ export default class FlyoverView {
     const terrainAtCamera = this.resolveTerrainElevation(cameraPoint, riderPoint?.alt ?? null);
     const terrainAtRider = this.resolveTerrainElevation(riderPoint, riderPoint?.alt ?? null);
     const terrainAtLookAhead = this.resolveTerrainElevation(lookAtPoint, riderPoint?.alt ?? null);
-    const terrainBase = terrainAtCamera ?? terrainAtRider ?? this.resolveFallbackElevation(riderPoint?.alt ?? null);
+    const terrainBase =
+      terrainAtRider ??
+      (Number.isFinite(Number(riderPoint?.alt)) ? Number(riderPoint.alt) : null) ??
+      terrainAtCamera ??
+      terrainAtLookAhead ??
+      this.resolveFallbackElevation(riderPoint?.alt ?? null);
     const cameraAltitude = terrainBase + preset.baseAltitudeMeters + slopeFactor * preset.slopeAltitudeMeters;
+    const lookAtAltitude =
+      (terrainAtLookAhead ?? terrainAtRider ?? this.resolveFallbackElevation(riderPoint?.alt ?? null)) +
+      (preset.lookAtHeightMeters ?? 0.05) +
+      slopeFactor * (preset.climbLookAtHeightMeters ?? 0);
 
     this.debugCameraState({
       preset,
@@ -1019,11 +1051,15 @@ export default class FlyoverView {
       terrainAtCamera,
       terrainAtRider,
       terrainAtLookAhead,
-      cameraAltitude
+      cameraAltitude,
+      lookAtAltitude
     });
 
-    if (typeof this.map.getFreeCameraOptions === "function" && typeof globalThis.maplibregl?.MercatorCoordinate?.fromLngLat === "function") {
+    if (preset.useFreeCamera !== false && typeof this.map.getFreeCameraOptions === "function" && typeof globalThis.maplibregl?.MercatorCoordinate?.fromLngLat === "function") {
       try {
+        console.log("[FlyoverCameraMode] free-camera", {
+          preset: this.cameraPresetKey
+        });
         const freeCamera = this.map.getFreeCameraOptions();
         freeCamera.position = globalThis.maplibregl.MercatorCoordinate.fromLngLat(
           [cameraPoint.lng, cameraPoint.lat],
@@ -1033,7 +1069,7 @@ export default class FlyoverView {
         if (typeof freeCamera.lookAtPoint === "function") {
           freeCamera.lookAtPoint(
             [lookAtPoint.lng, lookAtPoint.lat],
-            (terrainAtLookAhead ?? terrainAtRider ?? 0) + 0.05
+            lookAtAltitude
           );
         }
 
@@ -1044,11 +1080,23 @@ export default class FlyoverView {
       }
     }
 
-    this.map.jumpTo({
-      center: [cameraPoint.lng, cameraPoint.lat],
+    console.log("[FlyoverCameraMode] fallback-camera", {
+      preset: this.cameraPresetKey,
+      center: [riderPoint.lng, riderPoint.lat],
       zoom: preset.fallbackZoom,
       pitch: preset.fallbackPitch,
-      bearing
+      bearing,
+      offsetX: preset.fallbackOffsetX ?? 0,
+      offsetY: preset.fallbackOffsetY ?? 0
+    });
+
+    this.map.easeTo({
+      center: [riderPoint.lng, riderPoint.lat],
+      zoom: preset.fallbackZoom,
+      pitch: preset.fallbackPitch,
+      bearing,
+      offset: [preset.fallbackOffsetX ?? 0, preset.fallbackOffsetY ?? 0],
+      duration: 0
     });
   }
 
@@ -1062,7 +1110,8 @@ export default class FlyoverView {
     terrainAtCamera,
     terrainAtRider,
     terrainAtLookAhead,
-    cameraAltitude
+    cameraAltitude,
+    lookAtAltitude
   }) {
     const now = typeof performance !== "undefined" ? performance.now() : Date.now();
     if (now - this.lastDebugLogAt < 500) {
@@ -1077,6 +1126,9 @@ export default class FlyoverView {
       slopeFactor: Number(slopeFactor?.toFixed?.(3) ?? slopeFactor),
       followDistanceMeters: preset.followDistanceMeters,
       lookAheadMeters: preset.lookAheadMeters,
+      climbLookAheadMeters: preset.climbLookAheadMeters ?? 0,
+      lookAtHeightMeters: preset.lookAtHeightMeters ?? 0.05,
+      climbLookAtHeightMeters: preset.climbLookAtHeightMeters ?? 0,
       baseAltitudeMeters: preset.baseAltitudeMeters,
       slopeAltitudeMeters: preset.slopeAltitudeMeters,
       verticalFieldOfViewRadians: preset.verticalFieldOfViewRadians,
@@ -1084,6 +1136,7 @@ export default class FlyoverView {
       terrainAtRider,
       terrainAtLookAhead,
       cameraAltitude,
+      lookAtAltitude,
       cameraPoint,
       riderPoint,
       lookAtPoint
@@ -1125,12 +1178,12 @@ export default class FlyoverView {
   }
 
   resolveFallbackElevation(fallbackAlt = null) {
-    if (Number.isFinite(this.lastKnownTerrainElevation)) {
-      return this.lastKnownTerrainElevation;
-    }
-
     if (Number.isFinite(Number(fallbackAlt))) {
       return Number(fallbackAlt);
+    }
+
+    if (Number.isFinite(this.lastKnownTerrainElevation)) {
+      return this.lastKnownTerrainElevation;
     }
 
     return 0;

@@ -128,10 +128,26 @@ function buildSvgShell({ title, bodyMarkup, accent = "#2563eb", showAccentBar = 
 }
 
 function buildRouteThumbnail(track = []) {
-  const points = (Array.isArray(track) ? track : [])
+  const numericTrack = (Array.isArray(track) ? track : [])
     .map(([lat, lng]) => ({
-      x: Number(lng),
-      y: Number(lat)
+      lat: Number(lat),
+      lng: Number(lng)
+    }))
+    .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+
+  if (numericTrack.length < 2) {
+    return null;
+  }
+
+  const averageLatitudeRadians = (
+    numericTrack.reduce((sum, point) => sum + point.lat, 0) / numericTrack.length
+  ) * Math.PI / 180;
+  const longitudeScale = Math.max(1e-9, Math.cos(averageLatitudeRadians));
+
+  const points = numericTrack
+    .map((point) => ({
+      x: point.lng * longitudeScale,
+      y: point.lat
     }))
     .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
 
