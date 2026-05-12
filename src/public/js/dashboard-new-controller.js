@@ -9,6 +9,7 @@ import Utils from "../../shared/Utils.js";
 import confirmModal from "./confirm-modal.js";
 
 export default class Controller {
+  static SIMILARITY_REBUILD_POLL_MS = 1200;
 
   constructor() {
     this.t = createTranslator("dashboardNewPage");
@@ -47,7 +48,12 @@ export default class Controller {
     this.favoriteWorkoutIds = this.readStoredList("dashboardFavoriteWorkoutIds");
     this.detailCopyElement = document.getElementById("dashboard-detail-copy");
     this.workoutTitleElement = document.getElementById("dashboard-workout-title");
+    this.heroStatusElement = document.getElementById("dashboard-hero-status");
     this.workspacePanelElement = document.getElementById("dashboard-workspace-panel");
+    this.detailMainStackElement = document.getElementById("dashboard-detail-main-stack");
+    this.similarWorkoutsPanelElement = document.getElementById("dashboard-similar-workouts-panel");
+    this.similarWorkoutsListElement = document.getElementById("dashboard-similar-workouts-list");
+    this.similarWorkoutsCopyElement = document.getElementById("dashboard-similar-workouts-copy");
     this.sharedMetaElement = document.getElementById("dashboard-shared-meta");
     this.sharedMetaTextElement = document.getElementById("dashboard-shared-meta-text");
     this.toastElement = document.getElementById("dashboard-toast");
@@ -67,9 +73,12 @@ export default class Controller {
     this.detailGridElement = document.getElementById("dashboard-detail-grid");
     this.prevWorkoutButton = document.getElementById("dashboard-workout-prev");
     this.nextWorkoutButton = document.getElementById("dashboard-workout-next");
+    this.detailSplitterTopElement = document.getElementById("dashboard-detail-splitter-1");
     this.isMobileLibraryOpen = false;
     this.libraryWidthPx = this.uiState.get("dashboardLibraryWidthPx", null);
+    this.detailSectionHeights = this.uiState.get("dashboardDetailSectionHeights", null);
     this.splitterPointerId = null;
+    this.detailSplitterPointerId = null;
     this.layoutMeasureRaf = null;
     this.layoutObserver = null;
     this.toast = this.toastElement && globalThis.bootstrap
@@ -216,6 +225,47 @@ export default class Controller {
         this.showToast(this.t("messages.workoutShareUpdated"));
         return data;
       },
+      onWorkoutSimilarityClassify: async (workout) => {
+        const result = await WorkoutService.classifySimilarWorkouts(workout.id);
+        const count = Number(result?.count || 0);
+        this.showToast(this.t("messages.similarWorkoutsClassified", { count }));
+        if (String(workout?.id) === String(this.currentWorkoutId)) {
+          this.renderSimilarWorkouts(result?.edges || [], workout);
+        }
+        return result;
+      },
+      onSimilarityRebuild: async (mode = "delta") => {
+        const normalizedMode = String(mode || "delta").trim().toLowerCase() === "full"
+          ? "full"
+          : "delta";
+        const started = await WorkoutService.rebuildSimilarWorkouts(normalizedMode);
+        if (!started?.jobId) {
+          return started;
+        }
+
+        this.setHeroStatus(this.t(
+          normalizedMode === "full"
+            ? "messages.similarWorkoutsRebuildStartedFull"
+            : "messages.similarWorkoutsRebuildStartedDelta"
+        ));
+        const result = await this.waitForSimilarityRebuildJob(started.jobId);
+        this.clearHeroStatus();
+        this.showToast(this.t(
+          normalizedMode === "full"
+            ? "messages.similarWorkoutsRebuiltFull"
+            : "messages.similarWorkoutsRebuiltDelta",
+          {
+          workouts: Number(result?.workoutCount || 0),
+          edges: Number(result?.edgeCount || 0)
+          }
+        ));
+
+        if (this.chartView?.currentWorkout) {
+          await this.loadSimilarWorkouts(this.chartView.currentWorkout);
+        }
+
+        return result;
+      },
       onFavoriteChange: (favoriteIds) => {
         this.favoriteWorkoutIds = Array.isArray(favoriteIds) ? favoriteIds : [];
         this.writeStoredList("dashboardFavoriteWorkoutIds", this.favoriteWorkoutIds);
@@ -306,6 +356,7 @@ export default class Controller {
       this.flyoverView.setWorkout(workout);
       this.libraryView.setSelectedWorkout(workout.id);
       this.updateWorkoutMeta(workout);
+      await this.loadSimilarWorkouts(workout);
       this.scheduleDesktopLayoutMeasure(true);
       this.closeMobileLibrary();
       this.renderQuickAccess();
@@ -566,6 +617,7 @@ export default class Controller {
     if (this.detailCopyElement) {
       this.detailCopyElement.textContent = "";
     }
+    this.resetSimilarWorkouts();
     this.flyoverView?.setWorkout(null);
     this.update3dMapButton();
     this.updateDetailNavigation();
@@ -621,6 +673,149 @@ export default class Controller {
     return Number.isFinite(value) ? `${Math.round(Number(value))} W` : this.libraryT("na");
   }
 
+  formatAscent(value) {
+    return Number.isFinite(value) ? `${Math.round(Number(value))} m` : this.libraryT("na");
+  }
+
+  formatDateTime(value) {
+    if (!value) {
+      return this.libraryT("na");
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return this.libraryT("na");
+    }
+
+    return date.toLocaleString(this.locale, {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  }
+
+  async loadSimilarWorkouts(workout) {
+    if (!workout?.id) {
+      this.resetSimilarWorkouts();
+      return;
+    }
+
+    const isOwned = workout?.access?.isOwner !== false && workout?.is_owned !== false;
+    if (!isOwned || !workout?.validGps) {
+      this.resetSimilarWorkouts();
+      return;
+    }
+
+    this.renderSimilarWorkoutsLoading();
+
+    try {
+      const result = await WorkoutService.getSimilarWorkouts(workout.id);
+      this.renderSimilarWorkouts(result?.edges || [], workout);
+    } catch (err) {
+      console.error(err);
+      this.renderSimilarWorkoutsError();
+    }
+  }
+
+  renderSimilarWorkoutsLoading() {
+    if (!this.similarWorkoutsPanelElement || !this.similarWorkoutsListElement || !this.similarWorkoutsCopyElement) {
+      return;
+    }
+
+    this.similarWorkoutsPanelElement.classList.remove("d-none");
+    this.similarWorkoutsCopyElement.textContent = this.t("similarWorkoutsCopy");
+    this.similarWorkoutsListElement.innerHTML = `<div class="dashboard-similar-workouts-empty">${this.t("messages.loading")}</div>`;
+    this.applyDetailSectionHeights();
+  }
+
+  renderSimilarWorkoutsError() {
+    if (!this.similarWorkoutsPanelElement || !this.similarWorkoutsListElement || !this.similarWorkoutsCopyElement) {
+      return;
+    }
+
+    this.similarWorkoutsPanelElement.classList.remove("d-none");
+    this.similarWorkoutsCopyElement.textContent = this.t("similarWorkoutsCopy");
+    this.similarWorkoutsListElement.innerHTML = `<div class="dashboard-similar-workouts-empty">${this.t("messages.similarWorkoutsLoadFailed")}</div>`;
+    this.applyDetailSectionHeights();
+  }
+
+  resetSimilarWorkouts() {
+    if (!this.similarWorkoutsPanelElement || !this.similarWorkoutsListElement || !this.similarWorkoutsCopyElement) {
+      return;
+    }
+
+    this.similarWorkoutsPanelElement.classList.add("d-none");
+    this.similarWorkoutsCopyElement.textContent = this.t("similarWorkoutsCopy");
+    this.similarWorkoutsListElement.innerHTML = "";
+    this.applyDetailSectionHeights();
+  }
+
+  renderSimilarWorkouts(edges = [], workout = null) {
+    if (!this.similarWorkoutsPanelElement || !this.similarWorkoutsListElement || !this.similarWorkoutsCopyElement) {
+      return;
+    }
+
+    this.similarWorkoutsPanelElement.classList.remove("d-none");
+    this.applyDetailSectionHeights();
+
+    const directEdges = (Array.isArray(edges) ? edges : []).filter((edge) => edge?.is_direct_match !== false);
+
+    if (!directEdges.length) {
+      this.similarWorkoutsCopyElement.textContent = this.t("similarWorkoutsCopy");
+      this.similarWorkoutsListElement.innerHTML = `
+        <div class="dashboard-similar-workouts-empty">
+          ${this.t("similarWorkoutsEmpty")}
+        </div>
+      `;
+      return;
+    }
+
+    this.similarWorkoutsCopyElement.textContent = this.t("similarWorkoutsCount", { count: directEdges.length });
+    this.similarWorkoutsListElement.innerHTML = directEdges.map((edge) => {
+      const otherWorkoutId = Number(edge?.other_workout_id);
+      const scorePercent = Number.isFinite(Number(edge?.score))
+        ? `${Math.round(Number(edge.score) * 100)}%`
+        : this.libraryT("na");
+      const dateLabel = this.formatDateTime(edge?.other_start_time);
+      const distanceLabel = this.formatDistance(edge?.other_total_distance);
+      const ascentLabel = this.formatAscent(edge?.other_total_ascent);
+      const powerLabel = this.formatPower(edge?.other_avg_power);
+
+      return `
+        <button class="dashboard-similar-workout" type="button" data-similar-workout-open="${otherWorkoutId}">
+          <span class="dashboard-similar-workout__header">
+            <span class="dashboard-similar-workout__title">${this.libraryT("workoutLabel", { id: otherWorkoutId })}</span>
+            <span class="dashboard-similar-workout__score">${scorePercent}</span>
+          </span>
+          <span class="dashboard-similar-workout__meta">${dateLabel}</span>
+          <span class="dashboard-similar-workout__stats">
+            <span>${distanceLabel}</span>
+            <span>${ascentLabel}</span>
+            <span>${powerLabel}</span>
+          </span>
+        </button>
+      `;
+    }).join("");
+
+    this.similarWorkoutsListElement.querySelectorAll("[data-similar-workout-open]").forEach((element) => {
+      element.addEventListener("click", async () => {
+        const workoutId = element.getAttribute("data-similar-workout-open");
+        if (!workoutId) {
+          return;
+        }
+
+        this.currentWorkoutId = workoutId;
+        this.uiState.set("selectedWorkoutId", workoutId);
+        const url = new URL(window.location.href);
+        url.searchParams.set("workoutId", workoutId);
+        window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+        await this.openWorkout(workoutId);
+      });
+    });
+  }
+
   readInitialWorkoutId() {
     try {
       const params = new URLSearchParams(window.location.search);
@@ -658,6 +853,71 @@ export default class Controller {
 
     this.toastBodyElement.innerHTML = message;
     this.toast.show();
+  }
+
+  setHeroStatus(message) {
+    if (!this.heroStatusElement) {
+      return;
+    }
+
+    this.heroStatusElement.textContent = message;
+    this.heroStatusElement.hidden = !message;
+  }
+
+  clearHeroStatus() {
+    if (!this.heroStatusElement) {
+      return;
+    }
+
+    this.heroStatusElement.textContent = "";
+    this.heroStatusElement.hidden = true;
+  }
+
+  async waitForSimilarityRebuildJob(jobId) {
+    let lastKnownProgress = null;
+
+    while (true) {
+      const job = await WorkoutService.getSimilarityRebuildJob(jobId);
+      if (!job) {
+        this.clearHeroStatus();
+        throw new Error("Similarity rebuild job not found");
+      }
+
+      if (job.status === "completed") {
+        return job;
+      }
+
+      if (job.status === "failed") {
+        this.clearHeroStatus();
+        throw new Error(job.errorMessage || "Similarity rebuild failed");
+      }
+
+      const currentProgress = {
+        processedWorkouts: Number(job.processedWorkouts || 0),
+        workoutCount: Number(job.workoutCount || 0),
+        progressPercent: Number(job.progressPercent || 0)
+      };
+
+      const hasMeaningfulProgress =
+        currentProgress.workoutCount > 0 ||
+        currentProgress.processedWorkouts > 0 ||
+        currentProgress.progressPercent > 0;
+
+      if (hasMeaningfulProgress) {
+        lastKnownProgress = currentProgress;
+      }
+
+      const progressToRender = lastKnownProgress || currentProgress;
+      this.setHeroStatus(this.t("messages.similarWorkoutsRebuildProgress", {
+        processed: progressToRender.processedWorkouts,
+        workouts: progressToRender.workoutCount,
+        percent: progressToRender.progressPercent
+      }));
+
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, Controller.SIMILARITY_REBUILD_POLL_MS);
+      });
+    }
   }
 
   onResize() {
@@ -704,6 +964,40 @@ export default class Controller {
 
     this.splitterElement?.addEventListener("pointerup", finishDrag);
     this.splitterElement?.addEventListener("pointercancel", finishDrag);
+
+    this.detailSplitterTopElement?.addEventListener("pointerdown", (event) => {
+      if (!this.canUseDesktopSplitter()) {
+        return;
+      }
+
+      this.detailSplitterPointerId = event.pointerId;
+      this.detailSplitterTopElement.setPointerCapture?.(event.pointerId);
+      this.detailSplitterTopElement.classList.add("is-active");
+      document.body.classList.add("overflow-hidden");
+      event.preventDefault();
+    });
+
+    this.detailSplitterTopElement?.addEventListener("pointermove", (event) => {
+      if (this.detailSplitterPointerId !== event.pointerId) {
+        return;
+      }
+
+      this.updateDetailSectionHeightsFromPointer(event.clientY);
+    });
+
+    const finishDetailDrag = (event) => {
+      if (this.detailSplitterPointerId !== event.pointerId) {
+        return;
+      }
+
+      this.updateDetailSectionHeightsFromPointer(event.clientY);
+      this.detailSplitterPointerId = null;
+      this.detailSplitterTopElement?.classList.remove("is-active");
+      document.body.classList.remove("overflow-hidden");
+    };
+
+    this.detailSplitterTopElement?.addEventListener("pointerup", finishDetailDrag);
+    this.detailSplitterTopElement?.addEventListener("pointercancel", finishDetailDrag);
   }
 
   initLayoutObservers() {
@@ -763,6 +1057,7 @@ export default class Controller {
 
     if (!canUseClientLayout) {
       shell.style.removeProperty("--dashboard-client-height");
+      this.clearDetailSectionHeights();
       this.applyLibraryWidth();
       if (withRenderRefresh) {
         this.chartView.resize();
@@ -773,6 +1068,7 @@ export default class Controller {
 
     shell.style.setProperty("--dashboard-client-height", `${availableHeight}px`);
     this.applyLibraryWidth();
+    this.applyDetailSectionHeights();
 
     if (withRenderRefresh) {
       requestAnimationFrame(() => {
@@ -797,6 +1093,46 @@ export default class Controller {
     }
 
     this.masterDetailElement.style.setProperty("--dashboard-library-width", `${Math.round(this.libraryWidthPx)}px`);
+  }
+
+  clearDetailSectionHeights() {
+    this.detailMainStackElement?.style.removeProperty("--dashboard-detail-top-height");
+    this.detailMainStackElement?.style.removeProperty("--dashboard-detail-middle-height");
+  }
+
+  applyDetailSectionHeights() {
+    if (!this.detailGridElement || !this.detailMainStackElement || !this.canUseDesktopSplitter()) {
+      this.clearDetailSectionHeights();
+      return;
+    }
+
+    const hasSimilarPanel = !this.similarWorkoutsPanelElement?.classList.contains("d-none");
+    this.detailGridElement.classList.toggle("has-similar-panel", hasSimilarPanel);
+
+    const nextHeights = { top: 1, middle: 1, ...(this.detailSectionHeights || {}) };
+    this.detailMainStackElement.style.setProperty("--dashboard-detail-top-height", `${nextHeights.top || 1}fr`);
+    this.detailMainStackElement.style.setProperty("--dashboard-detail-middle-height", `${nextHeights.middle || 1}fr`);
+  }
+
+  updateDetailSectionHeightsFromPointer(clientY) {
+    const topRect = this.workspacePanelElement?.getBoundingClientRect?.();
+    const mapPanelRect = document.getElementById("workout-map")?.closest(".dashboard-detail-panel")?.getBoundingClientRect?.();
+
+    if (!topRect || !mapPanelRect) {
+      return;
+    }
+
+    const minHeight = 140;
+    const total = topRect.height + mapPanelRect.height;
+    const nextTop = Math.max(minHeight, Math.min(total - minHeight, clientY - topRect.top));
+    const top = nextTop;
+    const middle = total - nextTop;
+
+    this.detailSectionHeights = { top, middle };
+    this.uiState.set("dashboardDetailSectionHeights", this.detailSectionHeights);
+    this.applyDetailSectionHeights();
+    this.chartView.resize();
+    this.mapView.resize();
   }
 
   updateLibraryWidthFromPointer(clientX) {

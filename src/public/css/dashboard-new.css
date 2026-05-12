@@ -56,6 +56,46 @@ body.dashboard-page {
   gap: 0.35rem;
 }
 
+.dashboard-hero-status {
+  margin-top: 0.48rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.36rem 0.68rem;
+  border: 1px solid var(--ui-card-border-soft);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ui-bg-subtle) 92%, white 8%);
+  color: var(--ui-text-default);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.dashboard-hero-status[hidden] {
+  display: none;
+}
+
+.dashboard-hero-status::before {
+  content: "";
+  width: 0.48rem;
+  height: 0.48rem;
+  border-radius: 999px;
+  background: #2563eb;
+  box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.28);
+  animation: dashboardHeroPulse 1.4s ease-out infinite;
+}
+
+@keyframes dashboardHeroPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.28);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(37, 99, 235, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 99, 235, 0);
+  }
+}
+
 .dashboard-quick-access[hidden] {
   display: none;
 }
@@ -1801,24 +1841,35 @@ body.dashboard-page {
 
 .dashboard-detail-grid {
   display: grid;
-  gap: 1.5rem;
+  gap: 1rem;
   align-items: stretch;
+  min-height: 0;
 }
 
-.dashboard-shell--client .dashboard-detail-grid {
+.dashboard-master-detail .dashboard-detail-grid {
   height: var(--dashboard-client-height);
   min-height: 0;
-  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.34fr);
 }
 
-.dashboard-shell--client .dashboard-detail-panel {
+.dashboard-detail-main-stack {
+  --dashboard-detail-splitter-size: 0.5rem;
+  display: grid;
+  min-height: 0;
+  grid-template-rows:
+    minmax(0, var(--dashboard-detail-top-height, 1fr))
+    var(--dashboard-detail-splitter-size)
+    minmax(0, var(--dashboard-detail-middle-height, 1fr));
+}
+
+.dashboard-master-detail .dashboard-detail-panel {
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: visible;
 }
 
-.dashboard-shell--client .dashboard-detail-panel .dashboard-surface-body {
+.dashboard-master-detail .dashboard-detail-panel .dashboard-surface-body {
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -1834,6 +1885,117 @@ body.dashboard-page {
 .dashboard-detail-panel > .dashboard-section-header {
   position: relative;
   z-index: 25;
+}
+
+.dashboard-detail-splitter {
+  display: none;
+  position: relative;
+  cursor: row-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.dashboard-detail-splitter::before {
+  content: "";
+  position: absolute;
+  inset: 0.12rem 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ui-border-color-emphasis) 72%, transparent);
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.dashboard-detail-splitter:hover::before,
+.dashboard-detail-splitter.is-active::before {
+  background: color-mix(in srgb, var(--ui-info-border-hover) 90%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-info-border-hover) 18%, transparent);
+}
+
+.dashboard-shell--client .dashboard-detail-splitter {
+  display: block;
+}
+
+.dashboard-detail-grid:not(.has-similar-panel) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.dashboard-detail-grid:not(.has-similar-panel) #dashboard-similar-workouts-panel {
+  display: none !important;
+}
+
+.dashboard-similar-workouts-panel .dashboard-surface-body {
+  padding: 1rem 1.1rem 1.15rem;
+  overflow: auto;
+}
+
+.dashboard-similar-workouts-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.dashboard-similar-workouts-empty {
+  padding: 0.85rem 0.95rem;
+  border: 1px dashed var(--ui-card-border-soft);
+  border-radius: 1rem;
+  background: var(--ui-bg-subtle);
+  color: var(--ui-text-muted);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.dashboard-similar-workout {
+  display: grid;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.8rem 0.95rem;
+  border: 1px solid var(--ui-card-border-soft);
+  border-radius: 1rem;
+  background: var(--ui-bg-subtle);
+  color: var(--ui-text-default);
+  text-align: left;
+  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+}
+
+.dashboard-similar-workout:hover {
+  border-color: var(--ui-border-color-emphasis);
+  background: var(--ui-bg-subtle-soft);
+  transform: translateY(-1px);
+}
+
+.dashboard-similar-workout__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.dashboard-similar-workout__title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--ui-text-strong);
+}
+
+.dashboard-similar-workout__score {
+  padding: 0.16rem 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ui-info-border-hover) 16%, transparent);
+  color: var(--ui-info-text-strong);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.dashboard-similar-workout__meta {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ui-text-muted);
+}
+
+.dashboard-similar-workout__stats {
+  display: flex;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ui-text-default);
 }
 
 .dashboard-mobile-library-toggle {
@@ -1863,8 +2025,8 @@ body.dashboard-page {
   height: 340px !important;
 }
 
-.dashboard-shell--client #workout-chart,
-.dashboard-shell--client #workout-map {
+.dashboard-master-detail #workout-chart,
+.dashboard-master-detail #workout-map {
   height: 100% !important;
   min-height: 0;
 }
@@ -1881,6 +2043,20 @@ body.dashboard-page {
 
   .dashboard-master-detail {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-detail-grid,
+  .dashboard-master-detail .dashboard-detail-grid {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .dashboard-detail-main-stack {
+    grid-template-rows: auto;
+  }
+
+  .dashboard-detail-splitter {
+    display: none !important;
   }
 
   .dashboard-splitter {

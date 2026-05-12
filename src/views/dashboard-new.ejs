@@ -38,6 +38,7 @@
                 <section id="dashboard-hero" class="dashboard-hero">
                     <div>
                         <h1 id="dashboard-workout-count" class="dashboard-title"><%= t("dashboardNewPage.titleMain") %></h1>
+                        <div id="dashboard-hero-status" class="dashboard-hero-status" hidden></div>
                         <div id="dashboard-quick-access" class="dashboard-quick-access" hidden>
                             <div class="dashboard-quick-access__group">
                                 <span class="dashboard-quick-access__label"><%= t("dashboardNewPage.quickRecent") %></span>
@@ -252,6 +253,19 @@
                                                 <option value="np"><%= t("dashboardNewPage.sortNp") %></option>
                                             </select>
                                         </div>
+                                        <details class="workout-library-bulk-menu">
+                                            <summary id="workout-library-tools-trigger" class="workout-library-bulk-menu__trigger" aria-label="<%= t('dashboardNewPage.library.toolsMenu') %>">
+                                                <span></span><span></span><span></span>
+                                            </summary>
+                                            <div class="workout-library-bulk-menu__panel">
+                                                <button id="workout-library-similarity-rebuild-delta" class="workout-library-bulk-menu__item" type="button">
+                                                    <%= t("dashboardNewPage.library.rebuildSimilarWorkoutsDelta") %>
+                                                </button>
+                                                <button id="workout-library-similarity-rebuild-full" class="workout-library-bulk-menu__item" type="button">
+                                                    <%= t("dashboardNewPage.library.rebuildSimilarWorkoutsFull") %>
+                                                </button>
+                                            </div>
+                                        </details>
                                     </div>
                                 </div>
 
@@ -274,101 +288,124 @@
                     </div>
 
                     <section id="dashboard-detail-grid" class="dashboard-detail-grid">
-                        <article id="dashboard-workspace-panel" class="dashboard-surface dashboard-workspace-panel dashboard-detail-panel">
-                        <div class="dashboard-section-header">
-                            <div class="dashboard-workspace-header">
-                                <div>
-                                <span class="dashboard-eyebrow"><%= t("dashboardNewPage.primaryEyebrow") %></span>
-                                <h2 id="dashboard-workout-title" class="dashboard-section-title"><%= t("dashboardNewPage.workoutDataTitle") %></h2>
-                                <p id="dashboard-detail-copy" class="dashboard-section-copy"></p>
-                                <div id="dashboard-shared-meta" class="dashboard-shared-meta d-none">
-                                    <span class="dashboard-shared-meta__eyebrow"><%= t("dashboardNewPage.sharedWorkoutEyebrow") %></span>
-                                    <span id="dashboard-shared-meta-text"></span>
-                                </div>
-                                </div>
-                            </div>
-
-                            <div class="dashboard-toolbar dashboard-workspace-toolbar">
-                                <div class="dashboard-detail-nav" role="group" aria-label="<%= t('dashboardNewPage.detailNavigationAria') %>">
-                                    <button id="dashboard-workout-prev" class="dashboard-detail-nav__button" type="button" aria-label="<%= t('dashboardNewPage.previousItem') %>">‹</button>
-                                    <button id="dashboard-workout-next" class="dashboard-detail-nav__button" type="button" aria-label="<%= t('dashboardNewPage.nextItem') %>">›</button>
-                                </div>
-                                <details class="dashboard-actions-menu">
-                                    <summary class="dashboard-actions-menu__trigger" aria-label="<%= t('dashboardNewPage.btnCreateSegment') %> / <%= t('dashboardNewPage.btnCreateGps') %> / <%= t('dashboardNewPage.btnDeleteSegment') %>">
-                                        <span></span><span></span><span></span>
-                                    </summary>
-                                    <div class="dashboard-actions-menu__panel">
-                                        <button id="draw-segment-toggle" class="dashboard-actions-menu__item dashboard-actions-menu__item--primary" type="button"
-                                            title="<%= t('dashboardNewPage.btnCreateSegmentTitle') %>">
-                                            <%= t("dashboardNewPage.btnCreateSegment") %>
-                                        </button>
-                                        <button id="draw-gps-segment-toggle" class="dashboard-actions-menu__item dashboard-actions-menu__item--success" type="button"
-                                            title="<%= t('dashboardNewPage.btnCreateGpsTitle') %>" disabled>
-                                            <%= t("dashboardNewPage.btnCreateGps") %>
-                                        </button>
-                                        <button id="delete-segments" class="dashboard-actions-menu__item dashboard-actions-menu__item--danger" type="button">
-                                            <%= t("dashboardNewPage.btnDeleteSegment") %>
-                                        </button>
-                                        <details class="dashboard-actions-submenu">
-                                            <summary class="dashboard-actions-submenu__trigger">
-                                                <span><%= t("dashboardNewPage.segmentTypesLabel") %></span>
-                                                <span class="dashboard-actions-submenu__chevron" aria-hidden="true">›</span>
-                                            </summary>
-                                            <div class="dashboard-actions-submenu__panel">
-                                                <div id="dashboard-segment-toggle-slot" class="dashboard-actions-menu__series-slot"></div>
-                                            </div>
-                                        </details>
-                                        <details class="dashboard-actions-submenu">
-                                            <summary class="dashboard-actions-submenu__trigger">
-                                                <span><%= t("dashboardNewPage.dataSourcesLabel") %></span>
-                                                <span class="dashboard-actions-submenu__chevron" aria-hidden="true">›</span>
-                                            </summary>
-                                            <div class="dashboard-actions-submenu__panel">
-                                                <div id="dashboard-series-toggle-slot" class="dashboard-actions-menu__series-slot"></div>
-                                            </div>
-                                        </details>
-                                        <div class="dashboard-actions-menu__group">
-                                            <div class="dashboard-actions-menu__group-label"><%= t("dashboardNewPage.axisModeLabel") %></div>
-                                            <div id="dashboard-axis-toggle-slot" class="dashboard-actions-menu__toggle-slot"></div>
-                                        </div>
-                                    </div>
-                                </details>
-                            </div>
-                        </div>
-
-                        <div class="dashboard-surface-body ui-surface-body ui-surface-body--flush">
-                            <div id="workout-chart"></div>
-                        </div>
-                        </article>
-
-                        <aside class="dashboard-surface dashboard-detail-panel">
+                        <div id="dashboard-detail-main-stack" class="dashboard-detail-main-stack">
+                            <article id="dashboard-workspace-panel" class="dashboard-surface dashboard-workspace-panel dashboard-detail-panel">
                             <div class="dashboard-section-header">
-                                <div>
-                                    <span class="dashboard-eyebrow"><%= t("dashboardNewPage.spatialEyebrow") %></span>
-                                    <h2 class="dashboard-section-title"><%= t("dashboardNewPage.routeMapTitle") %></h2>
+                                <div class="dashboard-workspace-header">
+                                    <div>
+                                    <span class="dashboard-eyebrow"><%= t("dashboardNewPage.primaryEyebrow") %></span>
+                                    <h2 id="dashboard-workout-title" class="dashboard-section-title"><%= t("dashboardNewPage.workoutDataTitle") %></h2>
+                                    <p id="dashboard-detail-copy" class="dashboard-section-copy"></p>
+                                    <div id="dashboard-shared-meta" class="dashboard-shared-meta d-none">
+                                        <span class="dashboard-shared-meta__eyebrow"><%= t("dashboardNewPage.sharedWorkoutEyebrow") %></span>
+                                        <span id="dashboard-shared-meta-text"></span>
+                                    </div>
+                                    </div>
                                 </div>
+
                                 <div class="dashboard-toolbar dashboard-workspace-toolbar">
-                                    <button id="dashboard-map-3d-toggle" class="btn btn-outline-secondary btn-sm" type="button">
-                                        <%= t("dashboardNewPage.map3dOpen") %>
-                                    </button>
-                                    <details id="dashboard-map-style-menu" class="dashboard-actions-menu dashboard-actions-menu--map">
-                                        <summary class="dashboard-actions-menu__trigger" aria-label="<%= t('dashboardNewPage.mapStyleAria') %>">
+                                    <div class="dashboard-detail-nav" role="group" aria-label="<%= t('dashboardNewPage.detailNavigationAria') %>">
+                                        <button id="dashboard-workout-prev" class="dashboard-detail-nav__button" type="button" aria-label="<%= t('dashboardNewPage.previousItem') %>">‹</button>
+                                        <button id="dashboard-workout-next" class="dashboard-detail-nav__button" type="button" aria-label="<%= t('dashboardNewPage.nextItem') %>">›</button>
+                                    </div>
+                                    <details class="dashboard-actions-menu">
+                                        <summary class="dashboard-actions-menu__trigger" aria-label="<%= t('dashboardNewPage.btnCreateSegment') %> / <%= t('dashboardNewPage.btnCreateGps') %> / <%= t('dashboardNewPage.btnDeleteSegment') %>">
                                             <span></span><span></span><span></span>
                                         </summary>
                                         <div class="dashboard-actions-menu__panel">
+                                            <button id="draw-segment-toggle" class="dashboard-actions-menu__item dashboard-actions-menu__item--primary" type="button"
+                                                title="<%= t('dashboardNewPage.btnCreateSegmentTitle') %>">
+                                                <%= t("dashboardNewPage.btnCreateSegment") %>
+                                            </button>
+                                            <button id="draw-gps-segment-toggle" class="dashboard-actions-menu__item dashboard-actions-menu__item--success" type="button"
+                                                title="<%= t('dashboardNewPage.btnCreateGpsTitle') %>" disabled>
+                                                <%= t("dashboardNewPage.btnCreateGps") %>
+                                            </button>
+                                            <button id="delete-segments" class="dashboard-actions-menu__item dashboard-actions-menu__item--danger" type="button">
+                                                <%= t("dashboardNewPage.btnDeleteSegment") %>
+                                            </button>
+                                            <details class="dashboard-actions-submenu">
+                                                <summary class="dashboard-actions-submenu__trigger">
+                                                    <span><%= t("dashboardNewPage.segmentTypesLabel") %></span>
+                                                    <span class="dashboard-actions-submenu__chevron" aria-hidden="true">›</span>
+                                                </summary>
+                                                <div class="dashboard-actions-submenu__panel">
+                                                    <div id="dashboard-segment-toggle-slot" class="dashboard-actions-menu__series-slot"></div>
+                                                </div>
+                                            </details>
+                                            <details class="dashboard-actions-submenu">
+                                                <summary class="dashboard-actions-submenu__trigger">
+                                                    <span><%= t("dashboardNewPage.dataSourcesLabel") %></span>
+                                                    <span class="dashboard-actions-submenu__chevron" aria-hidden="true">›</span>
+                                                </summary>
+                                                <div class="dashboard-actions-submenu__panel">
+                                                    <div id="dashboard-series-toggle-slot" class="dashboard-actions-menu__series-slot"></div>
+                                                </div>
+                                            </details>
                                             <div class="dashboard-actions-menu__group">
-                                                <div class="dashboard-actions-menu__group-label"><%= t("dashboardNewPage.mapStyleLabel") %></div>
-                                                <div id="dashboard-map-style-slot" class="dashboard-actions-menu__series-slot"></div>
+                                                <div class="dashboard-actions-menu__group-label"><%= t("dashboardNewPage.axisModeLabel") %></div>
+                                                <div id="dashboard-axis-toggle-slot" class="dashboard-actions-menu__toggle-slot"></div>
                                             </div>
                                         </div>
                                     </details>
                                 </div>
                             </div>
 
-                        <div class="dashboard-surface-body ui-surface-body ui-surface-body--flush">
-                                <div id="workout-map"></div>
+                            <div class="dashboard-surface-body ui-surface-body ui-surface-body--flush">
+                                <div id="workout-chart"></div>
                             </div>
-                        </aside>
+                            </article>
+
+                            <div
+                                id="dashboard-detail-splitter-1"
+                                class="dashboard-detail-splitter"
+                                role="separator"
+                                aria-orientation="horizontal"
+                                aria-label="Resize detail sections">
+                            </div>
+
+                            <aside class="dashboard-surface dashboard-detail-panel">
+                                <div class="dashboard-section-header">
+                                    <div>
+                                        <span class="dashboard-eyebrow"><%= t("dashboardNewPage.spatialEyebrow") %></span>
+                                        <h2 class="dashboard-section-title"><%= t("dashboardNewPage.routeMapTitle") %></h2>
+                                    </div>
+                                    <div class="dashboard-toolbar dashboard-workspace-toolbar">
+                                        <button id="dashboard-map-3d-toggle" class="btn btn-outline-secondary btn-sm" type="button">
+                                            <%= t("dashboardNewPage.map3dOpen") %>
+                                        </button>
+                                        <details id="dashboard-map-style-menu" class="dashboard-actions-menu dashboard-actions-menu--map">
+                                            <summary class="dashboard-actions-menu__trigger" aria-label="<%= t('dashboardNewPage.mapStyleAria') %>">
+                                                <span></span><span></span><span></span>
+                                            </summary>
+                                            <div class="dashboard-actions-menu__panel">
+                                                <div class="dashboard-actions-menu__group">
+                                                    <div class="dashboard-actions-menu__group-label"><%= t("dashboardNewPage.mapStyleLabel") %></div>
+                                                    <div id="dashboard-map-style-slot" class="dashboard-actions-menu__series-slot"></div>
+                                                </div>
+                                            </div>
+                                        </details>
+                                    </div>
+                                </div>
+
+                            <div class="dashboard-surface-body ui-surface-body ui-surface-body--flush">
+                                    <div id="workout-map"></div>
+                                </div>
+                            </aside>
+                        </div>
+
+                        <article id="dashboard-similar-workouts-panel" class="dashboard-surface dashboard-detail-panel dashboard-similar-workouts-panel d-none">
+                            <div class="dashboard-section-header">
+                                <div>
+                                    <span class="dashboard-eyebrow"><%= t("dashboardNewPage.similarWorkoutsEyebrow") %></span>
+                                    <h2 class="dashboard-section-title"><%= t("dashboardNewPage.similarWorkoutsTitle") %></h2>
+                                    <p id="dashboard-similar-workouts-copy" class="dashboard-section-copy"><%= t("dashboardNewPage.similarWorkoutsCopy") %></p>
+                                </div>
+                            </div>
+                            <div class="dashboard-surface-body">
+                                <div id="dashboard-similar-workouts-list" class="dashboard-similar-workouts-list"></div>
+                            </div>
+                        </article>
                     </section>
                 </section>
                 <div id="dashboard-mobile-library-backdrop" class="dashboard-mobile-library-backdrop"></div>

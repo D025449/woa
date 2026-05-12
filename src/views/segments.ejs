@@ -81,76 +81,63 @@
                             <div>
                                 <span class="segments-eyebrow ui-eyebrow"><%= t("segmentsPage.mapEyebrow") %></span>
                                 <h2 class="segments-section-title ui-title"><%= t("segmentsPage.mapTitle") %></h2>
-                                <p class="segments-section-copy ui-copy">
-                                    <%= t("segmentsPage.mapCopy") %>
-                                </p>
                             </div>
 
-                            <div class="segments-toolbar ui-toolbar ui-toolbar--end">
-                                <div class="segments-map-scope-toggle" role="group" aria-label="<%= t('segmentsPage.scopeAria') %>">
-                                    <button id="segments-scope-mine" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="mine">
-                                        <%= t("segmentsPage.scopeMine") %>
-                                    </button>
-                                    <button id="segments-scope-shared" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="shared">
-                                        <%= t("segmentsPage.scopeShared") %>
-                                    </button>
-                                    <button id="segments-scope-all" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="all">
-                                        <%= t("segmentsPage.scopeAll") %>
-                                    </button>
-                                </div>
-                                <button id="segments-favorites-filter" class="segments-favorite-filter" type="button" aria-pressed="false" title="<%= t('segmentsPage.favoriteFilterLabel') %>">
-                                    <svg viewBox="0 0 20 20" aria-hidden="true">
-                                        <path d="M10 2.9l2.15 4.36 4.81.7-3.48 3.39.82 4.79L10 14.02 5.7 16.14l.82-4.79L3.04 7.96l4.81-.7L10 2.9z" fill="currentColor"></path>
+                            <div id="segments-map-header-toolbar" class="segments-toolbar ui-toolbar ui-toolbar--end">
+                                <button
+                                    id="draw-segment-map-toggle"
+                                    class="segments-map-create-toggle"
+                                    type="button"
+                                    title="<%= t('segmentsPage.btnCreateTitle') %>"
+                                    aria-pressed="false">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                        <circle cx="12" cy="12" r="6.5" />
+                                        <path d="M12 2.5V5.2" />
+                                        <path d="M12 18.8V21.5" />
+                                        <path d="M2.5 12H5.2" />
+                                        <path d="M18.8 12H21.5" />
                                     </svg>
                                 </button>
-                                <button id="segments-map-3d-toggle" class="btn btn-outline-secondary btn-sm" type="button">
-                                    <%= t("segmentsPage.map3dOpen") %>
+                                <button
+                                    id="draw-segment-map-lookup"
+                                    class="btn btn-outline-secondary btn-sm d-none segments-map-lookup-inline"
+                                    type="button"
+                                    disabled
+                                    title="<%= t('segmentsPage.lookupTitle') %>">
+                                    <%= t("segmentsPage.lookup") %>
                                 </button>
-                                <details id="segments-map-tools-menu" class="segments-map-actions-menu">
-                                    <summary class="segments-map-actions-menu__trigger" aria-label="<%= t('segmentsPage.btnCreate') %> / <%= t('segmentsPage.lookup') %>">
-                                        <span aria-hidden="true">•••</span>
-                                    </summary>
-                                    <div class="segments-map-actions-menu__panel">
-                                        <button
-                                            id="draw-segment-map-toggle"
-                                            class="segments-map-actions-menu__item segments-map-actions-menu__item--primary"
-                                            type="button"
-                                            title="<%= t('segmentsPage.btnCreateTitle') %>">
-                                            <span class="segments-map-actions-menu__icon" aria-hidden="true">
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                                                    <circle cx="12" cy="12" r="6.5" />
-                                                    <path d="M12 2.5V5.2" />
-                                                    <path d="M12 18.8V21.5" />
-                                                    <path d="M2.5 12H5.2" />
-                                                    <path d="M18.8 12H21.5" />
-                                                </svg>
-                                            </span>
-                                            <span><%= t("segmentsPage.btnCreate") %></span>
+                                <div id="segments-map-header-toolbar-main" class="segments-map-header-toolbar-main">
+                                    <div class="segments-map-scope-toggle" role="group" aria-label="<%= t('segmentsPage.scopeAria') %>">
+                                        <button id="segments-scope-mine" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="mine">
+                                            <%= t("segmentsPage.scopeMine") %>
                                         </button>
-
-                                        <button
-                                            id="draw-segment-map-lookup"
-                                            class="segments-map-actions-menu__item segments-map-actions-menu__item--secondary"
-                                            type="button"
-                                            disabled
-                                            title="<%= t('segmentsPage.lookupTitle') %>">
-                                            <span class="segments-map-actions-menu__icon" aria-hidden="true">
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                                                    <circle cx="6.5" cy="17.5" r="1.8" />
-                                                    <circle cx="17.5" cy="6.5" r="1.8" />
-                                                    <path d="M8.4 16.2C11 13.6 13.2 11.5 15.7 8.9" />
-                                                    <path d="M11.9 8.4H15.9V12.4" />
-                                                </svg>
-                                            </span>
-                                            <span><%= t("segmentsPage.lookup") %></span>
+                                        <button id="segments-scope-shared" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="shared">
+                                            <%= t("segmentsPage.scopeShared") %>
                                         </button>
-
-                                        <div class="segments-map-actions-menu__group">
-                                            <div class="segments-map-actions-menu__label"><%= t("segmentsPage.mapStyleLabel") %></div>
-                                            <div id="segments-map-style-slot" class="segments-map-actions-menu__styles"></div>
-                                        </div>
+                                        <button id="segments-scope-all" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="all">
+                                            <%= t("segmentsPage.scopeAll") %>
+                                        </button>
                                     </div>
-                                </details>
+                                    <button id="segments-favorites-filter" class="segments-favorite-filter" type="button" aria-pressed="false" title="<%= t('segmentsPage.favoriteFilterLabel') %>">
+                                        <svg viewBox="0 0 20 20" aria-hidden="true">
+                                            <path d="M10 2.9l2.15 4.36 4.81.7-3.48 3.39.82 4.79L10 14.02 5.7 16.14l.82-4.79L3.04 7.96l4.81-.7L10 2.9z" fill="currentColor"></path>
+                                        </svg>
+                                    </button>
+                                    <button id="segments-map-3d-toggle" class="btn btn-outline-secondary btn-sm" type="button">
+                                        <%= t("segmentsPage.map3dOpen") %>
+                                    </button>
+                                    <details id="segments-map-tools-menu" class="segments-map-actions-menu">
+                                        <summary class="segments-map-actions-menu__trigger" aria-label="<%= t('segmentsPage.btnCreate') %> / <%= t('segmentsPage.lookup') %>">
+                                            <span aria-hidden="true">•••</span>
+                                        </summary>
+                                        <div class="segments-map-actions-menu__panel">
+                                            <div class="segments-map-actions-menu__group">
+                                                <div class="segments-map-actions-menu__label"><%= t("segmentsPage.mapStyleLabel") %></div>
+                                                <div id="segments-map-style-slot" class="segments-map-actions-menu__styles"></div>
+                                            </div>
+                                        </div>
+                                    </details>
+                                </div>
                             </div>
                         </div>
 

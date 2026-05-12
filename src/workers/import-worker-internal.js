@@ -18,6 +18,7 @@ import SegmentDBService from "../services/segmentDBService.js";
 import EntitlementService from "../services/entitlementService.js";
 import WorkoutSharingService from "../services/workoutSharingService.js";
 import WorkoutThumbnailService from "../services/workoutThumbnailService.js";
+import WorkoutSimilarityService from "../services/workoutSimilarityService.js";
 
 import { redisConnection } from "../queue/connection.js";
 import S3Service from "../services/s3Service.js";
@@ -165,6 +166,44 @@ export async function createApp() {
     }
   }
 
+  async function processWorkoutSimilarityRebuildJob(job) {
+    const uid = job.data?.uid;
+    const mode = String(job.data?.mode || "delta").trim().toLowerCase() === "full"
+      ? "full"
+      : "delta";
+    if (!uid) {
+      throw new Error("Workout similarity rebuild job is missing uid");
+    }
+
+    await job.updateProgress({
+      progressPercent: 0,
+      workoutCount: 0,
+      processedWorkouts: 0,
+      edgeCount: 0
+    });
+
+    const result = await WorkoutSimilarityService.classifySimilarGpsWorkoutsForUser(uid, {
+      rebuildMode: mode,
+      onProgress: async (progress) => {
+        await job.updateProgress(progress);
+      }
+    });
+
+    await job.updateProgress({
+      progressPercent: 100,
+      workoutCount: Number(result?.workoutCount || 0),
+      processedWorkouts: Number(result?.processedWorkouts || 0),
+      edgeCount: Number(result?.edgeCount || 0)
+    });
+
+    return {
+      progressPercent: 100,
+      workoutCount: Number(result?.workoutCount || 0),
+      processedWorkouts: Number(result?.processedWorkouts || 0),
+      edgeCount: Number(result?.edgeCount || 0)
+    };
+  }
+
 
   async function processFitJson(fitJsonObject, uid, shareConfig = null, context = {}) {
     const timing = createStepLogger("worker.process-fit-json", {
@@ -232,6 +271,11 @@ export async function createApp() {
             shareGroupCount: sharedGroupIds.length
           });
         }
+      }
+
+      if (dbrow?.id && gps_track?.validGps) {
+        await WorkoutSimilarityService.classifySimilarGpsWorkoutsForWorkout(dbrow.id, uid);
+        timing.mark("classify-similar-workouts");
       }
 
       if (gps_track.validGps) {
@@ -325,6 +369,10 @@ export async function createApp() {
         });
         batchTrace?.add("createFeedEventsMs", Date.now() - feedStartedAt);
       }
+    }
+
+    if (dbrow?.id && gps_track?.validGps) {
+      await WorkoutSimilarityService.classifySimilarGpsWorkoutsForWorkout(dbrow.id, uid);
     }
 
     if (gps_track.validGps) {
@@ -1051,6 +1099,40 @@ export async function createApp() {
 
   segmentBestEffortsWorker.on("error", (error) => {
     console.error("Segment best-efforts worker error", error);
+  });
+
+  const workoutSimilarityWorker = new Worker(
+    "workout-similarity",
+    async (job) => {
+      return await processWorkoutSimilarityRebuildJob(job);
+    },
+    {
+      connection: redisConnection,
+      concurrency: 1
+    }
+  );
+
+  workoutSimilarityWorker.on("ready", () => {
+    console.log("Workout similarity worker is ready");
+  });
+
+  workoutSimilarityWorker.on("completed", (job) => {
+    console.log("Workout similarity worker job completed", {
+      queueJobId: job.id,
+      uid: job.data?.uid
+    });
+  });
+
+  workoutSimilarityWorker.on("failed", (job, error) => {
+    console.error("Workout similarity worker job failed", {
+      queueJobId: job?.id,
+      uid: job?.data?.uid,
+      error: error.message
+    });
+  });
+
+  workoutSimilarityWorker.on("error", (error) => {
+    console.error("Workout similarity worker error", error);
   });
 
 }

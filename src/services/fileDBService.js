@@ -1324,6 +1324,14 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       .join(", ");
 
     const geom = `LINESTRING(${coords})`;
+    const firstTrackPoint = points_count > 0 ? gps_track.track[0] : null;
+    const lastTrackPoint = points_count > 0 ? gps_track.track[points_count - 1] : null;
+    const trackStartGeom = firstTrackPoint
+      ? `POINT(${firstTrackPoint[1]} ${firstTrackPoint[0]})`
+      : null;
+    const trackEndGeom = lastTrackPoint
+      ? `POINT(${lastTrackPoint[1]} ${lastTrackPoint[0]})`
+      : null;
     timing.mark("build-geometry-wkt");
 
     if (fileRow.validGps && points_count < 2) {
@@ -1406,6 +1414,8 @@ INSERT INTO workouts (
   year_month,
   year_week,
   bounds,
+  track_start,
+  track_end,
   geom,
   points_count,
   sampleRateGPS,
@@ -1429,12 +1439,22 @@ CASE
 END,
 CASE 
   WHEN $21 = true
-  THEN $32
+  THEN ST_GeomFromText($33, 4326)
   ELSE NULL
 END,
-  $33,
-  $34,
-  $35
+CASE
+  WHEN $21 = true
+  THEN ST_GeomFromText($34, 4326)
+  ELSE NULL
+END,
+CASE
+  WHEN $21 = true
+  THEN ST_GeomFromText($32, 4326)
+  ELSE NULL
+END,
+  $35,
+  $36,
+  $37
 )
 ON CONFLICT (uid, start_time)
 DO NOTHING
@@ -1473,9 +1493,11 @@ RETURNING id, uid;
           gps_track?.bbox?.maxLng ?? null, // $30
           gps_track?.bbox?.maxLat ?? null, // $31
           geom,                  // $32
-          points_count,          // $33
-          sampleRateGPS,         // $34
-          compressedBuffer       // $35
+          trackStartGeom,        // $33
+          trackEndGeom,          // $34
+          points_count,          // $35
+          sampleRateGPS,         // $36
+          compressedBuffer       // $37
         ]
       );
 

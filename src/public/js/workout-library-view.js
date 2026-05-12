@@ -38,6 +38,9 @@ export default class WorkoutLibraryView {
     this.bulkShareApplyButton = document.getElementById(handlers.bulkShareApplyButtonId || "workout-library-bulk-share-apply");
     this.bulkMenu = document.getElementById(handlers.bulkMenuId || "workout-library-bulk-actions-menu");
     this.toolbarDefaultElement = document.getElementById(handlers.toolbarDefaultElementId || "workout-library-toolbar-default");
+    this.toolsTrigger = document.getElementById(handlers.toolsTriggerId || "workout-library-tools-trigger");
+    this.similarityRebuildDeltaButton = document.getElementById(handlers.similarityRebuildDeltaButtonId || "workout-library-similarity-rebuild-delta");
+    this.similarityRebuildFullButton = document.getElementById(handlers.similarityRebuildFullButtonId || "workout-library-similarity-rebuild-full");
 
     this.items = [];
     this.selectedWorkoutId = null;
@@ -239,6 +242,14 @@ export default class WorkoutLibraryView {
 
       this.page += 1;
       await this.fetchPage({ append: true });
+    });
+
+    this.similarityRebuildDeltaButton?.addEventListener("click", async () => {
+      await this.handlers.onSimilarityRebuild?.("delta");
+    });
+
+    this.similarityRebuildFullButton?.addEventListener("click", async () => {
+      await this.handlers.onSimilarityRebuild?.("full");
     });
 
     document.querySelectorAll("[data-search-example]").forEach((element) => {
@@ -819,6 +830,18 @@ export default class WorkoutLibraryView {
       });
     });
 
+    this.container.querySelectorAll("[data-workout-similarity-classify]").forEach((element) => {
+      element.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const workoutId = String(element.getAttribute("data-workout-similarity-classify") || "");
+        const workout = this.items.find((entry) => String(entry.id) === workoutId);
+        if (!workout) {
+          return;
+        }
+        await this.handlers.onWorkoutSimilarityClassify?.(workout);
+      });
+    });
+
     this.container.querySelectorAll("[data-workout-share-mode]").forEach((element) => {
       element.addEventListener("change", (event) => {
         event.stopPropagation();
@@ -1100,6 +1123,19 @@ export default class WorkoutLibraryView {
                       </span>
                       ${this.t("share")}
                     </button>
+                    ${hasValidGps ? `
+                      <button class="workout-library-actions-menu__item workout-library-actions-menu__item--secondary" type="button" data-workout-similarity-classify="${workout.id}">
+                        <span class="workout-library-actions-menu__icon" aria-hidden="true">
+                          <svg viewBox="0 0 20 20">
+                            <circle cx="6" cy="6" r="2" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
+                            <circle cx="14" cy="6" r="2" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
+                            <circle cx="10" cy="14" r="2" fill="none" stroke="currentColor" stroke-width="1.7"></circle>
+                            <path d="M7.8 7.1L8.9 12.1M12.2 7.1L11.1 12.1M7.8 6H12.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+                          </svg>
+                        </span>
+                        ${this.t("classifySimilar")}
+                      </button>
+                    ` : ""}
                     <button class="workout-library-actions-menu__item workout-library-actions-menu__item--danger" type="button" data-workout-delete="${workout.id}">
                       <span class="workout-library-actions-menu__icon" aria-hidden="true">
                         <svg viewBox="0 0 20 20">

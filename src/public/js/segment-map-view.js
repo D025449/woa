@@ -43,6 +43,8 @@ export default class MapView {
     this.isSelecting = false;
     this.toggleBtn = document.getElementById("draw-segment-map-toggle");
     this.lookupBtn = document.getElementById("draw-segment-map-lookup");
+    this.headerToolbar = document.getElementById("segments-map-header-toolbar");
+    this.headerToolbarMain = document.getElementById("segments-map-header-toolbar-main");
     this.actionsMenu = document.getElementById("segments-map-tools-menu");
 
     this.setBaseLayer(this.baseLayerMode);
@@ -163,17 +165,18 @@ export default class MapView {
   }
 
   syncSelectionUi() {
-    const hasTwoPoints = this.lookupPoints.length === 2;
+    const hasEnoughPoints = this.lookupPoints.length >= 2;
 
-    this.toggleBtn?.classList.toggle("btn-primary", this.isSelecting);
-    this.toggleBtn?.classList.toggle("btn-outline-primary", !this.isSelecting);
-    this.toggleBtn?.classList.toggle("active", this.isSelecting);
+    this.toggleBtn?.classList.toggle("is-active", this.isSelecting);
+    this.toggleBtn?.setAttribute("aria-pressed", this.isSelecting ? "true" : "false");
+    this.headerToolbarMain?.classList.toggle("d-none", this.isSelecting);
 
     if (this.lookupBtn) {
-      this.lookupBtn.disabled = !this.isSelecting || !hasTwoPoints;
-      this.lookupBtn.classList.toggle("btn-primary", this.isSelecting && hasTwoPoints);
-      this.lookupBtn.classList.toggle("btn-outline-secondary", !this.isSelecting || !hasTwoPoints);
-      this.lookupBtn.classList.toggle("active", this.isSelecting && hasTwoPoints);
+      this.lookupBtn.classList.toggle("d-none", !this.isSelecting);
+      this.lookupBtn.disabled = !this.isSelecting || !hasEnoughPoints;
+      this.lookupBtn.classList.toggle("btn-primary", this.isSelecting && hasEnoughPoints);
+      this.lookupBtn.classList.toggle("btn-outline-secondary", !this.isSelecting || !hasEnoughPoints);
+      this.lookupBtn.classList.toggle("active", this.isSelecting && hasEnoughPoints);
     }
   }
 
@@ -191,24 +194,18 @@ export default class MapView {
     }
 
     const { lat, lng } = e.latlng;
-
-    // max 2 Punkte speichern
-    if (this.lookupPoints.length >= 2) {
-      this.resetLookupSelection();
-    }
-
     this.lookupPoints.push({ lat, lng });
     this.syncSelectionUi();
 
+    const pointIndex = this.lookupPoints.length - 1;
+    const pointLabel = pointIndex === 0
+      ? this.t("pointStart")
+      : this.t("pointWaypoint", { index: pointIndex });
 
     L.marker([lat, lng])
       .addTo(this.lookupMarkers)
-      .bindPopup(`Point ${this.lookupPoints.length}`)
+      .bindPopup(pointLabel)
       .openPopup();
-
-
-
-
   }
 
   async loadSegmentsForViewport(bounds) {
@@ -223,12 +220,14 @@ export default class MapView {
   }*/
 
   async handleLookUpClick() {
-    if (this.lookupPoints.length !== 2) {
-      console.warn(this.t("warnTwoPoints"));
+    if (this.lookupPoints.length < 2) {
+      console.warn(this.t("warnAtLeastTwoPoints"));
       return;
     }
 
-    const [p1, p2] = this.lookupPoints;
+    const start = this.lookupPoints[0];
+    const end = this.lookupPoints[this.lookupPoints.length - 1];
+    const waypoints = this.lookupPoints.slice(1, -1);
 
     try {
       const res = await fetch("/segments/track-lookup", {
@@ -237,8 +236,10 @@ export default class MapView {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          start: p1,
-          end: p2
+          start,
+          waypoints,
+          end,
+          points: this.lookupPoints
         })
       });
 

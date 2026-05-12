@@ -49,6 +49,8 @@ CREATE TABLE workouts (
     sampleRateGPS        DOUBLE PRECISION,
 
     bounds               geometry(POLYGON, 4326),
+    track_start          geometry(POINT, 4326),
+    track_end            geometry(POINT, 4326),
     geom                 geometry(LINESTRING, 4326),
 
     CONSTRAINT uq_user_start_time2 UNIQUE (uid, start_time),
@@ -60,6 +62,14 @@ CREATE TABLE workouts (
 CREATE INDEX IF NOT EXISTS idx_files_bounds
 ON workouts
 USING GIST (bounds);
+
+CREATE INDEX IF NOT EXISTS idx_workouts_track_start
+ON workouts
+USING GIST (track_start);
+
+CREATE INDEX IF NOT EXISTS idx_workouts_track_end
+ON workouts
+USING GIST (track_end);
 
 -- CREATE INDEX IF NOT EXISTS idx_files_geom
 -- ON workouts

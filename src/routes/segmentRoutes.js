@@ -223,20 +223,44 @@ function createStepLogger(scope, meta = {}) {
 router.post("/track-lookup", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   const timing = createStepLogger("segments.track-lookup");
   try {
-    const { start, end } = req.body;
+    const { start, waypoints = [], end, points = null } = req.body;
     const uid = req.user?.id;
 
-    if (!start || !end) {
+    const routePoints = Array.isArray(points) && points.length >= 2
+      ? points
+      : [start, ...(Array.isArray(waypoints) ? waypoints : []), end].filter(Boolean);
+
+    if (routePoints.length < 2) {
       return res.status(400).json({
-        error: "start and end required"
+        error: "at least two route points required"
       });
     }
 
-    const { lat: lat1, lng: lng1 } = start;
-    const { lat: lat2, lng: lng2 } = end;
+    const normalizedPoints = routePoints.map((point) => ({
+      lat: Number(point?.lat),
+      lng: Number(point?.lng)
+    }));
+
+    const hasInvalidPoint = normalizedPoints.some((point) =>
+      !Number.isFinite(point.lat) || !Number.isFinite(point.lng)
+    );
+
+    if (hasInvalidPoint) {
+      return res.status(400).json({
+        error: "route points contain invalid lat/lng values"
+      });
+    }
+
+    const normalizedStart = normalizedPoints[0];
+    const normalizedEnd = normalizedPoints[normalizedPoints.length - 1];
+    const { lat: lat1, lng: lng1 } = normalizedStart;
+    const { lat: lat2, lng: lng2 } = normalizedEnd;
 
     // ⚠️ OSRM erwartet: lng,lat
-    const url = `https://router.project-osrm.org/route/v1/cycling/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`;
+    const osrmCoordinates = normalizedPoints
+      .map((point) => `${point.lng},${point.lat}`)
+      .join(";");
+    const url = `https://router.project-osrm.org/route/v1/cycling/${osrmCoordinates}?overview=full&geometries=geojson`;
 
     const routePromise = fetch(url).then((response) => response.json());
     const startLocationPromise = reverseGeocode(lat1, lng1);
@@ -301,8 +325,8 @@ router.post("/track-lookup", authMiddleware, requireActiveAccountWrite, async (r
       duration: route.duration,
       track: enriched,
       ascent,
-      start: { ...start, name: label_start, altitude: enriched[0].ele },
-      end: { ...end, name: label_end, altitude: enriched[enriched.length - 1].ele }
+      start: { ...normalizedStart, name: label_start, altitude: enriched[0].ele },
+      end: { ...normalizedEnd, name: label_end, altitude: enriched[enriched.length - 1].ele }
     };
 
     temp_seg.bestEffortsStatus = "queued";

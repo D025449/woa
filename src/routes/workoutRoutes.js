@@ -11,6 +11,11 @@ import SegmentDBService from "../services/segmentDBService.js";
 import { enqueueSegmentBestEfforts } from "../services/segment-best-efforts-service.js";
 import FitExportService from "../services/fitExportService.js";
 import WorkoutThumbnailService from "../services/workoutThumbnailService.js";
+import WorkoutSimilarityService from "../services/workoutSimilarityService.js";
+import {
+  enqueueWorkoutSimilarityRebuild,
+  getWorkoutSimilarityRebuildJob
+} from "../services/workout-similarity-job-service.js";
 
 const router = express.Router();
 
@@ -236,6 +241,130 @@ router.get("/:id/thumbnail", authMiddleware, async (req, res) => {
   } catch (err) {
     console.error("GET /workouts/:id/thumbnail failed:", err);
     return res.status(err.statusCode || 500).json({ error: err.message || "Failed to load workout thumbnail" });
+  }
+});
+
+router.post("/:id/similarity/classify", authMiddleware, requireActiveAccountWrite, async (req, res) => {
+  try {
+    const workoutId = Number(req.params.id);
+    const uid = req.user?.id;
+
+    if (!Number.isFinite(workoutId) || workoutId <= 0) {
+      return res.status(400).json({ error: "Invalid workout id" });
+    }
+
+    const accessInfo = await WorkoutSharingService.getAccessibleWorkout(uid, workoutId);
+    if (!accessInfo?.is_owner) {
+      return res.status(403).json({ error: "Only workout owners can classify similar workouts." });
+    }
+
+    const edges = await WorkoutSimilarityService.classifySimilarGpsWorkoutsForWorkout(workoutId, uid);
+
+    return res.json({
+      ok: true,
+      matchType: WorkoutSimilarityService.MATCH_TYPE_GPS_ROUTE,
+      count: Array.isArray(edges) ? edges.length : 0,
+      edges
+    });
+  } catch (err) {
+    console.error("POST /workouts/:id/similarity/classify failed:", err);
+    return res.status(err.statusCode || 500).json({
+      error: err.message || "Failed to classify similar workouts"
+    });
+  }
+});
+
+router.get("/:id/similarity", authMiddleware, async (req, res) => {
+  try {
+    const workoutId = Number(req.params.id);
+    const uid = req.user?.id;
+
+    if (!Number.isFinite(workoutId) || workoutId <= 0) {
+      return res.status(400).json({ error: "Invalid workout id" });
+    }
+
+    const accessInfo = await WorkoutSharingService.getAccessibleWorkout(uid, workoutId);
+    if (!accessInfo?.is_owner) {
+      return res.json({
+        ok: true,
+        matchType: WorkoutSimilarityService.MATCH_TYPE_GPS_ROUTE,
+        count: 0,
+        edges: []
+      });
+    }
+
+    const edges = await WorkoutDBService.getSimilarityClusterForWorkout(
+      workoutId,
+      uid,
+      WorkoutSimilarityService.MATCH_TYPE_GPS_ROUTE
+    );
+
+    return res.json({
+      ok: true,
+      matchType: WorkoutSimilarityService.MATCH_TYPE_GPS_ROUTE,
+      count: Array.isArray(edges) ? edges.length : 0,
+      edges
+    });
+  } catch (err) {
+    console.error("GET /workouts/:id/similarity failed:", err);
+    return res.status(err.statusCode || 500).json({
+      error: err.message || "Failed to load similar workouts"
+    });
+  }
+});
+
+router.post("/similarity/rebuild", authMiddleware, requireActiveAccountWrite, async (req, res) => {
+  try {
+    const uid = req.user?.id;
+    const mode = String(req.body?.mode || "delta").trim().toLowerCase() === "full"
+      ? "full"
+      : "delta";
+    const job = await enqueueWorkoutSimilarityRebuild({ uid, mode });
+
+    return res.status(202).json({
+      ok: true,
+      jobId: job.id,
+      mode,
+      matchType: WorkoutSimilarityService.MATCH_TYPE_GPS_ROUTE,
+      status: "queued"
+    });
+  } catch (err) {
+    console.error("POST /workouts/similarity/rebuild failed:", err);
+    return res.status(err.statusCode || 500).json({
+      error: err.message || "Failed to rebuild workout similarity graph"
+    });
+  }
+});
+
+router.get("/similarity/rebuild/:jobId", authMiddleware, async (req, res) => {
+  try {
+    const uid = req.user?.id;
+    const job = await getWorkoutSimilarityRebuildJob(req.params.jobId);
+
+    if (!job) {
+      return res.status(404).json({ error: "Similarity rebuild job not found" });
+    }
+
+    if (Number(job.uid) !== Number(uid)) {
+      return res.status(403).json({ error: "No access to this similarity rebuild job" });
+    }
+
+    const returnValue = job.returnvalue || null;
+    return res.json({
+      id: job.id,
+      mode: job.mode || "delta",
+      status: job.status,
+      progressPercent: Number(returnValue?.progressPercent ?? job.progressPercent ?? 0),
+      workoutCount: Number(returnValue?.workoutCount ?? job.workoutCount ?? 0),
+      processedWorkouts: Number(returnValue?.processedWorkouts ?? job.processedWorkouts ?? 0),
+      edgeCount: Number(returnValue?.edgeCount ?? job.edgeCount ?? 0),
+      errorMessage: job.errorMessage
+    });
+  } catch (err) {
+    console.error("GET /workouts/similarity/rebuild/:jobId failed:", err);
+    return res.status(err.statusCode || 500).json({
+      error: err.message || "Failed to load similarity rebuild job"
+    });
   }
 });
 
