@@ -90,6 +90,14 @@
                         </li>
                     <% } %>
 
+                    <% if (typeof showFunLink === "undefined" || showFunLink !== false) { %>
+                        <li class="nav-item">
+                            <a class="nav-link <%= currentPage === 'sudoku' ? 'active' : '' %>" href="/fun/sudoku">
+                                <%= tr("common.nav.sudoku") %>
+                            </a>
+                        </li>
+                    <% } %>
+
                     <li class="nav-item">
                         <details class="app-topbar-menu">
                             <summary class="nav-link app-topbar-menu__summary">

@@ -980,7 +980,7 @@ export default class WorkoutLibraryView {
     const isShareSaving = this.savingShareWorkoutId === workoutId;
     const startedAt = workout.start_time ? new Date(workout.start_time) : null;
     const dayLabel = startedAt
-      ? startedAt.toLocaleDateString(this.locale, { day: "2-digit", month: "short", year: "numeric" })
+      ? startedAt.toLocaleDateString(this.locale, { weekday: "short", day: "2-digit", month: "short", year: "numeric" })
       : this.t("na");
     const timeLabel = startedAt
       ? startedAt.toLocaleTimeString(this.locale, { hour: "2-digit", minute: "2-digit" })

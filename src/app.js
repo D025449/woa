@@ -32,6 +32,7 @@ export async function createApp() {
 
     const app = express();
     fs.mkdirSync("uploads", { recursive: true });
+    const isFunSudokuEnabled = String(process.env.FEATURE_FUN_SUDOKU || "").trim() === "1";
 
     const __filename = url.fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
@@ -53,6 +54,7 @@ export async function createApp() {
     });
     app.use((req, res, next) => {
         res.locals.currentUrl = req.originalUrl;
+        res.locals.showFunLink = isFunSudokuEnabled;
         next();
     });
 
@@ -617,6 +619,20 @@ export async function createApp() {
             isAuthenticated: true
         });
 
+    });
+
+    app.get("/fun/sudoku", (req, res) => {
+        if (!isFunSudokuEnabled) {
+            return res.status(404).render("404", {
+                userInfo: req.user || null,
+                isAuthenticated: !!req.user?.id
+            });
+        }
+
+        res.render("sudoku", {
+            userInfo: req.user || null,
+            isAuthenticated: !!req.user?.id
+        });
     });
 
 

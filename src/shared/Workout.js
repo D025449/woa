@@ -629,11 +629,11 @@ export default class Workout {
 
     smoothSeriesCentered(cumArray, windowSize = 1, scale = 1) {
         const size = Math.max(1, Math.floor(windowSize));
-        const out = new Int32Array(cumArray.length);
+        const out = new Float64Array(cumArray.length);
 
         if (size <= 1) {
             for (let i = 0; i < cumArray.length; i++) {
-                out[i] = Math.round(this._getSeriesValueAt(cumArray, i) / scale);
+                out[i] = this._getSeriesValueAt(cumArray, i) / scale;
             }
             return out;
         }
@@ -645,7 +645,7 @@ export default class Workout {
             const start = Math.max(0, i - halfLeft);
             const end = Math.min(cumArray.length - 1, i + halfRight);
 
-            out[i] = Math.round(this._getRangeAverageFromCum(cumArray, start, end) / scale);
+            out[i] = this._getRangeAverageFromCum(cumArray, start, end) / scale;
         }
 
         return out;

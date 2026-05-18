@@ -25,6 +25,7 @@ export default class Controller {
     });
     this.chartViewState = this.uiState.get("chartViewState", {
       xAxisMode: "time",
+      smoothingLevel: "medium",
       seriesVisibility: {
         power: true,
         heartRate: true,
@@ -643,6 +644,7 @@ export default class Controller {
 
     if (startedAt) {
       const dateLabel = startedAt.toLocaleDateString(this.locale, {
+        weekday: "short",
         day: "2-digit",
         month: "short",
         year: "numeric"
@@ -688,6 +690,7 @@ export default class Controller {
     }
 
     return date.toLocaleString(this.locale, {
+      weekday: "short",
       day: "2-digit",
       month: "short",
       year: "numeric",

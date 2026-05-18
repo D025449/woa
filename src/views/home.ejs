@@ -202,6 +202,9 @@
             <div class="container-fluid px-3 px-xl-4">
                 <span class="navbar-brand"><%= t("home.guest.brand") %></span>
                 <div class="d-flex align-items-center gap-2">
+                    <% if (typeof showFunLink !== "undefined" && showFunLink !== false) { %>
+                        <a class="btn btn-outline-light btn-sm" href="/fun/sudoku"><%= t("common.nav.sudoku") %></a>
+                    <% } %>
                     <a class="btn btn-outline-light btn-sm" href="/login"><%= t("home.guest.login") %></a>
                     <a class="btn btn-light btn-sm" href="/signup"><%= t("home.guest.signUp") %></a>
                 </div>
@@ -224,6 +227,9 @@
                         </div>
 
                         <div class="home-hero-actions home-hero-actions--guest">
+                            <% if (typeof showFunLink !== "undefined" && showFunLink !== false) { %>
+                                <a class="btn btn-outline-secondary" href="/fun/sudoku"><%= t("home.guest.trySudoku") %></a>
+                            <% } %>
                             <a class="btn btn-primary" href="/login"><%= t("home.guest.login") %></a>
                             <a class="btn btn-outline-primary" href="/signup"><%= t("home.guest.createAccount") %></a>
                         </div>

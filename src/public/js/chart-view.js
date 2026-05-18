@@ -15,7 +15,9 @@ export default class ChartView {
     this.selectionStart = null;
     this.currentWorkout = null;
     this.xAxisMode = "time";
+    this.smoothingLevel = "medium";
     this.distanceAxisToggle = null;
+    this.smoothingSlot = document.getElementById("dashboard-smoothing-slot");
     this.seriesToggleSlot = document.getElementById("dashboard-series-toggle-slot");
     this.segmentToggleSlot = document.getElementById("dashboard-segment-toggle-slot");
     this.seriesVisibility = {
@@ -33,6 +35,7 @@ export default class ChartView {
     };
     this.seriesToggleButtons = new Map();
     this.segmentToggleButtons = new Map();
+    this.smoothingButtons = new Map();
     this.distanceKmByIndex = null;
     this.mode = "";
     this.isHoveringSegmentArea = false;
@@ -74,6 +77,7 @@ export default class ChartView {
     this.initAxisModeToggle();
     this.initSegmentToggleControls();
     this.initSeriesToggleControls();
+    this.initSmoothingControls();
     this.initActionsMenuBehaviour();
     this.syncModeButtons();
   }
@@ -85,6 +89,10 @@ export default class ChartView {
 
     if (state.xAxisMode === "time" || state.xAxisMode === "distance") {
       this.xAxisMode = state.xAxisMode;
+    }
+
+    if (typeof state.smoothingLevel === "string" && state.smoothingLevel.trim()) {
+      this.smoothingLevel = state.smoothingLevel.trim();
     }
 
     if (state.seriesVisibility && typeof state.seriesVisibility === "object") {
@@ -105,6 +113,7 @@ export default class ChartView {
   emitPreferenceChange() {
     this.handlers.onPreferencesChange?.({
       xAxisMode: this.xAxisMode,
+      smoothingLevel: this.smoothingLevel,
       seriesVisibility: { ...this.seriesVisibility },
       segmentVisibility: { ...this.segmentVisibility }
     });
@@ -276,7 +285,7 @@ export default class ChartView {
     if (this.xAxisMode === "distance" && !this.hasDistanceXAxis()) {
       this.xAxisMode = "time";
     }
-    const result = obj.getAsStrideArray({ smoothing: { power: 10, speed: 30, cadence: 30 } });
+    const result = obj.getAsStrideArray({ smoothing: this.getSmoothingConfig() });
     const source = result.data;
     const sd = obj.getStartTime();
     const xRange = this.getXAxisRange(result.rowCount, workout);
@@ -297,6 +306,7 @@ export default class ChartView {
     });
     this.renderSegmentToggles();
     this.renderSeriesToggles(labels);
+    this.renderSmoothingControls();
     this.baseMarkAreas = this.buildMarkAreasForMode(workout);
     this.applyMarkAreas();
   }
@@ -337,6 +347,7 @@ export default class ChartView {
     });
     this.renderSegmentToggles();
     this.renderSeriesToggles(labels);
+    this.renderSmoothingControls();
     this.baseMarkAreas = this.buildMarkAreasCPForMode(cpview);
     this.applyMarkAreas();
   }
@@ -632,6 +643,31 @@ export default class ChartView {
     });
   }
 
+  initSmoothingControls() {
+    if (!this.smoothingSlot) {
+      return;
+    }
+
+    this.smoothingSlot.addEventListener("click", (event) => {
+      const button = event.target?.closest?.("button[data-smoothing-level]");
+      if (!button) {
+        return;
+      }
+
+      const nextLevel = String(button.dataset.smoothingLevel || "").trim();
+      if (!nextLevel || nextLevel === this.smoothingLevel) {
+        return;
+      }
+
+      this.smoothingLevel = nextLevel;
+      this.syncSmoothingState();
+      this.emitPreferenceChange();
+      if (this.currentWorkout) {
+        this.updateWorkout(this.currentWorkout);
+      }
+    });
+  }
+
   initSegmentToggleControls() {
     if (!this.segmentToggleSlot) {
       return;
@@ -922,6 +958,7 @@ export default class ChartView {
 
     const row = p.data;
     const index = Number.isFinite(p.dataIndex) ? p.dataIndex : 0;
+    const rawMetrics = this.currentWorkout?.workoutObject?.getMetricsAt?.(index) || null;
     const axisValue = this.getXAxisField() === "DistanceKm"
       ? (row[6] ?? 0)
       : (row[0] ?? 0);
@@ -932,11 +969,11 @@ export default class ChartView {
       ? `${this.t("chart.timeLabel")}: ${Utils.formatSeconds(index)}`
       : this.t("chart.snapshot");
     const rows = [
-      [this.t("chart.power"), Number.isFinite(row[1]) ? `${Math.round(row[1])} W` : "–"],
-      [this.t("chart.heartRate"), Number.isFinite(row[2]) ? `${Math.round(row[2])} bpm` : "–"],
-      [this.t("chart.cadence"), Number.isFinite(row[3]) ? `${Math.round(row[3])} rpm` : "–"],
-      [this.t("chart.speed"), Number.isFinite(row[4]) ? `${Number(row[4]).toFixed(1)} km/h` : "–"],
-      [this.t("chart.altitude"), Number.isFinite(row[5]) ? `${Math.round(row[5])} m` : "–"]
+      [this.t("chart.power"), Number.isFinite(rawMetrics?.power) ? `${Math.round(rawMetrics.power)} W` : "–"],
+      [this.t("chart.heartRate"), Number.isFinite(rawMetrics?.hr) ? `${Math.round(rawMetrics.hr)} bpm` : "–"],
+      [this.t("chart.cadence"), Number.isFinite(rawMetrics?.cadence) ? `${Math.round(rawMetrics.cadence)} rpm` : "–"],
+      [this.t("chart.speed"), Number.isFinite(rawMetrics?.speed) ? `${Number(rawMetrics.speed).toFixed(1)} km/h` : "–"],
+      [this.t("chart.altitude"), Number.isFinite(rawMetrics?.altitude) ? `${Math.round(rawMetrics.altitude)} m` : "–"]
     ];
 
     return `
@@ -1150,7 +1187,9 @@ export default class ChartView {
         showSymbol: false,
         sampling: "lttb",
         yAxisIndex: 3,
-        lineStyle: { color: colors.altitude, width: 1.7 },
+        z: 1,
+        lineStyle: { color: colors.altitude, width: 1.1, opacity: 0.45 },
+        areaStyle: { color: colors.altitude, opacity: 0.18 },
         itemStyle: { color: colors.altitude },
         encode: { x: xField, y: "Altitude" }
       }
@@ -1176,6 +1215,28 @@ export default class ChartView {
       { key: "speed", label: labels.speed, color: colors.speed },
       { key: "altitude", label: labels.altitude, color: colors.altitude }
     ];
+  }
+
+  getSmoothingLevelDefinitions() {
+    return [
+      { key: "off", label: this.t("smoothingOff") },
+      { key: "light", label: this.t("smoothingLight") },
+      { key: "medium", label: this.t("smoothingMedium") },
+      { key: "strong", label: this.t("smoothingStrong") },
+      { key: "veryStrong", label: this.t("smoothingVeryStrong") }
+    ];
+  }
+
+  getSmoothingConfig() {
+    const presets = {
+      off: { power: 0, hr: 0, cadence: 0, speed: 0, altitude: 0 },
+      light: { power: 10, hr: 5, cadence: 12, speed: 12, altitude: 6 },
+      medium: { power: 20, hr: 10, cadence: 30, speed: 30, altitude: 10 },
+      strong: { power: 35, hr: 18, cadence: 45, speed: 45, altitude: 18 },
+      veryStrong: { power: 60, hr: 28, cadence: 60, speed: 60, altitude: 28 }
+    };
+
+    return presets[this.smoothingLevel] || presets.medium;
   }
 
   getSegmentToggleDefinitions() {
@@ -1241,6 +1302,32 @@ export default class ChartView {
     this.syncSegmentToggleState();
   }
 
+  renderSmoothingControls() {
+    if (!this.smoothingSlot) {
+      return;
+    }
+
+    this.smoothingButtons.clear();
+    this.smoothingSlot.innerHTML = "";
+
+    this.getSmoothingLevelDefinitions().forEach((entry) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "dashboard-series-toggle";
+      button.dataset.smoothingLevel = entry.key;
+      button.innerHTML = `
+        <span class="dashboard-series-toggle__identity">
+          <span class="dashboard-series-toggle__label">${entry.label}</span>
+        </span>
+        <span class="dashboard-series-toggle__state" aria-hidden="true">✓</span>
+      `;
+      this.smoothingSlot.appendChild(button);
+      this.smoothingButtons.set(entry.key, button);
+    });
+
+    this.syncSmoothingState();
+  }
+
   syncSeriesToggleState() {
     this.seriesToggleButtons.forEach((button, key) => {
       const isActive = this.seriesVisibility[key] !== false;
@@ -1252,6 +1339,14 @@ export default class ChartView {
   syncSegmentToggleState() {
     this.segmentToggleButtons.forEach((button, key) => {
       const isActive = this.segmentVisibility[key] !== false;
+      button.classList.toggle("is-active", isActive);
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
+  }
+
+  syncSmoothingState() {
+    this.smoothingButtons.forEach((button, key) => {
+      const isActive = key === this.smoothingLevel;
       button.classList.toggle("is-active", isActive);
       button.setAttribute("aria-pressed", isActive ? "true" : "false");
     });
