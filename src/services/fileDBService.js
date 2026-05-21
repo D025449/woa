@@ -959,22 +959,6 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     }));
   }
 
-  static async getSegmentsByWorkout(uid, workoutId) {
-    const query = `
-    SELECT *
-    FROM workout_segments fs
-    WHERE file_id = $1
-      AND uid = $2
-    ORDER BY start_offset ASC
-  `;
-
-    const values = [workoutId, uid];
-
-    const result = await pool.query(query, values);
-
-    return result.rows;
-  }
-
   static buildSegmentBulkArrays(uid, workoutId, segments) {
     let cnt = 0;
 

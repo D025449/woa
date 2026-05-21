@@ -155,6 +155,7 @@ class SudokuUI {
         this.boardElement = root.querySelector("#sudoku-board");
         this.padElement = root.querySelector("#sudoku-pad");
         this.statusElement = root.querySelector("#sudoku-status");
+        this.timerElement = root.querySelector("#sudoku-timer-value");
         this.difficultySelect = root.querySelector("#sudoku-difficulty");
         this.notesButton = root.querySelector("#sudoku-notes");
         this.newButton = root.querySelector("#sudoku-new");
@@ -175,6 +176,9 @@ class SudokuUI {
         this.selected = { row: 0, col: 0 };
         this.notesMode = false;
         this.boardButtons = [];
+        this.timerSeconds = 0;
+        this.timerIntervalId = null;
+        this.gameFinished = false;
 
         this.startNewGame();
         this.bindEvents();
@@ -190,7 +194,9 @@ class SudokuUI {
         this.notes = createNoteSetGrid();
         this.selected = this.findFirstEditableCell() || { row: 0, col: 0 };
         this.notesMode = false;
+        this.gameFinished = false;
         this.notesButton?.setAttribute("aria-pressed", "false");
+        this.restartTimer();
         this.render();
         this.setStatus(this.labels.statusReady);
     }
@@ -199,6 +205,8 @@ class SudokuUI {
         this.current = cloneGrid(this.puzzle);
         this.notes = createNoteSetGrid();
         this.selected = this.findFirstEditableCell() || { row: 0, col: 0 };
+        this.gameFinished = false;
+        this.restartTimer();
         this.render();
         this.setStatus(this.labels.statusReset);
     }
@@ -206,8 +214,37 @@ class SudokuUI {
     revealSolution() {
         this.current = cloneGrid(this.solution);
         this.notes = createNoteSetGrid();
+        this.gameFinished = true;
+        this.stopTimer();
         this.render();
         this.setStatus(this.labels.statusSolvedReveal);
+    }
+
+    restartTimer() {
+        this.stopTimer();
+        this.timerSeconds = 0;
+        this.renderTimer();
+        this.timerIntervalId = window.setInterval(() => {
+            this.timerSeconds += 1;
+            this.renderTimer();
+        }, 1000);
+    }
+
+    stopTimer() {
+        if (this.timerIntervalId) {
+            window.clearInterval(this.timerIntervalId);
+            this.timerIntervalId = null;
+        }
+    }
+
+    renderTimer() {
+        if (!this.timerElement) {
+            return;
+        }
+
+        const minutes = Math.floor(this.timerSeconds / 60);
+        const seconds = this.timerSeconds % 60;
+        this.timerElement.textContent = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
     }
 
     findFirstEditableCell() {
@@ -291,6 +328,10 @@ class SudokuUI {
     }
 
     applyDigit(digit) {
+        if (this.gameFinished) {
+            return;
+        }
+
         const { row, col } = this.selected;
         if (!this.isEditable(row, col)) {
             return;
@@ -310,6 +351,8 @@ class SudokuUI {
 
         this.render();
         if (this.isSolved()) {
+            this.gameFinished = true;
+            this.stopTimer();
             this.setStatus(this.labels.statusSolved);
         } else {
             this.setStatus(this.labels.statusReady);
@@ -317,6 +360,10 @@ class SudokuUI {
     }
 
     clearSelectedCell() {
+        if (this.gameFinished) {
+            return;
+        }
+
         const { row, col } = this.selected;
         if (!this.isEditable(row, col)) {
             return;

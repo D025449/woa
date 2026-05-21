@@ -24,10 +24,7 @@ body.sudoku-page {
 }
 
 .sudoku-hero {
-    display: grid;
-    grid-template-columns: minmax(0, 1.35fr) minmax(220px, 0.65fr);
-    gap: 1.5rem;
-    align-items: stretch;
+    display: block;
     margin-bottom: 1.5rem;
 }
 
@@ -256,6 +253,32 @@ body.sudoku-page {
     margin-bottom: 0.75rem;
     font-size: 1rem;
     font-weight: 700;
+}
+
+.sudoku-timer {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.85rem;
+    padding: 0.85rem 0.95rem;
+    border-radius: 18px;
+    background: rgba(37, 99, 235, 0.07);
+}
+
+.sudoku-timer__label {
+    color: var(--sudoku-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.sudoku-timer__value {
+    color: var(--sudoku-ink);
+    font-size: 1.35rem;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
 }
 
 .sudoku-status-card__help {

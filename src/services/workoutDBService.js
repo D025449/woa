@@ -384,7 +384,7 @@ export default class WorkoutDBService {
     );
 
     if (result.rowCount === 0) {
-      throw new Error(`Workout with ID ${id} not found`);
+      throw new Error("no workouts found");
     }
 
     return result.rows[0];
@@ -405,7 +405,7 @@ export default class WorkoutDBService {
     );
 
     if (result.rowCount === 0) {
-      throw new Error(`Workout with ID ${id} not found`);
+      throw new Error("no workouts found");
     }
 
     return result.rows[0];
@@ -418,7 +418,7 @@ export default class WorkoutDBService {
     );
 
     if (result.rowCount === 0) {
-      throw new Error(`Workout with ID ${id} not found`);
+      throw new Error("no workouts found");
     }
 
     const stream = result.rows[0].stream;
@@ -435,7 +435,7 @@ export default class WorkoutDBService {
     );
 
     if (result.rowCount === 0) {
-      throw new Error(`Workout with ID ${id} not found`);
+      throw new Error("no workouts found");
     }
 
     const workoutMap = new Map();

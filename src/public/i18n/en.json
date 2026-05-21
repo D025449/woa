@@ -338,6 +338,7 @@
     "statusIncomplete": "Not finished yet.",
     "statusReset": "Puzzle reset.",
     "statusSolvedReveal": "Solution revealed.",
+    "timerLabel": "Time",
     "difficultyLabel": "Difficulty",
     "difficultyEasy": "Easy",
     "difficultyMedium": "Medium",

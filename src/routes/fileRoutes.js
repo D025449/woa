@@ -321,7 +321,7 @@ router.post("segments/delete/:id", authMiddleware, requireActiveAccountWrite, as
     const workoutId = req.params.id;
     const uid = req.user?.id;
 
-    const segments = req.body.segment ? [req.body.segment]: reg.body.segments;
+    const segments = req.body.segment ? [req.body.segment] : req.body.segments;
 
     if (!Array.isArray(segments) || segments.length === 0) {
       return res.status(400).json({

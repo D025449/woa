@@ -238,9 +238,9 @@ export async function createApp() {
         if (thumbnailPayload) {
           const thumbnailStartedAt = Date.now();
           await WorkoutThumbnailService.upsertThumbnail(dbrow.id, thumbnailPayload);
-          batchTrace?.add("renderThumbnailMs", Date.now() - thumbnailStartedAt);
           timing.mark("store-thumbnail", {
-            thumbnailKind: thumbnailPayload.kind
+            thumbnailKind: thumbnailPayload.kind,
+            renderThumbnailMs: Date.now() - thumbnailStartedAt
           });
         }
       }

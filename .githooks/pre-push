@@ -1,0 +1,6 @@
+#!/bin/sh
+
+set -eu
+
+echo "[pre-push] running npm run check"
+npm run check

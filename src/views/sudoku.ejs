@@ -35,14 +35,7 @@
             <div class="sudoku-hero__copy">
                 <span class="sudoku-hero__kicker"><%= t("sudokuPage.heroKicker") %></span>
                 <h1 class="sudoku-hero__title"><%= t("sudokuPage.heroTitle") %></h1>
-                <p class="sudoku-hero__subtitle"><%= t("sudokuPage.heroSubtitle") %></p>
-            </div>
-            <div class="sudoku-hero__art" aria-hidden="true">
-                <div class="sudoku-hero__art-grid">
-                    <span>5</span><span></span><span>9</span>
-                    <span></span><span>7</span><span></span>
-                    <span>2</span><span></span><span>4</span>
-                </div>
+                <p class="sudoku-hero__subtitle">Eine kleine Denkpause in der App.</p>
             </div>
         </section>
 
@@ -61,6 +54,7 @@
             data-status-incomplete="<%= t('sudokuPage.statusIncomplete') %>"
             data-status-reset="<%= t('sudokuPage.statusReset') %>"
             data-status-solved-reveal="<%= t('sudokuPage.statusSolvedReveal') %>"
+            data-timer-label="<%= t('sudokuPage.timerLabel') %>"
             data-difficulty-label="<%= t('sudokuPage.difficultyLabel') %>"
             data-difficulty-easy="<%= t('sudokuPage.difficultyEasy') %>"
             data-difficulty-medium="<%= t('sudokuPage.difficultyMedium') %>"
@@ -98,6 +92,10 @@
                             <div class="sudoku-status-card__row">
                                 <span class="sudoku-status-card__label"><%= t("sudokuPage.helpTitle") %></span>
                                 <button id="sudoku-notes" class="btn btn-outline-dark btn-sm" type="button" aria-pressed="false"><%= t("sudokuPage.notesMode") %></button>
+                            </div>
+                            <div class="sudoku-timer">
+                                <span class="sudoku-timer__label"><%= t("sudokuPage.timerLabel") %></span>
+                                <strong id="sudoku-timer-value" class="sudoku-timer__value">00:00</strong>
                             </div>
                             <p id="sudoku-status" class="sudoku-status-card__status"><%= t("sudokuPage.statusReady") %></p>
                             <p class="sudoku-status-card__help"><%= t("sudokuPage.helpCopy") %></p>

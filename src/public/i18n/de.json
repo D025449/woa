@@ -338,6 +338,7 @@
     "statusIncomplete": "Noch nicht fertig.",
     "statusReset": "Feld zurückgesetzt.",
     "statusSolvedReveal": "Lösung eingeblendet.",
+    "timerLabel": "Zeit",
     "difficultyLabel": "Schwierigkeit",
     "difficultyEasy": "Leicht",
     "difficultyMedium": "Mittel",
