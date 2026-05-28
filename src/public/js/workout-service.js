@@ -138,8 +138,10 @@ export default class WorkoutService {
       const workout = {
         id: wid,
         workoutObject,
-        validGps: workoutObject.isValidGps(),
+        validGps: !!(trackRow?.validgps ?? trackRow?.validGps ?? workoutObject.isValidGps()),
         sampleRateGPS: trackRow?.samplerategps ?? trackRow?.sampleRateGPS ?? 1,
+        gpsSource: trackRow?.gps_source || null,
+        manualGpsLookupPoints: Array.isArray(trackRow?.manual_gps_lookup_points) ? trackRow.manual_gps_lookup_points : [],
         track: this.parseGeoJsonTrack(trackRow?.track),
         access: trackRow?.access || null
         //...WorkoutService.parseWorkoutBuffer(buffer)
@@ -212,6 +214,69 @@ export default class WorkoutService {
 
     const result = await response.json();
     return result.data;
+  }
+
+  static async getGpsCopyCandidates(workoutId) {
+    const response = await fetch(`/workouts/${workoutId}/gps-copy-candidates`, {
+      method: "GET",
+      credentials: "include"
+    });
+
+    if (response.status === 401) {
+      window.location.href = "/login";
+      return [];
+    }
+
+    if (!response.ok) {
+      let message = `GPS copy candidates failed (${response.status})`;
+      try {
+        const result = await response.json();
+        message = result.error || message;
+      } catch {
+        const text = await response.text();
+        if (text) {
+          message = text;
+        }
+      }
+      throw new Error(message);
+    }
+
+    const result = await response.json();
+    return Array.isArray(result?.candidates) ? result.candidates : [];
+  }
+
+  static async copyGpsFromWorkout(targetWorkoutId, sourceWorkoutId) {
+    const response = await fetch(`/workouts/${targetWorkoutId}/gps-copy-from`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        sourceWorkoutId
+      })
+    });
+
+    if (response.status === 401) {
+      window.location.href = "/login";
+      return null;
+    }
+
+    if (!response.ok) {
+      let message = `GPS copy failed (${response.status})`;
+      try {
+        const result = await response.json();
+        message = result.error || message;
+      } catch {
+        const text = await response.text();
+        if (text) {
+          message = text;
+        }
+      }
+      throw new Error(message);
+    }
+
+    return response.json();
   }
 
   static async classifySimilarWorkouts(workoutId) {
@@ -317,6 +382,40 @@ export default class WorkoutService {
 
     if (!response.ok) {
       let message = `Similarity rebuild job load failed (${response.status})`;
+      try {
+        const result = await response.json();
+        message = result.error || message;
+      } catch {
+        const text = await response.text();
+        if (text) {
+          message = text;
+        }
+      }
+      throw new Error(message);
+    }
+
+    return await response.json();
+  }
+
+  static async saveManualGps(workoutId, points = []) {
+    const response = await fetch(`/workouts/${workoutId}/manual-gps`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        points: Array.isArray(points) ? points : []
+      })
+    });
+
+    if (response.status === 401) {
+      window.location.href = "/login";
+      return null;
+    }
+
+    if (!response.ok) {
+      let message = `Manual GPS save failed (${response.status})`;
       try {
         const result = await response.json();
         message = result.error || message;

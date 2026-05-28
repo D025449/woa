@@ -260,7 +260,7 @@ router.post("/track-lookup", authMiddleware, requireActiveAccountWrite, async (r
     const osrmCoordinates = normalizedPoints
       .map((point) => `${point.lng},${point.lat}`)
       .join(";");
-    const url = `https://router.project-osrm.org/route/v1/cycling/${osrmCoordinates}?overview=full&geometries=geojson`;
+    const url = `https://router.project-osrm.org/route/v1/cycling/${osrmCoordinates}?overview=full&geometries=geojson&exclude=motorway`;
 
     const routePromise = fetch(url).then((response) => response.json());
     const startLocationPromise = reverseGeocode(lat1, lng1);

@@ -3,6 +3,275 @@ import Workout from "../shared/Workout.js";
 import S3Service from "./s3Service.js";
 import pgPromise from "pg-promise";
 import WorkoutSharingService from "./workoutSharingService.js";
+import ElevationService from "./ElevationService.js";
+
+function haversineMeters(a, b) {
+  const toRad = (value) => (value * Math.PI) / 180;
+  const R = 6371000;
+  const dLat = toRad((b.lat ?? 0) - (a.lat ?? 0));
+  const dLng = toRad((b.lng ?? 0) - (a.lng ?? 0));
+  const lat1 = toRad(a.lat ?? 0);
+  const lat2 = toRad(b.lat ?? 0);
+  const sinLat = Math.sin(dLat / 2);
+  const sinLng = Math.sin(dLng / 2);
+  const x = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng;
+  return 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
+function computeTrackDistanceMeters(track) {
+  if (!Array.isArray(track) || track.length < 2) {
+    return 0;
+  }
+
+  let total = 0;
+  for (let i = 1; i < track.length; i++) {
+    total += haversineMeters(track[i - 1], track[i]);
+  }
+  return total;
+}
+
+function buildTrackDistanceIndex(track) {
+  const cumulativeMeters = new Float64Array(track.length);
+  let total = 0;
+
+  for (let i = 1; i < track.length; i++) {
+    total += haversineMeters(track[i - 1], track[i]);
+    cumulativeMeters[i] = total;
+  }
+
+  return {
+    totalMeters: total,
+    cumulativeMeters
+  };
+}
+
+function interpolateTrackPointAtDistance(track, cumulativeMeters, distanceMeters) {
+  if (!Array.isArray(track) || track.length === 0) {
+    return null;
+  }
+
+  if (track.length === 1 || distanceMeters <= 0) {
+    return { lat: Number(track[0].lat), lng: Number(track[0].lng) };
+  }
+
+  const totalMeters = cumulativeMeters[cumulativeMeters.length - 1];
+  if (distanceMeters >= totalMeters) {
+    const lastPoint = track[track.length - 1];
+    return { lat: Number(lastPoint.lat), lng: Number(lastPoint.lng) };
+  }
+
+  for (let i = 1; i < track.length; i++) {
+    const segmentEndMeters = cumulativeMeters[i];
+    if (distanceMeters > segmentEndMeters) {
+      continue;
+    }
+
+    const segmentStartMeters = cumulativeMeters[i - 1];
+    const segmentMeters = segmentEndMeters - segmentStartMeters;
+    const ratio = segmentMeters > 0
+      ? (distanceMeters - segmentStartMeters) / segmentMeters
+      : 0;
+    const from = track[i - 1];
+    const to = track[i];
+    return {
+      lat: Number(from.lat) + (Number(to.lat) - Number(from.lat)) * ratio,
+      lng: Number(from.lng) + (Number(to.lng) - Number(from.lng)) * ratio
+    };
+  }
+
+  const fallback = track[track.length - 1];
+  return { lat: Number(fallback.lat), lng: Number(fallback.lng) };
+}
+
+function computeBBox(track) {
+  if (!Array.isArray(track) || track.length === 0) {
+    return null;
+  }
+
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+
+  for (const point of track) {
+    const lat = Number(point?.lat);
+    const lng = Number(point?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      continue;
+    }
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+  }
+
+  if (!Number.isFinite(minLat) || !Number.isFinite(minLng) || !Number.isFinite(maxLat) || !Number.isFinite(maxLng)) {
+    return null;
+  }
+
+  return { minLat, maxLat, minLng, maxLng };
+}
+
+function buildLinestringWkt(track) {
+  return `LINESTRING(${track.map((point) => `${point.lng} ${point.lat}`).join(", ")})`;
+}
+
+function interpolateScalarAtDistance(track, cumulativeMeters, distanceMeters, fieldName) {
+  if (!Array.isArray(track) || track.length === 0) {
+    return null;
+  }
+
+  if (track.length === 1 || distanceMeters <= 0) {
+    const value = Number(track[0]?.[fieldName]);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  const totalMeters = cumulativeMeters[cumulativeMeters.length - 1];
+  if (distanceMeters >= totalMeters) {
+    const value = Number(track[track.length - 1]?.[fieldName]);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  for (let i = 1; i < track.length; i++) {
+    const segmentEndMeters = cumulativeMeters[i];
+    if (distanceMeters > segmentEndMeters) {
+      continue;
+    }
+
+    const from = track[i - 1];
+    const to = track[i];
+    const fromValue = Number(from?.[fieldName]);
+    const toValue = Number(to?.[fieldName]);
+
+    if (!Number.isFinite(fromValue) && !Number.isFinite(toValue)) {
+      return null;
+    }
+    if (!Number.isFinite(fromValue)) {
+      return toValue;
+    }
+    if (!Number.isFinite(toValue)) {
+      return fromValue;
+    }
+
+    const segmentStartMeters = cumulativeMeters[i - 1];
+    const segmentMeters = segmentEndMeters - segmentStartMeters;
+    const ratio = segmentMeters > 0
+      ? (distanceMeters - segmentStartMeters) / segmentMeters
+      : 0;
+
+    return fromValue + (toValue - fromValue) * ratio;
+  }
+
+  const fallbackValue = Number(track[track.length - 1]?.[fieldName]);
+  return Number.isFinite(fallbackValue) ? fallbackValue : null;
+}
+
+function computeTotalDescentMeters(altitudes = []) {
+  let total = 0;
+
+  for (let i = 1; i < altitudes.length; i++) {
+    const prev = Number(altitudes[i - 1]);
+    const current = Number(altitudes[i]);
+
+    if (!Number.isFinite(prev) || !Number.isFinite(current)) {
+      continue;
+    }
+
+    const delta = current - prev;
+    if (delta < 0) {
+      total += Math.abs(delta);
+    }
+  }
+
+  return Math.round(total);
+}
+
+function parseGeoJsonTrack(geoJsonTrack) {
+  const coordinates = Array.isArray(geoJsonTrack?.coordinates)
+    ? geoJsonTrack.coordinates
+    : [];
+
+  return coordinates
+    .map((point) => ({
+      lat: Number(Array.isArray(point) ? point[1] : null),
+      lng: Number(Array.isArray(point) ? point[0] : null)
+    }))
+    .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+}
+
+function buildDistanceAxisIndex(values = []) {
+  const axis = [];
+  let lastValue = 0;
+
+  for (let i = 0; i < values.length; i++) {
+    const value = Number(values[i]);
+    if (!Number.isFinite(value)) {
+      axis.push(lastValue);
+      continue;
+    }
+    lastValue = Math.max(lastValue, value);
+    axis.push(lastValue);
+  }
+
+  return axis;
+}
+
+function interpolateTrackPointAtDistanceAxis(track, distanceAxis, distanceMeters) {
+  if (!Array.isArray(track) || track.length === 0) {
+    return null;
+  }
+
+  if (track.length === 1 || distanceMeters <= 0) {
+    return {
+      lat: Number(track[0]?.lat),
+      lng: Number(track[0]?.lng),
+      ele: Number(track[0]?.ele)
+    };
+  }
+
+  const totalMeters = Number(distanceAxis[distanceAxis.length - 1]) || 0;
+  if (distanceMeters >= totalMeters) {
+    const lastPoint = track[track.length - 1];
+    return {
+      lat: Number(lastPoint?.lat),
+      lng: Number(lastPoint?.lng),
+      ele: Number(lastPoint?.ele)
+    };
+  }
+
+  for (let i = 1; i < track.length; i++) {
+    const segmentEndMeters = Number(distanceAxis[i]) || 0;
+    if (distanceMeters > segmentEndMeters) {
+      continue;
+    }
+
+    const segmentStartMeters = Number(distanceAxis[i - 1]) || 0;
+    const segmentMeters = segmentEndMeters - segmentStartMeters;
+    const ratio = segmentMeters > 0
+      ? (distanceMeters - segmentStartMeters) / segmentMeters
+      : 0;
+
+    const from = track[i - 1];
+    const to = track[i];
+    const eleFrom = Number(from?.ele);
+    const eleTo = Number(to?.ele);
+
+    return {
+      lat: Number(from?.lat) + (Number(to?.lat) - Number(from?.lat)) * ratio,
+      lng: Number(from?.lng) + (Number(to?.lng) - Number(from?.lng)) * ratio,
+      ele: Number.isFinite(eleFrom) && Number.isFinite(eleTo)
+        ? eleFrom + (eleTo - eleFrom) * ratio
+        : (Number.isFinite(eleFrom) ? eleFrom : (Number.isFinite(eleTo) ? eleTo : null))
+    };
+  }
+
+  const fallback = track[track.length - 1];
+  return {
+    lat: Number(fallback?.lat),
+    lng: Number(fallback?.lng),
+    ele: Number(fallback?.ele)
+  };
+}
 
 
 export default class WorkoutDBService {
@@ -376,11 +645,483 @@ export default class WorkoutDBService {
     const result = await pool.query(
       `SELECT 
         id,
-        sampleRateGPS, 
-        ST_AsGeoJSON(geom)::json AS track 
+        validgps,
+        sampleRateGPS,
+        gps_source,
+        manual_gps_lookup_points,
+        ST_AsGeoJSON(geom)::json AS track
         FROM workouts 
         WHERE id = $1`,
       [id]
+    );
+
+    if (result.rowCount === 0) {
+      throw new Error("no workouts found");
+    }
+
+    return result.rows[0];
+  }
+
+  static async getManualGpsContext(id, uid) {
+    const accessInfo = await WorkoutSharingService.getAccessibleWorkout(uid, id);
+    if (!accessInfo?.is_owner) {
+      const error = new Error("Only workout owners can modify manual GPS.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    const result = await pool.query(
+      `SELECT
+        id,
+        uid,
+        total_distance,
+        total_timer_time,
+        total_elapsed_time,
+        validgps,
+        gps_source,
+        manual_gps_lookup_points,
+        stream
+       FROM workouts
+       WHERE id = $1
+         AND uid = $2`,
+      [id, uid]
+    );
+
+    if (result.rowCount === 0) {
+      throw new Error("no workouts found");
+    }
+
+    const row = result.rows[0];
+    row.workoutObject = await Workout.fromCompressed(row.stream);
+    return row;
+  }
+
+  static async getGpsCopyCandidates(id, uid, distanceToleranceRatio = 0.05) {
+    const accessInfo = await WorkoutSharingService.getAccessibleWorkout(uid, id);
+    if (!accessInfo?.is_owner) {
+      const error = new Error("Only workout owners can copy GPS.");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    const targetResult = await pool.query(
+      `SELECT id, uid, total_distance
+       FROM workouts
+       WHERE id = $1
+         AND uid = $2`,
+      [id, uid]
+    );
+
+    if (targetResult.rowCount === 0) {
+      throw new Error("no workouts found");
+    }
+
+    const targetDistance = Number(targetResult.rows[0]?.total_distance);
+    if (!Number.isFinite(targetDistance) || targetDistance <= 0) {
+      const error = new Error("Workout has no usable distance for GPS copy candidates.");
+      error.statusCode = 422;
+      throw error;
+    }
+
+    const minDistance = targetDistance * (1 - distanceToleranceRatio);
+    const maxDistance = targetDistance * (1 + distanceToleranceRatio);
+
+    const result = await pool.query(
+      `SELECT
+        w.id,
+        w.start_time,
+        w.total_distance,
+        w.total_timer_time,
+        w.total_ascent,
+        w.validgps,
+        wt.workout_id IS NOT NULL AS has_thumbnail,
+        wt.updated_at AS thumbnail_updated_at
+       FROM workouts w
+       LEFT JOIN workout_thumbnails wt
+         ON wt.workout_id = w.id
+       WHERE w.uid = $1
+         AND w.id <> $2
+         AND w.validgps = true
+         AND w.geom IS NOT NULL
+         AND w.total_distance BETWEEN $3 AND $4
+       ORDER BY ABS(COALESCE(w.total_distance, 0) - $5) ASC, w.start_time DESC NULLS LAST, w.id DESC
+       LIMIT 60`,
+      [uid, id, minDistance, maxDistance, targetDistance]
+    );
+
+    return result.rows.map((row) => ({
+      ...row,
+      distance_delta_meters: Math.abs(Number(row.total_distance || 0) - targetDistance)
+    }));
+  }
+
+  static async getGpsCopySourceContext(id, uid) {
+    const result = await pool.query(
+      `SELECT
+        id,
+        uid,
+        total_distance,
+        samplerategps,
+        gps_source,
+        stream,
+        ST_AsGeoJSON(geom)::json AS track
+       FROM workouts
+       WHERE id = $1
+         AND uid = $2
+         AND validgps = true
+         AND geom IS NOT NULL`,
+      [id, uid]
+    );
+
+    if (result.rowCount === 0) {
+      throw new Error("no workouts found");
+    }
+
+    const row = result.rows[0];
+    row.workoutObject = await Workout.fromCompressed(row.stream);
+    row.trackPoints = parseGeoJsonTrack(row.track);
+    return row;
+  }
+
+  static buildManualGpsTrackFromLookup(workoutObject, lookupTrack, totalWorkoutDistanceMeters) {
+    if (!workoutObject?.hasDistanceSeries?.()) {
+      throw new Error("Workout has no distance series for manual GPS mapping.");
+    }
+
+    if (!Array.isArray(lookupTrack) || lookupTrack.length < 2) {
+      throw new Error("Lookup track needs at least two points.");
+    }
+
+    const trackIndex = buildTrackDistanceIndex(lookupTrack);
+    if (trackIndex.totalMeters <= 0) {
+      throw new Error("Lookup track distance is invalid.");
+    }
+
+    const effectiveWorkoutDistanceMeters = Number(totalWorkoutDistanceMeters);
+    if (!Number.isFinite(effectiveWorkoutDistanceMeters) || effectiveWorkoutDistanceMeters <= 0) {
+      throw new Error("Workout distance is invalid for manual GPS mapping.");
+    }
+
+    const sampledTrack = [];
+    const seenKeys = new Set();
+    const pushPoint = (point) => {
+      if (!point) {
+        return;
+      }
+      const lat = Number(point.lat);
+      const lng = Number(point.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return;
+      }
+      const key = `${lat.toFixed(7)}:${lng.toFixed(7)}`;
+      if (seenKeys.has(key) && sampledTrack.length > 0) {
+        const last = sampledTrack[sampledTrack.length - 1];
+        if (last.lat === lat && last.lng === lng) {
+          return;
+        }
+      }
+      seenKeys.add(key);
+      sampledTrack.push({ lat, lng });
+    };
+
+    for (let index = 0; index < workoutObject.length; index += 5) {
+      const distanceMeters = workoutObject.getDistanceAt(index);
+      if (!Number.isFinite(distanceMeters)) {
+        continue;
+      }
+      const progress = Math.max(0, Math.min(1, distanceMeters / effectiveWorkoutDistanceMeters));
+      const lookupDistanceMeters = progress * trackIndex.totalMeters;
+      pushPoint(interpolateTrackPointAtDistance(lookupTrack, trackIndex.cumulativeMeters, lookupDistanceMeters));
+    }
+
+    const lastDistanceMeters = workoutObject.getDistanceAt(workoutObject.length - 1);
+    const lastProgress = Number.isFinite(lastDistanceMeters)
+      ? Math.max(0, Math.min(1, lastDistanceMeters / effectiveWorkoutDistanceMeters))
+      : 1;
+    pushPoint(interpolateTrackPointAtDistance(
+      lookupTrack,
+      trackIndex.cumulativeMeters,
+      lastProgress * trackIndex.totalMeters
+    ));
+
+    if (sampledTrack.length < 2) {
+      throw new Error("Manual GPS track generation produced too few points.");
+    }
+
+    return {
+      track: sampledTrack,
+      sampleRateSeconds: 5,
+      mappedDistanceMeters: computeTrackDistanceMeters(sampledTrack),
+      lookupDistanceMeters: trackIndex.totalMeters
+    };
+  }
+
+  static buildGpsTrackFromSourceWorkout(targetWorkoutObject, targetTotalDistanceMeters, sourceWorkoutObject, sourceTrackPoints, sourceSampleRateSeconds = 5, sourceTotalDistanceMeters = null) {
+    if (!targetWorkoutObject?.hasDistanceSeries?.()) {
+      throw new Error("Target workout has no distance series for GPS copy.");
+    }
+    if (!sourceWorkoutObject?.hasDistanceSeries?.()) {
+      throw new Error("Source workout has no distance series for GPS copy.");
+    }
+    if (!Array.isArray(sourceTrackPoints) || sourceTrackPoints.length < 2) {
+      throw new Error("Source workout has no usable GPS track.");
+    }
+
+    const effectiveTargetDistanceMeters = Number(targetTotalDistanceMeters);
+    if (!Number.isFinite(effectiveTargetDistanceMeters) || effectiveTargetDistanceMeters <= 0) {
+      throw new Error("Target workout distance is invalid for GPS copy.");
+    }
+
+    const sourceDistanceFallback = Number(sourceTotalDistanceMeters)
+      || Number(sourceWorkoutObject.getDistanceAt(sourceWorkoutObject.length - 1))
+      || 0;
+    if (!Number.isFinite(sourceDistanceFallback) || sourceDistanceFallback <= 0) {
+      throw new Error("Source workout distance is invalid for GPS copy.");
+    }
+
+    const sourceDistanceAxis = buildDistanceAxisIndex(
+      sourceTrackPoints.map((_, trackIndex) => {
+        const sourceSampleIndex = Math.min(
+          sourceWorkoutObject.length - 1,
+          Math.round(trackIndex * Math.max(1, Number(sourceSampleRateSeconds) || 1))
+        );
+        const distanceMeters = sourceWorkoutObject.getDistanceAt(sourceSampleIndex);
+        return Number.isFinite(distanceMeters)
+          ? distanceMeters
+          : ((trackIndex / Math.max(1, sourceTrackPoints.length - 1)) * sourceDistanceFallback);
+      })
+    );
+
+    const enrichedSourceTrack = sourceTrackPoints.map((point, trackIndex) => {
+      const sourceSampleIndex = Math.min(
+        sourceWorkoutObject.length - 1,
+        Math.round(trackIndex * Math.max(1, Number(sourceSampleRateSeconds) || 1))
+      );
+      return {
+        lat: Number(point.lat),
+        lng: Number(point.lng),
+        ele: sourceWorkoutObject.getAltitudeAt(sourceSampleIndex)
+      };
+    });
+
+    const sampledTrack = [];
+    const seenKeys = new Set();
+    const pushPoint = (point) => {
+      if (!point) {
+        return;
+      }
+      const lat = Number(point.lat);
+      const lng = Number(point.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return;
+      }
+      const key = `${lat.toFixed(7)}:${lng.toFixed(7)}`;
+      if (seenKeys.has(key) && sampledTrack.length > 0) {
+        const last = sampledTrack[sampledTrack.length - 1];
+        if (last.lat === lat && last.lng === lng) {
+          return;
+        }
+      }
+      seenKeys.add(key);
+      sampledTrack.push({
+        lat,
+        lng,
+        ele: Number.isFinite(point.ele) ? Number(point.ele) : null
+      });
+    };
+
+    for (let index = 0; index < targetWorkoutObject.length; index += 5) {
+      const targetDistanceMeters = targetWorkoutObject.getDistanceAt(index);
+      if (!Number.isFinite(targetDistanceMeters)) {
+        continue;
+      }
+      const progress = Math.max(0, Math.min(1, targetDistanceMeters / effectiveTargetDistanceMeters));
+      pushPoint(interpolateTrackPointAtDistanceAxis(
+        enrichedSourceTrack,
+        sourceDistanceAxis,
+        progress * sourceDistanceFallback
+      ));
+    }
+
+    const lastDistanceMeters = targetWorkoutObject.getDistanceAt(targetWorkoutObject.length - 1);
+    const lastProgress = Number.isFinite(lastDistanceMeters)
+      ? Math.max(0, Math.min(1, lastDistanceMeters / effectiveTargetDistanceMeters))
+      : 1;
+    pushPoint(interpolateTrackPointAtDistanceAxis(
+      enrichedSourceTrack,
+      sourceDistanceAxis,
+      lastProgress * sourceDistanceFallback
+    ));
+
+    if (sampledTrack.length < 2) {
+      throw new Error("GPS copy produced too few track points.");
+    }
+
+    return {
+      track: sampledTrack,
+      sampleRateSeconds: 5,
+      mappedDistanceMeters: computeTrackDistanceMeters(sampledTrack),
+      lookupDistanceMeters: sourceDistanceFallback
+    };
+  }
+
+  static async enrichManualGpsTrackAltitude(manualGpsTrack) {
+    const baseTrack = Array.isArray(manualGpsTrack?.track) ? manualGpsTrack.track : [];
+    if (baseTrack.length < 2) {
+      throw new Error("Manual GPS track needs at least two points for altitude enrichment.");
+    }
+
+    const service = new ElevationService({
+      batchSize: 100,
+      sleepMs: 150,
+      downsampleStep: 5
+    });
+
+    const enrichedTrack = await service.enrichTrack(baseTrack);
+    return {
+      ...manualGpsTrack,
+      track: enrichedTrack
+    };
+  }
+
+  static buildWorkoutStreamFromManualGps(workoutObject, manualGpsTrack, totalWorkoutDistanceMeters) {
+    if (!workoutObject?.hasDistanceSeries?.()) {
+      throw new Error("Workout has no distance series for manual GPS altitude mapping.");
+    }
+
+    const track = Array.isArray(manualGpsTrack?.track) ? manualGpsTrack.track : [];
+    if (track.length < 2) {
+      throw new Error("Manual GPS altitude track needs at least two points.");
+    }
+
+    const trackIndex = buildTrackDistanceIndex(track);
+    if (trackIndex.totalMeters <= 0) {
+      throw new Error("Manual GPS altitude track distance is invalid.");
+    }
+
+    const effectiveWorkoutDistanceMeters = Number(totalWorkoutDistanceMeters);
+    if (!Number.isFinite(effectiveWorkoutDistanceMeters) || effectiveWorkoutDistanceMeters <= 0) {
+      throw new Error("Workout distance is invalid for manual GPS stream rebuild.");
+    }
+
+    const records = [];
+    const altitudes = [];
+
+    for (let index = 0; index < workoutObject.length; index++) {
+      const metrics = workoutObject.getMetricsAt(index);
+      const distanceMeters = workoutObject.getDistanceAt(index);
+      const progress = Number.isFinite(distanceMeters)
+        ? Math.max(0, Math.min(1, distanceMeters / effectiveWorkoutDistanceMeters))
+        : (workoutObject.length > 1 ? index / (workoutObject.length - 1) : 0);
+      const lookupDistanceMeters = progress * trackIndex.totalMeters;
+      const altitude = interpolateScalarAtDistance(track, trackIndex.cumulativeMeters, lookupDistanceMeters, "ele");
+      const normalizedAltitude = Number.isFinite(altitude)
+        ? altitude
+        : (index > 0 ? altitudes[index - 1] : 0);
+
+      altitudes.push(normalizedAltitude);
+      records.push({
+        power: metrics.power,
+        heart_rate: metrics.hr,
+        cadence: metrics.cadence,
+        speed: Number.isFinite(metrics.speed) ? metrics.speed / 3.6 : 0,
+        altitude: normalizedAltitude,
+        distance: Number.isFinite(distanceMeters) ? distanceMeters : undefined
+      });
+    }
+
+    const rebuiltWorkout = Workout.fromRecords(records, {
+      validGps: true,
+      startTime: workoutObject.getStartTime()
+    });
+
+    return {
+      workoutObject: rebuiltWorkout,
+      totalAscent: Math.round(rebuiltWorkout.getElevationGainTotal()),
+      totalDescent: computeTotalDescentMeters(altitudes)
+    };
+  }
+
+  static async updateWorkoutManualGps(id, uid, manualGpsTrack, lookupPoints = [], streamUpdate = null) {
+    const normalizedTrack = Array.isArray(manualGpsTrack?.track)
+      ? manualGpsTrack.track
+          .map((point) => ({
+            lat: Number(point?.lat),
+            lng: Number(point?.lng),
+            ele: Number(point?.ele)
+          }))
+          .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))
+      : [];
+
+    if (normalizedTrack.length < 2) {
+      throw new Error("Manual GPS track needs at least two points.");
+    }
+
+    const bbox = computeBBox(normalizedTrack);
+    if (!bbox) {
+      throw new Error("Manual GPS track bounding box is invalid.");
+    }
+
+    const pointsCount = normalizedTrack.length;
+    const geom = buildLinestringWkt(normalizedTrack);
+    const firstPoint = normalizedTrack[0];
+    const lastPoint = normalizedTrack[normalizedTrack.length - 1];
+    const trackStartGeom = `POINT(${firstPoint.lng} ${firstPoint.lat})`;
+    const trackEndGeom = `POINT(${lastPoint.lng} ${lastPoint.lat})`;
+    const normalizedLookupPoints = Array.isArray(lookupPoints)
+      ? lookupPoints
+          .map((point) => ({
+            lat: Number(point?.lat),
+            lng: Number(point?.lng)
+          }))
+          .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))
+      : [];
+    const streamBuffer = streamUpdate?.workoutObject
+      ? await streamUpdate.workoutObject.toCompressedBuffer()
+      : null;
+
+    const result = await pool.query(
+      `UPDATE workouts
+       SET
+        validgps = true,
+        points_count = $3,
+        samplerategps = $4,
+        bounds = ST_MakeEnvelope($5::float8, $6::float8, $7::float8, $8::float8, 4326),
+        track_start = ST_GeomFromText($9, 4326),
+        track_end = ST_GeomFromText($10, 4326),
+        geom = ST_GeomFromText($11, 4326),
+        gps_source = 'manual_lookup',
+        manual_gps_lookup_points = $12::jsonb,
+        stream = COALESCE($13::bytea, stream),
+        total_ascent = COALESCE($14::float8, total_ascent),
+        total_descent = COALESCE($15::float8, total_descent)
+       WHERE id = $1
+         AND uid = $2
+       RETURNING
+        id,
+        sampleRateGPS,
+        gps_source,
+        manual_gps_lookup_points,
+        total_ascent,
+        total_descent,
+        ST_AsGeoJSON(geom)::json AS track`,
+      [
+        id,
+        uid,
+        pointsCount,
+        Number(manualGpsTrack?.sampleRateSeconds) || 5,
+        bbox.minLng,
+        bbox.minLat,
+        bbox.maxLng,
+        bbox.maxLat,
+        trackStartGeom,
+        trackEndGeom,
+        geom,
+        JSON.stringify(normalizedLookupPoints),
+        streamBuffer,
+        Number.isFinite(streamUpdate?.totalAscent) ? streamUpdate.totalAscent : null,
+        Number.isFinite(streamUpdate?.totalDescent) ? streamUpdate.totalDescent : null
+      ]
     );
 
     if (result.rowCount === 0) {

@@ -5,6 +5,29 @@ import { clearAuthCookies as clearAuthCookiesOnResponse, refreshAccessTokens, se
 let accessVerifier;
 let idVerifier;
 
+function decodeJwtPayload(token) {
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const [, payload] = token.split(".");
+    if (!payload) {
+      return null;
+    }
+
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(
+      normalized.length + ((4 - normalized.length % 4) % 4),
+      "="
+    );
+
+    return JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
 function clearAuthCookies(req, res) {
   clearAuthCookiesOnResponse(res);
 
@@ -66,6 +89,7 @@ export default async function authMiddleware(req, res, next) {
     let idPayload = idToken
       ? await getIdVerifier().verify(idToken).catch(() => null)
       : null;
+    const decodedIdPayload = decodeJwtPayload(idToken);
 
     try {
       accessPayload = await getAccessVerifier().verify(token);
@@ -96,12 +120,14 @@ export default async function authMiddleware(req, res, next) {
         || (idToken ? await getIdVerifier().verify(idToken).catch(() => null) : null);
     }
 
+    const effectiveIdPayload = idPayload || decodedIdPayload || null;
+
     const user = {
       sub: accessPayload.sub,
-      email: idPayload?.email || accessPayload.email,
-      email_verified: idPayload?.email_verified,
-      username: idPayload?.["cognito:username"] || accessPayload.username,
-      name: idPayload?.name || idPayload?.given_name
+      email: effectiveIdPayload?.email || accessPayload.email,
+      email_verified: effectiveIdPayload?.email_verified,
+      username: effectiveIdPayload?.["cognito:username"] || accessPayload.username || accessPayload.client_id,
+      name: effectiveIdPayload?.name || effectiveIdPayload?.given_name || effectiveIdPayload?.email
     };
 
     const dbuser = await UserDBService.ensureUserExists(user);

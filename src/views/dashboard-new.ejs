@@ -383,6 +383,21 @@
                                         <button id="dashboard-map-3d-toggle" class="btn btn-outline-secondary btn-sm" type="button">
                                             <%= t("dashboardNewPage.map3dOpen") %>
                                         </button>
+                                        <button id="dashboard-manual-gps-toggle" class="btn btn-outline-primary btn-sm d-none" type="button">
+                                            <%= t("dashboardNewPage.manualGpsCreate") %>
+                                        </button>
+                                        <button id="dashboard-copy-gps-open" class="btn btn-outline-primary btn-sm d-none" type="button">
+                                            <%= t("dashboardNewPage.copyGpsOpen") %>
+                                        </button>
+                                        <button id="dashboard-manual-gps-clear" class="btn btn-outline-secondary btn-sm d-none" type="button">
+                                            <%= t("dashboardNewPage.manualGpsClear") %>
+                                        </button>
+                                        <button id="dashboard-manual-gps-cancel" class="btn btn-outline-secondary btn-sm d-none" type="button">
+                                            <%= t("dashboardNewPage.manualGpsCancel") %>
+                                        </button>
+                                        <button id="dashboard-manual-gps-save" class="btn btn-primary btn-sm d-none" type="button" disabled>
+                                            <%= t("dashboardNewPage.manualGpsSave") %>
+                                        </button>
                                         <details id="dashboard-map-style-menu" class="dashboard-actions-menu dashboard-actions-menu--map">
                                             <summary class="dashboard-actions-menu__trigger" aria-label="<%= t('dashboardNewPage.mapStyleAria') %>">
                                                 <span></span><span></span><span></span>
@@ -398,6 +413,7 @@
                                 </div>
 
                             <div class="dashboard-surface-body ui-surface-body ui-surface-body--flush">
+                                    <div id="dashboard-manual-gps-hint" class="dashboard-map-hint d-none"><%= t("dashboardNewPage.manualGpsHint") %></div>
                                     <div id="workout-map"></div>
                                 </div>
                             </aside>
@@ -426,6 +442,25 @@
             <div id="dashboard-toast" class="toast dashboard-toast border-0" role="alert" aria-live="assertive"
                 aria-atomic="true">
                 <div class="toast-body" id="dashboard-toast-body"></div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="dashboard-gps-copy-modal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-lg">
+                <div class="modal-content border-0 shadow dashboard-gps-copy-modal">
+                    <div class="modal-header">
+                        <div>
+                            <p class="dashboard-eyebrow mb-1"><%= t("dashboardNewPage.copyGpsEyebrow") %></p>
+                            <h2 class="modal-title mb-0"><%= t("dashboardNewPage.copyGpsTitle") %></h2>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p id="dashboard-gps-copy-copy" class="dashboard-section-copy mb-3"><%= t("dashboardNewPage.copyGpsCopy") %></p>
+                        <div id="dashboard-gps-copy-status" class="dashboard-gps-copy-status d-none"></div>
+                        <div id="dashboard-gps-copy-candidates" class="dashboard-gps-copy-candidates"></div>
+                    </div>
+                </div>
             </div>
         </div>
 

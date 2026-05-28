@@ -212,7 +212,7 @@ export async function createApp() {
     let dbrow = null;
 
     try {
-      const { aggregated, segments, gps_track, workoutObject } = processFitRecords(fitJsonObject, {
+      const { aggregated, segments, gps_track, workoutObject, importGpsSource } = processFitRecords(fitJsonObject, {
         sourceName: context.entryName || null
       });
       timing.mark("process-fit-records", {
@@ -221,7 +221,8 @@ export async function createApp() {
         validGps: !!gps_track?.validGps
       });
       const fitFile = {
-        uid: uid
+        uid: uid,
+        gps_source: importGpsSource
       };
       const fileRow = mapAggregatedToFileRow(aggregated, fitFile, workoutObject.getNormalizedPower());
       timing.mark("map-aggregated-to-file-row");
@@ -316,13 +317,14 @@ export async function createApp() {
 
   async function processFitJsonWithMetrics(fitJsonObject, uid, batchTrace, shareConfig = null, context = {}) {
     const processFitRecordsStartedAt = Date.now();
-    const { aggregated, segments, gps_track, workoutObject } = processFitRecords(fitJsonObject, {
+    const { aggregated, segments, gps_track, workoutObject, importGpsSource } = processFitRecords(fitJsonObject, {
       sourceName: context.entryName || null
     });
     batchTrace?.add("processFitRecordsMs", Date.now() - processFitRecordsStartedAt);
 
     const fitFile = {
-      uid
+      uid,
+      gps_source: importGpsSource
     };
 
     const mapStartedAt = Date.now();

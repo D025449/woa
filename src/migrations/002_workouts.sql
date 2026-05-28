@@ -45,6 +45,8 @@ CREATE TABLE workouts (
     max_cadence          DOUBLE PRECISION,
     stream               BYTEA NOT NULL,
     validGps             BOOLEAN,
+    gps_source           TEXT,
+    manual_gps_lookup_points JSONB,
     points_count         INTEGER,
     sampleRateGPS        DOUBLE PRECISION,
 
@@ -56,7 +58,9 @@ CREATE TABLE workouts (
     CONSTRAINT uq_user_start_time2 UNIQUE (uid, start_time),
     CONSTRAINT fk_user2 FOREIGN KEY (uid)
         REFERENCES users(id)
-        ON DELETE CASCADE
+        ON DELETE CASCADE,
+    CONSTRAINT workouts_gps_source_check
+        CHECK (gps_source IS NULL OR gps_source IN ('recorded', 'manual_lookup'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_files_bounds

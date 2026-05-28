@@ -336,7 +336,7 @@ export default class WorkoutThumbnailService {
         height = EXCLUDED.height,
         content = EXCLUDED.content,
         updated_at = NOW()
-      RETURNING workout_id AS "workoutId", kind, mime_type AS "mimeType", width, height
+      RETURNING workout_id AS "workoutId", kind, mime_type AS "mimeType", width, height, updated_at AS "updatedAt"
       `,
       [
         Number(workoutId),

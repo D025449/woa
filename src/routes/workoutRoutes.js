@@ -19,6 +19,79 @@ import {
 
 const router = express.Router();
 
+function haversineMeters(a, b) {
+  const toRad = (value) => (value * Math.PI) / 180;
+  const R = 6371000;
+  const dLat = toRad((b.lat ?? 0) - (a.lat ?? 0));
+  const dLng = toRad((b.lng ?? 0) - (a.lng ?? 0));
+  const lat1 = toRad(a.lat ?? 0);
+  const lat2 = toRad(b.lat ?? 0);
+  const sinLat = Math.sin(dLat / 2);
+  const sinLng = Math.sin(dLng / 2);
+  const x = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng;
+  return 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
+function computeTrackDistanceMeters(track) {
+  if (!Array.isArray(track) || track.length < 2) {
+    return 0;
+  }
+
+  let total = 0;
+  for (let i = 1; i < track.length; i++) {
+    total += haversineMeters(track[i - 1], track[i]);
+  }
+  return total;
+}
+
+async function lookupManualWorkoutRoute(points = []) {
+  const normalizedPoints = points.map((point) => ({
+    lat: Number(point?.lat),
+    lng: Number(point?.lng)
+  }));
+
+  if (normalizedPoints.length < 2 || normalizedPoints.some((point) => !Number.isFinite(point.lat) || !Number.isFinite(point.lng))) {
+    const error = new Error("At least two valid route points are required.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const osrmCoordinates = normalizedPoints
+    .map((point) => `${point.lng},${point.lat}`)
+    .join(";");
+  const url = `https://router.project-osrm.org/route/v1/cycling/${osrmCoordinates}?overview=full&geometries=geojson&exclude=motorway`;
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    const error = new Error(`OSRM route lookup failed (${response.status})`);
+    error.statusCode = 502;
+    throw error;
+  }
+
+  const data = await response.json();
+  if (!Array.isArray(data?.routes) || data.routes.length === 0) {
+    const error = new Error("No route found for the selected points.");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const route = data.routes[0];
+  const track = Array.isArray(route?.geometry?.coordinates)
+    ? route.geometry.coordinates.map(([lng, lat]) => ({ lat: Number(lat), lng: Number(lng) }))
+    : [];
+
+  if (track.length < 2) {
+    const error = new Error("Route lookup returned too few track points.");
+    error.statusCode = 422;
+    throw error;
+  }
+
+  return {
+    distanceMeters: Number(route.distance) || computeTrackDistanceMeters(track),
+    track
+  };
+}
+
 function formatFitExportFileName(startTimeValue, fallbackId) {
   const date = new Date(startTimeValue);
   if (Number.isNaN(date.getTime())) {
@@ -58,9 +131,7 @@ router.get("/:id/export.fit", authMiddleware, async (req, res) => {
     const gpsCoordinates = geoJsonCoordinates
       .filter((point) => Array.isArray(point) && Number.isFinite(point[0]) && Number.isFinite(point[1]))
       .map((point) => [Number(point[1]), Number(point[0])]); // GeoJSON [lng, lat] -> [lat, lng]
-    const hasValidGps = typeof workout.isValidGps === "function"
-      ? !!workout.isValidGps()
-      : !!workout.validGps;
+    const hasValidGps = !!(workoutTrack?.validgps ?? workoutTrack?.validGps);
 
     if (hasValidGps) {
       console.log("[fit-export] gps mapping", {
@@ -76,7 +147,8 @@ router.get("/:id/export.fit", authMiddleware, async (req, res) => {
       serialNumber: workoutId,
       sampleRateGps: workoutTrack?.samplerategps,
       gpsCoordinates,
-      includeGps: hasValidGps
+      includeGps: hasValidGps,
+      gpsSource: workoutTrack?.gps_source ?? workoutTrack?.gpsSource ?? null
     });
     const fileName = formatFitExportFileName(
       typeof workout.getStartTime === "function" ? workout.getStartTime() : null,
@@ -215,6 +287,178 @@ router.get("/:id/track", authMiddleware, async (req, res) => {
   } catch (err) {
     console.error("Track load error:", err);
     return res.status(err.statusCode || 500).json({ error: err.message || "Internal server error" });
+  }
+});
+
+router.post("/:id/manual-gps", authMiddleware, requireActiveAccountWrite, async (req, res) => {
+  try {
+    const workoutId = Number(req.params.id);
+    const uid = req.user?.id;
+    const lookupPoints = Array.isArray(req.body?.points) ? req.body.points : [];
+
+    if (!Number.isFinite(workoutId) || workoutId <= 0) {
+      return res.status(400).json({ error: "Invalid workout id" });
+    }
+
+    const context = await WorkoutDBService.getManualGpsContext(workoutId, uid);
+    const routeLookup = await lookupManualWorkoutRoute(lookupPoints);
+    const workoutDistanceMeters = Number(context.total_distance)
+      || Number(context.workoutObject?.getDistanceAt?.(context.workoutObject.length - 1))
+      || 0;
+
+    const distanceDeltaRatio = workoutDistanceMeters > 0
+      ? Math.abs(routeLookup.distanceMeters - workoutDistanceMeters) / workoutDistanceMeters
+      : 0;
+
+    if (!Number.isFinite(workoutDistanceMeters) || workoutDistanceMeters <= 0) {
+      return res.status(422).json({ error: "Workout has no usable distance data for manual GPS mapping." });
+    }
+
+    if (distanceDeltaRatio > 0.2) {
+      return res.status(422).json({
+        error: "Lookup route differs too much from the workout distance.",
+        distanceDeltaRatio
+      });
+    }
+
+    const manualGpsTrack = WorkoutDBService.buildManualGpsTrackFromLookup(
+      context.workoutObject,
+      routeLookup.track,
+      workoutDistanceMeters
+    );
+    const altitudeEnrichedTrack = await WorkoutDBService.enrichManualGpsTrackAltitude(manualGpsTrack);
+    const streamUpdate = WorkoutDBService.buildWorkoutStreamFromManualGps(
+      context.workoutObject,
+      altitudeEnrichedTrack,
+      workoutDistanceMeters
+    );
+
+    const updatedTrackRow = await WorkoutDBService.updateWorkoutManualGps(
+      workoutId,
+      uid,
+      altitudeEnrichedTrack,
+      lookupPoints,
+      streamUpdate
+    );
+    const thumbnailPayload = WorkoutThumbnailService.createThumbnailPayload({
+      gpsTrack: altitudeEnrichedTrack.track.map((point) => [point.lat, point.lng]),
+      workoutObject: streamUpdate.workoutObject
+    });
+    const thumbnail = thumbnailPayload
+      ? await WorkoutThumbnailService.upsertThumbnail(workoutId, thumbnailPayload)
+      : null;
+
+    return res.json({
+      ok: true,
+      workoutId,
+      gpsSource: updatedTrackRow.gps_source,
+      sampleRateGPS: updatedTrackRow.samplerategps ?? updatedTrackRow.sampleRateGPS ?? 5,
+      pointsCount: Array.isArray(updatedTrackRow?.track?.coordinates) ? updatedTrackRow.track.coordinates.length : 0,
+      distanceDeltaRatio,
+      totalAscent: updatedTrackRow.total_ascent ?? null,
+      totalDescent: updatedTrackRow.total_descent ?? null,
+      hasThumbnail: !!thumbnail,
+      thumbnailUpdatedAt: thumbnail?.updatedAt || null
+    });
+  } catch (err) {
+    console.error("POST /workouts/:id/manual-gps failed:", err);
+    return res.status(err.statusCode || 500).json({
+      error: err.message || "Failed to assign manual GPS to workout"
+    });
+  }
+});
+
+router.get("/:id/gps-copy-candidates", authMiddleware, requireActiveAccountWrite, async (req, res) => {
+  try {
+    const workoutId = Number(req.params.id);
+    const uid = req.user?.id;
+
+    if (!Number.isFinite(workoutId) || workoutId <= 0) {
+      return res.status(400).json({ error: "Invalid workout id" });
+    }
+
+    const candidates = await WorkoutDBService.getGpsCopyCandidates(workoutId, uid, 0.05);
+    return res.json({
+      ok: true,
+      workoutId,
+      candidates
+    });
+  } catch (err) {
+    console.error("GET /workouts/:id/gps-copy-candidates failed:", err);
+    return res.status(err.statusCode || 500).json({
+      error: err.message || "Failed to load GPS copy candidates"
+    });
+  }
+});
+
+router.post("/:id/gps-copy-from", authMiddleware, requireActiveAccountWrite, async (req, res) => {
+  try {
+    const targetWorkoutId = Number(req.params.id);
+    const uid = req.user?.id;
+    const sourceWorkoutId = Number(req.body?.sourceWorkoutId);
+
+    if (!Number.isFinite(targetWorkoutId) || targetWorkoutId <= 0 || !Number.isFinite(sourceWorkoutId) || sourceWorkoutId <= 0) {
+      return res.status(400).json({ error: "Invalid workout id" });
+    }
+
+    const targetContext = await WorkoutDBService.getManualGpsContext(targetWorkoutId, uid);
+    const sourceContext = await WorkoutDBService.getGpsCopySourceContext(sourceWorkoutId, uid);
+    const targetWorkoutDistanceMeters = Number(targetContext.total_distance)
+      || Number(targetContext.workoutObject?.getDistanceAt?.(targetContext.workoutObject.length - 1))
+      || 0;
+
+    if (!Number.isFinite(targetWorkoutDistanceMeters) || targetWorkoutDistanceMeters <= 0) {
+      return res.status(422).json({ error: "Workout has no usable distance data for GPS copy." });
+    }
+
+    const copiedGpsTrack = WorkoutDBService.buildGpsTrackFromSourceWorkout(
+      targetContext.workoutObject,
+      targetWorkoutDistanceMeters,
+      sourceContext.workoutObject,
+      sourceContext.trackPoints,
+      sourceContext.samplerategps,
+      sourceContext.total_distance
+    );
+
+    const streamUpdate = WorkoutDBService.buildWorkoutStreamFromManualGps(
+      targetContext.workoutObject,
+      copiedGpsTrack,
+      targetWorkoutDistanceMeters
+    );
+
+    const updatedTrackRow = await WorkoutDBService.updateWorkoutManualGps(
+      targetWorkoutId,
+      uid,
+      copiedGpsTrack,
+      [],
+      streamUpdate
+    );
+
+    const thumbnailPayload = WorkoutThumbnailService.createThumbnailPayload({
+      gpsTrack: copiedGpsTrack.track.map((point) => [point.lat, point.lng]),
+      workoutObject: streamUpdate.workoutObject
+    });
+    const thumbnail = thumbnailPayload
+      ? await WorkoutThumbnailService.upsertThumbnail(targetWorkoutId, thumbnailPayload)
+      : null;
+
+    return res.json({
+      ok: true,
+      workoutId: targetWorkoutId,
+      sourceWorkoutId,
+      gpsSource: updatedTrackRow.gps_source,
+      sampleRateGPS: updatedTrackRow.samplerategps ?? updatedTrackRow.sampleRateGPS ?? 5,
+      pointsCount: Array.isArray(updatedTrackRow?.track?.coordinates) ? updatedTrackRow.track.coordinates.length : 0,
+      totalAscent: updatedTrackRow.total_ascent ?? null,
+      totalDescent: updatedTrackRow.total_descent ?? null,
+      hasThumbnail: !!thumbnail,
+      thumbnailUpdatedAt: thumbnail?.updatedAt || null
+    });
+  } catch (err) {
+    console.error("POST /workouts/:id/gps-copy-from failed:", err);
+    return res.status(err.statusCode || 500).json({
+      error: err.message || "Failed to copy GPS from workout"
+    });
   }
 });
 

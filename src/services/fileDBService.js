@@ -509,6 +509,11 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
         WHERE wt.workout_id = workouts.id
       ) AS has_thumbnail,
       (
+        SELECT wt.updated_at
+        FROM workout_thumbnails wt
+        WHERE wt.workout_id = workouts.id
+      ) AS thumbnail_updated_at,
+      (
         SELECT COUNT(*)
         FROM workout_group_shares wgs
         WHERE wgs.workout_id = workouts.id
@@ -1291,6 +1296,9 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
 
 
     fileRow.validGps = gps_track.validGps;
+    const gpsSource = fileRow.validGps
+      ? (fileRow.gps_source || "recorded")
+      : null;
     let sampleRateGPS = gps_track?.sampleRate ?? 1;
     if (fileRow.validGps) {
       fileRow.bbox = gps_track?.bbox ?? null;
@@ -1403,7 +1411,8 @@ INSERT INTO workouts (
   geom,
   points_count,
   sampleRateGPS,
-  stream        
+  stream,
+  gps_source
 )
 VALUES (
   $1,$2,
@@ -1438,7 +1447,8 @@ CASE
 END,
   $35,
   $36,
-  $37
+  $37,
+  $38
 )
 ON CONFLICT (uid, start_time)
 DO NOTHING
@@ -1481,7 +1491,8 @@ RETURNING id, uid;
           trackEndGeom,          // $34
           points_count,          // $35
           sampleRateGPS,         // $36
-          compressedBuffer       // $37
+          compressedBuffer,      // $37
+          gpsSource              // $38
         ]
       );
 

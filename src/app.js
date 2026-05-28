@@ -24,7 +24,8 @@ import fs from "fs";
 
 import uploadsRouter from './routes/uploads.js';
 import importsRouter from './routes/imports.js';
-import { createI18nMiddleware } from "./i18n/index.js";
+import { createI18nMiddleware, normalizeSupportedLocale } from "./i18n/index.js";
+import UserDBService from "./services/userDBService.js";
 
 let client;
 
@@ -206,6 +207,40 @@ export async function createApp() {
             accessToken: pickInterestingClaims(decodeJwtPayload(accessToken)),
             idToken: pickInterestingClaims(decodeJwtPayload(idToken))
         });
+    };
+
+    const hydrateSessionFromIdToken = async (session, idToken) => {
+        const claims = decodeJwtPayload(idToken);
+        if (!claims?.sub) {
+            return null;
+        }
+
+        const user = {
+            sub: claims.sub,
+            email: claims.email || claims["cognito:username"],
+            email_verified: claims.email_verified ?? false,
+            username: claims["cognito:username"] || claims.email,
+            name: claims.name || claims.given_name || claims.email || claims["cognito:username"]
+        };
+
+        const dbuser = await UserDBService.ensureUserExists(user);
+        const language = await UserDBService.getUserLanguage(dbuser.id);
+        const normalizedLanguage = normalizeSupportedLocale(language, "en");
+
+        session.user_id = dbuser.id;
+        session.user = {
+            id: dbuser.id,
+            sub: user.sub,
+            email: dbuser.email,
+            display_name: dbuser.display_name,
+            language: normalizedLanguage,
+            account_status: dbuser.account_status || "active",
+            deletion_requested_at: dbuser.deletion_requested_at || null,
+            deletion_scheduled_for: dbuser.deletion_scheduled_for || null,
+            deleted_at: dbuser.deleted_at || null
+        };
+
+        return session.user;
     };
 
     const buildGoogleAuthorizeUrl = (state, nonce) => {
@@ -407,26 +442,44 @@ export async function createApp() {
                     return renderLogin(res, redirect, "Google login failed");
                 }
 
-                res.cookie("accessToken", tokens.access_token, {
-                    httpOnly: true,
-                    secure: isSecureCookie
-                });
+                (async () => {
+                    try {
+                        if (tokens.id_token) {
+                            await hydrateSessionFromIdToken(req.session, tokens.id_token);
+                        }
 
-                if (tokens.refresh_token) {
-                    res.cookie("refreshToken", tokens.refresh_token, {
-                        httpOnly: true,
-                        secure: isSecureCookie
-                    });
-                }
+                        res.cookie("accessToken", tokens.access_token, {
+                            httpOnly: true,
+                            secure: isSecureCookie
+                        });
 
-                if (tokens.id_token) {
-                    res.cookie("idToken", tokens.id_token, {
-                        httpOnly: true,
-                        secure: isSecureCookie
-                    });
-                }
+                        if (tokens.refresh_token) {
+                            res.cookie("refreshToken", tokens.refresh_token, {
+                                httpOnly: true,
+                                secure: isSecureCookie
+                            });
+                        }
 
-                return res.redirect(redirect);
+                        if (tokens.id_token) {
+                            res.cookie("idToken", tokens.id_token, {
+                                httpOnly: true,
+                                secure: isSecureCookie
+                            });
+                        }
+
+                        req.session.save((saveErr) => {
+                            if (saveErr) {
+                                console.error(saveErr);
+                                return renderLogin(res, redirect, "Google login failed");
+                            }
+
+                            return res.redirect(redirect);
+                        });
+                    } catch (innerErr) {
+                        console.error(innerErr);
+                        return renderLogin(res, redirect, "Google login failed");
+                    }
+                })();
             });
         } catch (err) {
             console.error(err);
@@ -477,24 +530,42 @@ export async function createApp() {
                     return renderLogin(res, redirect, "Login failed");
                 }
 
-                res.cookie("accessToken", tokens.AccessToken, {
-                    httpOnly: true,
-                    secure: isSecureCookie
-                });
+                (async () => {
+                    try {
+                        if (tokens.IdToken) {
+                            await hydrateSessionFromIdToken(req.session, tokens.IdToken);
+                        }
 
-                res.cookie("refreshToken", tokens.RefreshToken, {
-                    httpOnly: true,
-                    secure: isSecureCookie
-                });
+                        res.cookie("accessToken", tokens.AccessToken, {
+                            httpOnly: true,
+                            secure: isSecureCookie
+                        });
 
-                if (tokens.IdToken) {
-                    res.cookie("idToken", tokens.IdToken, {
-                        httpOnly: true,
-                        secure: isSecureCookie
-                    });
-                }
+                        res.cookie("refreshToken", tokens.RefreshToken, {
+                            httpOnly: true,
+                            secure: isSecureCookie
+                        });
 
-                return res.redirect(save_redirect);
+                        if (tokens.IdToken) {
+                            res.cookie("idToken", tokens.IdToken, {
+                                httpOnly: true,
+                                secure: isSecureCookie
+                            });
+                        }
+
+                        req.session.save((saveErr) => {
+                            if (saveErr) {
+                                console.error(saveErr);
+                                return renderLogin(res, redirect, "Login failed");
+                            }
+
+                            return res.redirect(save_redirect);
+                        });
+                    } catch (innerErr) {
+                        console.error(innerErr);
+                        return renderLogin(res, redirect, "Login failed");
+                    }
+                })();
             });
 
             // hier redirect

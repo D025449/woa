@@ -2,7 +2,10 @@ const FIT_EPOCH_MS = Date.UTC(1989, 11, 31, 0, 0, 0);
 
 const FIT_BASE_TYPES = {
   enum: 0x00,
+  sint8: 0x01,
   uint8: 0x02,
+  string: 0x07,
+  byte: 0x0d,
   uint16: 0x84,
   uint32: 0x86,
   sint32: 0x85
@@ -72,16 +75,17 @@ class FitMessageBuilder {
     this.parts.push(buf);
   }
 
-  ensureDefinition(localId, globalId, fields) {
-    const key = `${localId}:${globalId}:${fields.map((f) => `${f.num}/${f.size}/${f.type}`).join(",")}`;
+  ensureDefinition(localId, globalId, fields, developerFields = []) {
+    const key = `${localId}:${globalId}:${fields.map((f) => `${f.num}/${f.size}/${f.type}`).join(",")}|${developerFields.map((f) => `${f.num}/${f.size}/${f.developerDataIndex}`).join(",")}`;
     if (this.definitionKeys.has(key)) {
       return;
     }
 
-    const size = 1 + 1 + 1 + 2 + 1 + (fields.length * 3);
+    const hasDeveloperFields = developerFields.length > 0;
+    const size = 1 + 1 + 1 + 2 + 1 + (fields.length * 3) + (hasDeveloperFields ? 1 + (developerFields.length * 3) : 0);
     const def = Buffer.alloc(size);
     let offset = 0;
-    def.writeUInt8(0x40 | (localId & 0x0f), offset); offset += 1; // definition header
+    def.writeUInt8(0x40 | (hasDeveloperFields ? 0x20 : 0) | (localId & 0x0f), offset); offset += 1; // definition header
     def.writeUInt8(0, offset); offset += 1; // reserved
     def.writeUInt8(0, offset); offset += 1; // little-endian architecture
     def.writeUInt16LE(globalId, offset); offset += 2;
@@ -93,22 +97,38 @@ class FitMessageBuilder {
       def.writeUInt8(field.type, offset); offset += 1;
     }
 
+    if (hasDeveloperFields) {
+      def.writeUInt8(developerFields.length, offset); offset += 1;
+      for (const field of developerFields) {
+        def.writeUInt8(field.num, offset); offset += 1;
+        def.writeUInt8(field.size, offset); offset += 1;
+        def.writeUInt8(field.developerDataIndex, offset); offset += 1;
+      }
+    }
+
     this.pushBuffer(def);
     this.definitionKeys.add(key);
   }
 
-  writeDataMessage(localId, fields, values) {
-    const messageSize = 1 + fields.reduce((acc, f) => acc + f.size, 0);
+  writeDataMessage(localId, fields, values, developerFields = []) {
+    const allFields = [...fields, ...developerFields];
+    const messageSize = 1 + allFields.reduce((acc, f) => acc + f.size, 0);
     const row = Buffer.alloc(messageSize);
     let offset = 0;
     row.writeUInt8(localId & 0x0f, offset); offset += 1;
 
-    for (const field of fields) {
-      const value = values[field.num];
+    for (const field of allFields) {
+      const valueKey = field.valueKey ?? field.num;
+      const value = values[valueKey];
       switch (field.type) {
         case FIT_BASE_TYPES.enum:
         case FIT_BASE_TYPES.uint8: {
           row.writeUInt8(value ?? 0xff, offset);
+          offset += 1;
+          break;
+        }
+        case FIT_BASE_TYPES.sint8: {
+          row.writeInt8(value ?? 0x7f, offset);
           offset += 1;
           break;
         }
@@ -125,6 +145,23 @@ class FitMessageBuilder {
         case FIT_BASE_TYPES.sint32: {
           row.writeInt32LE(value ?? 0x7fffffff, offset);
           offset += 4;
+          break;
+        }
+        case FIT_BASE_TYPES.string: {
+          const raw = typeof value === "string" ? Buffer.from(value, "utf8") : Buffer.alloc(0);
+          raw.copy(row, offset, 0, Math.min(raw.length, field.size > 0 ? field.size - 1 : 0));
+          row.writeUInt8(0, offset + Math.max(0, field.size - 1));
+          offset += field.size;
+          break;
+        }
+        case FIT_BASE_TYPES.byte: {
+          const raw = Buffer.isBuffer(value)
+            ? value
+            : Array.isArray(value)
+              ? Buffer.from(value)
+              : Buffer.alloc(0);
+          raw.copy(row, offset, 0, Math.min(raw.length, field.size));
+          offset += field.size;
           break;
         }
         default:
@@ -290,6 +327,9 @@ export default class FitExportService {
       : 0;
 
     const msg = new FitMessageBuilder();
+    const developerFieldEnabled = options.gpsSource === "manual_lookup";
+    const applicationId = Buffer.alloc(16, 0);
+    Buffer.from("woa-manual-gps", "utf8").copy(applicationId, 0, 0, 16);
 
     const FILE_ID_FIELDS = [
       { num: 0, size: 1, type: FIT_BASE_TYPES.enum },   // type
@@ -354,6 +394,28 @@ export default class FitExportService {
       { num: 2, size: 1, type: FIT_BASE_TYPES.enum },     // type
       { num: 253, size: 4, type: FIT_BASE_TYPES.uint32 }  // timestamp
     ];
+    const DEVELOPER_DATA_ID_FIELDS = [
+      { num: 1, size: 16, type: FIT_BASE_TYPES.byte },    // application_id
+      { num: 3, size: 1, type: FIT_BASE_TYPES.uint8 },    // developer_data_index
+      { num: 4, size: 1, type: FIT_BASE_TYPES.uint8 }     // application_version
+    ];
+    const FIELD_DESCRIPTION_FIELDS = [
+      { num: 0, size: 1, type: FIT_BASE_TYPES.uint8 },    // developer_data_index
+      { num: 1, size: 1, type: FIT_BASE_TYPES.uint8 },    // field_definition_number
+      { num: 2, size: 1, type: FIT_BASE_TYPES.uint8 },    // fit_base_type_id
+      { num: 3, size: 16, type: FIT_BASE_TYPES.string }   // field_name
+    ];
+    const SESSION_DEVELOPER_FIELDS = developerFieldEnabled
+      ? [
+          {
+            num: 0,
+            size: 1,
+            developerDataIndex: 0,
+            type: FIT_BASE_TYPES.uint8,
+            valueKey: "woa_manual_gps"
+          }
+        ]
+      : [];
 
     msg.ensureDefinition(0, 0, FILE_ID_FIELDS);
     msg.writeDataMessage(0, FILE_ID_FIELDS, {
@@ -363,6 +425,23 @@ export default class FitExportService {
       3: clamp(serialNumber, 0, 0xffffffff),
       4: firstTs
     });
+
+    if (developerFieldEnabled) {
+      msg.ensureDefinition(5, 207, DEVELOPER_DATA_ID_FIELDS);
+      msg.writeDataMessage(5, DEVELOPER_DATA_ID_FIELDS, {
+        1: applicationId,
+        3: 0,
+        4: 1
+      });
+
+      msg.ensureDefinition(6, 206, FIELD_DESCRIPTION_FIELDS);
+      msg.writeDataMessage(6, FIELD_DESCRIPTION_FIELDS, {
+        0: 0,
+        1: 0,
+        2: FIT_BASE_TYPES.uint8,
+        3: "woa_manual_gps"
+      });
+    }
 
     msg.ensureDefinition(1, 20, RECORD_FIELDS);
     for (const record of records) {
@@ -398,7 +477,7 @@ export default class FitExportService {
       253: lastTs
     });
 
-    msg.ensureDefinition(3, 18, SESSION_FIELDS);
+    msg.ensureDefinition(3, 18, SESSION_FIELDS, SESSION_DEVELOPER_FIELDS);
     msg.writeDataMessage(3, SESSION_FIELDS, {
       2: firstTs,
       5: 2, // cycling
@@ -415,8 +494,9 @@ export default class FitExportService {
       21: clamp(Math.round(summary.maxPower), 0, 0xffff),
       22: clamp(Math.round(summary.totalAscentM), 0, 0xffff),
       23: clamp(Math.round(summary.totalDescentM), 0, 0xffff),
-      253: lastTs
-    });
+      253: lastTs,
+      woa_manual_gps: developerFieldEnabled ? 1 : 0
+    }, SESSION_DEVELOPER_FIELDS);
 
     msg.ensureDefinition(4, 34, ACTIVITY_FIELDS);
     msg.writeDataMessage(4, ACTIVITY_FIELDS, {

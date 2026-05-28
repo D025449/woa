@@ -1,7 +1,10 @@
 export default class MapView {
+  static DEFAULT_CENTER = [51.1657, 10.4515];
+  static DEFAULT_ZOOM = 6;
 
-  constructor(containerId) {
+  constructor(containerId, handlers = {}) {
     this.SEMI_TO_DEG = 18000 / 2147483648;
+    this.handlers = handlers;
     this.baseLayerMode = "standard";
     this.baseLayer = null;
     this.baseLayerSlot = document.getElementById("dashboard-map-style-slot");
@@ -21,10 +24,30 @@ export default class MapView {
     this.hoverMarker = null;
     this.currentTrackPoints = [];
     this.currentTrackSampleRate = 1;
+    this.currentWorkout = null;
+    this.manualGpsMode = false;
+    this.manualGpsPoints = [];
+    this.manualGpsLayer = L.layerGroup().addTo(this.map);
+    this.manualGpsHintElement = document.getElementById("dashboard-manual-gps-hint");
+    this.manualGpsToggleButton = document.getElementById("dashboard-manual-gps-toggle");
+    this.copyGpsButton = document.getElementById("dashboard-copy-gps-open");
+    this.manualGpsSaveButton = document.getElementById("dashboard-manual-gps-save");
+    this.manualGpsCancelButton = document.getElementById("dashboard-manual-gps-cancel");
+    this.manualGpsClearButton = document.getElementById("dashboard-manual-gps-clear");
 
     this.setBaseLayer(this.baseLayerMode);
     this.initBaseLayerControls();
     this.initBaseLayerMenuBehaviour();
+    this.registerManualGpsControls();
+    this.map.on("click", (event) => this.handleMapClick(event));
+    this.map.on("moveend", () => {
+      const center = this.map.getCenter();
+      this.onViewChange?.({
+        lat: center.lat,
+        lng: center.lng,
+        zoom: this.map.getZoom()
+      });
+    });
   }
 
   // -----------------------------
@@ -46,6 +69,7 @@ export default class MapView {
   // TRACK RENDERING
   // -----------------------------
   renderTrack(workout) {
+    this.currentWorkout = workout || null;
     this.trackLayer.clearLayers();
     this.hoverLayer.clearLayers();
     this.hoverMarker = null;
@@ -90,6 +114,11 @@ export default class MapView {
       this.map.fitBounds(polyline.getBounds(), { padding: [10, 10] });
     }
 
+    if (!this.canEditManualGps(workout) && this.manualGpsMode) {
+      this.disableManualGpsMode();
+    }
+
+    this.syncManualGpsUi();
   }
 
   // -----------------------------
@@ -171,6 +200,165 @@ export default class MapView {
     }
   }
 
+  canEditManualGps(workout = this.currentWorkout) {
+    if (!workout?.access?.isOwner) {
+      return false;
+    }
+
+    return !workout.validGps || workout.gpsSource === "manual_lookup";
+  }
+
+  registerManualGpsControls() {
+    this.manualGpsToggleButton?.addEventListener("click", () => {
+      if (this.manualGpsMode) {
+        this.disableManualGpsMode();
+      } else {
+        this.enableManualGpsMode();
+      }
+    });
+
+    this.copyGpsButton?.addEventListener("click", async () => {
+      await this.handlers.onCopyGpsSelectionOpen?.();
+    });
+
+    this.manualGpsClearButton?.addEventListener("click", () => {
+      this.resetManualGpsSelection();
+    });
+
+    this.manualGpsCancelButton?.addEventListener("click", () => {
+      this.disableManualGpsMode();
+    });
+
+    this.manualGpsSaveButton?.addEventListener("click", async () => {
+      if (this.manualGpsPoints.length < 2) {
+        return;
+      }
+
+      this.manualGpsSaveButton.disabled = true;
+      try {
+        await this.handlers.onManualGpsSave?.(this.manualGpsPoints);
+        this.disableManualGpsMode();
+      } finally {
+        this.syncManualGpsUi();
+      }
+    });
+  }
+
+  enableManualGpsMode() {
+    if (!this.canEditManualGps()) {
+      return;
+    }
+
+    this.manualGpsMode = true;
+    this.map.getContainer().style.cursor = "crosshair";
+    this.ensureInteractiveViewport();
+
+    if (Array.isArray(this.currentWorkout?.manualGpsLookupPoints) && this.currentWorkout.manualGpsLookupPoints.length >= 2) {
+      this.setManualGpsPoints(this.currentWorkout.manualGpsLookupPoints);
+    } else {
+      this.resetManualGpsSelection();
+    }
+
+    this.syncManualGpsUi();
+  }
+
+  disableManualGpsMode() {
+    this.manualGpsMode = false;
+    this.map.getContainer().style.cursor = "";
+    this.manualGpsLayer.clearLayers();
+    this.manualGpsPoints = [];
+    this.syncManualGpsUi();
+  }
+
+  resetManualGpsSelection() {
+    this.manualGpsPoints = [];
+    this.renderManualGpsSelection();
+    this.syncManualGpsUi();
+  }
+
+  setManualGpsPoints(points = []) {
+    this.manualGpsPoints = points
+      .map((point) => ({
+        lat: Number(point?.lat),
+        lng: Number(point?.lng)
+      }))
+      .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+
+    this.renderManualGpsSelection();
+  }
+
+  renderManualGpsSelection() {
+    this.manualGpsLayer.clearLayers();
+
+    if (!this.manualGpsPoints.length) {
+      return;
+    }
+
+    this.manualGpsPoints.forEach((point, index) => {
+      L.circleMarker([point.lat, point.lng], {
+        radius: index === 0 || index === this.manualGpsPoints.length - 1 ? 6 : 5,
+        weight: 2,
+        color: "#ffffff",
+        fillColor: index === 0 ? "#16a34a" : (index === this.manualGpsPoints.length - 1 ? "#dc2626" : "#2563eb"),
+        fillOpacity: 1
+      }).addTo(this.manualGpsLayer);
+    });
+
+    if (this.manualGpsPoints.length >= 2) {
+      L.polyline(this.manualGpsPoints.map((point) => [point.lat, point.lng]), {
+        color: "#2563eb",
+        weight: 3,
+        opacity: 0.8,
+        dashArray: "8 8"
+      }).addTo(this.manualGpsLayer);
+    }
+  }
+
+  syncManualGpsUi() {
+    const canEdit = this.canEditManualGps();
+    const hasEnoughPoints = this.manualGpsPoints.length >= 2;
+    const i18n = window.__I18N?.messages?.dashboardNewPage || {};
+
+    this.manualGpsToggleButton?.classList.toggle("d-none", !canEdit);
+    this.copyGpsButton?.classList.toggle("d-none", !canEdit || this.manualGpsMode);
+    this.manualGpsClearButton?.classList.toggle("d-none", !this.manualGpsMode);
+    this.manualGpsCancelButton?.classList.toggle("d-none", !this.manualGpsMode);
+    this.manualGpsSaveButton?.classList.toggle("d-none", !this.manualGpsMode);
+    this.manualGpsHintElement?.classList.toggle("d-none", !this.manualGpsMode);
+
+    if (this.manualGpsToggleButton) {
+      if (this.currentWorkout?.gpsSource === "manual_lookup") {
+        this.manualGpsToggleButton.textContent = this.manualGpsMode
+          ? (i18n.manualGpsEditDone || "Editing active")
+          : (i18n.manualGpsEdit || "Edit manual GPS");
+      } else {
+        this.manualGpsToggleButton.textContent = this.manualGpsMode
+          ? (i18n.manualGpsEditDone || "Editing active")
+          : (i18n.manualGpsCreate || "Create manual GPS");
+      }
+    }
+
+    if (this.manualGpsSaveButton) {
+      this.manualGpsSaveButton.disabled = !hasEnoughPoints;
+    }
+  }
+
+  handleMapClick(event) {
+    if (!this.manualGpsMode) {
+      return;
+    }
+
+    const lat = Number(event?.latlng?.lat);
+    const lng = Number(event?.latlng?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return;
+    }
+
+    this.manualGpsPoints.push({ lat, lng });
+    this.renderManualGpsSelection();
+    this.syncManualGpsUi();
+  }
+
   resize() {
     if (!this.map) {
       return;
@@ -187,11 +375,42 @@ export default class MapView {
   }
 
   setInitialState(state = {}) {
+    const lat = Number(state?.lat);
+    const lng = Number(state?.lng);
+    const zoom = Number(state?.zoom);
+
+    if (Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(zoom)) {
+      this.map.setView([lat, lng], zoom, { animate: false });
+    } else {
+      this.map.setView(MapView.DEFAULT_CENTER, MapView.DEFAULT_ZOOM, { animate: false });
+    }
+
     if (state?.baseLayerMode) {
       this.setBaseLayer(state.baseLayerMode);
     } else {
       this.syncBaseLayerButtons();
     }
+  }
+
+  ensureInteractiveViewport() {
+    if (this.currentTrackPoints.length > 0 || this.manualGpsPoints.length > 0) {
+      return;
+    }
+
+    const center = this.map.getCenter?.();
+    const zoom = this.map.getZoom?.();
+    const hasUsableViewport = center
+      && Number.isFinite(center.lat)
+      && Number.isFinite(center.lng)
+      && Number.isFinite(zoom)
+      && zoom > 0;
+
+    if (!hasUsableViewport) {
+      this.map.setView(MapView.DEFAULT_CENTER, MapView.DEFAULT_ZOOM, { animate: false });
+      return;
+    }
+
+    this.map.invalidateSize(false);
   }
 
   initBaseLayerControls() {

@@ -663,6 +663,16 @@ export default class WorkoutLibraryView {
     });
   }
 
+  updateWorkoutFields(workoutId, fields = {}) {
+    const workout = this.items.find((entry) => String(entry.id) === String(workoutId));
+    if (!workout || !fields || typeof fields !== "object") {
+      return;
+    }
+
+    Object.assign(workout, fields);
+    this.render();
+  }
+
   getState() {
     return {
       search: this.searchInput?.value || this.searchInputValue || "",
@@ -1076,7 +1086,7 @@ export default class WorkoutLibraryView {
               ${workout.has_thumbnail ? `
                 <img
                   class="workout-library-card__thumb-image"
-                  src="/workouts/${workout.id}/thumbnail"
+                  src="/workouts/${workout.id}/thumbnail?v=${encodeURIComponent(workout.thumbnail_updated_at || workout.uploaded_at || "")}"
                   alt=""
                   loading="lazy"
                   decoding="async">

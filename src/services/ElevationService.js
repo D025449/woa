@@ -4,6 +4,10 @@ export default class ElevationService {
         this.defaultDataset = options.defaultDataset || "srtm30m";
         this.batchSize = options.batchSize || 100;
         this.sleepMs = options.sleepMs || 200;
+        this.maxRetries = options.maxRetries || 3;
+        this.retryBackoffMs = Array.isArray(options.retryBackoffMs) && options.retryBackoffMs.length > 0
+            ? options.retryBackoffMs
+            : [300, 1000, 2500];
 
         // 🔥 Downsampling Config
         this.downsampleStep = options.downsampleStep || 1; // z. B. 5 = jeder 5. Punkt
@@ -88,16 +92,79 @@ export default class ElevationService {
     async fetchBatch(points) {
         const coords = points.map(p => `${p.lat},${p.lng}`).join("|");
         const url = `${this.apiBaseUrl}/${this.dataset}?locations=${coords}`;
+        const maxAttempts = Math.max(1, this.maxRetries);
 
-        try {
-            const res = await fetch(url);
-            const data = await res.json();
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
 
-            return data.results.map(r => r.elevation ?? null);
-        } catch (err) {
-            console.error("Elevation fetch failed:", err);
-            return points.map(() => null);
+                if (!res.ok) {
+                    const isRetryableStatus = res.status === 429 || res.status >= 500;
+                    if (attempt < maxAttempts && isRetryableStatus) {
+                        console.warn("Elevation provider returned retryable non-OK response:", {
+                            attempt,
+                            status: res.status,
+                            dataset: this.dataset,
+                            pointCount: points.length,
+                            error: data?.error ?? null
+                        });
+                        await this.sleep(this.retryBackoffMs[Math.min(attempt - 1, this.retryBackoffMs.length - 1)] || this.sleepMs);
+                        continue;
+                    }
+
+                    console.warn("Elevation provider returned non-OK response:", {
+                        status: res.status,
+                        dataset: this.dataset,
+                        pointCount: points.length,
+                        error: data?.error ?? null
+                    });
+                    return points.map(() => null);
+                }
+
+                if (!Array.isArray(data?.results)) {
+                    if (attempt < maxAttempts) {
+                        console.warn("Elevation provider returned unexpected payload, retrying:", {
+                            attempt,
+                            dataset: this.dataset,
+                            pointCount: points.length,
+                            keys: data && typeof data === "object" ? Object.keys(data) : null,
+                            error: data?.error ?? null,
+                            status: data?.status ?? null
+                        });
+                        await this.sleep(this.retryBackoffMs[Math.min(attempt - 1, this.retryBackoffMs.length - 1)] || this.sleepMs);
+                        continue;
+                    }
+
+                    console.warn("Elevation provider returned unexpected payload:", {
+                        dataset: this.dataset,
+                        pointCount: points.length,
+                        keys: data && typeof data === "object" ? Object.keys(data) : null,
+                        error: data?.error ?? null,
+                        status: data?.status ?? null
+                    });
+                    return points.map(() => null);
+                }
+
+                return data.results.map(r => r?.elevation ?? null);
+            } catch (err) {
+                if (attempt < maxAttempts) {
+                    console.warn("Elevation fetch failed, retrying:", {
+                        attempt,
+                        dataset: this.dataset,
+                        pointCount: points.length,
+                        error: err?.message || err
+                    });
+                    await this.sleep(this.retryBackoffMs[Math.min(attempt - 1, this.retryBackoffMs.length - 1)] || this.sleepMs);
+                    continue;
+                }
+
+                console.error("Elevation fetch failed:", err);
+                return points.map(() => null);
+            }
         }
+
+        return points.map(() => null);
     }
 
     // -----------------------------

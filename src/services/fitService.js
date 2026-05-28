@@ -5,6 +5,15 @@ import SegmentService from "../shared/SegmentService.js";
 import Workout from "../shared/Workout.js";
 
 export default class FitProcessor {
+  static extractImportGpsSource(fitFile) {
+    const sessions = Array.isArray(fitFile?.sessions) ? fitFile.sessions : [];
+    const hasManualGpsFlag = sessions.some((session) => {
+      const value = session?.woa_manual_gps;
+      return value === 1 || value === true || value === "1";
+    });
+
+    return hasManualGpsFlag ? "manual_lookup" : null;
+  }
 
   static createStepLogger(scope, meta = {}) {
     const startedAt = Date.now();
@@ -299,7 +308,8 @@ export default class FitProcessor {
       aggregated,
       segments,
       gps_track,
-      workoutObject
+      workoutObject,
+      importGpsSource: FitProcessor.extractImportGpsSource(fitFile)
     };
   }
 

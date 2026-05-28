@@ -59,6 +59,9 @@ export default class Controller {
     this.sharedMetaTextElement = document.getElementById("dashboard-shared-meta-text");
     this.toastElement = document.getElementById("dashboard-toast");
     this.toastBodyElement = document.getElementById("dashboard-toast-body");
+    this.gpsCopyModalElement = document.getElementById("dashboard-gps-copy-modal");
+    this.gpsCopyStatusElement = document.getElementById("dashboard-gps-copy-status");
+    this.gpsCopyCandidatesElement = document.getElementById("dashboard-gps-copy-candidates");
     this.mobileLibraryToggle = document.getElementById("dashboard-mobile-library-toggle");
     this.mobileLibraryBackdrop = document.getElementById("dashboard-mobile-library-backdrop");
     this.map3dToggleButton = document.getElementById("dashboard-map-3d-toggle");
@@ -87,6 +90,9 @@ export default class Controller {
           delay: 2800
         })
       : null;
+    this.gpsCopyModal = this.gpsCopyModalElement && globalThis.bootstrap
+      ? globalThis.bootstrap.Modal.getOrCreateInstance(this.gpsCopyModalElement)
+      : null;
     this.shareableGroups = [];
     this.initViews();
     this.didRestoreMapViewState = false;
@@ -98,13 +104,47 @@ export default class Controller {
   // INIT
   // -----------------------------
   initViews() {
-    this.mapView = new MapView("workout-map");
+    this.mapView = new MapView("workout-map", {
+      onManualGpsSave: async (points) => {
+        const workoutId = this.currentWorkoutId;
+        if (!workoutId) {
+          return;
+        }
+
+        const result = await WorkoutService.saveManualGps(workoutId, points);
+        this.libraryView.updateWorkoutFields(workoutId, {
+          validgps: true,
+          validGps: true,
+          gps_source: result?.gpsSource || "manual_lookup",
+          gpsSource: result?.gpsSource || "manual_lookup",
+          total_ascent: result?.totalAscent ?? null,
+          total_descent: result?.totalDescent ?? null,
+          has_thumbnail: !!result?.hasThumbnail,
+          thumbnail_updated_at: result?.thumbnailUpdatedAt || new Date().toISOString()
+        });
+        await this.openWorkout(workoutId);
+        this.showToast(this.t("messages.manualGpsSaved"));
+      },
+      onCopyGpsSelectionOpen: async () => {
+        await this.openGpsCopyModal();
+      }
+    });
     this.mapView.onBaseLayerChange = (baseLayerMode) => {
-      this.mapViewState = { baseLayerMode };
+      this.mapViewState = {
+        ...this.mapViewState,
+        baseLayerMode
+      };
       this.uiState.set("dashboardMapViewState", this.mapViewState);
       if (this.didRestoreMapViewState) {
         this.showToast(this.t("messages.mapStyleChanged", { style: this.t(`mapStyle${baseLayerMode.charAt(0).toUpperCase()}${baseLayerMode.slice(1)}`) }));
       }
+    };
+    this.mapView.onViewChange = (viewState) => {
+      this.mapViewState = {
+        ...this.mapViewState,
+        ...viewState
+      };
+      this.uiState.set("dashboardMapViewState", this.mapViewState);
     };
     this.mapView.setInitialState(this.mapViewState);
     this.didRestoreMapViewState = true;
@@ -622,6 +662,122 @@ export default class Controller {
     this.flyoverView?.setWorkout(null);
     this.update3dMapButton();
     this.updateDetailNavigation();
+  }
+
+  async openGpsCopyModal() {
+    const workoutId = this.currentWorkoutId;
+    if (!workoutId || !this.gpsCopyModal || !this.gpsCopyCandidatesElement) {
+      return;
+    }
+
+    this.setGpsCopyStatus(this.t("copyGpsLoading"));
+    this.gpsCopyCandidatesElement.innerHTML = "";
+    this.gpsCopyModal.show();
+
+    try {
+      const candidates = await WorkoutService.getGpsCopyCandidates(workoutId);
+      this.renderGpsCopyCandidates(candidates);
+    } catch (err) {
+      console.error(err);
+      this.setGpsCopyStatus(err?.message || this.t("copyGpsLoadFailed"));
+    }
+  }
+
+  setGpsCopyStatus(message = "", hidden = false) {
+    if (!this.gpsCopyStatusElement) {
+      return;
+    }
+
+    if (hidden || !message) {
+      this.gpsCopyStatusElement.textContent = "";
+      this.gpsCopyStatusElement.classList.add("d-none");
+      return;
+    }
+
+    this.gpsCopyStatusElement.textContent = message;
+    this.gpsCopyStatusElement.classList.remove("d-none");
+  }
+
+  renderGpsCopyCandidates(candidates = []) {
+    if (!this.gpsCopyCandidatesElement) {
+      return;
+    }
+
+    if (!Array.isArray(candidates) || candidates.length === 0) {
+      this.setGpsCopyStatus(this.t("copyGpsEmpty"));
+      this.gpsCopyCandidatesElement.innerHTML = "";
+      return;
+    }
+
+    this.setGpsCopyStatus("", true);
+    this.gpsCopyCandidatesElement.innerHTML = candidates.map((candidate) => {
+      const startedAt = candidate?.start_time ? new Date(candidate.start_time) : null;
+      const dateLabel = startedAt && !Number.isNaN(startedAt.getTime())
+        ? startedAt.toLocaleDateString(this.locale, {
+            weekday: "short",
+            day: "2-digit",
+            month: "short",
+            year: "numeric"
+          })
+        : this.libraryT("na");
+      const thumb = candidate?.has_thumbnail
+        ? `<img src="/workouts/${candidate.id}/thumbnail?v=${encodeURIComponent(candidate.thumbnail_updated_at || candidate.start_time || "")}" alt="Workout ${candidate.id} thumbnail">`
+        : `<div class="dashboard-gps-copy-card__thumb-fallback">${this.t("copyGpsNoThumbnail")}</div>`;
+
+      return `
+        <article class="dashboard-gps-copy-card">
+          <div class="dashboard-gps-copy-card__thumb">${thumb}</div>
+          <div class="dashboard-gps-copy-card__meta">
+            <h3 class="dashboard-gps-copy-card__title">#${candidate.id}</h3>
+            <p class="dashboard-gps-copy-card__copy">${dateLabel}</p>
+            <div class="dashboard-gps-copy-card__stats">
+              <span class="dashboard-gps-copy-card__chip">${this.libraryT("distance")}: ${this.formatDistance(candidate.total_distance)}</span>
+              <span class="dashboard-gps-copy-card__chip">${this.libraryT("duration")}: ${this.formatDuration(candidate.total_timer_time)}</span>
+              <span class="dashboard-gps-copy-card__chip">${this.t("copyGpsAscentLabel")}: ${this.formatAscent(candidate.total_ascent)}</span>
+              <span class="dashboard-gps-copy-card__chip">${this.t("copyGpsDiffLabel")}: ${this.formatDistance(candidate.distance_delta_meters)}</span>
+            </div>
+          </div>
+          <div>
+            <button class="btn btn-primary btn-sm" type="button" data-gps-copy-select="${candidate.id}">
+              ${this.t("copyGpsUse")}
+            </button>
+          </div>
+        </article>
+      `;
+    }).join("");
+
+    this.gpsCopyCandidatesElement.querySelectorAll("[data-gps-copy-select]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const sourceWorkoutId = Number(button.getAttribute("data-gps-copy-select"));
+        if (!Number.isFinite(sourceWorkoutId) || !this.currentWorkoutId) {
+          return;
+        }
+
+        button.disabled = true;
+        this.setGpsCopyStatus(this.t("copyGpsApplying"));
+        try {
+          const result = await WorkoutService.copyGpsFromWorkout(this.currentWorkoutId, sourceWorkoutId);
+          this.libraryView.updateWorkoutFields(this.currentWorkoutId, {
+            validgps: true,
+            validGps: true,
+            gps_source: result?.gpsSource || "manual_lookup",
+            gpsSource: result?.gpsSource || "manual_lookup",
+            total_ascent: result?.totalAscent ?? null,
+            total_descent: result?.totalDescent ?? null,
+            has_thumbnail: !!result?.hasThumbnail,
+            thumbnail_updated_at: result?.thumbnailUpdatedAt || new Date().toISOString()
+          });
+          this.gpsCopyModal?.hide();
+          await this.openWorkout(this.currentWorkoutId);
+          this.showToast(this.t("messages.copyGpsSaved"));
+        } catch (err) {
+          console.error(err);
+          this.setGpsCopyStatus(err?.message || this.t("copyGpsApplyFailed"));
+        } finally {
+          button.disabled = false;
+        }
+      });
+    });
   }
 
   update3dMapButton() {
