@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     city VARCHAR(120),
     country VARCHAR(120),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    show_sudoku BOOLEAN DEFAULT FALSE
 );
 
 CREATE TRIGGER trigger_set_updated_at_user_profiles

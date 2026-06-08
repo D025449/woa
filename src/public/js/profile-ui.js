@@ -135,6 +135,10 @@ class ProfileUI {
     setSelect("profile-distance-unit", data.distanceUnit, "km");
     setSelect("profile-speed-unit", data.speedUnit, "kmh");
     setSelect("profile-default-workout-scope", data.defaultWorkoutScope, "mine");
+    const showSudokuCheckbox = document.getElementById("profile-show-sudoku");
+    if (showSudokuCheckbox) {
+      showSudokuCheckbox.checked = Boolean(data.showSudoku);
+    }
 
     this.currentLanguage = String(data.language || "en").toLowerCase();
   }
@@ -162,7 +166,8 @@ class ProfileUI {
       language: String(document.getElementById("profile-language")?.value || "en").trim(),
       distanceUnit: String(document.getElementById("profile-distance-unit")?.value || "km").trim(),
       speedUnit: String(document.getElementById("profile-speed-unit")?.value || "kmh").trim(),
-      defaultWorkoutScope: String(document.getElementById("profile-default-workout-scope")?.value || "mine").trim()
+      defaultWorkoutScope: String(document.getElementById("profile-default-workout-scope")?.value || "mine").trim(),
+      showSudoku: Boolean(document.getElementById("profile-show-sudoku")?.checked)
     };
     const previousLanguage = this.currentLanguage;
 

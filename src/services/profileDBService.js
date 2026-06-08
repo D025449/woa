@@ -39,6 +39,17 @@ function normalizeEnum(value, allowedValues, fallback) {
   return allowedValues.includes(normalized) ? normalized : fallback;
 }
 
+function toBoolean(value) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["1", "true", "yes", "on"].includes(normalized);
+}
+
 export default class ProfileDBService {
   static async getProfile(userId) {
     const result = await pool.query(`
@@ -63,6 +74,7 @@ export default class ProfileDBService {
         p.distance_unit,
         p.speed_unit,
         p.default_workout_scope,
+        p.show_sudoku,
         p.updated_at AS profile_updated_at
       FROM users u
       LEFT JOIN user_profiles p
@@ -96,6 +108,7 @@ export default class ProfileDBService {
       distanceUnit: row.distance_unit || "km",
       speedUnit: row.speed_unit || "kmh",
       defaultWorkoutScope: row.default_workout_scope || "mine",
+      showSudoku: Boolean(row.show_sudoku),
       accountStatus: row.account_status || "active",
       deletionRequestedAt: row.deletion_requested_at || null,
       deletionScheduledFor: row.deletion_scheduled_for || null,
@@ -119,6 +132,7 @@ export default class ProfileDBService {
     const distanceUnit = normalizeEnum(payload.distanceUnit, ["km", "mi"], "km");
     const speedUnit = normalizeEnum(payload.speedUnit, ["kmh", "mph"], "kmh");
     const defaultWorkoutScope = normalizeEnum(payload.defaultWorkoutScope, ["mine", "shared", "all"], "mine");
+    const showSudoku = toBoolean(payload.showSudoku);
 
     if (dateOfBirth && !/^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)) {
       const error = new Error("Geburtsdatum muss im Format YYYY-MM-DD sein.");
@@ -164,7 +178,8 @@ export default class ProfileDBService {
           language,
           distance_unit,
           speed_unit,
-          default_workout_scope
+          default_workout_scope,
+          show_sudoku
         )
         VALUES (
           $1,
@@ -180,7 +195,8 @@ export default class ProfileDBService {
           $11,
           $12,
           $13,
-          $14
+          $14,
+          $15
         )
         ON CONFLICT (user_id)
         DO UPDATE SET
@@ -196,7 +212,8 @@ export default class ProfileDBService {
           language = EXCLUDED.language,
           distance_unit = EXCLUDED.distance_unit,
           speed_unit = EXCLUDED.speed_unit,
-          default_workout_scope = EXCLUDED.default_workout_scope
+          default_workout_scope = EXCLUDED.default_workout_scope,
+          show_sudoku = EXCLUDED.show_sudoku
       `, [
         userId,
         phone,
@@ -211,7 +228,8 @@ export default class ProfileDBService {
         language,
         distanceUnit,
         speedUnit,
-        defaultWorkoutScope
+        defaultWorkoutScope,
+        showSudoku
       ]);
 
       await client.query("COMMIT");

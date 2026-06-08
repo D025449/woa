@@ -97,7 +97,9 @@
       "defaultWorkoutScope": "Filtro padrão de treinos",
       "defaultWorkoutScopeMine": "Meus",
       "defaultWorkoutScopeShared": "Partilhados",
-      "defaultWorkoutScopeAll": "Todos"
+      "defaultWorkoutScopeAll": "Todos",
+      "showSudoku": "Mostrar Sudoku na app autenticada",
+      "showSudokuHelp": "Adiciona a ligação de Sudoku à navegação da app. Fica oculta por defeito."
     },
     "localeNames": {
       "en": "English",

@@ -80,6 +80,7 @@ export default async function authGlobal(req, res, next) {
         email: req.session?.user?.email,
         display_name: req.session?.user?.display_name,
         language: req.session?.user?.language || "en",
+        show_sudoku: Boolean(req.session?.user?.show_sudoku),
         account_status: req.session?.user?.account_status || "active",
         deletion_requested_at: req.session?.user?.deletion_requested_at || null,
         deletion_scheduled_for: req.session?.user?.deletion_scheduled_for || null,
@@ -138,8 +139,8 @@ export default async function authGlobal(req, res, next) {
     };
 
     const dbuser = await UserDBService.ensureUserExists(user);
-    const language = await UserDBService.getUserLanguage(dbuser.id);
-    const normalizedLanguage = normalizeSupportedLocale(language, "en");
+    const appSettings = await UserDBService.getUserAppSettings(dbuser.id);
+    const normalizedLanguage = normalizeSupportedLocale(appSettings.language, "en");
 
     // Keep locale cookie aligned with the authenticated user's preference.
     res.cookie("lang", normalizedLanguage, {
@@ -157,6 +158,7 @@ export default async function authGlobal(req, res, next) {
       email: dbuser.email,
       display_name: dbuser.display_name,
       language: normalizedLanguage,
+      show_sudoku: appSettings.showSudoku,
       account_status: dbuser.account_status || "active",
       deletion_requested_at: dbuser.deletion_requested_at || null,
       deletion_scheduled_for: dbuser.deletion_scheduled_for || null,
@@ -171,6 +173,7 @@ export default async function authGlobal(req, res, next) {
       username: user.username,
       display_name: dbuser.display_name,
       language: normalizedLanguage,
+      show_sudoku: appSettings.showSudoku,
       account_status: dbuser.account_status || "active",
       deletion_requested_at: dbuser.deletion_requested_at || null,
       deletion_scheduled_for: dbuser.deletion_scheduled_for || null,
@@ -198,6 +201,7 @@ export default async function authGlobal(req, res, next) {
         email: req.session?.user?.email,
         display_name: req.session?.user?.display_name,
         language: req.session?.user?.language || "en",
+        show_sudoku: Boolean(req.session?.user?.show_sudoku),
         account_status: req.session?.user?.account_status || "active",
         deletion_requested_at: req.session?.user?.deletion_requested_at || null,
         deletion_scheduled_for: req.session?.user?.deletion_scheduled_for || null,

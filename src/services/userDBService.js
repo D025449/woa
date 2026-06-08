@@ -37,6 +37,25 @@ export default class UserDBService {
     return result.rows[0]?.language || "en";
   }
 
+  static async getUserAppSettings(userId) {
+    const result = await pool.query(
+      `SELECT language, show_sudoku FROM user_profiles WHERE user_id = $1 LIMIT 1`,
+      [userId]
+    );
+
+    if (result.rowCount === 0) {
+      return {
+        language: "en",
+        showSudoku: false
+      };
+    }
+
+    return {
+      language: result.rows[0]?.language || "en",
+      showSudoku: Boolean(result.rows[0]?.show_sudoku)
+    };
+  }
+
 
 
 

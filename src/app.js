@@ -55,7 +55,8 @@ export async function createApp() {
     });
     app.use((req, res, next) => {
         res.locals.currentUrl = req.originalUrl;
-        res.locals.showFunLink = isFunSudokuEnabled;
+        res.locals.isFunSudokuEnabled = isFunSudokuEnabled;
+        res.locals.showFunLink = Boolean(isFunSudokuEnabled && req.user?.id && req.user?.show_sudoku);
         next();
     });
 
@@ -700,9 +701,18 @@ export async function createApp() {
             });
         }
 
+        if (!req?.user?.id) {
+            const redirectUrl = encodeURIComponent(req.originalUrl);
+            return res.redirect(`/login?redirect=${redirectUrl}`);
+        }
+
+        if (!req.user.show_sudoku) {
+            return res.redirect("/profile");
+        }
+
         res.render("sudoku", {
-            userInfo: req.user || null,
-            isAuthenticated: !!req.user?.id
+            userInfo: req.user,
+            isAuthenticated: true
         });
     });
 

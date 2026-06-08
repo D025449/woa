@@ -25,10 +25,12 @@ router.put("/", authMiddleware, requireActiveAccountWrite, async (req, res, next
     if (req.user) {
       req.user.display_name = data.displayName || req.user.display_name;
       req.user.language = data.language || req.user.language;
+      req.user.show_sudoku = Boolean(data.showSudoku);
     }
     if (req.session?.user) {
       req.session.user.display_name = data.displayName || req.session.user.display_name;
       req.session.user.language = data.language || req.session.user.language;
+      req.session.user.show_sudoku = Boolean(data.showSudoku);
     }
 
     const normalizedLanguage = normalizeSupportedLocale(data.language, "en");

@@ -138,6 +138,17 @@
                                 <option value="all"><%= t("profile.preferences.defaultWorkoutScopeAll") %></option>
                             </select>
                         </div>
+                        <% if (typeof isFunSudokuEnabled !== "undefined" && isFunSudokuEnabled) { %>
+                            <div class="col-12">
+                                <div class="form-check mt-2">
+                                    <input class="form-check-input" type="checkbox" id="profile-show-sudoku" name="showSudoku">
+                                    <label class="form-check-label" for="profile-show-sudoku">
+                                        <strong><%= t("profile.preferences.showSudoku") %></strong>
+                                        <span class="d-block text-muted small"><%= t("profile.preferences.showSudokuHelp") %></span>
+                                    </label>
+                                </div>
+                            </div>
+                        <% } %>
                     </div>
                     <div class="d-flex justify-content-end mt-4">
                         <button id="profile-save-preferences" type="button" class="btn btn-dark"><%= t("profile.preferencesSave") %></button>
