@@ -6,6 +6,7 @@ APP_DIR="${APP_DIR:-/home/ec2-user/woa}"
 ECOSYSTEM_FILE="${ECOSYSTEM_FILE:-ecosystem.config.cjs}"
 APP_NAME="${APP_NAME:-cwa24}"
 WORKER_NAME="${WORKER_NAME:-import-worker}"
+BATCH_WORKER_NAME="${BATCH_WORKER_NAME:-import-batch-worker}"
 NODE_ENV="${NODE_ENV:-production}"
 
 REQUIRED_DB_ENV_VARS=(DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD)
@@ -37,6 +38,7 @@ Optional env overrides:
   NODE_ENV=production
   APP_NAME=cwa24
   WORKER_NAME=import-worker
+  BATCH_WORKER_NAME=import-batch-worker
 EOF
 }
 
@@ -134,6 +136,9 @@ reload_services() {
 
   log "Deploying import worker (reload env from ${ECOSYSTEM_FILE})"
   pm2 start "${ECOSYSTEM_FILE}" --only "${WORKER_NAME}" --env "${NODE_ENV}" --update-env
+
+  log "Deploying import batch worker (reload env from ${ECOSYSTEM_FILE})"
+  pm2 start "${ECOSYSTEM_FILE}" --only "${BATCH_WORKER_NAME}" --env "${NODE_ENV}" --update-env
 
   pm2 save
 }

@@ -19,6 +19,9 @@ import EntitlementService from "../services/entitlementService.js";
 import WorkoutSharingService from "../services/workoutSharingService.js";
 import WorkoutThumbnailService from "../services/workoutThumbnailService.js";
 import WorkoutSimilarityService from "../services/workoutSimilarityService.js";
+import { enqueueWorkoutSimilarityClassification } from "../services/workout-similarity-job-service.js";
+import { enqueueImportBatchJobs } from "../services/import-batch-job-service.js";
+import { enqueueWorkoutSegmentBestEfforts } from "../services/segment-best-efforts-service.js";
 
 import { redisConnection } from "../queue/connection.js";
 import S3Service from "../services/s3Service.js";
@@ -28,8 +31,24 @@ import {
 } from "../db/import-jobs-repo.js";
 import CollaborationDBService from "../services/collaborationDBService.js";
 
-export async function createApp() {
+export async function createApp(options = {}) {
   const LOCAL_BATCH_FIT_CONCURRENCY = 2;
+  const IMPORT_BATCH_SIZE = 10;
+  const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
+  const {
+    enableImportWorker = true,
+    enableImportBatchWorker = true,
+    enableSegmentBestEffortsWorker = true,
+    enableWorkoutSimilarityWorker = true
+  } = options;
+
+  function logImportEvent(type, payload = {}) {
+    console.log(`[import] ${type}`, payload);
+  }
+
+  function logPostProcessEvent(type, payload = {}) {
+    console.log(`[postprocess] ${type}`, payload);
+  }
 
   function createStepLogger(scope, meta = {}) {
     const startedAt = Date.now();
@@ -48,6 +67,9 @@ export async function createApp() {
         lastAt = now;
       },
       flush(extra = {}) {
+        if (!IMPORT_TIMING_DEBUG) {
+          return;
+        }
         console.log(`[timing] ${scope}`, {
           ...meta,
           totalMs: Date.now() - startedAt,
@@ -69,6 +91,7 @@ export async function createApp() {
       processFitRecordsMs: 0,
       mapAggregatedRowMs: 0,
       insertFileMs: 0,
+      classifySimilarWorkoutsMs: 0,
       shareWorkoutMs: 0,
       createFeedEventsMs: 0,
       getMatchingSegmentCandidatesMs: 0,
@@ -83,6 +106,9 @@ export async function createApp() {
         }
       },
       checkpoint(extra = {}) {
+        if (!IMPORT_TIMING_DEBUG) {
+          return;
+        }
         console.log(`[timing] ${scope}`, {
           ...meta,
           totalMs: Date.now() - startedAt,
@@ -91,6 +117,9 @@ export async function createApp() {
         });
       },
       flush(extra = {}) {
+        if (!IMPORT_TIMING_DEBUG) {
+          return;
+        }
         console.log(`[timing] ${scope}`, {
           ...meta,
           totalMs: Date.now() - startedAt,
@@ -204,6 +233,90 @@ export async function createApp() {
     };
   }
 
+  async function processWorkoutSimilarityClassificationJob(job) {
+    const uid = job.data?.uid;
+    const workoutId = Number(job.data?.workoutId);
+
+    if (!uid || !Number.isInteger(workoutId)) {
+      throw new Error("Workout similarity classification job is missing uid or workoutId");
+    }
+
+    await job.updateProgress({
+      progressPercent: 0,
+      workoutId
+    });
+
+    logPostProcessEvent("similarity.started", {
+      queueJobId: job.id,
+      uid,
+      workoutId
+    });
+
+    const edges = await WorkoutSimilarityService.classifySimilarGpsWorkoutsForWorkout(workoutId, uid, {
+      rebuildMode: "delta"
+    });
+
+    await job.updateProgress({
+      progressPercent: 100,
+      workoutId,
+      edgeCount: Array.isArray(edges) ? edges.length : 0
+    });
+
+    logPostProcessEvent("similarity.completed", {
+      queueJobId: job.id,
+      uid,
+      workoutId,
+      edgeCount: Array.isArray(edges) ? edges.length : 0
+    });
+
+    return {
+      progressPercent: 100,
+      workoutId,
+      edgeCount: Array.isArray(edges) ? edges.length : 0
+    };
+  }
+
+  async function processWorkoutSegmentBestEffortsJob(job) {
+    const uid = job.data?.uid;
+    const workoutId = Number(job.data?.workoutId);
+
+    if (!uid || !Number.isInteger(workoutId)) {
+      throw new Error("Workout segment best-efforts job is missing uid or workoutId");
+    }
+
+    await job.updateProgress({
+      progressPercent: 0,
+      workoutId
+    });
+
+    logPostProcessEvent("segment-best-efforts.started", {
+      queueJobId: job.id,
+      uid,
+      workoutId
+    });
+
+    const matches = await SegmentDBService.rescanSegmentBestEffortsForWorkout(uid, workoutId);
+
+    await job.updateProgress({
+      progressPercent: 100,
+      workoutId,
+      matchCount: Array.isArray(matches) ? matches.length : 0
+    });
+
+    logPostProcessEvent("segment-best-efforts.completed", {
+      queueJobId: job.id,
+      uid,
+      workoutId,
+      matchCount: Array.isArray(matches) ? matches.length : 0
+    });
+
+    return {
+      progressPercent: 100,
+      workoutId,
+      matchCount: Array.isArray(matches) ? matches.length : 0
+    };
+  }
+
 
   async function processFitJson(fitJsonObject, uid, shareConfig = null, context = {}) {
     const timing = createStepLogger("worker.process-fit-json", {
@@ -275,28 +388,43 @@ export async function createApp() {
       }
 
       if (dbrow?.id && gps_track?.validGps) {
-        await WorkoutSimilarityService.classifySimilarGpsWorkoutsForWorkout(dbrow.id, uid);
-        timing.mark("classify-similar-workouts");
+        await enqueueWorkoutSimilarityClassification({
+          uid,
+          workoutId: dbrow.id
+        });
+        logPostProcessEvent("similarity.enqueued", {
+          uid,
+          workoutId: dbrow.id,
+          entryName: context.entryName || null
+        });
+        timing.mark("enqueue-similar-workouts");
+      } else {
+        logPostProcessEvent("similarity.skipped", {
+          uid,
+          workoutId: dbrow?.id ?? null,
+          entryName: context.entryName || null,
+          reason: !dbrow?.id ? "missing_workout_id" : "no_valid_gps"
+        });
       }
 
       if (gps_track.validGps) {
-        const candidates = await SegmentDBService.getMatchingSegmentCandidatesV2(
-          gps_track.bbox,
-          dbrow.uid,
-          dbrow.id
-        );
-        timing.mark("get-matching-segment-candidates", {
-          candidateCount: candidates.length
+        await enqueueWorkoutSegmentBestEfforts({
+          uid,
+          workoutId: dbrow.id
         });
-
-        const workout = { id: dbrow.id, track: gps_track.track, sampleRate: gps_track.sampleRate };
-
-        const matches = SegmentDBService.matchSegments(workout, candidates);
-        timing.mark("match-segments", {
-          matchCount: matches.length
+        logPostProcessEvent("segment-best-efforts.enqueued", {
+          uid,
+          workoutId: dbrow.id,
+          entryName: context.entryName || null
         });
-        await SegmentDBService.storeSegmentBestEfforts(matches, workoutObject);
-        timing.mark("store-segment-best-efforts");
+        timing.mark("enqueue-segment-best-efforts");
+      } else {
+        logPostProcessEvent("segment-best-efforts.skipped", {
+          uid,
+          workoutId: dbrow?.id ?? null,
+          entryName: context.entryName || null,
+          reason: "no_valid_gps"
+        });
       }
 
       timing.flush({
@@ -374,29 +502,243 @@ export async function createApp() {
     }
 
     if (dbrow?.id && gps_track?.validGps) {
-      await WorkoutSimilarityService.classifySimilarGpsWorkoutsForWorkout(dbrow.id, uid);
+      const similarityStartedAt = Date.now();
+      await enqueueWorkoutSimilarityClassification({
+        uid,
+        workoutId: dbrow.id
+      });
+      logPostProcessEvent("similarity.enqueued", {
+        uid,
+        workoutId: dbrow.id,
+        entryName: context.entryName || null
+      });
+      batchTrace?.add("classifySimilarWorkoutsMs", Date.now() - similarityStartedAt);
+    } else {
+      logPostProcessEvent("similarity.skipped", {
+        uid,
+        workoutId: dbrow?.id ?? null,
+        entryName: context.entryName || null,
+        reason: !dbrow?.id ? "missing_workout_id" : "no_valid_gps"
+      });
     }
 
     if (gps_track.validGps) {
-      const candidatesStartedAt = Date.now();
-      const candidates = await SegmentDBService.getMatchingSegmentCandidatesV2(
-        gps_track.bbox,
-        dbrow.uid,
-        dbrow.id
-      );
-      batchTrace?.add("getMatchingSegmentCandidatesMs", Date.now() - candidatesStartedAt);
-
-      const matchStartedAt = Date.now();
-      const workout = { id: dbrow.id, track: gps_track.track, sampleRate: gps_track.sampleRate };
-      const matches = SegmentDBService.matchSegments(workout, candidates);
-      batchTrace?.add("matchSegmentsMs", Date.now() - matchStartedAt);
-
-      const storeStartedAt = Date.now();
-      await SegmentDBService.storeSegmentBestEfforts(matches, workoutObject);
-      batchTrace?.add("storeSegmentBestEffortsMs", Date.now() - storeStartedAt);
+      const segmentStartedAt = Date.now();
+      await enqueueWorkoutSegmentBestEfforts({
+        uid,
+        workoutId: dbrow.id
+      });
+      logPostProcessEvent("segment-best-efforts.enqueued", {
+        uid,
+        workoutId: dbrow.id,
+        entryName: context.entryName || null
+      });
+      batchTrace?.add("storeSegmentBestEffortsMs", Date.now() - segmentStartedAt);
+    } else {
+      logPostProcessEvent("segment-best-efforts.skipped", {
+        uid,
+        workoutId: dbrow?.id ?? null,
+        entryName: context.entryName || null,
+        reason: "no_valid_gps"
+      });
     }
 
     return dbrow;
+  }
+
+  async function processFitBatchItems(job) {
+    const importJobId = job.data?.importJobId;
+    const uid = job.data?.uid;
+    const shareConfig = job.data?.shareConfig || null;
+    const batchItems = Array.isArray(job.data?.batchItems) ? job.data.batchItems : [];
+
+    if (!importJobId || !uid || batchItems.length === 0) {
+      throw new Error("Import batch job is missing importJobId, uid, or batchItems");
+    }
+
+    const results = [];
+
+    logImportEvent("batch.started", {
+      queueJobId: job.id,
+      importJobId,
+      batchIndex: job.data?.batchIndex,
+      itemCount: batchItems.length
+    });
+
+    for (const item of batchItems) {
+      const startedAt = Date.now();
+
+      try {
+        const buffer = await fs.promises.readFile(item.localPath);
+        const parsed = await parseFitBuffer(buffer);
+        await processFitJsonWithMetrics(parsed, uid, null, shareConfig, {
+          importJobId,
+          entryName: item.entryName
+        });
+
+        results.push({
+          key: item.key,
+          sourceName: item.sourceName || null,
+          entryName: item.entryName,
+          status: "completed",
+          message: null,
+          elapsedMs: Date.now() - startedAt
+        });
+      } catch (error) {
+        results.push({
+          key: item.key,
+          sourceName: item.sourceName || null,
+          entryName: item.entryName,
+          status: "failed",
+          message: error.message || "Unknown import error",
+          elapsedMs: Date.now() - startedAt
+        });
+      } finally {
+        await fs.promises.rm(item.localPath, { force: true }).catch(() => {});
+      }
+    }
+
+    return {
+      importJobId,
+      results
+    };
+  }
+
+  async function extractZipEntriesToBatchItems(zipPath, sourceName) {
+    const tempDir = path.join(os.tmpdir(), "woa-imports");
+    await fs.promises.mkdir(tempDir, { recursive: true });
+    const zipDirectory = await unzipper.Open.file(zipPath);
+    const fitEntries = zipDirectory.files.filter((entry) =>
+      entry.type === "File" &&
+      entry.path.toLowerCase().endsWith(".fit") &&
+      (!entry.path.startsWith("__MACOSX/"))
+    );
+
+    const batchItems = [];
+
+    for (const entry of fitEntries) {
+      const tempFilePath = path.join(
+        tempDir,
+        `${crypto.randomUUID()}.fit`
+      );
+
+      await pipeline(
+        entry.stream(),
+        fs.createWriteStream(tempFilePath)
+      );
+
+      batchItems.push({
+        key: createFileStatusKey(sourceName, entry.path),
+        sourceName,
+        entryName: entry.path,
+        localPath: tempFilePath
+      });
+    }
+
+    return batchItems;
+  }
+
+  async function runParallelImportBatches({
+    jobId,
+    uid,
+    shareConfig,
+    batchItems,
+    fileStatuses,
+    totalFiles,
+    batchTrace,
+    mode = "parallel-fit-batches"
+  }) {
+    let processedFiles = 0;
+    let failedFiles = 0;
+
+    const { queueEvents, jobs } = await enqueueImportBatchJobs({
+      importJobId: jobId,
+      uid,
+      items: batchItems,
+      shareConfig,
+      batchSize: IMPORT_BATCH_SIZE
+    });
+
+    logImportEvent("batches.enqueued", {
+      importJobId: jobId,
+      batchCount: jobs.length,
+      itemCount: batchItems.length,
+      mode
+    });
+
+    for (const queueJob of jobs) {
+      const batchResult = await queueJob.waitUntilFinished(queueEvents);
+      const results = Array.isArray(batchResult?.results) ? batchResult.results : [];
+
+      for (const result of results) {
+        await updateSingleFileStatus(
+          jobId,
+          fileStatuses,
+          (item) => item.key === result.key,
+          {
+            status: result.status,
+            message: result.message || null
+          }
+        );
+
+        if (result.status === "completed") {
+          processedFiles += 1;
+        } else {
+          failedFiles += 1;
+        }
+      }
+
+      const progressPercent =
+        totalFiles === 0
+          ? 100
+          : Math.min(95, 15 + ((processedFiles + failedFiles) / totalFiles) * 80);
+
+      await updateImportJob(jobId, {
+        processedFiles,
+        failedFiles,
+        progressPercent
+      });
+
+      if ((processedFiles + failedFiles) % 25 === 0 || (processedFiles + failedFiles) === totalFiles) {
+        batchTrace?.checkpoint({
+          phase: "processing",
+          processedFiles,
+          failedFiles
+        });
+      }
+    }
+
+    await updateImportJob(jobId, {
+      stage: "saving_results",
+      fileStatuses,
+      progressPercent: 98
+    });
+
+    await updateImportJob(jobId, {
+      status: "completed",
+      stage: "completed",
+      fileStatuses,
+      totalFiles,
+      processedFiles,
+      failedFiles,
+      progressPercent: 100
+    });
+
+    batchTrace?.flush({
+      phase: "completed",
+      mode,
+      totalFiles,
+      processedFiles,
+      failedFiles
+    });
+
+    logImportEvent("job.completed", {
+      importJobId: jobId,
+      totalFiles,
+      processedFiles,
+      failedFiles,
+      mode
+    });
   }
 
   function parseFitBuffer(buffer) {
@@ -524,162 +866,7 @@ export async function createApp() {
 
 
   async function processLocalZipFile(jobId, zipPath, uid, shareConfig = null) {
-    const batchTrace = createBatchTrace("worker.process-local-zip", {
-      jobId,
-      uid,
-      zipPath: path.basename(zipPath)
-    });
-    await updateImportJob(jobId, {
-      status: "processing",
-      stage: "reading_zip",
-      progressPercent: 15
-    });
-
-    try {
-      const zipDirectory = await unzipper.Open.file(zipPath);
-
-      const fitEntries = zipDirectory.files.filter((entry) => {
-        return entry.type === "File" && entry.path.toLowerCase().endsWith(".fit") && (!entry.path.startsWith("__MACOSX/"));
-      });
-
-      const totalFiles = fitEntries.length;
-      const fileStatuses = fitEntries.map((entry) =>
-        buildFileStatusEntry({
-          sourceName: path.basename(zipPath),
-          entryName: entry.path
-        })
-      );
-      const allowance = await EntitlementService.checkAllowance(uid, "stored_workout", totalFiles);
-      if (!allowance.allowed) {
-        await updateImportJob(jobId, {
-          status: "failed",
-          stage: "failed",
-          fileStatuses,
-          totalFiles,
-          processedFiles: 0,
-          failedFiles: 0,
-          errorMessage: `Stored workout limit reached for your ${allowance.tierCode} tier. ${allowance.used}/${allowance.limitValue} already used, ${totalFiles} incoming.`
-        });
-        throw new Error(`Stored workout limit reached for your ${allowance.tierCode} tier.`);
-      }
-
-      await updateImportJob(jobId, {
-        stage: "parsing_fit_files",
-        fileStatuses,
-        totalFiles,
-        processedFiles: 0,
-        failedFiles: 0,
-        progressPercent: totalFiles > 0 ? 20 : 100
-      });
-
-      let processedFiles = 0;
-      let failedFiles = 0;
-      batchTrace.checkpoint({
-        phase: "opened-zip",
-        totalFiles
-      });
-
-      for (const entry of fitEntries) {
-        try {
-          await updateSingleFileStatus(
-            jobId,
-            fileStatuses,
-            (item) => item.key === createFileStatusKey(path.basename(zipPath), entry.path),
-            { status: "processing", message: null }
-          );
-          const bufferStartedAt = Date.now();
-          const buffer = await entry.buffer();
-          batchTrace.add("entryBufferMs", Date.now() - bufferStartedAt);
-          const parseStartedAt = Date.now();
-          const parsed = await parseFitBuffer(buffer);
-          batchTrace.add("parseFitMs", Date.now() - parseStartedAt);
-
-          const persistStartedAt = Date.now();
-          await persistParsedWorkout(parsed, {
-            importJobId: jobId,
-            entryName: entry.path,
-            uid,
-            shareConfig
-          });
-          batchTrace.add("persistWorkoutMs", Date.now() - persistStartedAt);
-
-          processedFiles += 1;
-          await updateSingleFileStatus(
-            jobId,
-            fileStatuses,
-            (item) => item.key === createFileStatusKey(path.basename(zipPath), entry.path),
-            { status: "completed", message: null }
-          );
-
-          const progressPercent =
-            totalFiles === 0
-              ? 100
-              : Math.min(95, 20 + (processedFiles / totalFiles) * 75);
-
-          const updateStartedAt = Date.now();
-          await updateImportJob(jobId, {
-            processedFiles,
-            failedFiles,
-            progressPercent
-          });
-          batchTrace.add("updateJobMs", Date.now() - updateStartedAt);
-
-          if (processedFiles % 25 === 0 || processedFiles === totalFiles) {
-            batchTrace.checkpoint({
-              phase: "processing",
-              processedFiles,
-              failedFiles
-            });
-          }
-        } catch (error) {
-          failedFiles += 1;
-          await updateSingleFileStatus(
-            jobId,
-            fileStatuses,
-            (item) => item.key === createFileStatusKey(path.basename(zipPath), entry.path),
-            { status: "failed", message: error.message || "Unknown import error" }
-          );
-
-          console.error("FIT processing failed", {
-            jobId,
-            entryName: entry.path,
-            error: error.message
-          });
-
-          const updateStartedAt = Date.now();
-          await updateImportJob(jobId, {
-            processedFiles,
-            failedFiles
-          });
-          batchTrace.add("updateJobMs", Date.now() - updateStartedAt);
-        }
-      }
-
-      const savingStartedAt = Date.now();
-      await updateImportJob(jobId, {
-        stage: "saving_results",
-        fileStatuses,
-        progressPercent: 98
-      });
-      batchTrace.add("updateJobMs", Date.now() - savingStartedAt);
-
-      const completedStartedAt = Date.now();
-      await updateImportJob(jobId, {
-        status: "completed",
-        stage: "completed",
-        fileStatuses,
-        progressPercent: 100
-      });
-      batchTrace.add("updateJobMs", Date.now() - completedStartedAt);
-      batchTrace.flush({
-        phase: "completed",
-        totalFiles,
-        processedFiles,
-        failedFiles
-      });
-    } finally {
-      await fs.promises.rm(zipPath, { force: true });
-    }
+    await processLocalBatch(jobId, [zipPath], uid, [path.basename(zipPath)], shareConfig);
   }
 
   async function countFitEntries(filePath) {
@@ -773,201 +960,68 @@ export async function createApp() {
       progressPercent: totalFiles > 0 ? 15 : 100
     });
 
-    let processedFiles = 0;
-    let failedFiles = 0;
+    logImportEvent("job.started", {
+      importJobId: jobId,
+      uid,
+      inputCount: files.length,
+      totalFiles
+    });
 
     try {
-      for (let i = 0; i < files.length; i++) {
+      const batchItems = [];
+
+      for (let i = 0; i < files.length; i += 1) {
         const filePath = files[i];
         const originalFileName = originalFileNames[i] || path.basename(filePath);
         const lowerPath = filePath.toLowerCase();
 
         if (lowerPath.endsWith(".fit")) {
-          try {
-          await updateSingleFileStatus(
-            jobId,
-            fileStatuses,
-            (item) => item.key === createFileStatusKey(null, originalFileName),
-            { status: "processing", message: null }
-          );
-          const persistStartedAt = Date.now();
-          const buffer = await fs.promises.readFile(filePath);
-          const parsed = await parseFitBuffer(buffer);
-          batchTrace.add("parseFitMs", Date.now() - persistStartedAt);
-
-          const processStartedAt = Date.now();
-          await processFitJsonWithMetrics(parsed, uid, batchTrace, shareConfig, {
-            entryName: originalFileName
+          batchItems.push({
+            key: createFileStatusKey(null, originalFileName),
+            sourceName: null,
+            entryName: originalFileName,
+            localPath: filePath
           });
-          batchTrace.add("persistWorkoutMs", Date.now() - processStartedAt);
-          processedFiles += 1;
-          await updateSingleFileStatus(
-            jobId,
-            fileStatuses,
-            (item) => item.key === createFileStatusKey(null, originalFileName),
-            { status: "completed", message: null }
-          );
-          } catch (error) {
-            failedFiles += 1;
-            await updateSingleFileStatus(
-              jobId,
-              fileStatuses,
-              (item) => item.key === createFileStatusKey(null, originalFileName),
-              { status: "failed", message: error.message || "Unknown import error" }
-            );
-            console.error("FIT processing failed", {
-              jobId,
-              entryName: originalFileName,
-              error: error.message
-            });
-          } finally {
-            await fs.promises.rm(filePath, { force: true });
-          }
-        } else if (lowerPath.endsWith(".zip")) {
-          try {
-            const zipDirectory = await unzipper.Open.file(filePath);
-            const fitEntries = zipDirectory.files.filter((entry) =>
-              entry.type === "File" &&
-              entry.path.toLowerCase().endsWith(".fit") &&
-              (!entry.path.startsWith("__MACOSX/"))
-            );
-
-            const processZipFitEntry = async (entry) => {
-              try {
-                await updateSingleFileStatus(
-                  jobId,
-                  fileStatuses,
-                  (item) => item.key === createFileStatusKey(originalFileName, entry.path),
-                  { status: "processing", message: null }
-                );
-                const bufferStartedAt = Date.now();
-                const buffer = await entry.buffer();
-                batchTrace.add("entryBufferMs", Date.now() - bufferStartedAt);
-                const parseStartedAt = Date.now();
-                const parsed = await parseFitBuffer(buffer);
-                batchTrace.add("parseFitMs", Date.now() - parseStartedAt);
-
-                const persistStartedAt = Date.now();
-                await processFitJsonWithMetrics(parsed, uid, batchTrace, shareConfig, {
-                  entryName: entry.path
-                });
-                batchTrace.add("persistWorkoutMs", Date.now() - persistStartedAt);
-
-                processedFiles += 1;
-                await updateSingleFileStatus(
-                  jobId,
-                  fileStatuses,
-                  (item) => item.key === createFileStatusKey(originalFileName, entry.path),
-                  { status: "completed", message: null }
-                );
-              } catch (error) {
-                failedFiles += 1;
-                await updateSingleFileStatus(
-                  jobId,
-                  fileStatuses,
-                  (item) => item.key === createFileStatusKey(originalFileName, entry.path),
-                  { status: "failed", message: error.message || "Unknown import error" }
-                );
-                console.error("FIT processing failed", {
-                  jobId,
-                  entryName: entry.path,
-                  error: error.message
-                });
-              }
-            };
-
-            for (let entryIndex = 0; entryIndex < fitEntries.length; entryIndex += LOCAL_BATCH_FIT_CONCURRENCY) {
-              const entryBatch = fitEntries.slice(
-                entryIndex,
-                entryIndex + LOCAL_BATCH_FIT_CONCURRENCY
-              );
-              await Promise.all(entryBatch.map((entry) => processZipFitEntry(entry)));
-
-              const progressPercent =
-                totalFiles === 0
-                  ? 100
-                  : Math.min(95, 15 + ((processedFiles + failedFiles) / totalFiles) * 80);
-
-              const updateStartedAt = Date.now();
-              await updateImportJob(jobId, {
-                processedFiles,
-                failedFiles,
-                progressPercent
-              });
-              batchTrace.add("updateJobMs", Date.now() - updateStartedAt);
-
-              if ((processedFiles + failedFiles) % 25 === 0 || (processedFiles + failedFiles) === totalFiles) {
-                batchTrace.checkpoint({
-                  phase: "processing",
-                  processedFiles,
-                  failedFiles
-                });
-              }
-            }
-          } finally {
-            await fs.promises.rm(filePath, { force: true });
-          }
-
           continue;
-        } else {
-          failedFiles += 1;
         }
 
-        const progressPercent =
-          totalFiles === 0
-            ? 100
-            : Math.min(95, 15 + ((processedFiles + failedFiles) / totalFiles) * 80);
-
-        const updateStartedAt = Date.now();
-        await updateImportJob(jobId, {
-          fileStatuses,
-          processedFiles,
-          failedFiles,
-          progressPercent
-        });
-        batchTrace.add("updateJobMs", Date.now() - updateStartedAt);
-
-        if ((processedFiles + failedFiles) % 25 === 0 || (processedFiles + failedFiles) === totalFiles) {
-          batchTrace.checkpoint({
-            phase: "processing",
-            processedFiles,
-            failedFiles
-          });
+        if (lowerPath.endsWith(".zip")) {
+          const extractedBatchItems = await extractZipEntriesToBatchItems(filePath, originalFileName);
+          batchItems.push(...extractedBatchItems);
+          await fs.promises.rm(filePath, { force: true });
         }
       }
 
-      const savingStartedAt = Date.now();
-      await updateImportJob(jobId, {
-        stage: "saving_results",
-        fileStatuses,
-        progressPercent: 98
+      batchTrace.checkpoint({
+        phase: "materialized-batch-items",
+        totalBatchItems: batchItems.length
       });
-      batchTrace.add("updateJobMs", Date.now() - savingStartedAt);
 
-      const completedStartedAt = Date.now();
-      await updateImportJob(jobId, {
-        status: "completed",
-        stage: "completed",
+      logImportEvent("batch-items.materialized", {
+        importJobId: jobId,
+        totalBatchItems: batchItems.length
+      });
+
+      await runParallelImportBatches({
+        jobId,
+        uid,
+        shareConfig,
+        batchItems,
         fileStatuses,
         totalFiles,
-        processedFiles,
-        failedFiles,
-        progressPercent: 100
-      });
-      batchTrace.add("updateJobMs", Date.now() - completedStartedAt);
-      batchTrace.flush({
-        phase: "completed",
-        totalFiles,
-        processedFiles,
-        failedFiles
+        batchTrace,
+        mode: "parallel-fit-and-zip-batches"
       });
     } catch (error) {
       await Promise.all(files.map((filePath) => fs.promises.rm(filePath, { force: true }).catch(() => {})));
       batchTrace.flush({
         phase: "failed",
         totalFiles,
-        processedFiles,
-        failedFiles,
+        error: error.message
+      });
+      logImportEvent("job.failed", {
+        importJobId: jobId,
+        totalFiles,
         error: error.message
       });
       throw error;
@@ -1016,125 +1070,196 @@ export async function createApp() {
     }
   }
 
-  const worker = new Worker(
-    "fit-imports",
-    async (job) => {
-      const {
-        jobId,
-        shareMode = "private",
-        groupIds = []
-      } = job.data ?? {};
+  if (enableImportWorker) {
+    const worker = new Worker(
+      "fit-imports",
+      async (job) => {
+        const {
+          jobId,
+          shareMode = "private",
+          groupIds = []
+        } = job.data ?? {};
 
-      if (!jobId) {
-        throw new Error("Queue job has no jobId");
+        if (!jobId) {
+          throw new Error("Queue job has no jobId");
+        }
+
+        await processImportJob(jobId, {
+          shareMode,
+          groupIds
+        });
+      },
+      {
+        connection: redisConnection,
+        concurrency: 2
       }
+    );
 
-      await processImportJob(jobId, {
-        shareMode,
-        groupIds
+    worker.on("ready", () => {
+      console.log("Import worker is ready");
+    });
+
+    worker.on("completed", (job) => {
+      logImportEvent("queue-job.completed", {
+        queueJobId: job.id,
+        importJobId: job.data?.jobId
       });
-    },
-    {
-      connection: redisConnection,
-      concurrency: 2
-    }
-  );
-
-  worker.on("ready", () => {
-    console.log("Import worker is ready");
-  });
-
-  worker.on("completed", (job) => {
-    console.log("Import worker job completed", {
-      queueJobId: job.id,
-      importJobId: job.data?.jobId
     });
-  });
 
-  worker.on("failed", (job, error) => {
-    console.error("Import worker job failed", {
-      queueJobId: job?.id,
-      importJobId: job?.data?.jobId,
-      error: error.message
+    worker.on("failed", (job, error) => {
+      console.error("[import] queue-job.failed", {
+        queueJobId: job?.id,
+        importJobId: job?.data?.jobId,
+        error: error.message
+      });
     });
-  });
 
-  worker.on("error", (error) => {
-    console.error("Import worker error", error);
-  });
+    worker.on("error", (error) => {
+      console.error("Import worker error", error);
+    });
+  }
 
-  const segmentBestEffortsWorker = new Worker(
-    "segment-best-efforts",
-    async (job) => {
-      const { uid, segmentIds } = job.data ?? {};
-
-      if (!uid || !Array.isArray(segmentIds) || segmentIds.length === 0) {
-        throw new Error("Segment best-efforts queue job is missing uid or segmentIds");
+  if (enableImportBatchWorker) {
+    const importBatchWorker = new Worker(
+      "fit-import-batches",
+      async (job) => {
+        return await processFitBatchItems(job);
+      },
+      {
+        connection: redisConnection,
+        concurrency: 2
       }
+    );
 
-      await processSegmentBestEffortsJob(uid, segmentIds);
-    },
-    {
-      connection: redisConnection,
-      concurrency: 1
-    }
-  );
-
-  segmentBestEffortsWorker.on("ready", () => {
-    console.log("Segment best-efforts worker is ready");
-  });
-
-  segmentBestEffortsWorker.on("completed", (job) => {
-    console.log("Segment best-efforts worker job completed", {
-      queueJobId: job.id,
-      segmentIds: job.data?.segmentIds
+    importBatchWorker.on("ready", () => {
+      console.log("Import batch worker is ready");
     });
-  });
 
-  segmentBestEffortsWorker.on("failed", (job, error) => {
-    console.error("Segment best-efforts worker job failed", {
-      queueJobId: job?.id,
-      segmentIds: job?.data?.segmentIds,
-      error: error.message
+    importBatchWorker.on("completed", (job) => {
+      logImportEvent("batch.completed", {
+        queueJobId: job.id,
+        importJobId: job.data?.importJobId,
+        batchIndex: job.data?.batchIndex,
+        itemCount: Array.isArray(job.data?.batchItems) ? job.data.batchItems.length : 0
+      });
     });
-  });
 
-  segmentBestEffortsWorker.on("error", (error) => {
-    console.error("Segment best-efforts worker error", error);
-  });
-
-  const workoutSimilarityWorker = new Worker(
-    "workout-similarity",
-    async (job) => {
-      return await processWorkoutSimilarityRebuildJob(job);
-    },
-    {
-      connection: redisConnection,
-      concurrency: 1
-    }
-  );
-
-  workoutSimilarityWorker.on("ready", () => {
-    console.log("Workout similarity worker is ready");
-  });
-
-  workoutSimilarityWorker.on("completed", (job) => {
-    console.log("Workout similarity worker job completed", {
-      queueJobId: job.id,
-      uid: job.data?.uid
+    importBatchWorker.on("failed", (job, error) => {
+      logImportEvent("batch.failed", {
+        queueJobId: job?.id,
+        importJobId: job?.data?.importJobId,
+        batchIndex: job?.data?.batchIndex,
+        error: error.message
+      });
     });
-  });
 
-  workoutSimilarityWorker.on("failed", (job, error) => {
-    console.error("Workout similarity worker job failed", {
-      queueJobId: job?.id,
-      uid: job?.data?.uid,
-      error: error.message
+    importBatchWorker.on("error", (error) => {
+      console.error("Import batch worker error", error);
     });
-  });
+  }
 
-  workoutSimilarityWorker.on("error", (error) => {
-    console.error("Workout similarity worker error", error);
-  });
+  if (enableSegmentBestEffortsWorker) {
+    const segmentBestEffortsWorker = new Worker(
+      "segment-best-efforts",
+      async (job) => {
+        if (job.name === "process-workout-segment-best-efforts") {
+          return await processWorkoutSegmentBestEffortsJob(job);
+        }
+
+        const { uid, segmentIds } = job.data ?? {};
+
+        if (!uid || !Array.isArray(segmentIds) || segmentIds.length === 0) {
+          throw new Error("Segment best-efforts queue job is missing uid or segmentIds");
+        }
+
+        await processSegmentBestEffortsJob(uid, segmentIds);
+      },
+      {
+        connection: redisConnection,
+        concurrency: 1
+      }
+    );
+
+    segmentBestEffortsWorker.on("ready", () => {
+      console.log("Segment best-efforts worker is ready");
+    });
+
+    segmentBestEffortsWorker.on("completed", (job) => {
+      logPostProcessEvent("segment-best-efforts.queue-job.completed", {
+        queueJobId: job.id,
+        uid: job.data?.uid,
+        workoutId: job.data?.workoutId ?? null,
+        segmentIds: job.data?.segmentIds
+      });
+    });
+
+    segmentBestEffortsWorker.on("failed", (job, error) => {
+      logPostProcessEvent("segment-best-efforts.failed", {
+        queueJobId: job?.id,
+        uid: job?.data?.uid,
+        workoutId: job?.data?.workoutId ?? null,
+        segmentIds: job?.data?.segmentIds ?? null,
+        error: error.message
+      });
+      console.error("[postprocess] segment-best-efforts.queue-job.failed", {
+        queueJobId: job?.id,
+        segmentIds: job?.data?.segmentIds,
+        error: error.message
+      });
+    });
+
+    segmentBestEffortsWorker.on("error", (error) => {
+      console.error("Segment best-efforts worker error", error);
+    });
+  }
+
+  if (enableWorkoutSimilarityWorker) {
+    const workoutSimilarityWorker = new Worker(
+      "workout-similarity",
+      async (job) => {
+        if (job.name === "classify-workout-similarity") {
+          return await processWorkoutSimilarityClassificationJob(job);
+        }
+
+        return await processWorkoutSimilarityRebuildJob(job);
+      },
+      {
+        connection: redisConnection,
+        concurrency: 1
+      }
+    );
+
+    workoutSimilarityWorker.on("ready", () => {
+      console.log("Workout similarity worker is ready");
+    });
+
+    workoutSimilarityWorker.on("completed", (job) => {
+      logPostProcessEvent("similarity.queue-job.completed", {
+        queueJobId: job.id,
+        uid: job.data?.uid,
+        workoutId: job.data?.workoutId ?? null,
+        mode: job.data?.mode ?? null
+      });
+    });
+
+    workoutSimilarityWorker.on("failed", (job, error) => {
+      logPostProcessEvent("similarity.failed", {
+        queueJobId: job?.id,
+        uid: job?.data?.uid,
+        workoutId: job?.data?.workoutId ?? null,
+        mode: job?.data?.mode ?? null,
+        error: error.message
+      });
+      console.error("[postprocess] similarity.queue-job.failed", {
+        queueJobId: job?.id,
+        uid: job?.data?.uid,
+        error: error.message
+      });
+    });
+
+    workoutSimilarityWorker.on("error", (error) => {
+      console.error("Workout similarity worker error", error);
+    });
+  }
 
 }

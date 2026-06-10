@@ -56,7 +56,7 @@ router.post(
   "/",
   authMiddleware,
   requireActiveAccountWrite,
-  uploadMiddleware.array("files", 50),
+  uploadMiddleware.array("files", 200),
   async (req, res, next) => {
     const uploadedFiles = req.files || [];
 

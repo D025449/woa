@@ -1,5 +1,35 @@
 import { workoutSimilarityQueue } from "../queue/workout-similarity-queue.js";
 
+export async function enqueueWorkoutSimilarityClassification({ uid, workoutId }) {
+  if (!uid) {
+    throw new Error("uid is required");
+  }
+
+  if (!Number.isInteger(Number(workoutId))) {
+    throw new Error("workoutId is required");
+  }
+
+  const job = await workoutSimilarityQueue.add(
+    "classify-workout-similarity",
+    {
+      uid,
+      workoutId: Number(workoutId)
+    },
+    {
+      attempts: 2,
+      backoff: {
+        type: "exponential",
+        delay: 2000
+      },
+      removeOnComplete: 100,
+      removeOnFail: 100,
+      jobId: `classify-workout-similarity:${uid}:${Number(workoutId)}`
+    }
+  );
+
+  return { id: job.id };
+}
+
 export async function enqueueWorkoutSimilarityRebuild({ uid, mode = "delta" }) {
   if (!uid) {
     throw new Error("uid is required");

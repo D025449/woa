@@ -41,6 +41,36 @@ module.exports = {
                 DB_USER: "cwa24user"
                 //DB_PASSWORD: ""
             }
+        },
+        {
+            name: "import-worker",
+            script: "src/workers/import-worker.js",
+            instances: 1,
+            exec_mode: "fork",
+            env: {
+                NODE_ENV: "production",
+                DB_HOST: "localhost",
+                DB_PORT: 5432,
+                DB_NAME: "cwa24_prod",
+                DB_USER: "cwa24user"
+                //DB_PASSWORD: "",
+                //REDIS_URL: "redis://127.0.0.1:6379"
+            }
+        },
+        {
+            name: "import-batch-worker",
+            script: "src/workers/import-batch-worker.js",
+            instances: 2,
+            exec_mode: "fork",
+            env: {
+                NODE_ENV: "production",
+                DB_HOST: "localhost",
+                DB_PORT: 5432,
+                DB_NAME: "cwa24_prod",
+                DB_USER: "cwa24user"
+                //DB_PASSWORD: "",
+                //REDIS_URL: "redis://127.0.0.1:6379"
+            }
         }
     ]
 };

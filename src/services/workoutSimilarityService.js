@@ -10,7 +10,7 @@ export default class WorkoutSimilarityService {
       return;
     }
 
-    console.log(`[similarity] ${message}`, payload);
+    console.log(`[similarity-debug] ${message}`, payload);
   }
 
   static normalizeTrackGeoJson(trackGeoJson) {
