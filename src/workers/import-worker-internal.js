@@ -28,7 +28,6 @@ import {
 } from "../services/segment-best-efforts-service.js";
 
 import { redisConnection } from "../queue/connection.js";
-import S3Service from "../services/s3Service.js";
 import {
   appendImportJobPostprocessTarget,
   getImportJobById,
@@ -37,7 +36,6 @@ import {
 import CollaborationDBService from "../services/collaborationDBService.js";
 
 export async function createApp(options = {}) {
-  const LOCAL_BATCH_FIT_CONCURRENCY = 2;
   const IMPORT_BATCH_SIZE = 10;
   const SEGMENT_PERSIST_TEMP_DIR = path.join(os.tmpdir(), "woa-postprocess", "segment-persist");
   const THUMBNAIL_TEMP_DIR = path.join(os.tmpdir(), "woa-postprocess", "thumbnails");
@@ -700,47 +698,43 @@ export async function createApp(options = {}) {
       payloadPath
     });
 
-    try {
-      const payload = await readSegmentPersistencePayload(payloadPath);
-      const thumbnailPayload = WorkoutThumbnailService.createThumbnailPayload({
-        gpsTrack: payload?.gpsTrack ?? null,
-        altitudes: Array.isArray(payload?.altitudes) ? payload.altitudes : [],
-        powers: Array.isArray(payload?.powers) ? payload.powers : []
-      });
+    const payload = await readSegmentPersistencePayload(payloadPath);
+    const thumbnailPayload = WorkoutThumbnailService.createThumbnailPayload({
+      gpsTrack: payload?.gpsTrack ?? null,
+      altitudes: Array.isArray(payload?.altitudes) ? payload.altitudes : [],
+      powers: Array.isArray(payload?.powers) ? payload.powers : []
+    });
 
-      if (!thumbnailPayload) {
-        await cleanupSegmentPersistencePayload(payloadPath);
-        logPostProcessEvent("thumbnail.skipped", {
-          queueJobId: job.id,
-          uid,
-          workoutId,
-          reason: "no_thumbnail_payload"
-        });
-        return {
-          progressPercent: 100,
-          workoutId,
-          generated: false
-        };
-      }
-
-      const thumbnail = await WorkoutThumbnailService.upsertThumbnail(workoutId, thumbnailPayload);
+    if (!thumbnailPayload) {
       await cleanupSegmentPersistencePayload(payloadPath);
-
-      logPostProcessEvent("thumbnail.completed", {
+      logPostProcessEvent("thumbnail.skipped", {
         queueJobId: job.id,
         uid,
         workoutId,
-        kind: thumbnail?.kind || thumbnailPayload.kind
+        reason: "no_thumbnail_payload"
       });
-
       return {
         progressPercent: 100,
         workoutId,
-        generated: true
+        generated: false
       };
-    } catch (error) {
-      throw error;
     }
+
+    const thumbnail = await WorkoutThumbnailService.upsertThumbnail(workoutId, thumbnailPayload);
+    await cleanupSegmentPersistencePayload(payloadPath);
+
+    logPostProcessEvent("thumbnail.completed", {
+      queueJobId: job.id,
+      uid,
+      workoutId,
+      kind: thumbnail?.kind || thumbnailPayload.kind
+    });
+
+    return {
+      progressPercent: 100,
+      workoutId,
+      generated: true
+    };
   }
 
 
@@ -1419,19 +1413,6 @@ export async function createApp(options = {}) {
       await fs.promises.rm(filePath, { force: true });
     }
   }
-
-  async function processFitFileAtPath(filePath, uid, originalFileName, shareConfig = null) {
-    const buffer = await fs.promises.readFile(filePath);
-    const parsed = await parseFitBuffer(buffer);
-
-    await persistParsedWorkout(parsed, {
-      uid,
-      entryName: originalFileName || path.basename(filePath),
-      shareConfig
-    });
-  }
-
-
 
   async function processLocalZipFile(jobId, zipPath, uid, shareConfig = null) {
     await processLocalBatch(jobId, [zipPath], uid, [path.basename(zipPath)], shareConfig);
