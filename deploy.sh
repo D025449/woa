@@ -8,6 +8,7 @@ APP_NAME="${APP_NAME:-cwa24}"
 WORKER_NAME="${WORKER_NAME:-import-worker}"
 BATCH_WORKER_NAME="${BATCH_WORKER_NAME:-import-batch-worker}"
 NODE_ENV="${NODE_ENV:-production}"
+ENV_FILE="${ENV_FILE:-.env.production}"
 
 REQUIRED_DB_ENV_VARS=(DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD)
 
@@ -36,10 +37,24 @@ Optional env overrides:
   APP_DIR=/home/ec2-user/woa
   ECOSYSTEM_FILE=ecosystem.config.cjs
   NODE_ENV=production
+  ENV_FILE=.env.production
   APP_NAME=cwa24
   WORKER_NAME=import-worker
   BATCH_WORKER_NAME=import-batch-worker
 EOF
+}
+
+load_env_file() {
+  if [[ ! -f "${ENV_FILE}" ]]; then
+    log "Env file ${ENV_FILE} not found, continuing with current shell environment"
+    return
+  fi
+
+  log "Loading environment from ${ENV_FILE}"
+  set -a
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}"
+  set +a
 }
 
 ensure_valkey() {
@@ -151,6 +166,7 @@ main() {
 
   cd "${APP_DIR}" || exit 1
 
+  load_env_file
   ensure_valkey
   run_pull_and_install
 

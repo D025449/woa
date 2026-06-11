@@ -386,6 +386,9 @@ export default class Controller {
         total_timer_time: workoutMeta.total_timer_time ?? null,
         total_distance: workoutMeta.total_distance ?? null,
         avg_power: workoutMeta.avg_power ?? null,
+        segmentProcessingStatus: workout.segmentProcessingStatus ?? workoutMeta.segment_processing_status ?? workoutMeta.segmentProcessingStatus ?? "completed",
+        segmentProcessingError: workout.segmentProcessingError ?? workoutMeta.segment_processing_error ?? workoutMeta.segmentProcessingError ?? null,
+        segmentProcessingUpdatedAt: workout.segmentProcessingUpdatedAt ?? workoutMeta.segment_processing_updated_at ?? workoutMeta.segmentProcessingUpdatedAt ?? null,
         is_owned: workoutMeta.is_owned ?? (workout.access?.isOwner !== false)
       });
 
@@ -721,7 +724,7 @@ export default class Controller {
           })
         : this.libraryT("na");
       const thumb = candidate?.has_thumbnail
-        ? `<img src="/workouts/${candidate.id}/thumbnail?v=${encodeURIComponent(candidate.thumbnail_updated_at || candidate.start_time || "")}" alt="Workout ${candidate.id} thumbnail">`
+        ? `<img src="/workouts/${candidate.id}/thumbnail?v=${encodeURIComponent(candidate.thumbnail_updated_at || candidate.start_time || "")}" alt="Workout ${candidate.id} thumbnail" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="dashboard-gps-copy-card__thumb-fallback" style="display:none;">${this.t("copyGpsNoThumbnail")}</div>`
         : `<div class="dashboard-gps-copy-card__thumb-fallback">${this.t("copyGpsNoThumbnail")}</div>`;
 
       return `

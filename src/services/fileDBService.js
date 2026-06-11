@@ -2,6 +2,8 @@ import pool from "./database.js";
 import pgPromise from "pg-promise";
 import WorkoutSharingService from "./workoutSharingService.js";
 
+const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
+const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
 
 class FileDBService {
   static searchColumns = [
@@ -60,6 +62,7 @@ class FileDBService {
     const steps = [];
 
     return {
+      steps,
       mark(label, extra = {}) {
         const now = Date.now();
         steps.push({
@@ -71,6 +74,9 @@ class FileDBService {
         lastAt = now;
       },
       flush(extra = {}) {
+        if (!IMPORT_TIMING_DEBUG) {
+          return;
+        }
         console.log(`[timing] ${scope}`, {
           ...meta,
           totalMs: Date.now() - startedAt,
@@ -500,14 +506,21 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       workouts.avg_cadence,
       workouts.max_cadence,
       workouts.validgps,
+      workouts.segment_processing_status,
+      workouts.segment_processing_error,
+      workouts.segment_processing_updated_at,
       owner.display_name AS owner_display_name,
       owner.email AS owner_email,
       (workouts.uid = $1)::boolean AS is_owned,
-      EXISTS(
-        SELECT 1
-        FROM workout_thumbnails wt
-        WHERE wt.workout_id = workouts.id
-      ) AS has_thumbnail,
+      CASE
+        WHEN ${FEATURE_THUMBNAILS_ON_DEMAND ? "TRUE" : "FALSE"}
+        THEN TRUE
+        ELSE EXISTS(
+          SELECT 1
+          FROM workout_thumbnails wt
+          WHERE wt.workout_id = workouts.id
+        )
+      END AS has_thumbnail,
       (
         SELECT wt.updated_at
         FROM workout_thumbnails wt
@@ -1261,8 +1274,48 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     return result.rows;
   }
 
-  static async getSegmentsByWorkout(uid, workoutId) {
+  static async getWorkoutSegmentProcessingStatus(uid, workoutId) {
     await WorkoutSharingService.getAccessibleWorkout(uid, workoutId);
+
+    const result = await pool.query(`
+      SELECT
+        id,
+        segment_processing_status,
+        segment_processing_error,
+        segment_processing_updated_at
+      FROM workouts
+      WHERE id = $1
+    `, [workoutId]);
+
+    return result.rows[0] || null;
+  }
+
+  static async updateWorkoutSegmentProcessingStatus(uid, workoutId, status, errorMessage = null) {
+    const normalizedWorkoutId = Number(workoutId);
+    if (!uid || !Number.isInteger(normalizedWorkoutId) || !status) {
+      return null;
+    }
+
+    const result = await pool.query(`
+      UPDATE workouts
+      SET
+        segment_processing_status = $3,
+        segment_processing_error = $4,
+        segment_processing_updated_at = NOW()
+      WHERE uid = $1
+        AND id = $2
+      RETURNING
+        id,
+        segment_processing_status,
+        segment_processing_error,
+        segment_processing_updated_at
+    `, [uid, normalizedWorkoutId, status, errorMessage]);
+
+    return result.rows[0] || null;
+  }
+
+  static async getSegmentsByWorkout(uid, workoutId) {
+    const statusRow = await FileDBService.getWorkoutSegmentProcessingStatus(uid, workoutId);
 
     const query = `
     SELECT
@@ -1276,7 +1329,17 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
 
     const result = await pool.query(query, values);
 
-    return result.rows;
+    return {
+      status: statusRow
+        ? {
+            workoutId: Number(statusRow.id),
+            segmentProcessingStatus: statusRow.segment_processing_status || "completed",
+            segmentProcessingError: statusRow.segment_processing_error || null,
+            segmentProcessingUpdatedAt: statusRow.segment_processing_updated_at || null
+          }
+        : null,
+      rows: result.rows
+    };
   }
 
   static async insertFile(fileRow, segments, gps_track, workoutObject) {
@@ -1507,9 +1570,6 @@ RETURNING id, uid;
         workoutId: result.rows[0]?.id
       });
 
-      //await FileDBService.insertBestEfforts(result.rows[0].id, bestEfforts);
-      await FileDBService.upsertSegmentsBulk(uid, result.rows[0].id, segments);
-      timing.mark("upsert-workout-segments");
       await pool.query('COMMIT');
       timing.mark("commit");
       timing.flush({
@@ -1517,7 +1577,15 @@ RETURNING id, uid;
         workoutId: result.rows[0]?.id
       });
 
-      return result.rows[0];
+      return {
+        ...result.rows[0],
+        timingSteps: Array.isArray(timing?.steps)
+          ? timing.steps.map((step) => ({
+              label: step.label,
+              stepMs: Number(step.stepMs || 0)
+            }))
+          : []
+      };
 
     } catch (err) {
       await pool.query('ROLLBACK');

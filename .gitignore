@@ -24,9 +24,6 @@ Thumbs.db
 dist/
 build/
 
-# Ignore real PM2 config
-ecosystem.config.js
-ecosystem.config.cjs
 # Ignore ssh_login.txt
 ssh_login.txt
 

@@ -47,6 +47,9 @@ CREATE TABLE workouts (
     validGps             BOOLEAN,
     gps_source           TEXT,
     manual_gps_lookup_points JSONB,
+    segment_processing_status TEXT NOT NULL DEFAULT 'completed',
+    segment_processing_error  TEXT,
+    segment_processing_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     points_count         INTEGER,
     sampleRateGPS        DOUBLE PRECISION,
 
@@ -60,7 +63,9 @@ CREATE TABLE workouts (
         REFERENCES users(id)
         ON DELETE CASCADE,
     CONSTRAINT workouts_gps_source_check
-        CHECK (gps_source IS NULL OR gps_source IN ('recorded', 'manual_lookup'))
+        CHECK (gps_source IS NULL OR gps_source IN ('recorded', 'manual_lookup')),
+    CONSTRAINT chk_workouts_segment_processing_status
+        CHECK (segment_processing_status IN ('pending', 'processing', 'completed', 'failed'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_files_bounds

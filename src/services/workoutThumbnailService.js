@@ -1,9 +1,11 @@
 import pool from "./database.js";
+import Workout from "../shared/Workout.js";
 
 const SVG_WIDTH = 256;
 const SVG_HEIGHT = 160;
 const SVG_PADDING = 14;
 const POWER_THUMB_STRONG_SMOOTHING_WINDOW = 35;
+const thumbnailGenerationInflight = new Map();
 
 function escapeXml(value = "") {
   return String(value)
@@ -269,7 +271,39 @@ function buildCompositeProfileThumbnail({ altitudes = [], powers = [] } = {}) {
 }
 
 export default class WorkoutThumbnailService {
-  static createThumbnailPayload({ gpsTrack = null, workoutObject = null } = {}) {
+  static extractThumbnailSeries(workoutObject = null) {
+    if (!workoutObject?.length || workoutObject.length < 2) {
+      return {
+        altitudes: [],
+        powers: []
+      };
+    }
+
+    const altitudes = [];
+    const powers = [];
+    for (let i = 0; i < workoutObject.length; i++) {
+      const altitudeValue = typeof workoutObject.getAltitudeAt === "function"
+        ? Number(workoutObject.getAltitudeAt(i))
+        : null;
+      const powerValue = typeof workoutObject.getPowerAt === "function"
+        ? Number(workoutObject.getPowerAt(i))
+        : null;
+
+      if (Number.isFinite(altitudeValue)) {
+        altitudes.push(altitudeValue);
+      }
+      if (Number.isFinite(powerValue)) {
+        powers.push(powerValue);
+      }
+    }
+
+    return {
+      altitudes,
+      powers
+    };
+  }
+
+  static createThumbnailPayload({ gpsTrack = null, workoutObject = null, altitudes = null, powers = null } = {}) {
     if (Array.isArray(gpsTrack) && gpsTrack.length >= 2) {
       const routeThumb = buildRouteThumbnail(gpsTrack);
       if (routeThumb) {
@@ -277,31 +311,24 @@ export default class WorkoutThumbnailService {
       }
     }
 
-    if (workoutObject?.length >= 2) {
-      const altitudes = [];
-      const powers = [];
-      for (let i = 0; i < workoutObject.length; i++) {
-        const altitudeValue = typeof workoutObject.getAltitudeAt === "function"
-          ? Number(workoutObject.getAltitudeAt(i))
-          : null;
-        const powerValue = typeof workoutObject.getPowerAt === "function"
-          ? Number(workoutObject.getPowerAt(i))
-          : null;
+    let resolvedAltitudes = Array.isArray(altitudes) ? altitudes : null;
+    let resolvedPowers = Array.isArray(powers) ? powers : null;
 
-        if (Number.isFinite(altitudeValue)) {
-          altitudes.push(altitudeValue);
-        }
-        if (Number.isFinite(powerValue)) {
-          powers.push(powerValue);
-        }
-      }
+    if ((!resolvedAltitudes || !resolvedPowers) && workoutObject?.length >= 2) {
+      const extracted = WorkoutThumbnailService.extractThumbnailSeries(workoutObject);
+      resolvedAltitudes = resolvedAltitudes ?? extracted.altitudes;
+      resolvedPowers = resolvedPowers ?? extracted.powers;
+    }
 
-      const usefulAltitude = altitudes.length >= 2 && altitudes.some((value) => value !== altitudes[0]);
-      const usefulPower = powers.length >= 2 && powers.some((value) => value > 0);
+    if (Array.isArray(resolvedAltitudes) || Array.isArray(resolvedPowers)) {
+      const safeAltitudes = Array.isArray(resolvedAltitudes) ? resolvedAltitudes : [];
+      const safePowers = Array.isArray(resolvedPowers) ? resolvedPowers : [];
+      const usefulAltitude = safeAltitudes.length >= 2 && safeAltitudes.some((value) => value !== safeAltitudes[0]);
+      const usefulPower = safePowers.length >= 2 && safePowers.some((value) => value > 0);
       if (usefulAltitude || usefulPower) {
         const thumb = buildCompositeProfileThumbnail({
-          altitudes: usefulAltitude ? altitudes : [],
-          powers: usefulPower ? powers : []
+          altitudes: usefulAltitude ? safeAltitudes : [],
+          powers: usefulPower ? safePowers : []
         });
         if (thumb) {
           return thumb;
@@ -369,5 +396,79 @@ export default class WorkoutThumbnailService {
     );
 
     return result.rows[0] || null;
+  }
+
+  static parseGeoJsonTrack(trackGeoJson = null) {
+    const coordinates = Array.isArray(trackGeoJson?.coordinates)
+      ? trackGeoJson.coordinates
+      : [];
+
+    return coordinates
+      .map((entry) => {
+        const lng = Number(entry?.[0]);
+        const lat = Number(entry?.[1]);
+        return Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null;
+      })
+      .filter(Boolean);
+  }
+
+  static async generateThumbnailForWorkout(workoutId) {
+    const normalizedWorkoutId = Number(workoutId);
+    if (!Number.isInteger(normalizedWorkoutId) || normalizedWorkoutId <= 0) {
+      return null;
+    }
+
+    const existing = await WorkoutThumbnailService.getThumbnail(normalizedWorkoutId);
+    if (existing?.content) {
+      return existing;
+    }
+
+    if (thumbnailGenerationInflight.has(normalizedWorkoutId)) {
+      return thumbnailGenerationInflight.get(normalizedWorkoutId);
+    }
+
+    const generationPromise = (async () => {
+      const result = await pool.query(
+        `SELECT
+          id,
+          stream,
+          ST_AsGeoJSON(geom)::json AS track
+         FROM workouts
+         WHERE id = $1`,
+        [normalizedWorkoutId]
+      );
+
+      if (result.rowCount === 0) {
+        return null;
+      }
+
+      const row = result.rows[0];
+      const workoutObject = row?.stream ? await Workout.fromCompressed(row.stream) : null;
+      const gpsTrack = WorkoutThumbnailService.parseGeoJsonTrack(row?.track);
+      const payload = WorkoutThumbnailService.createThumbnailPayload({
+        gpsTrack,
+        workoutObject
+      });
+
+      if (!payload) {
+        return null;
+      }
+
+      const persisted = await WorkoutThumbnailService.upsertThumbnail(normalizedWorkoutId, payload);
+      return persisted
+        ? {
+            ...persisted,
+            content: payload.content
+          }
+        : null;
+    })();
+
+    thumbnailGenerationInflight.set(normalizedWorkoutId, generationPromise);
+
+    try {
+      return await generationPromise;
+    } finally {
+      thumbnailGenerationInflight.delete(normalizedWorkoutId);
+    }
   }
 }

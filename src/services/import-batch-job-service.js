@@ -45,6 +45,8 @@ export async function enqueueImportBatchJobs({
 
   const normalizedItems = Array.isArray(items) ? items.filter(Boolean) : [];
   const batches = chunkImportBatchItems(normalizedItems, batchSize);
+  const completedRetention = Math.max(500, batches.length + 50);
+  const failedRetention = Math.max(200, Math.ceil(batches.length / 2));
 
   const jobs = await Promise.all(
     batches.map((batchItems, batchIndex) => importBatchQueue.add(
@@ -62,8 +64,8 @@ export async function enqueueImportBatchJobs({
           type: "exponential",
           delay: 2000
         },
-        removeOnComplete: 100,
-        removeOnFail: 100,
+        removeOnComplete: completedRetention,
+        removeOnFail: failedRetention,
         jobId: `fit-import-batch:${importJobId}:${batchIndex}`
       }
     ))

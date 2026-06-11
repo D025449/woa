@@ -399,14 +399,25 @@ router.get("/workouts/:id/segments", authMiddleware, async (req, res, next) => {
     const workoutId = req.params.id;
     const uid = req.user?.id;
 
-    const segments = await FileDBService.getSegmentsByWorkout(
+    const result = await FileDBService.getSegmentsByWorkout(
       uid,
       workoutId
     );
 
+    const segmentStatus = result?.status?.segmentProcessingStatus || "completed";
+    res.setHeader("Cache-Control", segmentStatus === "completed"
+      ? "private, max-age=0, must-revalidate"
+      : "no-store");
+
     res.json({
-      count: segments.length,
-      data: segments
+      count: Array.isArray(result?.rows) ? result.rows.length : 0,
+      data: result?.rows || [],
+      meta: result?.status || {
+        workoutId: Number(workoutId),
+        segmentProcessingStatus: "completed",
+        segmentProcessingError: null,
+        segmentProcessingUpdatedAt: null
+      }
     });
 
   } catch (err) {

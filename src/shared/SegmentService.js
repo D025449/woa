@@ -136,13 +136,18 @@ export default class SegmentService {
 
     static async fetchSegments(workout) {
         workout.segments ??= [];
-        const res = await fetch(`/files/workouts/${workout.id}/segments`);
+        const res = await fetch(`/files/workouts/${workout.id}/segments`, {
+            cache: "no-store"
+        });
 
         if (!res.ok) {
             throw new Error("Failed to load segments");
         }
 
         const json = await res.json();
+        workout.segmentProcessingStatus = json?.meta?.segmentProcessingStatus || "completed";
+        workout.segmentProcessingError = json?.meta?.segmentProcessingError || null;
+        workout.segmentProcessingUpdatedAt = json?.meta?.segmentProcessingUpdatedAt || null;
         const backendSegments = json.data.map(s => ({
             rowstate: 'DB', isGPSSegment: false, ...s
         })); // <- wichtig

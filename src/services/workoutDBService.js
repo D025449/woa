@@ -734,7 +734,11 @@ export default class WorkoutDBService {
         w.total_timer_time,
         w.total_ascent,
         w.validgps,
-        wt.workout_id IS NOT NULL AS has_thumbnail,
+        CASE
+          WHEN ${FEATURE_THUMBNAILS_ON_DEMAND ? "TRUE" : "FALSE"}
+          THEN TRUE
+          ELSE wt.workout_id IS NOT NULL
+        END AS has_thumbnail,
         wt.updated_at AS thumbnail_updated_at
        FROM workouts w
        LEFT JOIN workout_thumbnails wt
@@ -1192,3 +1196,4 @@ export default class WorkoutDBService {
 
 
 } // class
+const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";

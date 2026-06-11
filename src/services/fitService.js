@@ -4,6 +4,8 @@ import BestEffortDetector from "../shared/BestEffortDetector.js";
 import SegmentService from "../shared/SegmentService.js";
 import Workout from "../shared/Workout.js";
 
+const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
+
 export default class FitProcessor {
   static extractImportGpsSource(fitFile) {
     const sessions = Array.isArray(fitFile?.sessions) ? fitFile.sessions : [];
@@ -21,6 +23,7 @@ export default class FitProcessor {
     const steps = [];
 
     return {
+      steps,
       mark(label, extra = {}) {
         const now = Date.now();
         steps.push({
@@ -32,6 +35,9 @@ export default class FitProcessor {
         lastAt = now;
       },
       flush(extra = {}) {
+        if (!IMPORT_TIMING_DEBUG) {
+          return;
+        }
         console.log(`[timing] ${scope}`, {
           ...meta,
           totalMs: Date.now() - startedAt,
@@ -309,7 +315,13 @@ export default class FitProcessor {
       segments,
       gps_track,
       workoutObject,
-      importGpsSource: FitProcessor.extractImportGpsSource(fitFile)
+      importGpsSource: FitProcessor.extractImportGpsSource(fitFile),
+      timingSteps: Array.isArray(timing?.steps)
+        ? timing.steps.map((step) => ({
+            label: step.label,
+            stepMs: Number(step.stepMs || 0)
+          }))
+        : []
     };
   }
 
@@ -517,6 +529,8 @@ export default class FitProcessor {
     const MAX_STEP_DISTANCE_METERS = 40;
     const MIN_RELOCK_SEQUENCE = 3;
     const MAX_INTERPOLATION_GAP = 8;
+    const DEG_TO_RAD = Math.PI / 180;
+    const EARTH_RADIUS_METERS = 6371000;
 
     const {
       sampleRate = 1,
@@ -543,31 +557,26 @@ export default class FitProcessor {
     };
 
     function haversine(a, b) {
-      const R = 6371000;
-      const toRad = x => x * Math.PI / 180;
+      const dLat = (b.position_lat - a.position_lat) * DEG_TO_RAD;
+      const dLng = (b.position_long - a.position_long) * DEG_TO_RAD;
 
-      const dLat = toRad(b.position_lat - a.position_lat);
-      const dLng = toRad(b.position_long - a.position_long);
-
-      const lat1 = toRad(a.position_lat);
-      const lat2 = toRad(b.position_lat);
+      const lat1 = a.position_lat * DEG_TO_RAD;
+      const lat2 = b.position_lat * DEG_TO_RAD;
 
       const aVal =
         Math.sin(dLat / 2) ** 2 +
         Math.cos(lat1) * Math.cos(lat2) *
         Math.sin(dLng / 2) ** 2;
 
-      return 2 * R * Math.atan2(Math.sqrt(aVal), Math.sqrt(1 - aVal));
+      return 2 * EARTH_RADIUS_METERS * Math.atan2(Math.sqrt(aVal), Math.sqrt(1 - aVal));
     }
 
+    const rawPositions = new Array(records.length);
     for (let i = 0; i < records.length; i++) {
-      const r = records[i];
-      if (!Object.hasOwn(r, "__raw_position_lat")) {
-        r.__raw_position_lat = r.position_lat;
-      }
-      if (!Object.hasOwn(r, "__raw_position_long")) {
-        r.__raw_position_long = r.position_long;
-      }
+      rawPositions[i] = {
+        position_lat: records[i].position_lat,
+        position_long: records[i].position_long
+      };
     }
 
     let lastValid = null;
@@ -612,8 +621,8 @@ export default class FitProcessor {
       const rawCandidate = {
         index: i,
         timestamp: r.timestamp ?? null,
-        position_lat: Number(r.__raw_position_lat),
-        position_long: Number(r.__raw_position_long)
+        position_lat: Number(rawPositions[i].position_lat),
+        position_long: Number(rawPositions[i].position_long)
       };
 
       rawCandidate.position_lat = Number.isFinite(rawCandidate.position_lat) ? rawCandidate.position_lat : null;
@@ -663,6 +672,25 @@ export default class FitProcessor {
     // -------------------------
     // PASS 2: Interpolation
     // -------------------------
+    const prevValidIndex = new Array(records.length).fill(-1);
+    const nextValidIndex = new Array(records.length).fill(-1);
+    let lastValidIndex = -1;
+
+    for (let i = 0; i < records.length; i++) {
+      prevValidIndex[i] = lastValidIndex;
+      if (records[i].position_lat != null && records[i].position_long != null) {
+        lastValidIndex = i;
+      }
+    }
+
+    let nextIndex = -1;
+    for (let i = records.length - 1; i >= 0; i--) {
+      nextValidIndex[i] = nextIndex;
+      if (records[i].position_lat != null && records[i].position_long != null) {
+        nextIndex = i;
+      }
+    }
+
     let currentGapLength = 0;
     for (let i = 0; i < records.length; i++) {
       const r = records[i];
@@ -674,22 +702,8 @@ export default class FitProcessor {
 
       currentGapLength += 1;
 
-      let prev = null;
-      let next = null;
-
-      for (let j = i - 1; j >= 0; j--) {
-        if (records[j].position_lat != null && records[j].position_long != null) {
-          prev = records[j];
-          break;
-        }
-      }
-
-      for (let j = i + 1; j < records.length; j++) {
-        if (records[j].position_lat != null && records[j].position_long != null) {
-          next = records[j];
-          break;
-        }
-      }
+      const prev = prevValidIndex[i] >= 0 ? records[prevValidIndex[i]] : null;
+      const next = nextValidIndex[i] >= 0 ? records[nextValidIndex[i]] : null;
 
       const canBridgeGap = prev && next && currentGapLength <= MAX_INTERPOLATION_GAP;
 
@@ -764,12 +778,7 @@ export default class FitProcessor {
     diagnostics.suspiciousConstantTail =
       trailingConstantTailLength >= Math.max(25, Math.floor(records.length * 0.05));
 
-    if (
-      debugEnabled ||
-      diagnostics.suspiciousConstantTail ||
-      diagnostics.jumpRejectedCount > 0 ||
-      (validCount > 0 && reduced.length < 2)
-    ) {
+    if (debugEnabled) {
       console.log("[gps-cleaning]", {
         ...diagnostics,
         sampleRate,
@@ -778,11 +787,6 @@ export default class FitProcessor {
         validCount,
         reducedTrackPointCount: reduced.length
       });
-    }
-
-    for (let i = 0; i < records.length; i++) {
-      delete records[i].__raw_position_lat;
-      delete records[i].__raw_position_long;
     }
 
     // einfacher TrackHash

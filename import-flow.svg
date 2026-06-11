@@ -1,0 +1,176 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1180" viewBox="0 0 1600 1180" role="img" aria-labelledby="title desc">
+  <title id="title">Import Flow</title>
+  <desc id="desc">Sequence-style diagram for file import, asynchronous segment persistence, similarity, and segment best-efforts processing.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f4ee; }
+      .lane { stroke: #c9c1b6; stroke-width: 1; stroke-dasharray: 6 6; }
+      .actor { fill: #1f3a5f; }
+      .actor-box { fill: #fffaf2; stroke: #1f3a5f; stroke-width: 2; rx: 10; ry: 10; }
+      .db-box { fill: #f3efe7; stroke: #5b4636; stroke-width: 2; rx: 10; ry: 10; }
+      .queue-box { fill: #e8f1f8; stroke: #2f6ea5; stroke-width: 2; rx: 10; ry: 10; }
+      .worker-box { fill: #eef7ea; stroke: #4d7c45; stroke-width: 2; rx: 10; ry: 10; }
+      .fs-box { fill: #fdf0e2; stroke: #b86a28; stroke-width: 2; rx: 10; ry: 10; }
+      .header { font: 700 18px Arial, sans-serif; fill: #17212b; }
+      .label { font: 600 14px Arial, sans-serif; fill: #17212b; }
+      .small { font: 12px Arial, sans-serif; fill: #24313d; }
+      .msg { stroke: #465a69; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .return { stroke: #7d8b96; stroke-width: 2; fill: none; stroke-dasharray: 7 5; marker-end: url(#arrow); }
+      .note { fill: #fff6bf; stroke: #b59a1d; stroke-width: 1.5; rx: 8; ry: 8; }
+      .phase { fill: #dbe8d2; stroke: #6b8c5a; stroke-width: 1.5; rx: 8; ry: 8; }
+      .phase-text { font: 700 13px Arial, sans-serif; fill: #29411d; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#465a69"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1600" height="1180"/>
+  <text class="header" x="32" y="42">Import Flow</text>
+  <text class="small" x="32" y="66">Synchronous upload path ends before segment persistence, similarity and segment best-efforts finish.</text>
+
+  <!-- Actors -->
+  <rect class="actor-box" x="30" y="90" width="120" height="42"/>
+  <text class="label" x="90" y="116" text-anchor="middle">UI / Browser</text>
+  <line class="lane" x1="90" y1="132" x2="90" y2="1140"/>
+
+  <rect class="actor-box" x="190" y="90" width="120" height="42"/>
+  <text class="label" x="250" y="116" text-anchor="middle">Upload API</text>
+  <line class="lane" x1="250" y1="132" x2="250" y2="1140"/>
+
+  <rect class="queue-box" x="350" y="90" width="120" height="42"/>
+  <text class="label" x="410" y="116" text-anchor="middle">Import Queue</text>
+  <line class="lane" x1="410" y1="132" x2="410" y2="1140"/>
+
+  <rect class="worker-box" x="510" y="90" width="120" height="42"/>
+  <text class="label" x="570" y="116" text-anchor="middle">Import Worker</text>
+  <line class="lane" x1="570" y1="132" x2="570" y2="1140"/>
+
+  <rect class="db-box" x="670" y="90" width="120" height="42"/>
+  <text class="label" x="730" y="116" text-anchor="middle">Postgres</text>
+  <line class="lane" x1="730" y1="132" x2="730" y2="1140"/>
+
+  <rect class="fs-box" x="830" y="90" width="140" height="42"/>
+  <text class="label" x="900" y="116" text-anchor="middle">Temp Filesystem</text>
+  <line class="lane" x1="900" y1="132" x2="900" y2="1140"/>
+
+  <rect class="queue-box" x="1010" y="90" width="130" height="42"/>
+  <text class="label" x="1075" y="116" text-anchor="middle">Segment Queue</text>
+  <line class="lane" x1="1075" y1="132" x2="1075" y2="1140"/>
+
+  <rect class="worker-box" x="1180" y="90" width="130" height="42"/>
+  <text class="label" x="1245" y="116" text-anchor="middle">Segment Worker</text>
+  <line class="lane" x1="1245" y1="132" x2="1245" y2="1140"/>
+
+  <rect class="queue-box" x="1350" y="90" width="110" height="42"/>
+  <text class="label" x="1405" y="116" text-anchor="middle">Similarity</text>
+  <line class="lane" x1="1405" y1="132" x2="1405" y2="1140"/>
+
+  <rect class="worker-box" x="1485" y="90" width="90" height="42"/>
+  <text class="label" x="1530" y="116" text-anchor="middle">BE</text>
+  <line class="lane" x1="1530" y1="132" x2="1530" y2="1140"/>
+
+  <!-- Phase labels -->
+  <rect class="phase" x="24" y="150" width="320" height="28"/>
+  <text class="phase-text" x="184" y="169" text-anchor="middle">1. Upload accepted and queued</text>
+
+  <rect class="phase" x="24" y="300" width="360" height="28"/>
+  <text class="phase-text" x="204" y="319" text-anchor="middle">2. Synchronous import and workout insert</text>
+
+  <rect class="phase" x="24" y="610" width="300" height="28"/>
+  <text class="phase-text" x="174" y="629" text-anchor="middle">3. UI already sees finished</text>
+
+  <rect class="phase" x="24" y="720" width="420" height="28"/>
+  <text class="phase-text" x="234" y="739" text-anchor="middle">4. Asynchronous post-processing continues afterwards</text>
+
+  <!-- Messages -->
+  <path class="msg" d="M 90 210 H 250"/>
+  <text class="small" x="170" y="201" text-anchor="middle">Upload file(s)</text>
+
+  <path class="msg" d="M 250 250 H 730"/>
+  <text class="small" x="490" y="241" text-anchor="middle">Create ImportJob</text>
+
+  <path class="msg" d="M 250 290 H 410"/>
+  <text class="small" x="330" y="281" text-anchor="middle">Enqueue import job</text>
+
+  <path class="return" d="M 250 330 H 90"/>
+  <text class="small" x="170" y="321" text-anchor="middle">Upload accepted / job started</text>
+
+  <path class="msg" d="M 410 380 H 570"/>
+  <text class="small" x="490" y="371" text-anchor="middle">Execute import job</text>
+
+  <path class="msg" d="M 570 420 H 900"/>
+  <text class="small" x="735" y="411" text-anchor="middle">Read file / unzip if needed</text>
+
+  <rect class="note" x="475" y="448" width="190" height="98"/>
+  <text class="small" x="490" y="470">Inside Import Worker:</text>
+  <text class="small" x="490" y="492">• Parse FIT</text>
+  <text class="small" x="490" y="514">• Build workout data</text>
+  <text class="small" x="490" y="536">• Detect workout segments</text>
+
+  <path class="msg" d="M 570 580 H 730"/>
+  <text class="small" x="650" y="571" text-anchor="middle">Insert workout row</text>
+
+  <rect class="note" x="610" y="600" width="250" height="50"/>
+  <text class="small" x="625" y="621">No workout_segments persistence yet.</text>
+  <text class="small" x="625" y="641">That work is deferred.</text>
+
+  <path class="msg" d="M 570 690 H 730"/>
+  <text class="small" x="650" y="681" text-anchor="middle">Set segment_processing_status = pending</text>
+
+  <path class="msg" d="M 570 730 H 900"/>
+  <text class="small" x="735" y="721" text-anchor="middle">Write segment payload JSON</text>
+
+  <path class="msg" d="M 570 770 H 1075"/>
+  <text class="small" x="822" y="761" text-anchor="middle">Enqueue persist-workout-segments</text>
+
+  <path class="msg" d="M 570 810 H 730"/>
+  <text class="small" x="650" y="801" text-anchor="middle">Store thumbnail</text>
+
+  <path class="msg" d="M 570 850 H 1405"/>
+  <text class="small" x="987" y="841" text-anchor="middle">Enqueue similarity job</text>
+
+  <path class="msg" d="M 570 890 H 1075"/>
+  <text class="small" x="822" y="881" text-anchor="middle">Enqueue segment best-efforts job</text>
+
+  <path class="msg" d="M 570 930 H 730"/>
+  <text class="small" x="650" y="921" text-anchor="middle">Mark ImportJob completed</text>
+
+  <path class="return" d="M 570 970 H 90"/>
+  <text class="small" x="330" y="961" text-anchor="middle">UI sees upload finished</text>
+
+  <!-- Async section -->
+  <path class="msg" d="M 1075 1010 H 1245"/>
+  <text class="small" x="1160" y="1001" text-anchor="middle">persist-workout-segments</text>
+
+  <path class="msg" d="M 1245 1045 H 730"/>
+  <text class="small" x="987" y="1036" text-anchor="middle">Set segment_processing_status = processing</text>
+
+  <path class="msg" d="M 1245 1080 H 900"/>
+  <text class="small" x="1072" y="1071" text-anchor="middle">Read segment payload JSON</text>
+
+  <path class="msg" d="M 1245 1115 H 730"/>
+  <text class="small" x="987" y="1106" text-anchor="middle">Upsert workout_segments</text>
+
+  <path class="msg" d="M 1405 970 H 730"/>
+  <text class="small" x="1067" y="961" text-anchor="middle">Persist similarity edges</text>
+
+  <path class="msg" d="M 1530 1010 H 730"/>
+  <text class="small" x="1130" y="1001" text-anchor="middle">Persist segment best-efforts</text>
+
+  <path class="msg" d="M 1245 1145 H 730"/>
+  <text class="small" x="987" y="1136" text-anchor="middle">Set segment_processing_status = completed</text>
+
+  <path class="msg" d="M 1245 1165 H 900"/>
+  <text class="small" x="1072" y="1156" text-anchor="middle">Delete temp payload</text>
+
+  <!-- Readback -->
+  <path class="msg" d="M 90 1030 H 250"/>
+  <text class="small" x="170" y="1021" text-anchor="middle">GET /files/workouts/:id/segments</text>
+
+  <path class="msg" d="M 250 1065 H 730"/>
+  <text class="small" x="490" y="1056" text-anchor="middle">Read segments + segment_processing_status</text>
+
+  <path class="return" d="M 250 1100 H 90"/>
+  <text class="small" x="170" y="1091" text-anchor="middle">Return data + meta.segmentProcessingStatus</text>
+</svg>

@@ -1,5 +1,57 @@
 import { segmentBestEffortsQueue } from "../queue/segment-best-efforts-queue.js";
 
+export async function enqueueWorkoutSegmentPersistence({ uid, workoutId, payloadPath, entryName = null }) {
+  if (!uid || !Number.isInteger(Number(workoutId)) || !payloadPath) {
+    return null;
+  }
+
+  return segmentBestEffortsQueue.add(
+    "persist-workout-segments",
+    {
+      uid,
+      workoutId: Number(workoutId),
+      payloadPath,
+      entryName
+    },
+    {
+      attempts: 2,
+      backoff: {
+        type: "exponential",
+        delay: 2000
+      },
+      removeOnComplete: 100,
+      removeOnFail: 100,
+      jobId: `persist-workout-segments:${uid}:${Number(workoutId)}`
+    }
+  );
+}
+
+export async function enqueueWorkoutThumbnailGeneration({ uid, workoutId, payloadPath, entryName = null }) {
+  if (!uid || !Number.isInteger(Number(workoutId)) || !payloadPath) {
+    return null;
+  }
+
+  return segmentBestEffortsQueue.add(
+    "generate-workout-thumbnail",
+    {
+      uid,
+      workoutId: Number(workoutId),
+      payloadPath,
+      entryName
+    },
+    {
+      attempts: 2,
+      backoff: {
+        type: "exponential",
+        delay: 2000
+      },
+      removeOnComplete: 100,
+      removeOnFail: 100,
+      jobId: `generate-workout-thumbnail:${uid}:${Number(workoutId)}`
+    }
+  );
+}
+
 export async function enqueueWorkoutSegmentBestEfforts({ uid, workoutId }) {
   if (!uid || !Number.isInteger(Number(workoutId))) {
     return null;

@@ -8,6 +8,7 @@ export default class WorkoutLibraryView {
     this.pageT = createTranslator("dashboardNewPage");
     this.locale = getCurrentLocale();
     this.container = document.querySelector(containerSelector);
+    this.scrollRoot = this.container?.closest?.(".workout-library-scroll") || null;
     this.handlers = handlers;
     this.headerElement = document.getElementById(handlers.headerElementId || "files_header");
     this.searchInput = document.getElementById(handlers.searchInputId || "workout-library-search");
@@ -64,6 +65,7 @@ export default class WorkoutLibraryView {
     this.shareErrors = new Map();
     this.openVisibilityWorkoutId = null;
     this.loadingVisibilityWorkoutId = null;
+    this.thumbnailObserver = null;
 
     this.searchInputValue = handlers.initialSearch ?? "";
     this.sortValue = handlers.initialSort ?? "newest";
@@ -705,6 +707,8 @@ export default class WorkoutLibraryView {
       return;
     }
 
+    this.disconnectThumbnailObserver();
+
     const renderableItems = this.getRenderableItems();
 
     if (renderableItems.length === 0) {
@@ -723,7 +727,90 @@ export default class WorkoutLibraryView {
       .join("");
 
     this.bindCardEvents();
+    this.bindThumbnailLazyLoad();
     this.updateBulkUi();
+  }
+
+  disconnectThumbnailObserver() {
+    if (this.thumbnailObserver) {
+      this.thumbnailObserver.disconnect();
+      this.thumbnailObserver = null;
+    }
+  }
+
+  bindThumbnailLazyLoad() {
+    const images = Array.from(this.container?.querySelectorAll?.("[data-thumb-src]") || []);
+    if (images.length === 0) {
+      return;
+    }
+
+    if (!("IntersectionObserver" in window)) {
+      images.forEach((image) => this.loadThumbnailImage(image));
+      return;
+    }
+
+    this.thumbnailObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) {
+          return;
+        }
+
+        this.loadThumbnailImage(entry.target);
+        this.thumbnailObserver?.unobserve(entry.target);
+      });
+    }, {
+      root: this.scrollRoot || null,
+      rootMargin: "200px 0px",
+      threshold: 0.01
+    });
+
+    images.forEach((image) => {
+      this.thumbnailObserver?.observe(image);
+    });
+
+    requestAnimationFrame(() => {
+      this.loadVisibleThumbnailImages(images);
+    });
+  }
+
+  loadThumbnailImage(image) {
+    if (!(image instanceof HTMLImageElement)) {
+      return;
+    }
+
+    const src = image.dataset.thumbSrc;
+    if (!src || image.getAttribute("src")) {
+      return;
+    }
+
+    image.setAttribute("src", src);
+  }
+
+  loadVisibleThumbnailImages(images = []) {
+    const rootRect = this.scrollRoot?.getBoundingClientRect?.() || {
+      top: 0,
+      left: 0,
+      right: window.innerWidth,
+      bottom: window.innerHeight
+    };
+
+    images.forEach((image) => {
+      if (!(image instanceof HTMLImageElement)) {
+        return;
+      }
+
+      const rect = image.getBoundingClientRect();
+      const intersects =
+        rect.bottom >= (rootRect.top - 200) &&
+        rect.top <= (rootRect.bottom + 200) &&
+        rect.right >= rootRect.left &&
+        rect.left <= rootRect.right;
+
+      if (intersects) {
+        this.loadThumbnailImage(image);
+        this.thumbnailObserver?.unobserve(image);
+      }
+    });
   }
 
   bindCardEvents() {
@@ -1086,10 +1173,12 @@ export default class WorkoutLibraryView {
               ${workout.has_thumbnail ? `
                 <img
                   class="workout-library-card__thumb-image"
-                  src="/workouts/${workout.id}/thumbnail?v=${encodeURIComponent(workout.thumbnail_updated_at || workout.uploaded_at || "")}"
+                  data-thumb-src="/workouts/${workout.id}/thumbnail?v=${encodeURIComponent(workout.thumbnail_updated_at || workout.uploaded_at || "")}"
                   alt=""
                   loading="lazy"
-                  decoding="async">
+                  decoding="async"
+                  onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                <div class="workout-library-card__thumb-placeholder" style="display:none;">${hasValidGps ? "GPS" : "DATA"}</div>
               ` : `
                 <div class="workout-library-card__thumb-placeholder">${hasValidGps ? "GPS" : "DATA"}</div>
               `}

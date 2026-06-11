@@ -49,6 +49,7 @@ export async function getImportJobById(id) {
             stage,
             progress_percent as "progressPercent",
             file_statuses as "fileStatuses",
+            postprocess_targets as "postprocessTargets",
             total_files as "totalFiles",
             processed_files as "processedFiles",
             failed_files as "failedFiles",
@@ -70,6 +71,7 @@ export async function updateImportJob(id, patch) {
         stage: 'stage',
         progressPercent: 'progress_percent',
         fileStatuses: 'file_statuses',
+        postprocessTargets: 'postprocess_targets',
         totalFiles: 'total_files',
         processedFiles: 'processed_files',
         failedFiles: 'failed_files',
@@ -85,7 +87,7 @@ export async function updateImportJob(id, patch) {
         if (!dbField) continue;
 
         updates.push(`${dbField} = $${index}`);
-        if (key === 'fileStatuses') {
+        if (key === 'fileStatuses' || key === 'postprocessTargets') {
             values.push(JSON.stringify(Array.isArray(value) ? value : []));
         } else {
             values.push(value);
@@ -103,5 +105,18 @@ export async function updateImportJob(id, patch) {
     await pool.query(
         `update import_jobs set ${updates.join(', ')} where id = $${index}`,
         values
+    );
+}
+
+export async function appendImportJobPostprocessTarget(id, target) {
+    await pool.query(
+        `
+        update import_jobs
+        set
+            postprocess_targets = coalesce(postprocess_targets, '[]'::jsonb) || $1::jsonb,
+            updated_at = now()
+        where id = $2
+        `,
+        [JSON.stringify([target]), id]
     );
 }

@@ -23,6 +23,7 @@ CREATE TABLE import_jobs (
   processed_files integer NOT NULL DEFAULT 0,
   failed_files integer NOT NULL DEFAULT 0,
   file_statuses jsonb NOT NULL DEFAULT '[]'::jsonb,
+  postprocess_targets jsonb NOT NULL DEFAULT '[]'::jsonb,
   error_message text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
