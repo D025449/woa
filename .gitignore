@@ -33,4 +33,7 @@ ssh_login.txt
 # uploads
 uploads/
 
+# tmp
+tmp/
+
 psql-login.txt
