@@ -1434,10 +1434,6 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
 
 
     try {
-
-      await pool.query('BEGIN');
-      timing.mark("begin-transaction");
-
       const result = await pool.query(
         `
 INSERT INTO workouts (
@@ -1569,9 +1565,6 @@ RETURNING id, uid;
       timing.mark("insert-workout-row", {
         workoutId: result.rows[0]?.id
       });
-
-      await pool.query('COMMIT');
-      timing.mark("commit");
       timing.flush({
         status: "completed",
         workoutId: result.rows[0]?.id
@@ -1588,8 +1581,6 @@ RETURNING id, uid;
       };
 
     } catch (err) {
-      await pool.query('ROLLBACK');
-      timing.mark("rollback");
       timing.flush({
         status: "failed",
         error: err.message
