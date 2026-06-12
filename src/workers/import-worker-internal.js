@@ -1231,11 +1231,29 @@ export async function createApp(options = {}) {
       mode
     });
 
-    const batchResults = await Promise.all(
-      jobs.map((queueJob) => queueJob.waitUntilFinished(queueEvents))
-    );
+    const pendingBatchResults = jobs.map((queueJob, index) => {
+      const entry = {
+        index,
+        promise: null
+      };
 
-    for (const batchResult of batchResults) {
+      entry.promise = queueJob.waitUntilFinished(queueEvents).then((batchResult) => ({
+        index,
+        batchResult,
+        entry
+      }));
+
+      return entry;
+    });
+
+    while (pendingBatchResults.length > 0) {
+      const settled = await Promise.race(pendingBatchResults.map((entry) => entry.promise));
+      const pendingIndex = pendingBatchResults.findIndex((entry) => entry === settled.entry);
+      if (pendingIndex >= 0) {
+        pendingBatchResults.splice(pendingIndex, 1);
+      }
+
+      const batchResult = settled.batchResult;
       const results = Array.isArray(batchResult?.results) ? batchResult.results : [];
 
       for (const result of results) {
