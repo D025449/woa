@@ -11,6 +11,7 @@
     "account-deletion:sweep": "node src/scripts/run-account-deletion-sweep.js",
     "db:rebuild": "node src/db-rebuild.js",
     "bench:persistence": "node src/scripts/benchmark-workout-persistence.js",
+    "bench:segment-recompute": "node src/scripts/benchmark-segment-recompute.js",
     "profile:fit-parser": "node src/scripts/profile-fit-parser.js",
     "generate:fit-golden": "node src/scripts/generate-fit-parser-golden.js",
     "migrate:workout-streams:absolute": "node src/scripts/migrate-workout-streams-to-absolute.js",

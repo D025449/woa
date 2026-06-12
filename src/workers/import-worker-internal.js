@@ -10,6 +10,10 @@ import {
   mapAggregatedToFileRow
 } from "../services/fitService.js";
 import { getFitParserVariant, parseFitBuffer } from "../services/fit-parser-dispatch-service.js";
+import Workout from "../shared/Workout.js";
+import IntervalDetector from "../shared/IntervalDetector.js";
+import BestEffortDetector from "../shared/BestEffortDetector.js";
+import SegmentService from "../shared/SegmentService.js";
 
 import { FileDBService } from "../services/fileDBService.js";
 import SegmentDBService from "../services/segmentDBService.js";
@@ -38,6 +42,7 @@ import {
   getSegmentPersistTempDir,
   getThumbnailTempDir
 } from "../config/storagePaths.js";
+import pool from "../services/database.js";
 
 export async function createApp(options = {}) {
   const IMPORT_BATCH_SIZE = 10;
@@ -54,6 +59,7 @@ export async function createApp(options = {}) {
   const IMPORT_VERBOSE_LOGS = String(process.env.IMPORT_VERBOSE_LOGS || "").trim() === "1";
   const IMPORT_POSTPROCESS_LOGS = String(process.env.IMPORT_POSTPROCESS_LOGS || "").trim() !== "0";
   const IMPORT_SYNC_PROFILE_LOG = String(process.env.IMPORT_SYNC_PROFILE_LOG || "1").trim() !== "0";
+  const SEGMENTS_RECOMPUTE_FROM_DB = String(process.env.SEGMENTS_RECOMPUTE_FROM_DB || "").trim() === "1";
   const {
     enableImportWorker = true,
     enableImportBatchWorker = true,
@@ -71,6 +77,7 @@ export async function createApp(options = {}) {
     IMPORT_VERBOSE_LOGS,
     IMPORT_POSTPROCESS_LOGS,
     IMPORT_SYNC_PROFILE_LOG,
+    SEGMENTS_RECOMPUTE_FROM_DB,
     IMPORT_QUEUE_CONCURRENCY,
     IMPORT_BATCH_WORKER_CONCURRENCY,
     FIT_PARSER_VARIANT: getFitParserVariant(),
@@ -351,7 +358,8 @@ export async function createApp(options = {}) {
     entryName = null,
     validGps = false,
     hasSegments = false,
-    segmentPayloadPath = null
+    segmentPayloadPath = null,
+    recomputeSegmentsFromDb = false
   }) {
     return {
       uid,
@@ -359,7 +367,8 @@ export async function createApp(options = {}) {
       entryName,
       validGps: !!validGps,
       hasSegments: !!hasSegments,
-      segmentPayloadPath
+      segmentPayloadPath,
+      recomputeSegmentsFromDb: !!recomputeSegmentsFromDb
     };
   }
 
@@ -375,9 +384,22 @@ export async function createApp(options = {}) {
   }
 
   async function enqueueImmediatePostprocessTarget(target) {
-    const { uid, workoutId, entryName, validGps, hasSegments, segmentPayloadPath } = target;
+    const { uid, workoutId, entryName, validGps, hasSegments, segmentPayloadPath, recomputeSegmentsFromDb } = target;
 
-    if (hasSegments && segmentPayloadPath) {
+    if (recomputeSegmentsFromDb) {
+      await enqueueWorkoutSegmentPersistence({
+        uid,
+        workoutId,
+        entryName: entryName || null,
+        recomputeFromDb: true
+      });
+      logPostProcessEvent("segment-persist.enqueued", {
+        uid,
+        workoutId,
+        entryName: entryName || null,
+        mode: "recompute-from-db"
+      });
+    } else if (hasSegments && segmentPayloadPath) {
       await enqueueWorkoutSegmentPersistence({
         uid,
         workoutId,
@@ -659,9 +681,10 @@ export async function createApp(options = {}) {
     const uid = job.data?.uid;
     const workoutId = Number(job.data?.workoutId);
     const payloadPath = job.data?.payloadPath;
+    const recomputeFromDb = job.data?.recomputeFromDb === true;
 
-    if (!uid || !Number.isInteger(workoutId) || !payloadPath) {
-      throw new Error("Workout segment persistence job is missing uid, workoutId, or payloadPath");
+    if (!uid || !Number.isInteger(workoutId) || (!payloadPath && !recomputeFromDb)) {
+      throw new Error("Workout segment persistence job is missing uid, workoutId, or payload source");
     }
 
     await job.updateProgress({
@@ -673,18 +696,55 @@ export async function createApp(options = {}) {
       queueJobId: job.id,
       uid,
       workoutId,
-      payloadPath
+      payloadPath: payloadPath || null,
+      recomputeFromDb
     });
 
     await FileDBService.updateWorkoutSegmentProcessingStatus(uid, workoutId, "processing", null);
 
     try {
-      const payload = await readSegmentPersistencePayload(payloadPath);
-      const segments = Array.isArray(payload?.segments) ? payload.segments : [];
+      let segments = [];
+
+      if (recomputeFromDb) {
+        const rowResult = await pool.query(
+          `SELECT stream FROM workouts WHERE id = $1 AND uid = $2`,
+          [workoutId, uid]
+        );
+        if (rowResult.rowCount === 0) {
+          throw new Error("Workout stream not found for segment recompute");
+        }
+
+        const workout = await Workout.fromCompressed(rowResult.rows[0].stream);
+        const startTime = Number(workout.getStartTime());
+        const records = new Array(workout.length);
+        for (let index = 0; index < workout.length; index += 1) {
+          records[index] = {
+            timestamp: new Date(startTime + (index * 1000)),
+            power: workout.getPowerAt(index),
+            heart_rate: workout.getHrAt(index),
+            cadence: workout.getCadenceAt(index),
+            speed: workout.getSpeedAt(index) / 3.6,
+            altitude: workout.getAltitudeAt(index),
+            distance: workout.getDistanceAt(index)
+          };
+        }
+
+        const autoIntervals = IntervalDetector.detect(records);
+        const bestEffortIntervals = BestEffortDetector.detect(records);
+        segments = [
+          ...SegmentService.createSgmentsFromIntervals(autoIntervals, "auto"),
+          ...SegmentService.createSgmentsFromIntervals(bestEffortIntervals, "crit")
+        ];
+      } else {
+        const payload = await readSegmentPersistencePayload(payloadPath);
+        segments = Array.isArray(payload?.segments) ? payload.segments : [];
+      }
 
       await FileDBService.upsertSegmentsBulk(uid, workoutId, segments);
       await FileDBService.updateWorkoutSegmentProcessingStatus(uid, workoutId, "completed", null);
-      await cleanupSegmentPersistencePayload(payloadPath);
+      if (payloadPath) {
+        await cleanupSegmentPersistencePayload(payloadPath);
+      }
 
       await job.updateProgress({
         progressPercent: 100,
@@ -779,7 +839,8 @@ export async function createApp(options = {}) {
 
     try {
       const { aggregated, segments, gps_track, workoutObject, importGpsSource } = processFitRecords(fitJsonObject, {
-        sourceName: context.entryName || null
+        sourceName: context.entryName || null,
+        computeSegments: !SEGMENTS_RECOMPUTE_FROM_DB
       });
       timing.mark("process-fit-records", {
         segmentCount: segments?.length ?? 0,
@@ -799,8 +860,29 @@ export async function createApp(options = {}) {
 
       if (dbrow?.id) {
         const hasSegments = Array.isArray(segments) && segments.length > 0;
+        const shouldRecomputeSegments = SEGMENTS_RECOMPUTE_FROM_DB;
 
-        if (hasSegments) {
+        if (shouldRecomputeSegments) {
+          try {
+            await handlePostprocessScheduling(context.importJobId || null, createPostprocessTarget({
+              uid,
+              workoutId: dbrow.id,
+              entryName: context.entryName || null,
+              validGps: !!gps_track?.validGps,
+              hasSegments: true,
+              segmentPayloadPath: null,
+              recomputeSegmentsFromDb: true
+            }));
+          } catch (error) {
+            await FileDBService.updateWorkoutSegmentProcessingStatus(
+              uid,
+              dbrow.id,
+              "failed",
+              error.message || "Failed to schedule segment recompute"
+            );
+            throw error;
+          }
+        } else if (hasSegments) {
           try {
             const segmentPayloadPath = await writeSegmentPersistencePayload({
               uid,
@@ -919,7 +1001,8 @@ export async function createApp(options = {}) {
   async function processFitJsonWithMetrics(fitJsonObject, uid, batchTrace, shareConfig = null, context = {}) {
     const processFitRecordsStartedAt = Date.now();
     const { aggregated, segments, gps_track, workoutObject, importGpsSource, timingSteps = [] } = processFitRecords(fitJsonObject, {
-      sourceName: context.entryName || null
+      sourceName: context.entryName || null,
+      computeSegments: !SEGMENTS_RECOMPUTE_FROM_DB
     });
     batchTrace?.add("processFitRecordsMs", Date.now() - processFitRecordsStartedAt);
     const processFitStepMetricMap = {
@@ -970,26 +1053,42 @@ export async function createApp(options = {}) {
     let deferredPostprocessTarget = null;
 
     if (dbrow?.id) {
-      if (Array.isArray(segments) && segments.length > 0) {
+      const shouldScheduleSegmentPersistence = SEGMENTS_RECOMPUTE_FROM_DB || (Array.isArray(segments) && segments.length > 0);
+
+      if (shouldScheduleSegmentPersistence) {
         const segmentPersistStartedAt = Date.now();
         try {
-          const payloadResult = await writeSegmentPersistencePayload({
-            uid,
-            workoutId: dbrow.id,
-            entryName: context.entryName || null,
-            segments
-          });
-          const segmentPayloadPath = payloadResult.payloadPath;
-          batchTrace?.add("enqueueSegmentPersistenceSerializeMs", payloadResult.serializeMs);
-          batchTrace?.add("enqueueSegmentPersistenceWriteFileMs", payloadResult.writeFileMs);
-          const target = createPostprocessTarget({
-            uid,
-            workoutId: dbrow.id,
-            entryName: context.entryName || null,
-            validGps: !!gps_track?.validGps,
-            hasSegments: true,
-            segmentPayloadPath
-          });
+          let target;
+          if (SEGMENTS_RECOMPUTE_FROM_DB) {
+            target = createPostprocessTarget({
+              uid,
+              workoutId: dbrow.id,
+              entryName: context.entryName || null,
+              validGps: !!gps_track?.validGps,
+              hasSegments: true,
+              segmentPayloadPath: null,
+              recomputeSegmentsFromDb: true
+            });
+          } else {
+            const payloadResult = await writeSegmentPersistencePayload({
+              uid,
+              workoutId: dbrow.id,
+              entryName: context.entryName || null,
+              segments
+            });
+            const segmentPayloadPath = payloadResult.payloadPath;
+            batchTrace?.add("enqueueSegmentPersistenceSerializeMs", payloadResult.serializeMs);
+            batchTrace?.add("enqueueSegmentPersistenceWriteFileMs", payloadResult.writeFileMs);
+            target = createPostprocessTarget({
+              uid,
+              workoutId: dbrow.id,
+              entryName: context.entryName || null,
+              validGps: !!gps_track?.validGps,
+              hasSegments: true,
+              segmentPayloadPath,
+              recomputeSegmentsFromDb: false
+            });
+          }
           if (IMPORT_POSTPROCESS_MODE === "phased") {
             deferredPostprocessTarget = target;
           } else {

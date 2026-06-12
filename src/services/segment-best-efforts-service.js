@@ -1,7 +1,7 @@
 import { segmentBestEffortsQueue } from "../queue/segment-best-efforts-queue.js";
 
-export async function enqueueWorkoutSegmentPersistence({ uid, workoutId, payloadPath, entryName = null }) {
-  if (!uid || !Number.isInteger(Number(workoutId)) || !payloadPath) {
+export async function enqueueWorkoutSegmentPersistence({ uid, workoutId, payloadPath = null, entryName = null, recomputeFromDb = false }) {
+  if (!uid || !Number.isInteger(Number(workoutId)) || (!payloadPath && !recomputeFromDb)) {
     return null;
   }
 
@@ -11,7 +11,8 @@ export async function enqueueWorkoutSegmentPersistence({ uid, workoutId, payload
       uid,
       workoutId: Number(workoutId),
       payloadPath,
-      entryName
+      entryName,
+      recomputeFromDb: !!recomputeFromDb
     },
     {
       attempts: 2,

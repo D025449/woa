@@ -1,3 +1,4 @@
+-- Active: 1776863449169@@127.0.0.1@5432@cwa24_prod
 BEGIN;
 DROP VIEW IF EXISTS v_workouts_with_best_efforts CASCADE;
 CREATE VIEW v_workouts_with_best_efforts AS

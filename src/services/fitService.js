@@ -282,26 +282,43 @@ export default class FitProcessor {
       });
     }
 
-    const segments = SegmentService.createSgmentsFromIntervals(
-      IntervalDetector.detect(records),
-      'auto'
-    );
-    timing.mark("detect-auto-segments", {
-      autoSegmentCount: segments.length
-    });
+    const shouldComputeSegments = options?.computeSegments !== false;
+    const segments = [];
+    if (shouldComputeSegments) {
+      const autoSegments = SegmentService.createSgmentsFromIntervals(
+        IntervalDetector.detect(records),
+        'auto'
+      );
+      timing.mark("detect-auto-segments", {
+        autoSegmentCount: autoSegments.length
+      });
 
-    const segBE = SegmentService.createSgmentsFromIntervals(
-      BestEffortDetector.detect(records),
-      'crit'
-    );
-    timing.mark("detect-best-efforts", {
-      bestEffortSegmentCount: segBE.length
-    });
+      const segBE = SegmentService.createSgmentsFromIntervals(
+        BestEffortDetector.detect(records),
+        'crit'
+      );
+      timing.mark("detect-best-efforts", {
+        bestEffortSegmentCount: segBE.length
+      });
 
-    segments.push(...segBE);
-    timing.mark("merge-segments", {
-      segmentCount: segments.length
-    });
+      segments.push(...autoSegments, ...segBE);
+      timing.mark("merge-segments", {
+        segmentCount: segments.length
+      });
+    } else {
+      timing.mark("detect-auto-segments", {
+        autoSegmentCount: 0,
+        skipped: true
+      });
+      timing.mark("detect-best-efforts", {
+        bestEffortSegmentCount: 0,
+        skipped: true
+      });
+      timing.mark("merge-segments", {
+        segmentCount: 0,
+        skipped: true
+      });
+    }
 
     timing.flush({
       status: "completed",
