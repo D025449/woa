@@ -802,7 +802,6 @@ export async function createApp(options = {}) {
 
         if (hasSegments) {
           try {
-            await FileDBService.updateWorkoutSegmentProcessingStatus(uid, dbrow.id, "pending", null);
             const segmentPayloadPath = await writeSegmentPersistencePayload({
               uid,
               workoutId: dbrow.id,
@@ -974,10 +973,6 @@ export async function createApp(options = {}) {
       if (Array.isArray(segments) && segments.length > 0) {
         const segmentPersistStartedAt = Date.now();
         try {
-          const statusUpdateStartedAt = Date.now();
-          await FileDBService.updateWorkoutSegmentProcessingStatus(uid, dbrow.id, "pending", null);
-          batchTrace?.add("enqueueSegmentPersistenceStatusUpdateMs", Date.now() - statusUpdateStartedAt);
-
           const payloadResult = await writeSegmentPersistencePayload({
             uid,
             workoutId: dbrow.id,

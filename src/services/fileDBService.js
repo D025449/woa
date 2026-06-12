@@ -1333,7 +1333,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       status: statusRow
         ? {
             workoutId: Number(statusRow.id),
-            segmentProcessingStatus: statusRow.segment_processing_status || "completed",
+            segmentProcessingStatus: statusRow.segment_processing_status || "queued",
             segmentProcessingError: statusRow.segment_processing_error || null,
             segmentProcessingUpdatedAt: statusRow.segment_processing_updated_at || null
           }

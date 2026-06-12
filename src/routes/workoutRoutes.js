@@ -909,7 +909,7 @@ router.get("/workouts/:id/segments", authMiddleware, async (req, res, next) => {
       workoutId
     );
 
-    const segmentStatus = result?.status?.segmentProcessingStatus || "completed";
+    const segmentStatus = result?.status?.segmentProcessingStatus || "queued";
     res.setHeader("Cache-Control", segmentStatus === "completed"
       ? "private, max-age=0, must-revalidate"
       : "no-store");
@@ -919,7 +919,7 @@ router.get("/workouts/:id/segments", authMiddleware, async (req, res, next) => {
       data: result?.rows || [],
       meta: result?.status || {
         workoutId: Number(workoutId),
-        segmentProcessingStatus: "completed",
+        segmentProcessingStatus: "queued",
         segmentProcessingError: null,
         segmentProcessingUpdatedAt: null
       }

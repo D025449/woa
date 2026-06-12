@@ -141,7 +141,7 @@ export default class WorkoutService {
         validGps: !!(trackRow?.validgps ?? trackRow?.validGps ?? workoutObject.isValidGps()),
         sampleRateGPS: trackRow?.samplerategps ?? trackRow?.sampleRateGPS ?? 1,
         gpsSource: trackRow?.gps_source || null,
-        segmentProcessingStatus: trackRow?.segment_processing_status || trackRow?.segmentProcessingStatus || "completed",
+        segmentProcessingStatus: trackRow?.segment_processing_status || trackRow?.segmentProcessingStatus || "queued",
         segmentProcessingError: trackRow?.segment_processing_error || trackRow?.segmentProcessingError || null,
         segmentProcessingUpdatedAt: trackRow?.segment_processing_updated_at || trackRow?.segmentProcessingUpdatedAt || null,
         manualGpsLookupPoints: Array.isArray(trackRow?.manual_gps_lookup_points) ? trackRow.manual_gps_lookup_points : [],

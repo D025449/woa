@@ -386,7 +386,7 @@ export default class Controller {
         total_timer_time: workoutMeta.total_timer_time ?? null,
         total_distance: workoutMeta.total_distance ?? null,
         avg_power: workoutMeta.avg_power ?? null,
-        segmentProcessingStatus: workout.segmentProcessingStatus ?? workoutMeta.segment_processing_status ?? workoutMeta.segmentProcessingStatus ?? "completed",
+        segmentProcessingStatus: workout.segmentProcessingStatus ?? workoutMeta.segment_processing_status ?? workoutMeta.segmentProcessingStatus ?? "queued",
         segmentProcessingError: workout.segmentProcessingError ?? workoutMeta.segment_processing_error ?? workoutMeta.segmentProcessingError ?? null,
         segmentProcessingUpdatedAt: workout.segmentProcessingUpdatedAt ?? workoutMeta.segment_processing_updated_at ?? workoutMeta.segmentProcessingUpdatedAt ?? null,
         is_owned: workoutMeta.is_owned ?? (workout.access?.isOwner !== false)
