@@ -5,12 +5,11 @@ import { pipeline } from "node:stream/promises";
 
 import { Worker } from "bullmq";
 import unzipper from "unzipper";
-import FitParser from "fit-file-parser";
-
 import {
   processFitRecords,
   mapAggregatedToFileRow
 } from "../services/fitService.js";
+import { getFitParserVariant, parseFitBuffer } from "../services/fit-parser-dispatch-service.js";
 
 import { FileDBService } from "../services/fileDBService.js";
 import SegmentDBService from "../services/segmentDBService.js";
@@ -74,6 +73,7 @@ export async function createApp(options = {}) {
     IMPORT_SYNC_PROFILE_LOG,
     IMPORT_QUEUE_CONCURRENCY,
     IMPORT_BATCH_WORKER_CONCURRENCY,
+    FIT_PARSER_VARIANT: getFitParserVariant(),
     IMPORT_UPLOAD_TEMP_DIR,
     SEGMENT_PERSIST_TEMP_DIR,
     THUMBNAIL_TEMP_DIR,
@@ -1355,27 +1355,6 @@ export async function createApp(options = {}) {
       processedFiles,
       failedFiles,
       mode
-    });
-  }
-
-  function parseFitBuffer(buffer) {
-    return new Promise((resolve, reject) => {
-      const parser = new FitParser({
-        force: true,
-        speedUnit: "m/s",
-        lengthUnit: "m",
-        temperatureUnit: "celsius",
-        elapsedRecordField: true,
-        mode: "list"
-      });
-
-      parser.parse(buffer, (error, data) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve(data);
-        }
-      });
     });
   }
 

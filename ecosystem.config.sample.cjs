@@ -59,6 +59,7 @@ const workerEnv = {
   S3_BUCKET: asString(process.env.S3_BUCKET, "cwa24bucketprod"),
   REDIS_URL: asString(process.env.REDIS_URL, "redis://127.0.0.1:6379"),
   WOA_TEMP_DIR: asString(process.env.WOA_TEMP_DIR),
+  FIT_PARSER_VARIANT: asString(process.env.FIT_PARSER_VARIANT, "fast"),
   IMPORT_QUEUE_CONCURRENCY: asString(process.env.IMPORT_QUEUE_CONCURRENCY),
   IMPORT_BATCH_WORKER_CONCURRENCY: asString(process.env.IMPORT_BATCH_WORKER_CONCURRENCY),
   IMPORT_POSTPROCESS_MODE: asString(process.env.IMPORT_POSTPROCESS_MODE),
