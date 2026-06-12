@@ -161,6 +161,10 @@ export async function createApp(options = {}) {
       insertCommitMs: 0,
       insertRollbackMs: 0,
       enqueueSegmentPersistenceMs: 0,
+      enqueueSegmentPersistenceStatusUpdateMs: 0,
+      enqueueSegmentPersistenceSerializeMs: 0,
+      enqueueSegmentPersistenceWriteFileMs: 0,
+      enqueueSegmentPersistenceQueueMs: 0,
       classifySimilarWorkoutsMs: 0,
       shareWorkoutMs: 0,
       createFeedEventsMs: 0,
@@ -252,7 +256,13 @@ export async function createApp(options = {}) {
         thumbnailMs: safe("renderThumbnailMs"),
         shareWorkoutMs: safe("shareWorkoutMs"),
         createFeedEventsMs: safe("createFeedEventsMs"),
-        enqueueSegmentPersistenceMs: safe("enqueueSegmentPersistenceMs")
+        enqueueSegmentPersistenceMs: safe("enqueueSegmentPersistenceMs"),
+        enqueueSegmentPersistenceStepsMs: {
+          statusUpdateMs: safe("enqueueSegmentPersistenceStatusUpdateMs"),
+          serializeMs: safe("enqueueSegmentPersistenceSerializeMs"),
+          writeFileMs: safe("enqueueSegmentPersistenceWriteFileMs"),
+          queueMs: safe("enqueueSegmentPersistenceQueueMs")
+        }
       }
     };
   }
@@ -268,14 +278,24 @@ export async function createApp(options = {}) {
       `${uid}-${workoutId}-${crypto.randomUUID()}.json`
     );
 
-    await fs.promises.writeFile(payloadPath, JSON.stringify({
+    const serializeStartedAt = Date.now();
+    const payload = JSON.stringify({
       uid,
       workoutId,
       entryName,
       segments
-    }));
+    });
+    const serializeMs = Date.now() - serializeStartedAt;
 
-    return payloadPath;
+    const writeStartedAt = Date.now();
+    await fs.promises.writeFile(payloadPath, payload);
+    const writeFileMs = Date.now() - writeStartedAt;
+
+    return {
+      payloadPath,
+      serializeMs,
+      writeFileMs
+    };
   }
 
   async function writeThumbnailPayload({ uid, workoutId, entryName = null, gpsTrack = null, workoutObject = null }) {
@@ -954,13 +974,19 @@ export async function createApp(options = {}) {
       if (Array.isArray(segments) && segments.length > 0) {
         const segmentPersistStartedAt = Date.now();
         try {
+          const statusUpdateStartedAt = Date.now();
           await FileDBService.updateWorkoutSegmentProcessingStatus(uid, dbrow.id, "pending", null);
-          const segmentPayloadPath = await writeSegmentPersistencePayload({
+          batchTrace?.add("enqueueSegmentPersistenceStatusUpdateMs", Date.now() - statusUpdateStartedAt);
+
+          const payloadResult = await writeSegmentPersistencePayload({
             uid,
             workoutId: dbrow.id,
             entryName: context.entryName || null,
             segments
           });
+          const segmentPayloadPath = payloadResult.payloadPath;
+          batchTrace?.add("enqueueSegmentPersistenceSerializeMs", payloadResult.serializeMs);
+          batchTrace?.add("enqueueSegmentPersistenceWriteFileMs", payloadResult.writeFileMs);
           const target = createPostprocessTarget({
             uid,
             workoutId: dbrow.id,
@@ -972,7 +998,9 @@ export async function createApp(options = {}) {
           if (IMPORT_POSTPROCESS_MODE === "phased") {
             deferredPostprocessTarget = target;
           } else {
+            const queueStartedAt = Date.now();
             await handlePostprocessScheduling(context.importJobId || null, target);
+            batchTrace?.add("enqueueSegmentPersistenceQueueMs", Date.now() - queueStartedAt);
           }
           batchTrace?.add("enqueueSegmentPersistenceMs", Date.now() - segmentPersistStartedAt);
         } catch (error) {
