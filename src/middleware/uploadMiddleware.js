@@ -1,12 +1,14 @@
-import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import multer from "multer";
+import {
+  ensureDirSync,
+  getImportUploadDir
+} from "../config/storagePaths.js";
 
-const uploadDir = path.join(os.tmpdir(), "woa-imports");
+const uploadDir = getImportUploadDir();
 
-fs.mkdirSync(uploadDir, { recursive: true });
+ensureDirSync(uploadDir);
 
 const storage = multer.diskStorage({
   destination(_req, _file, cb) {

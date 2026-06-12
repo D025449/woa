@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { pipeline } from "node:stream/promises";
@@ -34,11 +33,18 @@ import {
   updateImportJob
 } from "../db/import-jobs-repo.js";
 import CollaborationDBService from "../services/collaborationDBService.js";
+import {
+  getFilesystemCapacitySnapshot,
+  getImportUploadDir,
+  getSegmentPersistTempDir,
+  getThumbnailTempDir
+} from "../config/storagePaths.js";
 
 export async function createApp(options = {}) {
   const IMPORT_BATCH_SIZE = 10;
-  const SEGMENT_PERSIST_TEMP_DIR = path.join(os.tmpdir(), "woa-postprocess", "segment-persist");
-  const THUMBNAIL_TEMP_DIR = path.join(os.tmpdir(), "woa-postprocess", "thumbnails");
+  const SEGMENT_PERSIST_TEMP_DIR = getSegmentPersistTempDir();
+  const THUMBNAIL_TEMP_DIR = getThumbnailTempDir();
+  const IMPORT_UPLOAD_TEMP_DIR = getImportUploadDir();
   const IMPORT_QUEUE_CONCURRENCY = Math.max(1, Number(process.env.IMPORT_QUEUE_CONCURRENCY) || 2);
   const IMPORT_BATCH_WORKER_CONCURRENCY = Math.max(1, Number(process.env.IMPORT_BATCH_WORKER_CONCURRENCY) || 2);
   const IMPORT_POSTPROCESS_MODE = String(process.env.IMPORT_POSTPROCESS_MODE || "immediate").trim().toLowerCase() === "phased"
@@ -68,9 +74,16 @@ export async function createApp(options = {}) {
     IMPORT_SYNC_PROFILE_LOG,
     IMPORT_QUEUE_CONCURRENCY,
     IMPORT_BATCH_WORKER_CONCURRENCY,
+    IMPORT_UPLOAD_TEMP_DIR,
+    SEGMENT_PERSIST_TEMP_DIR,
+    THUMBNAIL_TEMP_DIR,
     GPS_IMPORT_DEBUG: String(process.env.GPS_IMPORT_DEBUG || "").trim() === "1",
     ALTITUDE_IMPORT_DEBUG: String(process.env.ALTITUDE_IMPORT_DEBUG || "").trim() === "1",
     SIMILARITY_DEBUG: String(process.env.SIMILARITY_DEBUG || "").trim() === "1"
+  });
+
+  getFilesystemCapacitySnapshot(IMPORT_UPLOAD_TEMP_DIR).then((snapshot) => {
+    console.log("[import] storage.temp-dir", snapshot);
   });
 
   function logImportEvent(type, payload = {}) {
@@ -1123,7 +1136,7 @@ export async function createApp(options = {}) {
 
   async function extractZipEntriesToBatchItems(zipPath, sourceName) {
     const startedAt = Date.now();
-    const tempDir = path.join(os.tmpdir(), "woa-imports");
+    const tempDir = IMPORT_UPLOAD_TEMP_DIR;
     await fs.promises.mkdir(tempDir, { recursive: true });
     const openStartedAt = Date.now();
     const zipDirectory = await unzipper.Open.file(zipPath);
@@ -1158,6 +1171,7 @@ export async function createApp(options = {}) {
     logImportEvent("zip.materialized", {
       sourceName,
       fitEntryCount: fitEntries.length,
+      tempDir,
       openMs,
       materializeMs: Date.now() - startedAt
     });

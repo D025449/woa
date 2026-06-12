@@ -31,6 +31,7 @@ const appEnv = {
   AWS_REGION: asString(process.env.AWS_REGION, "eu-central-1"),
   S3_BUCKET: asString(process.env.S3_BUCKET, "cwa24bucketprod"),
   REDIS_URL: asString(process.env.REDIS_URL, "redis://127.0.0.1:6379"),
+  WOA_TEMP_DIR: asString(process.env.WOA_TEMP_DIR),
   PAYPAL_ENV: asString(process.env.PAYPAL_ENV, "live"),
   PAYPAL_CLIENT_ID: asString(process.env.PAYPAL_CLIENT_ID),
   PAYPAL_CLIENT_SECRET: asString(process.env.PAYPAL_CLIENT_SECRET),
@@ -57,6 +58,7 @@ const workerEnv = {
   AWS_REGION: asString(process.env.AWS_REGION, "eu-central-1"),
   S3_BUCKET: asString(process.env.S3_BUCKET, "cwa24bucketprod"),
   REDIS_URL: asString(process.env.REDIS_URL, "redis://127.0.0.1:6379"),
+  WOA_TEMP_DIR: asString(process.env.WOA_TEMP_DIR),
   FEATURE_THUMBNAILS_ON_DEMAND: asString(process.env.FEATURE_THUMBNAILS_ON_DEMAND, "1")
 };
 
