@@ -59,6 +59,13 @@ const workerEnv = {
   S3_BUCKET: asString(process.env.S3_BUCKET, "cwa24bucketprod"),
   REDIS_URL: asString(process.env.REDIS_URL, "redis://127.0.0.1:6379"),
   WOA_TEMP_DIR: asString(process.env.WOA_TEMP_DIR),
+  IMPORT_QUEUE_CONCURRENCY: asString(process.env.IMPORT_QUEUE_CONCURRENCY),
+  IMPORT_BATCH_WORKER_CONCURRENCY: asString(process.env.IMPORT_BATCH_WORKER_CONCURRENCY),
+  IMPORT_POSTPROCESS_MODE: asString(process.env.IMPORT_POSTPROCESS_MODE),
+  IMPORT_POSTPROCESS_LOGS: asString(process.env.IMPORT_POSTPROCESS_LOGS),
+  IMPORT_SYNC_PROFILE_LOG: asString(process.env.IMPORT_SYNC_PROFILE_LOG),
+  IMPORT_TIMING_DEBUG: asString(process.env.IMPORT_TIMING_DEBUG),
+  IMPORT_VERBOSE_LOGS: asString(process.env.IMPORT_VERBOSE_LOGS),
   FEATURE_THUMBNAILS_ON_DEMAND: asString(process.env.FEATURE_THUMBNAILS_ON_DEMAND, "1")
 };
 
