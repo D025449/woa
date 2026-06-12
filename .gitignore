@@ -23,6 +23,10 @@ Thumbs.db
 # Build (falls vorhanden)
 dist/
 build/
+!vendor/
+!vendor/fit-file-parser-fast/
+!vendor/fit-file-parser-fast/dist/
+!vendor/fit-file-parser-fast/dist/*.js
 
 # Ignore ssh_login.txt
 ssh_login.txt
