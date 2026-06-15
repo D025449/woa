@@ -1,6 +1,7 @@
 import pool from "./database.js";
 import pgPromise from "pg-promise";
 import WorkoutSharingService from "./workoutSharingService.js";
+import GpsTrackBlobService from "./gpsTrackBlobService.js";
 
 const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
@@ -121,17 +122,14 @@ class FileDBService {
 static async getMatchingWorkoutCandidates(sids, uid) {
   const USE_BOUNDS_ONLY_SEGMENT_CANDIDATES = true;
 
-  const spatialFilter = USE_BOUNDS_ONLY_SEGMENT_CANDIDATES
-    ? `s.bounds && w.bounds`
-    : `s.bounds && w.bounds
-      AND ST_DWithin(w.geom::geography, s.geom::geography, 100)`;
+  const spatialFilter = `s.bounds && w.bounds`;
 
   const sql = `
     SELECT
       w.id as wid,
       w.samplerategps as wsamplerate,
+      w.gps_track_blob,
       s.id as sid,
-      ST_AsGeoJSON(w.geom)::json AS wgeom,
       ST_AsGeoJSON(s.geom)::json AS sgeom
     FROM gps_segments s
     JOIN workouts w
@@ -148,7 +146,15 @@ static async getMatchingWorkoutCandidates(sids, uid) {
     [sids, uid] // 👈 wichtig: Array übergeben
   );
 
-  return result.rows;
+  return Promise.all(result.rows.map(async (row) => {
+    const decoded = await GpsTrackBlobService.decodeRowTrack({
+      gps_track_blob: row.gps_track_blob
+    });
+    return {
+      ...row,
+      wgeom: decoded.geoJson
+    };
+  }));
 }
 
 static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
@@ -156,7 +162,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     SELECT
       w.id as wid,
       w.samplerategps as wsamplerate,
-      ST_AsGeoJSON(w.geom)::json AS wgeom
+      w.gps_track_blob
     FROM workouts w
     WHERE
       (
@@ -191,7 +197,15 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     ]
   );
 
-  return result.rows;
+  return Promise.all(result.rows.map(async (row) => {
+    const decoded = await GpsTrackBlobService.decodeRowTrack({
+      gps_track_blob: row.gps_track_blob
+    });
+    return {
+      ...row,
+      wgeom: decoded.geoJson
+    };
+  }));
 }
 
 
@@ -1372,13 +1386,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     }
 
 
-    // 🔥 LINESTRING bauen
     const points_count = gps_track?.track.length ?? 0;
-    const coords = gps_track.track
-      .map(p => `${p[1]} ${p[0]}`) // ⚠️ lng lat!
-      .join(", ");
-
-    const geom = `LINESTRING(${coords})`;
     const firstTrackPoint = points_count > 0 ? gps_track.track[0] : null;
     const lastTrackPoint = points_count > 0 ? gps_track.track[points_count - 1] : null;
     const trackStartGeom = firstTrackPoint
@@ -1388,6 +1396,9 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       ? `POINT(${lastTrackPoint[1]} ${lastTrackPoint[0]})`
       : null;
     timing.mark("build-geometry-wkt");
+    const compressedGpsTrackBlob = await GpsTrackBlobService.encodeCompressed(gps_track?.track ?? [], {
+      sampleRateGps: sampleRateGPS
+    });
 
     if (fileRow.validGps && points_count < 2) {
       console.warn("[db.insert-file] forcing GPS invalid because track has fewer than 2 points", {
@@ -1467,9 +1478,9 @@ INSERT INTO workouts (
   bounds,
   track_start,
   track_end,
-  geom,
   points_count,
   sampleRateGPS,
+  gps_track_blob,
   stream,
   gps_source
 )
@@ -1491,19 +1502,15 @@ CASE
 END,
 CASE 
   WHEN $21 = true
-  THEN ST_GeomFromText($33, 4326)
-  ELSE NULL
-END,
-CASE
-  WHEN $21 = true
-  THEN ST_GeomFromText($34, 4326)
-  ELSE NULL
-END,
-CASE
-  WHEN $21 = true
   THEN ST_GeomFromText($32, 4326)
   ELSE NULL
 END,
+CASE
+  WHEN $21 = true
+  THEN ST_GeomFromText($33, 4326)
+  ELSE NULL
+END,
+  $34,
   $35,
   $36,
   $37,
@@ -1545,11 +1552,11 @@ RETURNING id, uid;
           gps_track?.bbox?.minLat ?? null, // $29
           gps_track?.bbox?.maxLng ?? null, // $30
           gps_track?.bbox?.maxLat ?? null, // $31
-          geom,                  // $32
-          trackStartGeom,        // $33
-          trackEndGeom,          // $34
-          points_count,          // $35
-          sampleRateGPS,         // $36
+          trackStartGeom,        // $32
+          trackEndGeom,          // $33
+          points_count,          // $34
+          sampleRateGPS,         // $35
+          compressedGpsTrackBlob,// $36
           compressedBuffer,      // $37
           gpsSource              // $38
         ]

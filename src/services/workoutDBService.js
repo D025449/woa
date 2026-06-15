@@ -4,6 +4,7 @@ import S3Service from "./s3Service.js";
 import pgPromise from "pg-promise";
 import WorkoutSharingService from "./workoutSharingService.js";
 import ElevationService from "./ElevationService.js";
+import GpsTrackBlobService from "./gpsTrackBlobService.js";
 
 function haversineMeters(a, b) {
   const toRad = (value) => (value * Math.PI) / 180;
@@ -199,6 +200,20 @@ function parseGeoJsonTrack(geoJsonTrack) {
     .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
 }
 
+async function hydrateTrackRow(row) {
+  if (!row) {
+    return row;
+  }
+
+  const decoded = await GpsTrackBlobService.decodeRowTrack(row);
+  row.track = decoded.geoJson;
+  row.trackPoints = decoded.points;
+  if ((row.samplerategps == null && row.sampleRateGPS == null) && decoded.sampleRateGps) {
+    row.sampleRateGPS = decoded.sampleRateGps;
+  }
+  return row;
+}
+
 function buildDistanceAxisIndex(values = []) {
   const axis = [];
   let lastValue = 0;
@@ -282,7 +297,6 @@ export default class WorkoutDBService {
         FROM workouts
         WHERE uid = $1
           AND validgps = true
-          AND geom IS NOT NULL
           AND bounds IS NOT NULL
           AND track_start IS NOT NULL
           AND track_end IS NOT NULL
@@ -330,7 +344,6 @@ export default class WorkoutDBService {
           w.id = $1
           AND w.uid = $2
           AND w.validgps = true
-          AND w.geom IS NOT NULL
           AND w.bounds IS NOT NULL
           AND w.track_start IS NOT NULL
           AND w.track_end IS NOT NULL
@@ -341,7 +354,7 @@ export default class WorkoutDBService {
         w.total_distance,
         w.total_ascent,
         w.samplerategps,
-        ST_AsGeoJSON(w.geom)::json AS track,
+        w.gps_track_blob,
         ST_Distance(w.track_start::geography, s.track_start::geography) AS start_distance_m,
         ST_Distance(w.track_end::geography, s.track_end::geography) AS end_distance_m,
         ABS(w.total_distance - s.total_distance) / NULLIF(s.total_distance, 0) AS distance_delta_ratio,
@@ -361,7 +374,6 @@ export default class WorkoutDBService {
             AND existing.workout_id_b = GREATEST(s.id, w.id)
         )` : ""}
         AND w.validgps = true
-        AND w.geom IS NOT NULL
         AND w.bounds IS NOT NULL
         AND w.track_start IS NOT NULL
         AND w.track_end IS NOT NULL
@@ -388,7 +400,7 @@ export default class WorkoutDBService {
 
     const result = await pool.query(sql, params);
 
-    return result.rows;
+    return Promise.all(result.rows.map((row) => hydrateTrackRow(row)));
   }
 
   static async upsertSimilarityEdge(edge) {
@@ -649,7 +661,7 @@ export default class WorkoutDBService {
         sampleRateGPS,
         gps_source,
         manual_gps_lookup_points,
-        ST_AsGeoJSON(geom)::json AS track
+        gps_track_blob
         FROM workouts 
         WHERE id = $1`,
       [id]
@@ -659,7 +671,7 @@ export default class WorkoutDBService {
       throw new Error("no workouts found");
     }
 
-    return result.rows[0];
+    return hydrateTrackRow(result.rows[0]);
   }
 
   static async getManualGpsContext(id, uid) {
@@ -680,6 +692,7 @@ export default class WorkoutDBService {
         validgps,
         gps_source,
         manual_gps_lookup_points,
+        gps_track_blob,
         stream
        FROM workouts
        WHERE id = $1
@@ -746,7 +759,6 @@ export default class WorkoutDBService {
        WHERE w.uid = $1
          AND w.id <> $2
          AND w.validgps = true
-         AND w.geom IS NOT NULL
          AND w.total_distance BETWEEN $3 AND $4
        ORDER BY ABS(COALESCE(w.total_distance, 0) - $5) ASC, w.start_time DESC NULLS LAST, w.id DESC
        LIMIT 60`,
@@ -768,12 +780,12 @@ export default class WorkoutDBService {
         samplerategps,
         gps_source,
         stream,
-        ST_AsGeoJSON(geom)::json AS track
+        gps_track_blob
        FROM workouts
        WHERE id = $1
          AND uid = $2
          AND validgps = true
-         AND geom IS NOT NULL`,
+      `,
       [id, uid]
     );
 
@@ -783,8 +795,7 @@ export default class WorkoutDBService {
 
     const row = result.rows[0];
     row.workoutObject = await Workout.fromCompressed(row.stream);
-    row.trackPoints = parseGeoJsonTrack(row.track);
-    return row;
+    return hydrateTrackRow(row);
   }
 
   static buildManualGpsTrackFromLookup(workoutObject, lookupTrack, totalWorkoutDistanceMeters) {
@@ -1067,7 +1078,6 @@ export default class WorkoutDBService {
     }
 
     const pointsCount = normalizedTrack.length;
-    const geom = buildLinestringWkt(normalizedTrack);
     const firstPoint = normalizedTrack[0];
     const lastPoint = normalizedTrack[normalizedTrack.length - 1];
     const trackStartGeom = `POINT(${firstPoint.lng} ${firstPoint.lat})`;
@@ -1083,6 +1093,12 @@ export default class WorkoutDBService {
     const streamBuffer = streamUpdate?.workoutObject
       ? await streamUpdate.workoutObject.toCompressedBuffer()
       : null;
+    const gpsTrackBlob = await GpsTrackBlobService.encodeCompressed(
+      normalizedTrack.map((point) => [point.lat, point.lng]),
+      {
+        sampleRateGps: Number(manualGpsTrack?.sampleRateSeconds) || 5
+      }
+    );
 
     const result = await pool.query(
       `UPDATE workouts
@@ -1093,7 +1109,7 @@ export default class WorkoutDBService {
         bounds = ST_MakeEnvelope($5::float8, $6::float8, $7::float8, $8::float8, 4326),
         track_start = ST_GeomFromText($9, 4326),
         track_end = ST_GeomFromText($10, 4326),
-        geom = ST_GeomFromText($11, 4326),
+        gps_track_blob = $11::bytea,
         gps_source = 'manual_lookup',
         manual_gps_lookup_points = $12::jsonb,
         stream = COALESCE($13::bytea, stream),
@@ -1106,9 +1122,9 @@ export default class WorkoutDBService {
         sampleRateGPS,
         gps_source,
         manual_gps_lookup_points,
+        gps_track_blob,
         total_ascent,
-        total_descent,
-        ST_AsGeoJSON(geom)::json AS track`,
+        total_descent`,
       [
         id,
         uid,
@@ -1120,7 +1136,7 @@ export default class WorkoutDBService {
         bbox.maxLat,
         trackStartGeom,
         trackEndGeom,
-        geom,
+        gpsTrackBlob,
         JSON.stringify(normalizedLookupPoints),
         streamBuffer,
         Number.isFinite(streamUpdate?.totalAscent) ? streamUpdate.totalAscent : null,
@@ -1132,7 +1148,7 @@ export default class WorkoutDBService {
       throw new Error("no workouts found");
     }
 
-    return result.rows[0];
+    return hydrateTrackRow(result.rows[0]);
   }
 
 

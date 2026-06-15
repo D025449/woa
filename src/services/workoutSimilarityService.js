@@ -182,7 +182,9 @@ export default class WorkoutSimilarityService {
     const startedAt = Date.now();
 
     const sourceTrackRow = await WorkoutDBService.getTrack(sourceWorkoutId, uid);
-    const sourceTrack = this.normalizeTrackGeoJson(sourceTrackRow?.track);
+    const sourceTrack = Array.isArray(sourceTrackRow?.trackPoints)
+      ? sourceTrackRow.trackPoints
+      : this.normalizeTrackGeoJson(sourceTrackRow?.track);
     if (sourceTrack.length < 2) {
       if (shouldDeleteExistingEdges) {
         await WorkoutDBService.deleteSimilarityEdgesForWorkout(
@@ -221,7 +223,9 @@ export default class WorkoutSimilarityService {
 
     for (const candidate of candidates) {
       comparedCandidates += 1;
-      const candidateTrack = this.normalizeTrackGeoJson(candidate.track);
+      const candidateTrack = Array.isArray(candidate?.trackPoints)
+        ? candidate.trackPoints
+        : this.normalizeTrackGeoJson(candidate.track);
       if (candidateTrack.length < 2) {
         continue;
       }

@@ -52,11 +52,11 @@ CREATE TABLE workouts (
     segment_processing_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     points_count         INTEGER,
     sampleRateGPS        DOUBLE PRECISION,
+    gps_track_blob       BYTEA,
 
     bounds               geometry(POLYGON, 4326),
     track_start          geometry(POINT, 4326),
     track_end            geometry(POINT, 4326),
-    geom                 geometry(LINESTRING, 4326),
 
     CONSTRAINT uq_user_start_time2 UNIQUE (uid, start_time),
     CONSTRAINT fk_user2 FOREIGN KEY (uid)

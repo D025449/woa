@@ -1,4 +1,5 @@
 import pool from "./database.js";
+import GpsTrackBlobService from "./gpsTrackBlobService.js";
 import { FileDBService } from "./fileDBService.js";
 import SegmentMatcher from "./SegmentMatcher.js";
 import WorkoutDBService from "./workoutDBService.js";
@@ -1143,7 +1144,7 @@ export default class SegmentDBService {
       SELECT
         id,
         samplerategps,
-        ST_AsGeoJSON(geom)::json AS track_geojson
+        gps_track_blob
       FROM workouts
       WHERE id = $1
         AND uid = $2
@@ -1155,8 +1156,11 @@ export default class SegmentDBService {
     }
 
     const workoutRow = workoutRowResult.rows[0];
-    const coordinates = workoutRow.track_geojson?.coordinates || [];
-    const track = coordinates.map(([lng, lat]) => ({ lat, lng }));
+    const decodedTrack = await GpsTrackBlobService.decodeRowTrack({
+      gps_track_blob: workoutRow.gps_track_blob,
+      samplerategps: workoutRow.samplerategps
+    });
+    const track = decodedTrack.points;
 
     if (track.length === 0) {
       return [];

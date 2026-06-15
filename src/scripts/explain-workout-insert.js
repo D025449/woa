@@ -42,12 +42,12 @@ function getVariantConfig(variant) {
     case "full":
       return {
         name: "full",
-        description: "Original insert with bounds, track_start, track_end, geom, full stream"
+        description: "Current insert with bounds, track_start, track_end, gps_track_blob, full stream"
       };
     case "no-geom":
       return {
         name: "no-geom",
-        description: "Insert with all geometry-related columns forced to NULL"
+        description: "Insert with all GPS-related columns forced to NULL"
       };
     case "tiny-stream":
       return {
@@ -111,6 +111,7 @@ async function loadSourceRows({ workoutId, userId, limit }) {
       w.year_week,
       w.points_count,
       w.sampleRateGPS,
+      w.gps_track_blob,
       w.stream,
       w.gps_source,
       ST_XMin(w.bounds) AS min_lng,
@@ -119,7 +120,6 @@ async function loadSourceRows({ workoutId, userId, limit }) {
       ST_YMax(w.bounds) AS max_lat,
       ST_AsText(w.track_start) AS track_start_wkt,
       ST_AsText(w.track_end) AS track_end_wkt,
-      ST_AsText(w.geom) AS geom_wkt,
       octet_length(w.stream) AS stream_bytes
     FROM workouts w
     ${whereClause}
@@ -139,13 +139,13 @@ function shiftDate(value, repetitionIndex) {
 
 function buildInsertParams(row, variant, repetitionIndex) {
   const validGps = variant === "no-geom" ? false : row.validgps;
-  const geomWkt = variant === "no-geom" ? null : row.geom_wkt;
   const trackStartWkt = variant === "no-geom" ? null : row.track_start_wkt;
   const trackEndWkt = variant === "no-geom" ? null : row.track_end_wkt;
   const minLng = variant === "no-geom" ? null : row.min_lng;
   const minLat = variant === "no-geom" ? null : row.min_lat;
   const maxLng = variant === "no-geom" ? null : row.max_lng;
   const maxLat = variant === "no-geom" ? null : row.max_lat;
+  const gpsTrackBlob = variant === "no-geom" ? null : row.gps_track_blob;
   const stream = variant === "tiny-stream"
     ? Buffer.alloc(Math.min(256, row.stream.length), 0)
     : row.stream;
@@ -182,11 +182,11 @@ function buildInsertParams(row, variant, repetitionIndex) {
     minLat,
     maxLng,
     maxLat,
-    geomWkt,
     trackStartWkt,
     trackEndWkt,
     row.points_count,
     row.samplerategps,
+    gpsTrackBlob,
     stream,
     row.gps_source
   ];
@@ -224,9 +224,9 @@ INSERT INTO workouts (
   bounds,
   track_start,
   track_end,
-  geom,
   points_count,
   sampleRateGPS,
+  gps_track_blob,
   stream,
   gps_source
 )
@@ -248,19 +248,15 @@ CASE
 END,
 CASE
   WHEN $21 = true
-  THEN ST_GeomFromText($33, 4326)
-  ELSE NULL
-END,
-CASE
-  WHEN $21 = true
-  THEN ST_GeomFromText($34, 4326)
-  ELSE NULL
-END,
-CASE
-  WHEN $21 = true
   THEN ST_GeomFromText($32, 4326)
   ELSE NULL
 END,
+CASE
+  WHEN $21 = true
+  THEN ST_GeomFromText($33, 4326)
+  ELSE NULL
+END,
+  $34,
   $35,
   $36,
   $37,

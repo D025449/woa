@@ -1,5 +1,6 @@
 import pool from "./database.js";
 import Workout from "../shared/Workout.js";
+import GpsTrackBlobService from "./gpsTrackBlobService.js";
 
 const SVG_WIDTH = 256;
 const SVG_HEIGHT = 160;
@@ -432,7 +433,7 @@ export default class WorkoutThumbnailService {
         `SELECT
           id,
           stream,
-          ST_AsGeoJSON(geom)::json AS track
+          gps_track_blob
          FROM workouts
          WHERE id = $1`,
         [normalizedWorkoutId]
@@ -444,7 +445,8 @@ export default class WorkoutThumbnailService {
 
       const row = result.rows[0];
       const workoutObject = row?.stream ? await Workout.fromCompressed(row.stream) : null;
-      const gpsTrack = WorkoutThumbnailService.parseGeoJsonTrack(row?.track);
+      const decodedTrack = await GpsTrackBlobService.decodeRowTrack(row);
+      const gpsTrack = decodedTrack.points.map((point) => [point.lat, point.lng]);
       const payload = WorkoutThumbnailService.createThumbnailPayload({
         gpsTrack,
         workoutObject
