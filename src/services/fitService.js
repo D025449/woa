@@ -415,13 +415,16 @@ export default class FitProcessor {
     });
     timing.mark("clean-altitude");
 
+    const gpsProfile = {};
     const gps_track = FitProcessor.cleanGPSAndBuildTrackTyped(filled, {
       sampleRate: 5,
-      sourceName: options?.sourceName ?? null
+      sourceName: options?.sourceName ?? null,
+      profile: gpsProfile
     });
     timing.mark("clean-gps-build-track", {
       gpsPointCount: gps_track?.track?.length ?? 0,
-      validGps: !!gps_track?.validGps
+      validGps: !!gps_track?.validGps,
+      phases: gpsProfile
     });
 
     const workoutObject = Workout.fromTypedArrays(filled, {
@@ -622,7 +625,8 @@ export default class FitProcessor {
     const {
       sampleRate = 1,
       precision = 5,
-      sourceName = null
+      sourceName = null,
+      profile = null
     } = options;
 
     const lats = recordsTyped.positionLatsDeg;
@@ -640,11 +644,17 @@ export default class FitProcessor {
       return 2 * EARTH_RADIUS_METERS * Math.atan2(Math.sqrt(aVal), Math.sqrt(1 - aVal));
     }
 
+    const copyStartedAt = profile ? Date.now() : 0;
     const rawLats = new Float64Array(lats);
     const rawLongs = new Float64Array(longs);
+    if (profile) {
+      profile.copySourceArraysMs = Date.now() - copyStartedAt;
+    }
     let lastValidIndex = -1;
-    let relockCandidate = [];
+    const relockIndexes = new Int32Array(Math.max(8, MIN_RELOCK_SEQUENCE * 8));
+    let relockLength = 0;
 
+    const cleanPassStartedAt = profile ? Date.now() : 0;
     for (let index = 0; index < lats.length; index += 1) {
       const lat = lats[index];
       const lng = longs[index];
@@ -664,7 +674,7 @@ export default class FitProcessor {
       const dist = haversine(lats[lastValidIndex], longs[lastValidIndex], lat, lng);
       if (dist <= MAX_STEP_DISTANCE_METERS) {
         lastValidIndex = index;
-        relockCandidate = [];
+        relockLength = 0;
         continue;
       }
 
@@ -674,38 +684,43 @@ export default class FitProcessor {
       const rawLat = rawLats[index];
       const rawLng = rawLongs[index];
       if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng)) {
-        relockCandidate = [];
+        relockLength = 0;
         continue;
       }
 
-      const candidate = { index, lat: rawLat, lng: rawLng };
-      if (relockCandidate.length === 0) {
-        relockCandidate.push(candidate);
+      if (relockLength === 0) {
+        relockIndexes[relockLength++] = index;
         continue;
       }
 
-      const prevCandidate = relockCandidate[relockCandidate.length - 1];
-      const candidateDist = haversine(prevCandidate.lat, prevCandidate.lng, rawLat, rawLng);
+      const prevCandidateIndex = relockIndexes[relockLength - 1];
+      const candidateDist = haversine(rawLats[prevCandidateIndex], rawLongs[prevCandidateIndex], rawLat, rawLng);
       if (candidateDist <= MAX_STEP_DISTANCE_METERS) {
-        relockCandidate.push(candidate);
+        relockIndexes[relockLength++] = index;
       } else {
-        relockCandidate = [candidate];
+        relockIndexes[0] = index;
+        relockLength = 1;
       }
 
-      if (relockCandidate.length >= MIN_RELOCK_SEQUENCE) {
-        for (const relockPoint of relockCandidate) {
-          lats[relockPoint.index] = relockPoint.lat;
-          longs[relockPoint.index] = relockPoint.lng;
+      if (relockLength >= MIN_RELOCK_SEQUENCE) {
+        for (let relockIndex = 0; relockIndex < relockLength; relockIndex += 1) {
+          const sourceIndex = relockIndexes[relockIndex];
+          lats[sourceIndex] = rawLats[sourceIndex];
+          longs[sourceIndex] = rawLongs[sourceIndex];
         }
-        lastValidIndex = relockCandidate[relockCandidate.length - 1].index;
-        relockCandidate = [];
+        lastValidIndex = relockIndexes[relockLength - 1];
+        relockLength = 0;
       }
+    }
+    if (profile) {
+      profile.cleanPassMs = Date.now() - cleanPassStartedAt;
     }
 
     const prevValidIndex = new Int32Array(lats.length);
     const nextValidIndex = new Int32Array(lats.length);
     let previousValid = -1;
 
+    const neighborIndexStartedAt = profile ? Date.now() : 0;
     for (let index = 0; index < lats.length; index += 1) {
       prevValidIndex[index] = previousValid;
       if (Number.isFinite(lats[index]) && Number.isFinite(longs[index])) {
@@ -720,8 +735,12 @@ export default class FitProcessor {
         nextValid = index;
       }
     }
+    if (profile) {
+      profile.neighborIndexMs = Date.now() - neighborIndexStartedAt;
+    }
 
     let currentGapLength = 0;
+    const interpolationStartedAt = profile ? Date.now() : 0;
     for (let index = 0; index < lats.length; index += 1) {
       if (Number.isFinite(lats[index]) && Number.isFinite(longs[index])) {
         currentGapLength = 0;
@@ -738,6 +757,9 @@ export default class FitProcessor {
       lats[index] = (lats[prevIndex] + lats[nextIndex]) / 2;
       longs[index] = (longs[prevIndex] + longs[nextIndex]) / 2;
     }
+    if (profile) {
+      profile.interpolatePassMs = Date.now() - interpolationStartedAt;
+    }
 
     let minLat = Infinity;
     let maxLat = -Infinity;
@@ -745,6 +767,7 @@ export default class FitProcessor {
     let maxLng = -Infinity;
     const reduced = [];
 
+    const buildTrackStartedAt = profile ? Date.now() : 0;
     for (let index = 0; index < lats.length; index += 1) {
       const lat = lats[index];
       const lng = longs[index];
@@ -764,9 +787,16 @@ export default class FitProcessor {
         reduced.push([normalizedLat, normalizedLng]);
       }
     }
+    if (profile) {
+      profile.buildTrackMs = Date.now() - buildTrackStartedAt;
+    }
 
     const validGps = reduced.length >= 2;
+    const hashStartedAt = profile ? Date.now() : 0;
     const trackHash = validGps ? reduced.map((point) => point.join(",")).join("|") : null;
+    if (profile) {
+      profile.trackHashMs = Date.now() - hashStartedAt;
+    }
 
     return {
       validGps,

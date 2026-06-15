@@ -1387,7 +1387,7 @@ export async function createApp(options = {}) {
       const progressPercent =
         totalFiles === 0
           ? 100
-          : Math.min(95, 15 + ((processedFiles + failedFiles) / totalFiles) * 80);
+          : Math.min(99, 10 + ((processedFiles + failedFiles) / totalFiles) * 89);
 
       await updateImportJob(jobId, {
         processedFiles,
@@ -1407,7 +1407,7 @@ export async function createApp(options = {}) {
     await updateImportJob(jobId, {
       stage: "saving_results",
       fileStatuses,
-      progressPercent: 98
+      progressPercent: 99
     });
 
     if (IMPORT_POSTPROCESS_MODE !== "phased") {
@@ -1649,7 +1649,7 @@ export async function createApp(options = {}) {
       totalFiles,
       processedFiles: 0,
       failedFiles: 0,
-      progressPercent: totalFiles > 0 ? 15 : 100
+      progressPercent: totalFiles > 0 ? 10 : 100
     });
 
     logImportEvent("job.started", {
