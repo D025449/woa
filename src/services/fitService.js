@@ -7,6 +7,25 @@ import Workout from "../shared/Workout.js";
 const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
 
 export default class FitProcessor {
+  static createGrowableNumericStore(initialCapacity = 1024) {
+    return {
+      buffer: new Float64Array(initialCapacity),
+      length: 0,
+      push(value) {
+        if (this.length >= this.buffer.length) {
+          const next = new Float64Array(this.buffer.length * 2);
+          next.set(this.buffer);
+          this.buffer = next;
+        }
+        this.buffer[this.length] = value;
+        this.length += 1;
+      },
+      toTypedArray() {
+        return this.buffer.slice(0, this.length);
+      }
+    };
+  }
+
   static extractImportGpsSource(fitFile) {
     const sessions = Array.isArray(fitFile?.sessions) ? fitFile.sessions : [];
     const hasManualGpsFlag = sessions.some((session) => {
@@ -215,6 +234,13 @@ export default class FitProcessor {
   // MAIN PIPELINE
   // -----------------------------
   static processFitRecords(fitFile, options = {}) {
+    if (
+      fitFile?.recordsTyped &&
+      options?.computeSegments === false
+    ) {
+      return FitProcessor.processFitTypedRecords(fitFile, options);
+    }
+
     const timing = FitProcessor.createStepLogger("fit.process-fit-records", {
       sourceName: options?.sourceName ?? null,
       recordCount: fitFile?.records?.length ?? 0,
@@ -233,8 +259,14 @@ export default class FitProcessor {
     }
     const startdate = new Date(aggregated.start_time);
 
-    recs.sort((a, b) => a.timestamp - b.timestamp);
-    timing.mark("sort-records");
+    if (fitFile?.recordsAreSorted) {
+      timing.mark("sort-records", {
+        skipped: true
+      });
+    } else {
+      recs.sort((a, b) => a.timestamp - b.timestamp);
+      timing.mark("sort-records");
+    }
 
     if (recs?.length < 300) {
       timing.flush({
@@ -339,6 +371,411 @@ export default class FitProcessor {
             stepMs: Number(step.stepMs || 0)
           }))
         : []
+    };
+  }
+
+  static processFitTypedRecords(fitFile, options = {}) {
+    const timing = FitProcessor.createStepLogger("fit.process-fit-records", {
+      sourceName: options?.sourceName ?? null,
+      recordCount: fitFile?.recordsTyped?.recordCount ?? 0,
+      sessionCount: fitFile?.sessions?.length ?? 0
+    });
+
+    const aggregated = FitProcessor.aggregateSessions(fitFile);
+    timing.mark("aggregate-sessions");
+
+    if (!aggregated) {
+      timing.flush({
+        status: "failed",
+        error: "No sessions found in payload"
+      });
+      throw new Error("No sessions found in payload");
+    }
+
+    const recordCount = Number(fitFile?.recordsTyped?.recordCount ?? 0);
+    if (recordCount < 300) {
+      timing.flush({
+        status: "failed",
+        error: "less than five minutes"
+      });
+      throw new Error("less than five minutes");
+    }
+
+    timing.mark("sort-records", {
+      skipped: true
+    });
+
+    const filled = FitProcessor.fillGapsTyped(fitFile.recordsTyped);
+    timing.mark("fill-gaps", {
+      filledRecordCount: filled.recordCount
+    });
+
+    FitProcessor.cleanAltitudeTyped(filled, {
+      sourceName: options?.sourceName ?? null
+    });
+    timing.mark("clean-altitude");
+
+    const gps_track = FitProcessor.cleanGPSAndBuildTrackTyped(filled, {
+      sampleRate: 5,
+      sourceName: options?.sourceName ?? null
+    });
+    timing.mark("clean-gps-build-track", {
+      gpsPointCount: gps_track?.track?.length ?? 0,
+      validGps: !!gps_track?.validGps
+    });
+
+    const workoutObject = Workout.fromTypedArrays(filled, {
+      validGps: gps_track.validGps,
+      startTimeMs: Number(filled.timestampsMs?.[0] ?? Date.now())
+    });
+    timing.mark("workout-from-records");
+
+    timing.mark("detect-auto-segments", {
+      autoSegmentCount: 0,
+      skipped: true
+    });
+    timing.mark("detect-best-efforts", {
+      bestEffortSegmentCount: 0,
+      skipped: true
+    });
+    timing.mark("merge-segments", {
+      segmentCount: 0,
+      skipped: true
+    });
+
+    timing.flush({
+      status: "completed",
+      validGps: !!gps_track?.validGps,
+      gpsPointCount: gps_track?.track?.length ?? 0,
+      segmentCount: 0
+    });
+
+    return {
+      aggregated,
+      segments: [],
+      gps_track,
+      workoutObject,
+      importGpsSource: FitProcessor.extractImportGpsSource(fitFile),
+      timingSteps: Array.isArray(timing?.steps)
+        ? timing.steps.map((step) => ({
+            label: step.label,
+            stepMs: Number(step.stepMs || 0)
+          }))
+        : []
+    };
+  }
+
+  static fillGapsTyped(recordsTyped) {
+    const timestampsMs = recordsTyped.timestampsMs;
+    const distancesM = recordsTyped.distancesM;
+    const powersW = recordsTyped.powersW;
+    const heartRatesBpm = recordsTyped.heartRatesBpm;
+    const cadencesRpm = recordsTyped.cadencesRpm;
+    const speedsMps = recordsTyped.speedsMps;
+    const altitudesM = recordsTyped.altitudesM;
+    const positionLatsDeg = recordsTyped.positionLatsDeg;
+    const positionLongsDeg = recordsTyped.positionLongsDeg;
+    const maxGap = 5;
+
+    const outTimestamps = FitProcessor.createGrowableNumericStore(timestampsMs.length + 32);
+    const outDistances = FitProcessor.createGrowableNumericStore(distancesM.length + 32);
+    const outPowers = FitProcessor.createGrowableNumericStore(powersW.length + 32);
+    const outHeartRates = FitProcessor.createGrowableNumericStore(heartRatesBpm.length + 32);
+    const outCadences = FitProcessor.createGrowableNumericStore(cadencesRpm.length + 32);
+    const outSpeeds = FitProcessor.createGrowableNumericStore(speedsMps.length + 32);
+    const outAltitudes = FitProcessor.createGrowableNumericStore(altitudesM.length + 32);
+    const outLats = FitProcessor.createGrowableNumericStore(positionLatsDeg.length + 32);
+    const outLongs = FitProcessor.createGrowableNumericStore(positionLongsDeg.length + 32);
+
+    const lerp = (left, right, ratio, fallback = 0) => {
+      const leftValid = Number.isFinite(left);
+      const rightValid = Number.isFinite(right);
+      if (!leftValid && !rightValid) return fallback;
+      if (!leftValid) return right;
+      if (!rightValid) return left;
+      return left + ((right - left) * ratio);
+    };
+
+    const pushRecord = (index) => {
+      outTimestamps.push(timestampsMs[index]);
+      outDistances.push(distancesM[index]);
+      outPowers.push(powersW[index]);
+      outHeartRates.push(heartRatesBpm[index]);
+      outCadences.push(cadencesRpm[index]);
+      outSpeeds.push(speedsMps[index]);
+      outAltitudes.push(altitudesM[index]);
+      outLats.push(positionLatsDeg[index]);
+      outLongs.push(positionLongsDeg[index]);
+    };
+
+    for (let index = 0; index < recordsTyped.recordCount - 1; index += 1) {
+      pushRecord(index);
+
+      const t0Sec = Math.floor(timestampsMs[index] / 1000);
+      const t1Sec = Math.floor(timestampsMs[index + 1] / 1000);
+      const gap = t1Sec - t0Sec;
+
+      if (gap > 1 && gap <= maxGap) {
+        const steps = gap - 1;
+        for (let step = 1; step <= steps; step += 1) {
+          const ratio = step / gap;
+          outTimestamps.push((t0Sec + step) * 1000);
+          outDistances.push(lerp(distancesM[index], distancesM[index + 1], ratio, Number.NaN));
+          outPowers.push(lerp(powersW[index], powersW[index + 1], ratio, 0));
+          outHeartRates.push(lerp(heartRatesBpm[index], heartRatesBpm[index + 1], ratio, Number.NaN));
+          outCadences.push(lerp(cadencesRpm[index], cadencesRpm[index + 1], ratio, Number.NaN));
+          outSpeeds.push(lerp(speedsMps[index], speedsMps[index + 1], ratio, Number.NaN));
+          outAltitudes.push(lerp(altitudesM[index], altitudesM[index + 1], ratio, Number.NaN));
+          outLats.push(Number.NaN);
+          outLongs.push(Number.NaN);
+        }
+      }
+    }
+
+    pushRecord(recordsTyped.recordCount - 1);
+
+    return {
+      recordCount: outTimestamps.length,
+      timestampsMs: outTimestamps.toTypedArray(),
+      distancesM: outDistances.toTypedArray(),
+      powersW: outPowers.toTypedArray(),
+      heartRatesBpm: outHeartRates.toTypedArray(),
+      cadencesRpm: outCadences.toTypedArray(),
+      speedsMps: outSpeeds.toTypedArray(),
+      altitudesM: outAltitudes.toTypedArray(),
+      positionLatsDeg: outLats.toTypedArray(),
+      positionLongsDeg: outLongs.toTypedArray()
+    };
+  }
+
+  static cleanAltitudeTyped(recordsTyped, options = {}) {
+    const {
+      minAltitude = -500,
+      maxAltitude = 9000
+    } = options;
+
+    const altitudes = recordsTyped.altitudesM;
+
+    for (let index = 0; index < altitudes.length; index += 1) {
+      const value = Number(altitudes[index]);
+      altitudes[index] = (Number.isFinite(value) && value >= minAltitude && value <= maxAltitude)
+        ? value
+        : Number.NaN;
+    }
+
+    for (let index = 1; index < altitudes.length - 1; index += 1) {
+      const prev = altitudes[index - 1];
+      const current = altitudes[index];
+      const next = altitudes[index + 1];
+
+      if (!Number.isFinite(prev) || !Number.isFinite(current) || !Number.isFinite(next)) {
+        continue;
+      }
+
+      const prevDelta = Math.abs(current - prev);
+      const nextDelta = Math.abs(current - next);
+      const neighborDelta = Math.abs(next - prev);
+
+      if (prevDelta > 25 && nextDelta > 25 && neighborDelta <= 25) {
+        altitudes[index] = Number.NaN;
+      }
+    }
+
+    for (let index = 0; index < altitudes.length; index += 1) {
+      if (Number.isFinite(altitudes[index])) {
+        continue;
+      }
+
+      let prevIndex = index - 1;
+      while (prevIndex >= 0 && !Number.isFinite(altitudes[prevIndex])) {
+        prevIndex -= 1;
+      }
+
+      let nextIndex = index + 1;
+      while (nextIndex < altitudes.length && !Number.isFinite(altitudes[nextIndex])) {
+        nextIndex += 1;
+      }
+
+      const prev = prevIndex >= 0 ? altitudes[prevIndex] : Number.NaN;
+      const next = nextIndex < altitudes.length ? altitudes[nextIndex] : Number.NaN;
+
+      if (Number.isFinite(prev) && Number.isFinite(next)) {
+        const ratio = (index - prevIndex) / (nextIndex - prevIndex);
+        altitudes[index] = prev + ((next - prev) * ratio);
+      } else if (Number.isFinite(prev)) {
+        altitudes[index] = prev;
+      } else if (Number.isFinite(next)) {
+        altitudes[index] = next;
+      } else {
+        altitudes[index] = 0;
+      }
+    }
+  }
+
+  static cleanGPSAndBuildTrackTyped(recordsTyped, options = {}) {
+    const MAX_STEP_DISTANCE_METERS = 40;
+    const MIN_RELOCK_SEQUENCE = 3;
+    const MAX_INTERPOLATION_GAP = 8;
+    const DEG_TO_RAD = Math.PI / 180;
+    const EARTH_RADIUS_METERS = 6371000;
+
+    const {
+      sampleRate = 1,
+      precision = 5,
+      sourceName = null
+    } = options;
+
+    const lats = recordsTyped.positionLatsDeg;
+    const longs = recordsTyped.positionLongsDeg;
+    const timestampsMs = recordsTyped.timestampsMs;
+
+    function haversine(latA, lngA, latB, lngB) {
+      const dLat = (latB - latA) * DEG_TO_RAD;
+      const dLng = (lngB - lngA) * DEG_TO_RAD;
+      const lat1 = latA * DEG_TO_RAD;
+      const lat2 = latB * DEG_TO_RAD;
+      const aVal =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+      return 2 * EARTH_RADIUS_METERS * Math.atan2(Math.sqrt(aVal), Math.sqrt(1 - aVal));
+    }
+
+    const rawLats = new Float64Array(lats);
+    const rawLongs = new Float64Array(longs);
+    let lastValidIndex = -1;
+    let relockCandidate = [];
+
+    for (let index = 0; index < lats.length; index += 1) {
+      const lat = lats[index];
+      const lng = longs[index];
+      const invalid = !Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0);
+
+      if (invalid) {
+        lats[index] = Number.NaN;
+        longs[index] = Number.NaN;
+        continue;
+      }
+
+      if (lastValidIndex === -1) {
+        lastValidIndex = index;
+        continue;
+      }
+
+      const dist = haversine(lats[lastValidIndex], longs[lastValidIndex], lat, lng);
+      if (dist <= MAX_STEP_DISTANCE_METERS) {
+        lastValidIndex = index;
+        relockCandidate = [];
+        continue;
+      }
+
+      lats[index] = Number.NaN;
+      longs[index] = Number.NaN;
+
+      const rawLat = rawLats[index];
+      const rawLng = rawLongs[index];
+      if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng)) {
+        relockCandidate = [];
+        continue;
+      }
+
+      const candidate = { index, lat: rawLat, lng: rawLng };
+      if (relockCandidate.length === 0) {
+        relockCandidate.push(candidate);
+        continue;
+      }
+
+      const prevCandidate = relockCandidate[relockCandidate.length - 1];
+      const candidateDist = haversine(prevCandidate.lat, prevCandidate.lng, rawLat, rawLng);
+      if (candidateDist <= MAX_STEP_DISTANCE_METERS) {
+        relockCandidate.push(candidate);
+      } else {
+        relockCandidate = [candidate];
+      }
+
+      if (relockCandidate.length >= MIN_RELOCK_SEQUENCE) {
+        for (const relockPoint of relockCandidate) {
+          lats[relockPoint.index] = relockPoint.lat;
+          longs[relockPoint.index] = relockPoint.lng;
+        }
+        lastValidIndex = relockCandidate[relockCandidate.length - 1].index;
+        relockCandidate = [];
+      }
+    }
+
+    const prevValidIndex = new Int32Array(lats.length);
+    const nextValidIndex = new Int32Array(lats.length);
+    let previousValid = -1;
+
+    for (let index = 0; index < lats.length; index += 1) {
+      prevValidIndex[index] = previousValid;
+      if (Number.isFinite(lats[index]) && Number.isFinite(longs[index])) {
+        previousValid = index;
+      }
+    }
+
+    let nextValid = -1;
+    for (let index = lats.length - 1; index >= 0; index -= 1) {
+      nextValidIndex[index] = nextValid;
+      if (Number.isFinite(lats[index]) && Number.isFinite(longs[index])) {
+        nextValid = index;
+      }
+    }
+
+    let currentGapLength = 0;
+    for (let index = 0; index < lats.length; index += 1) {
+      if (Number.isFinite(lats[index]) && Number.isFinite(longs[index])) {
+        currentGapLength = 0;
+        continue;
+      }
+
+      currentGapLength += 1;
+      const prevIndex = prevValidIndex[index];
+      const nextIndex = nextValidIndex[index];
+      if (prevIndex < 0 || nextIndex < 0 || currentGapLength > MAX_INTERPOLATION_GAP) {
+        continue;
+      }
+
+      lats[index] = (lats[prevIndex] + lats[nextIndex]) / 2;
+      longs[index] = (longs[prevIndex] + longs[nextIndex]) / 2;
+    }
+
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    let minLng = Infinity;
+    let maxLng = -Infinity;
+    const reduced = [];
+
+    for (let index = 0; index < lats.length; index += 1) {
+      const lat = lats[index];
+      const lng = longs[index];
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        continue;
+      }
+
+      const normalizedLat = Number(lat.toFixed(precision));
+      const normalizedLng = Number(lng.toFixed(precision));
+
+      if (normalizedLat < minLat) minLat = normalizedLat;
+      if (normalizedLat > maxLat) maxLat = normalizedLat;
+      if (normalizedLng < minLng) minLng = normalizedLng;
+      if (normalizedLng > maxLng) maxLng = normalizedLng;
+
+      if (index % sampleRate === 0) {
+        reduced.push([normalizedLat, normalizedLng]);
+      }
+    }
+
+    const validGps = reduced.length >= 2;
+    const trackHash = validGps ? reduced.map((point) => point.join(",")).join("|") : null;
+
+    return {
+      validGps,
+      sampleRate,
+      bbox: validGps ? { minLat, maxLat, minLng, maxLng } : null,
+      track: reduced,
+      trackHash,
+      sourceName,
+      firstTimestampMs: timestampsMs[0] ?? null
     };
   }
 

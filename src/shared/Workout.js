@@ -220,6 +220,77 @@ export default class Workout {
         return new Workout(buffer);
     }
 
+    static fromTypedArrays(arrays, options = {}) {
+        const timestampsMs = arrays?.timestampsMs;
+        const powersW = arrays?.powersW;
+        const heartRatesBpm = arrays?.heartRatesBpm;
+        const cadencesRpm = arrays?.cadencesRpm;
+        const speedsMps = arrays?.speedsMps;
+        const altitudesM = arrays?.altitudesM;
+        const distancesM = arrays?.distancesM ?? null;
+
+        const length = Number(timestampsMs?.length ?? 0);
+        const startTimeMs = Number.isFinite(options.startTimeMs)
+            ? Number(options.startTimeMs)
+            : (length > 0 ? Number(timestampsMs[0]) : Date.now());
+        const validGps = options.validGps ?? false;
+
+        const hasDistanceSeries = !!distancesM;
+        const DISTANCE_BYTES = hasDistanceSeries ? (length * 2) : 0;
+        const CORE_BYTES = (length * 2) + length + length + (length * 2) + (length * 2);
+        const buffer = new ArrayBuffer(HEADER_BYTES + CORE_BYTES + DISTANCE_BYTES);
+        const view = new DataView(buffer);
+
+        view.setUint32(HEADER_OFFSET_LENGTH, length);
+        view.setFloat64(HEADER_OFFSET_START_TIME, startTimeMs);
+        view.setUint8(HEADER_OFFSET_VALID_GPS, validGps ? 1 : 0);
+        view.setUint8(HEADER_OFFSET_FORMAT_VERSION, STREAM_FORMAT_ABSOLUTE_COMPACT);
+        view.setUint8(14, hasDistanceSeries ? FLAG_HAS_DISTANCE_DELTAS_CM : 0);
+        view.setUint8(15, 0);
+
+        let offset = HEADER_BYTES;
+        const absPower = new Uint16Array(buffer, offset, length); offset += length * 2;
+        const absHr = new Uint8Array(buffer, offset, length); offset += length;
+        const absCadence = new Uint8Array(buffer, offset, length); offset += length;
+        const absSpeed = new Uint16Array(buffer, offset, length); offset += length * 2;
+        const absAltitude = new Int16Array(buffer, offset, length); offset += length * 2;
+        const distanceDeltasCm = hasDistanceSeries
+            ? new Uint16Array(buffer, offset, length)
+            : null;
+
+        let prevDistanceCm = 0;
+
+        for (let i = 0; i < length; i++) {
+            const p = Math.max(0, Math.min(0xffff, Math.round(powersW?.[i] ?? 0)));
+            const hr = Math.max(0, Math.min(0xff, Math.round(heartRatesBpm?.[i] ?? 0)));
+            const cad = Math.max(0, Math.min(0xff, Math.round(cadencesRpm?.[i] ?? 0)));
+            const speed = Math.max(0, Math.min(0xffff, Math.round((speedsMps?.[i] ?? 0) * SPEED_SCALE_INTERNAL)));
+            const altMeters = Number(altitudesM?.[i] ?? 0);
+            const altCompact = Math.round(altMeters * ALTITUDE_ABS_COMPACT_SCALE);
+
+            if (altCompact < -32768 || altCompact > 32767) {
+                throw new Error("Altitude out of range for compact Int16 (0.1m).");
+            }
+
+            absPower[i] = p;
+            absHr[i] = hr;
+            absCadence[i] = cad;
+            absSpeed[i] = speed;
+            absAltitude[i] = altCompact;
+
+            if (distanceDeltasCm) {
+                const distanceCm = Number.isFinite(distancesM[i])
+                    ? Math.max(0, Math.round(distancesM[i] * 100))
+                    : prevDistanceCm;
+                const delta = Math.max(0, distanceCm - prevDistanceCm);
+                distanceDeltasCm[i] = Math.min(0xffff, delta);
+                prevDistanceCm += distanceDeltasCm[i];
+            }
+        }
+
+        return new Workout(buffer);
+    }
+
     // =============================
     // FACTORY: FROM BUFFER
     // =============================

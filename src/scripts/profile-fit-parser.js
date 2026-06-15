@@ -3,6 +3,7 @@ import path from "node:path";
 
 import "../config/env.js";
 
+import { parseFitBufferTyped } from "../services/fit-import-typed-service.js";
 import { parseFitBufferStandard } from "../services/fit-parser-service.js";
 import { parseFitBufferFast } from "../services/fit-parser-fast-service.js";
 
@@ -18,15 +19,16 @@ function formatMs(ms) {
 async function main() {
   const inputPath = process.argv[2];
   const iterations = parsePositiveInt(process.argv[3], 25);
-  const parserVariant = String(process.argv[4] || "standard").trim().toLowerCase() === "fast"
-    ? "fast"
+  const requestedVariant = String(process.argv[4] || "standard").trim().toLowerCase();
+  const parserVariant = requestedVariant === "fast" || requestedVariant === "typed"
+    ? requestedVariant
     : "standard";
   const parse = parserVariant === "fast"
     ? parseFitBufferFast
-    : parseFitBufferStandard;
+    : (parserVariant === "typed" ? parseFitBufferTyped : parseFitBufferStandard);
 
   if (!inputPath) {
-    console.error("Usage: node src/scripts/profile-fit-parser.js <fit-file> [iterations] [standard|fast]");
+    console.error("Usage: node src/scripts/profile-fit-parser.js <fit-file> [iterations] [standard|fast|typed]");
     process.exit(1);
   }
 
