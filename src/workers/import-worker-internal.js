@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { pipeline } from "node:stream/promises";
+import util from "node:util";
 
 import { Worker } from "bullmq";
 import unzipper from "unzipper";
@@ -93,15 +94,24 @@ export async function createApp(options = {}) {
     console.log("[import] storage.temp-dir", snapshot);
   });
 
+  function formatLogPayload(payload = {}) {
+    return util.inspect(payload, {
+      depth: null,
+      colors: false,
+      compact: false,
+      breakLength: 120
+    });
+  }
+
   function logImportEvent(type, payload = {}) {
-    console.log(`[import] ${type}`, payload);
+    console.log(`[import] ${type} ${formatLogPayload(payload)}`);
   }
 
   function logPostProcessEvent(type, payload = {}) {
     if (!IMPORT_POSTPROCESS_LOGS) {
       return;
     }
-    console.log(`[postprocess] ${type}`, payload);
+    console.log(`[postprocess] ${type} ${formatLogPayload(payload)}`);
   }
 
   function logVerboseImportEvent(type, payload = {}) {
@@ -155,6 +165,12 @@ export async function createApp(options = {}) {
       processFitFillGapsMs: 0,
       processFitCleanAltitudeMs: 0,
       processFitCleanGpsBuildTrackMs: 0,
+      processFitCleanGpsCopySourceArraysMs: 0,
+      processFitCleanGpsCleanPassMs: 0,
+      processFitCleanGpsNeighborIndexMs: 0,
+      processFitCleanGpsInterpolatePassMs: 0,
+      processFitCleanGpsBuildTrackSubstepMs: 0,
+      processFitCleanGpsTrackHashMs: 0,
       processFitWorkoutFromRecordsMs: 0,
       processFitDetectAutoSegmentsMs: 0,
       processFitDetectBestEffortsMs: 0,
@@ -245,6 +261,14 @@ export async function createApp(options = {}) {
           fillGapsMs: safe("processFitFillGapsMs"),
           cleanAltitudeMs: safe("processFitCleanAltitudeMs"),
           cleanGpsBuildTrackMs: safe("processFitCleanGpsBuildTrackMs"),
+          cleanGpsBuildTrackSubstepsMs: {
+            copySourceArraysMs: safe("processFitCleanGpsCopySourceArraysMs"),
+            cleanPassMs: safe("processFitCleanGpsCleanPassMs"),
+            neighborIndexMs: safe("processFitCleanGpsNeighborIndexMs"),
+            interpolatePassMs: safe("processFitCleanGpsInterpolatePassMs"),
+            buildTrackMs: safe("processFitCleanGpsBuildTrackSubstepMs"),
+            trackHashMs: safe("processFitCleanGpsTrackHashMs")
+          },
           workoutFromRecordsMs: safe("processFitWorkoutFromRecordsMs"),
           detectAutoSegmentsMs: safe("processFitDetectAutoSegmentsMs"),
           detectBestEffortsMs: safe("processFitDetectBestEffortsMs"),
@@ -1020,6 +1044,14 @@ export async function createApp(options = {}) {
       const metric = processFitStepMetricMap[step?.label];
       if (metric) {
         batchTrace?.add(metric, Number(step?.stepMs || 0));
+      }
+      if (step?.label === "clean-gps-build-track" && step?.phases) {
+        batchTrace?.add("processFitCleanGpsCopySourceArraysMs", Number(step.phases.copySourceArraysMs || 0));
+        batchTrace?.add("processFitCleanGpsCleanPassMs", Number(step.phases.cleanPassMs || 0));
+        batchTrace?.add("processFitCleanGpsNeighborIndexMs", Number(step.phases.neighborIndexMs || 0));
+        batchTrace?.add("processFitCleanGpsInterpolatePassMs", Number(step.phases.interpolatePassMs || 0));
+        batchTrace?.add("processFitCleanGpsBuildTrackSubstepMs", Number(step.phases.buildTrackMs || 0));
+        batchTrace?.add("processFitCleanGpsTrackHashMs", Number(step.phases.trackHashMs || 0));
       }
     }
 

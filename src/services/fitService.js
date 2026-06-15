@@ -1,6 +1,12 @@
 import Workout from "../shared/Workout.js";
 
 const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
+const FIT_GPS_TRACK_HASH_MODE = String(process.env.FIT_GPS_TRACK_HASH_MODE || "lazy").trim().toLowerCase() === "eager"
+  ? "eager"
+  : "lazy";
+const FIT_GPS_BUILD_TRACK_MODE = String(process.env.FIT_GPS_BUILD_TRACK_MODE || "quantized").trim().toLowerCase() === "classic"
+  ? "classic"
+  : "quantized";
 
 export default class FitProcessor {
   static createGrowableNumericStore(initialCapacity = 1024) {
@@ -322,10 +328,23 @@ export default class FitProcessor {
       workoutObject,
       importGpsSource: FitProcessor.extractImportGpsSource(fitFile),
       timingSteps: Array.isArray(timing?.steps)
-        ? timing.steps.map((step) => ({
-            label: step.label,
-            stepMs: Number(step.stepMs || 0)
-          }))
+        ? timing.steps.map((step) => {
+            const entry = {
+              label: step.label,
+              stepMs: Number(step.stepMs || 0)
+            };
+            if (step?.label === "clean-gps-build-track" && step?.phases) {
+              entry.phases = {
+                copySourceArraysMs: Number(step.phases.copySourceArraysMs || 0),
+                cleanPassMs: Number(step.phases.cleanPassMs || 0),
+                neighborIndexMs: Number(step.phases.neighborIndexMs || 0),
+                interpolatePassMs: Number(step.phases.interpolatePassMs || 0),
+                buildTrackMs: Number(step.phases.buildTrackMs || 0),
+                trackHashMs: Number(step.phases.trackHashMs || 0)
+              };
+            }
+            return entry;
+          })
         : []
     };
   }
@@ -495,6 +514,14 @@ export default class FitProcessor {
     const longs = recordsTyped.positionLongsDeg;
     const timestampsMs = recordsTyped.timestampsMs;
 
+    function buildTrackHashFromQuantized(latitudesQ, longitudesQ, quantizationScale) {
+      const parts = new Array(latitudesQ.length);
+      for (let index = 0; index < latitudesQ.length; index += 1) {
+        parts[index] = `${latitudesQ[index] / quantizationScale},${longitudesQ[index] / quantizationScale}`;
+      }
+      return parts.join("|");
+    }
+
     function haversine(latA, lngA, latB, lngB) {
       const dLat = (latB - latA) * DEG_TO_RAD;
       const dLng = (lngB - lngA) * DEG_TO_RAD;
@@ -639,8 +666,22 @@ export default class FitProcessor {
         continue;
       }
 
-      const normalizedLat = Number(lat.toFixed(precision));
-      const normalizedLng = Number(lng.toFixed(precision));
+      let normalizedLat;
+      let normalizedLng;
+      let quantizedLat;
+      let quantizedLng;
+
+      if (FIT_GPS_BUILD_TRACK_MODE === "classic") {
+        normalizedLat = Number(lat.toFixed(precision));
+        normalizedLng = Number(lng.toFixed(precision));
+        quantizedLat = Math.round(normalizedLat * quantizationScale);
+        quantizedLng = Math.round(normalizedLng * quantizationScale);
+      } else {
+        quantizedLat = Math.round(lat * quantizationScale);
+        quantizedLng = Math.round(lng * quantizationScale);
+        normalizedLat = quantizedLat / quantizationScale;
+        normalizedLng = quantizedLng / quantizationScale;
+      }
 
       if (normalizedLat < minLat) minLat = normalizedLat;
       if (normalizedLat > maxLat) maxLat = normalizedLat;
@@ -648,8 +689,8 @@ export default class FitProcessor {
       if (normalizedLng > maxLng) maxLng = normalizedLng;
 
       if (index % sampleRate === 0) {
-        reducedLatsQ.push(Math.round(normalizedLat * quantizationScale));
-        reducedLngsQ.push(Math.round(normalizedLng * quantizationScale));
+        reducedLatsQ.push(quantizedLat);
+        reducedLngsQ.push(quantizedLng);
       }
     }
     if (profile) {
@@ -660,13 +701,9 @@ export default class FitProcessor {
     const longitudesQ = Int32Array.from(reducedLngsQ.toTypedArray(), (value) => Math.round(value));
     const validGps = latitudesQ.length >= 2;
     const hashStartedAt = profile ? Date.now() : 0;
-    let trackHash = null;
-    if (validGps) {
-      const parts = new Array(latitudesQ.length);
-      for (let index = 0; index < latitudesQ.length; index += 1) {
-        parts[index] = `${latitudesQ[index] / quantizationScale},${longitudesQ[index] / quantizationScale}`;
-      }
-      trackHash = parts.join("|");
+    let materializedTrackHash = null;
+    if (validGps && FIT_GPS_TRACK_HASH_MODE === "eager") {
+      materializedTrackHash = buildTrackHashFromQuantized(latitudesQ, longitudesQ, quantizationScale);
     }
     if (profile) {
       profile.trackHashMs = Date.now() - hashStartedAt;
@@ -695,7 +732,16 @@ export default class FitProcessor {
         }
         return materializedTrack;
       },
-      trackHash,
+      get trackHash() {
+        if (!validGps) {
+          return null;
+        }
+        if (materializedTrackHash !== null) {
+          return materializedTrackHash;
+        }
+        materializedTrackHash = buildTrackHashFromQuantized(latitudesQ, longitudesQ, quantizationScale);
+        return materializedTrackHash;
+      },
       sourceName,
       firstTimestampMs: timestampsMs[0] ?? null
     };

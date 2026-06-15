@@ -1,3 +1,0 @@
--- Active: 1776863449169@@127.0.0.1@5432@cwa24_prod
-ALTER TABLE workouts
-  DROP COLUMN IF EXISTS geom;

@@ -68,6 +68,8 @@ const workerEnv = {
   IMPORT_SYNC_PROFILE_LOG: asString(process.env.IMPORT_SYNC_PROFILE_LOG),
   IMPORT_TIMING_DEBUG: asString(process.env.IMPORT_TIMING_DEBUG),
   IMPORT_VERBOSE_LOGS: asString(process.env.IMPORT_VERBOSE_LOGS),
+  FIT_GPS_TRACK_HASH_MODE: asString(process.env.FIT_GPS_TRACK_HASH_MODE, "lazy"),
+  FIT_GPS_BUILD_TRACK_MODE: asString(process.env.FIT_GPS_BUILD_TRACK_MODE, "quantized"),
   FEATURE_THUMBNAILS_ON_DEMAND: asString(process.env.FEATURE_THUMBNAILS_ON_DEMAND, "1")
 };
 
