@@ -52,6 +52,7 @@ export async function createApp(options = {}) {
   const IMPORT_UPLOAD_TEMP_DIR = getImportUploadDir();
   const IMPORT_QUEUE_CONCURRENCY = Math.max(1, Number(process.env.IMPORT_QUEUE_CONCURRENCY) || 2);
   const IMPORT_BATCH_WORKER_CONCURRENCY = Math.max(1, Number(process.env.IMPORT_BATCH_WORKER_CONCURRENCY) || 2);
+  const IMPORT_DB_BULK_INSERT_SIZE = Math.max(1, Number(process.env.IMPORT_DB_BULK_INSERT_SIZE) || 20);
   const IMPORT_POSTPROCESS_MODE = String(process.env.IMPORT_POSTPROCESS_MODE || "immediate").trim().toLowerCase() === "phased"
     ? "phased"
     : "immediate";
@@ -81,6 +82,7 @@ export async function createApp(options = {}) {
     SEGMENTS_RECOMPUTE_FROM_DB,
     IMPORT_QUEUE_CONCURRENCY,
     IMPORT_BATCH_WORKER_CONCURRENCY,
+    IMPORT_DB_BULK_INSERT_SIZE,
     FIT_PARSER_VARIANT: getFitParserVariant(),
     IMPORT_UPLOAD_TEMP_DIR,
     SEGMENT_PERSIST_TEMP_DIR,
@@ -1022,65 +1024,8 @@ export async function createApp(options = {}) {
 
   }
 
-  async function processFitJsonWithMetrics(fitJsonObject, uid, batchTrace, shareConfig = null, context = {}) {
-    const processFitRecordsStartedAt = Date.now();
-    const { aggregated, segments, gps_track, workoutObject, importGpsSource, timingSteps = [] } = processFitRecords(fitJsonObject, {
-      sourceName: context.entryName || null,
-      computeSegments: !SEGMENTS_RECOMPUTE_FROM_DB
-    });
-    batchTrace?.add("processFitRecordsMs", Date.now() - processFitRecordsStartedAt);
-    const processFitStepMetricMap = {
-      "aggregate-sessions": "processFitAggregateSessionsMs",
-      "sort-records": "processFitSortRecordsMs",
-      "fill-gaps": "processFitFillGapsMs",
-      "clean-altitude": "processFitCleanAltitudeMs",
-      "clean-gps-build-track": "processFitCleanGpsBuildTrackMs",
-      "workout-from-records": "processFitWorkoutFromRecordsMs",
-      "detect-auto-segments": "processFitDetectAutoSegmentsMs",
-      "detect-best-efforts": "processFitDetectBestEffortsMs",
-      "merge-segments": "processFitMergeSegmentsMs"
-    };
-    for (const step of timingSteps) {
-      const metric = processFitStepMetricMap[step?.label];
-      if (metric) {
-        batchTrace?.add(metric, Number(step?.stepMs || 0));
-      }
-      if (step?.label === "clean-gps-build-track" && step?.phases) {
-        batchTrace?.add("processFitCleanGpsCopySourceArraysMs", Number(step.phases.copySourceArraysMs || 0));
-        batchTrace?.add("processFitCleanGpsCleanPassMs", Number(step.phases.cleanPassMs || 0));
-        batchTrace?.add("processFitCleanGpsNeighborIndexMs", Number(step.phases.neighborIndexMs || 0));
-        batchTrace?.add("processFitCleanGpsInterpolatePassMs", Number(step.phases.interpolatePassMs || 0));
-        batchTrace?.add("processFitCleanGpsBuildTrackSubstepMs", Number(step.phases.buildTrackMs || 0));
-        batchTrace?.add("processFitCleanGpsTrackHashMs", Number(step.phases.trackHashMs || 0));
-      }
-    }
-
-    const fitFile = {
-      uid,
-      gps_source: importGpsSource
-    };
-
-    const mapStartedAt = Date.now();
-    const fileRow = mapAggregatedToFileRow(aggregated, fitFile, workoutObject.getNormalizedPower());
-    batchTrace?.add("mapAggregatedRowMs", Date.now() - mapStartedAt);
-
-    const insertStartedAt = Date.now();
-    const dbrow = await FileDBService.insertFile(fileRow, segments, gps_track, workoutObject);
-    batchTrace?.add("insertFileMs", Date.now() - insertStartedAt);
-    const insertStepMetricMap = {
-      "to-compressed-buffer": "insertToCompressedBufferMs",
-      "build-geometry-wkt": "insertBuildGeometryWktMs",
-      "begin-transaction": "insertBeginTransactionMs",
-      "insert-workout-row": "insertInsertWorkoutRowMs",
-      "commit": "insertCommitMs",
-      "rollback": "insertRollbackMs"
-    };
-    for (const step of Array.isArray(dbrow?.timingSteps) ? dbrow.timingSteps : []) {
-      const metric = insertStepMetricMap[step?.label];
-      if (metric) {
-        batchTrace?.add(metric, Number(step?.stepMs || 0));
-      }
-    }
+  async function finalizePersistedWorkoutItem(item, dbrow, batchTrace, shareConfig = null, context = {}) {
+    const { uid, segments, gps_track, workoutObject, fileRow } = item;
 
     let deferredPostprocessTarget = null;
 
@@ -1218,6 +1163,72 @@ export async function createApp(options = {}) {
     };
   }
 
+  async function buildPendingPersistItem(fitJsonObject, uid, batchTrace, context = {}) {
+    const processFitRecordsStartedAt = Date.now();
+    const { aggregated, segments, gps_track, workoutObject, importGpsSource, timingSteps = [] } = processFitRecords(fitJsonObject, {
+      sourceName: context.entryName || null,
+      computeSegments: !SEGMENTS_RECOMPUTE_FROM_DB
+    });
+    batchTrace?.add("processFitRecordsMs", Date.now() - processFitRecordsStartedAt);
+    const processFitStepMetricMap = {
+      "aggregate-sessions": "processFitAggregateSessionsMs",
+      "sort-records": "processFitSortRecordsMs",
+      "fill-gaps": "processFitFillGapsMs",
+      "clean-altitude": "processFitCleanAltitudeMs",
+      "clean-gps-build-track": "processFitCleanGpsBuildTrackMs",
+      "workout-from-records": "processFitWorkoutFromRecordsMs",
+      "detect-auto-segments": "processFitDetectAutoSegmentsMs",
+      "detect-best-efforts": "processFitDetectBestEffortsMs",
+      "merge-segments": "processFitMergeSegmentsMs"
+    };
+    for (const step of timingSteps) {
+      const metric = processFitStepMetricMap[step?.label];
+      if (metric) {
+        batchTrace?.add(metric, Number(step?.stepMs || 0));
+      }
+      if (step?.label === "clean-gps-build-track" && step?.phases) {
+        batchTrace?.add("processFitCleanGpsCopySourceArraysMs", Number(step.phases.copySourceArraysMs || 0));
+        batchTrace?.add("processFitCleanGpsCleanPassMs", Number(step.phases.cleanPassMs || 0));
+        batchTrace?.add("processFitCleanGpsNeighborIndexMs", Number(step.phases.neighborIndexMs || 0));
+        batchTrace?.add("processFitCleanGpsInterpolatePassMs", Number(step.phases.interpolatePassMs || 0));
+        batchTrace?.add("processFitCleanGpsBuildTrackSubstepMs", Number(step.phases.buildTrackMs || 0));
+        batchTrace?.add("processFitCleanGpsTrackHashMs", Number(step.phases.trackHashMs || 0));
+      }
+    }
+
+    const fitFile = {
+      uid,
+      gps_source: importGpsSource
+    };
+
+    const mapStartedAt = Date.now();
+    const fileRow = mapAggregatedToFileRow(aggregated, fitFile, workoutObject.getNormalizedPower());
+    batchTrace?.add("mapAggregatedRowMs", Date.now() - mapStartedAt);
+
+    const prepareStartedAt = Date.now();
+    const preparedInsert = await FileDBService.prepareInsertFilePayload(fileRow, gps_track, workoutObject);
+    batchTrace?.add("insertFileMs", Date.now() - prepareStartedAt);
+    const insertStepMetricMap = {
+      "to-compressed-buffer": "insertToCompressedBufferMs",
+      "build-geometry-wkt": "insertBuildGeometryWktMs"
+    };
+    for (const step of Array.isArray(preparedInsert?.timingSteps) ? preparedInsert.timingSteps : []) {
+      const metric = insertStepMetricMap[step?.label];
+      if (metric) {
+        batchTrace?.add(metric, Number(step?.stepMs || 0));
+      }
+    }
+
+    return {
+      uid,
+      fileRow,
+      segments,
+      gps_track,
+      workoutObject,
+      preparedInsert
+    };
+  }
+
   async function processFitBatchItems(job) {
     const importJobId = job.data?.importJobId;
     const uid = job.data?.uid;
@@ -1229,6 +1240,129 @@ export async function createApp(options = {}) {
     }
 
     const results = [];
+    const insertBuffer = [];
+
+    async function flushInsertBuffer() {
+      if (insertBuffer.length === 0) {
+        return;
+      }
+
+      const itemsToFlush = insertBuffer.splice(0, insertBuffer.length);
+      const bulkInsertStartedAt = Date.now();
+      try {
+        const bulkResult = await FileDBService.insertPreparedFilesBulk(
+          itemsToFlush.map((item) => item.pendingItem.preparedInsert)
+        );
+        const bulkInsertElapsedMs = Date.now() - bulkInsertStartedAt;
+        const insertedByKey = new Map(
+          (Array.isArray(bulkResult?.insertedRows) ? bulkResult.insertedRows : []).map((row) => [
+            `${row.uid}:${new Date(row.start_time).toISOString()}`,
+            row
+          ])
+        );
+        const existingByKey = bulkResult?.existingRowsByKey instanceof Map
+          ? bulkResult.existingRowsByKey
+          : new Map();
+
+        const bulkTimingTotals = Array.isArray(bulkResult?.timingSteps) ? bulkResult.timingSteps : [];
+        const insertRowsStepMs = Number(bulkTimingTotals.find((step) => step.label === "insert-workout-rows")?.stepMs || 0);
+        const loadExistingRowsStepMs = Number(bulkTimingTotals.find((step) => step.label === "load-existing-rows")?.stepMs || 0);
+        const perItemInsertMs = itemsToFlush.length > 0 ? insertRowsStepMs / itemsToFlush.length : 0;
+        const perItemLookupMs = itemsToFlush.length > 0 ? loadExistingRowsStepMs / itemsToFlush.length : 0;
+
+        for (const buffered of itemsToFlush) {
+          if (perItemLookupMs > 0) {
+            buffered.localTrace.add("insertFileMs", perItemLookupMs);
+          }
+        }
+
+        for (const buffered of itemsToFlush) {
+          const { item, localTrace, startedAt, pendingItem } = buffered;
+          const key = `${pendingItem.uid}:${new Date(pendingItem.fileRow.start_time).toISOString()}`;
+          const dbrow = insertedByKey.get(key) || null;
+
+          if (!dbrow) {
+            const existingRow = existingByKey.get(key) || null;
+            results.push({
+              key: item.key,
+              sourceName: item.sourceName || null,
+              entryName: item.entryName,
+              status: "failed",
+              message: existingRow
+                ? FileDBService.createDuplicateWorkoutMessage(pendingItem.fileRow.start_time)
+                : "Bulk insert did not return a row for this workout",
+              elapsedMs: Date.now() - startedAt,
+              traceTotals: {
+                ...localTrace.totals,
+                insertFileMs: Number(localTrace.totals.insertFileMs || 0) + perItemInsertMs
+              },
+              deferredPostprocessTarget: null
+            });
+            continue;
+          }
+
+          try {
+            localTrace.add("insertInsertWorkoutRowMs", perItemInsertMs);
+            localTrace.add("insertFileMs", perItemInsertMs);
+
+            const outcome = await finalizePersistedWorkoutItem(
+              pendingItem,
+              { id: dbrow.id, uid: dbrow.uid },
+              localTrace,
+              shareConfig,
+              {
+                importJobId,
+                entryName: item.entryName
+              }
+            );
+
+            results.push({
+              key: item.key,
+              sourceName: item.sourceName || null,
+              entryName: item.entryName,
+              status: "completed",
+              message: null,
+              elapsedMs: Date.now() - startedAt,
+              traceTotals: localTrace.totals,
+              deferredPostprocessTarget: outcome?.deferredPostprocessTarget || null
+            });
+          } catch (error) {
+            results.push({
+              key: item.key,
+              sourceName: item.sourceName || null,
+              entryName: item.entryName,
+              status: "failed",
+              message: error.message || "Unknown import error",
+              elapsedMs: Date.now() - startedAt,
+              traceTotals: localTrace.totals,
+              deferredPostprocessTarget: null
+            });
+          }
+        }
+
+        logVerboseImportEvent("batch.flush.completed", {
+          queueJobId: job.id,
+          importJobId,
+          itemCount: itemsToFlush.length,
+          insertedCount: insertedByKey.size,
+          resolvedCount: existingByKey.size,
+          elapsedMs: bulkInsertElapsedMs
+        });
+      } catch (error) {
+        for (const buffered of itemsToFlush) {
+          results.push({
+            key: buffered.item.key,
+            sourceName: buffered.item.sourceName || null,
+            entryName: buffered.item.entryName,
+            status: "failed",
+            message: error.message || "Bulk insert failed",
+            elapsedMs: Date.now() - buffered.startedAt,
+            traceTotals: buffered.localTrace.totals,
+            deferredPostprocessTarget: null
+          });
+        }
+      }
+    }
 
     logVerboseImportEvent("batch.started", {
       queueJobId: job.id,
@@ -1253,21 +1387,19 @@ export async function createApp(options = {}) {
         });
         localTrace.add("entryBufferMs", readMs);
         localTrace.add("parseFitMs", parseMs);
-        const outcome = await processFitJsonWithMetrics(parsed, uid, localTrace, shareConfig, {
+        const pendingItem = await buildPendingPersistItem(parsed, uid, localTrace, {
           importJobId,
           entryName: item.entryName
         });
-
-        results.push({
-          key: item.key,
-          sourceName: item.sourceName || null,
-          entryName: item.entryName,
-          status: "completed",
-          message: null,
-          elapsedMs: Date.now() - startedAt,
-          traceTotals: localTrace.totals,
-          deferredPostprocessTarget: outcome?.deferredPostprocessTarget || null
+        insertBuffer.push({
+          item,
+          startedAt,
+          localTrace,
+          pendingItem
         });
+        if (insertBuffer.length >= IMPORT_DB_BULK_INSERT_SIZE) {
+          await flushInsertBuffer();
+        }
       } catch (error) {
         results.push({
           key: item.key,
@@ -1281,6 +1413,8 @@ export async function createApp(options = {}) {
         await fs.promises.rm(item.localPath, { force: true }).catch(() => {});
       }
     }
+
+    await flushInsertBuffer();
 
     return {
       importJobId,

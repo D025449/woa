@@ -1356,21 +1356,22 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     };
   }
 
-  static async insertFile(fileRow, segments, gps_track, workoutObject) {
-    const timing = FileDBService.createStepLogger("db.insert-file", {
+  static createDuplicateWorkoutMessage(startTime) {
+    const date = new Date(startTime);
+    return `Upload failed: At '${date.toLocaleDateString()}' there's already a workout for this user`;
+  }
+
+  static async prepareInsertFilePayload(fileRow, gps_track, workoutObject) {
+    const timing = FileDBService.createStepLogger("db.prepare-insert-file", {
       uid: fileRow.uid,
       validGps: !!gps_track?.validGps,
-      gpsPointCount: gps_track?.pointCount ?? gps_track?.track?.length ?? 0,
-      segmentCount: segments?.length ?? 0
+      gpsPointCount: gps_track?.pointCount ?? gps_track?.track?.length ?? 0
     });
-    const d = new Date(fileRow.start_time);
 
     const compressedBuffer = await workoutObject.toCompressedBuffer();
     timing.mark("to-compressed-buffer", {
       compressedBytes: compressedBuffer.length
     });
-    //console.log({BufferSizeWritten: compressedBuffer.length});
-
 
     fileRow.validGps = gps_track.validGps;
     const gpsSource = fileRow.validGps
@@ -1379,12 +1380,10 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     let sampleRateGPS = gps_track?.sampleRate ?? 1;
     if (fileRow.validGps) {
       fileRow.bbox = gps_track?.bbox ?? null;
-    }
-    else {
+    } else {
       sampleRateGPS = 1;
       fileRow.bbox = null;
     }
-
 
     const points_count = gps_track?.pointCount ?? gps_track?.track?.length ?? 0;
     const firstTrackPoint = points_count > 0
@@ -1406,6 +1405,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       ? `POINT(${lastTrackPoint[1]} ${lastTrackPoint[0]})`
       : null;
     timing.mark("build-geometry-wkt");
+
     const compressedGpsTrackBlob = gps_track?.latitudesQ && gps_track?.longitudesQ
       ? await GpsTrackBlobService.encodeCompressedFromQuantized(gps_track, {
           sampleRateGps: sampleRateGPS,
@@ -1426,7 +1426,38 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       sampleRateGPS = 1;
     }
 
+    return {
+      fileRow,
+      gps_track,
+      workoutObject,
+      compressedBuffer,
+      compressedGpsTrackBlob,
+      trackStartGeom,
+      trackEndGeom,
+      points_count,
+      sampleRateGPS,
+      gpsSource,
+      timingSteps: Array.isArray(timing?.steps)
+        ? timing.steps.map((step) => ({
+            label: step.label,
+            stepMs: Number(step.stepMs || 0)
+          }))
+        : []
+    };
+  }
 
+  static buildPreparedInsertParams(prepared) {
+    const {
+      fileRow,
+      gps_track,
+      compressedBuffer,
+      compressedGpsTrackBlob,
+      trackStartGeom,
+      trackEndGeom,
+      points_count,
+      sampleRateGPS,
+      gpsSource
+    } = prepared;
     const {
       uid,
       start_time,
@@ -1456,8 +1487,209 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       year_month,
       year_week
     } = fileRow;
-    // SET bounds = ST_MakeEnvelope(minLng, minLat, maxLng, maxLat, 4326);
 
+    return [
+      uid,
+      start_time,
+      end_time,
+      total_elapsed_time,
+      total_timer_time,
+      total_distance,
+      total_cycles,
+      total_work,
+      total_calories,
+      total_ascent,
+      total_descent,
+      avg_speed,
+      max_speed,
+      avg_power,
+      max_power,
+      avg_normalized_power,
+      avg_heart_rate,
+      max_heart_rate,
+      avg_cadence,
+      max_cadence,
+      validGps,
+      year,
+      month,
+      week,
+      year_quarter,
+      year_month,
+      year_week,
+      gps_track?.bbox?.minLng ?? null,
+      gps_track?.bbox?.minLat ?? null,
+      gps_track?.bbox?.maxLng ?? null,
+      gps_track?.bbox?.maxLat ?? null,
+      trackStartGeom,
+      trackEndGeom,
+      points_count,
+      sampleRateGPS,
+      compressedGpsTrackBlob,
+      compressedBuffer,
+      gpsSource
+    ];
+  }
+
+  static buildWorkoutInsertValuesClause(rowIndex) {
+    const offset = rowIndex * 38;
+    const p = (index) => `$${offset + index}`;
+    return `(
+  ${p(1)},${p(2)},
+  ${p(3)},${p(4)},${p(5)},${p(6)},${p(7)},${p(8)},${p(9)},${p(10)},
+  ${p(11)},${p(12)},${p(13)},${p(14)},${p(15)},${p(16)},${p(17)},${p(18)},
+  ${p(19)},${p(20)},${p(21)},${p(22)},${p(23)},${p(24)},${p(25)},${p(26)},${p(27)},
+CASE
+  WHEN ${p(21)} = true
+  THEN ST_MakeEnvelope(
+    ${p(28)}::float8,
+    ${p(29)}::float8,
+    ${p(30)}::float8,
+    ${p(31)}::float8,
+    4326
+  )
+  ELSE NULL
+END,
+CASE
+  WHEN ${p(21)} = true
+  THEN ST_GeomFromText(${p(32)}, 4326)
+  ELSE NULL
+END,
+CASE
+  WHEN ${p(21)} = true
+  THEN ST_GeomFromText(${p(33)}, 4326)
+  ELSE NULL
+END,
+  ${p(34)},
+  ${p(35)},
+  ${p(36)},
+  ${p(37)},
+  ${p(38)}
+)`;
+  }
+
+  static async findExistingWorkoutsByStartTimes(uid, startTimes = []) {
+    if (!uid || !Array.isArray(startTimes) || startTimes.length === 0) {
+      return new Map();
+    }
+
+    const result = await pool.query(
+      `
+      SELECT id, uid, start_time
+      FROM workouts
+      WHERE uid = $1
+        AND start_time = ANY($2::timestamptz[])
+      `,
+      [uid, startTimes]
+    );
+
+    return new Map(result.rows.map((row) => [
+      `${row.uid}:${new Date(row.start_time).toISOString()}`,
+      row
+    ]));
+  }
+
+  static async insertPreparedFilesBulk(preparedItems = []) {
+    if (!Array.isArray(preparedItems) || preparedItems.length === 0) {
+      return {
+        insertedRows: [],
+        existingRowsByKey: new Map(),
+        timingSteps: []
+      };
+    }
+
+    const timing = FileDBService.createStepLogger("db.insert-files-bulk", {
+      rowCount: preparedItems.length
+    });
+
+    const valuesClauses = [];
+    const params = [];
+    for (let index = 0; index < preparedItems.length; index += 1) {
+      valuesClauses.push(FileDBService.buildWorkoutInsertValuesClause(index));
+      params.push(...FileDBService.buildPreparedInsertParams(preparedItems[index]));
+    }
+
+    const result = await pool.query(
+      `
+INSERT INTO workouts (
+  uid,
+  start_time,
+  end_time,
+  total_elapsed_time,
+  total_timer_time,
+  total_distance,
+  total_cycles,
+  total_work,
+  total_calories,
+  total_ascent,
+  total_descent,
+  avg_speed,
+  max_speed,
+  avg_power,
+  max_power,
+  avg_normalized_power,
+  avg_heart_rate,
+  max_heart_rate,
+  avg_cadence,
+  max_cadence,
+  validGps,
+  year,
+  month,
+  week,
+  year_quarter,
+  year_month,
+  year_week,
+  bounds,
+  track_start,
+  track_end,
+  points_count,
+  sampleRateGPS,
+  gps_track_blob,
+  stream,
+  gps_source
+)
+VALUES
+${valuesClauses.join(",\n")}
+ON CONFLICT (uid, start_time)
+DO NOTHING
+RETURNING id, uid, start_time;
+      `,
+      params
+    );
+    timing.mark("insert-workout-rows", {
+      insertedCount: result.rowCount
+    });
+
+    const insertedRows = Array.isArray(result.rows) ? result.rows : [];
+    const startTimes = preparedItems.map((item) => item.fileRow.start_time);
+    const existingRowsByKey = await FileDBService.findExistingWorkoutsByStartTimes(
+      preparedItems[0]?.fileRow?.uid,
+      startTimes
+    );
+    timing.mark("load-existing-rows", {
+      resolvedCount: existingRowsByKey.size
+    });
+
+    return {
+      insertedRows,
+      existingRowsByKey,
+      timingSteps: Array.isArray(timing?.steps)
+        ? timing.steps.map((step) => ({
+            label: step.label,
+            stepMs: Number(step.stepMs || 0)
+          }))
+        : []
+    };
+  }
+
+  static async insertFile(fileRow, segments, gps_track, workoutObject) {
+    const timing = FileDBService.createStepLogger("db.insert-file", {
+      uid: fileRow.uid,
+      validGps: !!gps_track?.validGps,
+      gpsPointCount: gps_track?.pointCount ?? gps_track?.track?.length ?? 0,
+      segmentCount: segments?.length ?? 0
+    });
+    const prepared = await FileDBService.prepareInsertFilePayload(fileRow, gps_track, workoutObject);
+    const d = new Date(fileRow.start_time);
 
     try {
       const result = await pool.query(
@@ -1535,46 +1767,7 @@ ON CONFLICT (uid, start_time)
 DO NOTHING
 RETURNING id, uid;
     `,
-        [
-          uid,              // $1
-          start_time,            // $2
-          end_time,              // $3
-          total_elapsed_time,    // $4
-          total_timer_time,      // $5
-          total_distance,        // $6
-          total_cycles,          // $7
-          total_work,            // $8
-          total_calories,        // $9
-          total_ascent,          // $10
-          total_descent,         // $11
-          avg_speed,             // $12
-          max_speed,             // $13
-          avg_power,             // $14
-          max_power,             // $15
-          avg_normalized_power,  // $16
-          avg_heart_rate,        // $17
-          max_heart_rate,        // $18
-          avg_cadence,           // $19
-          max_cadence,           // $20
-          validGps,              // $21
-          year,                  // $22
-          month,                 // $23
-          week,                  // $24
-          year_quarter,          // $25
-          year_month,            // $26
-          year_week,             // $27
-          gps_track?.bbox?.minLng ?? null, // $28
-          gps_track?.bbox?.minLat ?? null, // $29
-          gps_track?.bbox?.maxLng ?? null, // $30
-          gps_track?.bbox?.maxLat ?? null, // $31
-          trackStartGeom,        // $32
-          trackEndGeom,          // $33
-          points_count,          // $34
-          sampleRateGPS,         // $35
-          compressedGpsTrackBlob,// $36
-          compressedBuffer,      // $37
-          gpsSource              // $38
-        ]
+        FileDBService.buildPreparedInsertParams(prepared)
       );
 
       if (result.rows.length === 0) {
@@ -1594,12 +1787,15 @@ RETURNING id, uid;
 
       return {
         ...result.rows[0],
-        timingSteps: Array.isArray(timing?.steps)
-          ? timing.steps.map((step) => ({
-              label: step.label,
-              stepMs: Number(step.stepMs || 0)
-            }))
-          : []
+        timingSteps: [
+          ...(Array.isArray(prepared.timingSteps) ? prepared.timingSteps : []),
+          ...(Array.isArray(timing?.steps)
+            ? timing.steps.map((step) => ({
+                label: step.label,
+                stepMs: Number(step.stepMs || 0)
+              }))
+            : [])
+        ]
       };
 
     } catch (err) {
