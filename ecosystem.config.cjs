@@ -100,7 +100,7 @@ module.exports = {
     {
       name: "import-batch-worker",
       script: "src/workers/import-batch-worker.js",
-      instances: 2,
+      instances: 4,
       exec_mode: "fork",
       env: workerEnv,
       env_production: workerEnv

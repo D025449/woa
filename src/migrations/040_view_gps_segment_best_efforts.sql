@@ -1,3 +1,4 @@
+-- Active: 1776863449169@@127.0.0.1@5432@cwa24_prod
 DROP VIEW IF EXISTS v_gps_segment_best_efforts CASCADE;
 CREATE VIEW v_gps_segment_best_efforts AS
 SELECT
