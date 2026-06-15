@@ -201,27 +201,6 @@ function skipMessage(startIndex, messageType) {
   return nextIndex;
 }
 
-function toRecordObjects(recordsTyped) {
-  const { recordCount } = recordsTyped;
-  const records = new Array(recordCount);
-
-  for (let index = 0; index < recordCount; index += 1) {
-    records[index] = {
-      timestamp: recordsTyped.timestampsMs[index],
-      distance: Number.isFinite(recordsTyped.distancesM[index]) ? recordsTyped.distancesM[index] : null,
-      power: Number.isFinite(recordsTyped.powersW[index]) ? recordsTyped.powersW[index] : null,
-      heart_rate: Number.isFinite(recordsTyped.heartRatesBpm[index]) ? recordsTyped.heartRatesBpm[index] : null,
-      cadence: Number.isFinite(recordsTyped.cadencesRpm[index]) ? recordsTyped.cadencesRpm[index] : null,
-      speed: Number.isFinite(recordsTyped.speedsMps[index]) ? recordsTyped.speedsMps[index] : null,
-      altitude: Number.isFinite(recordsTyped.altitudesM[index]) ? recordsTyped.altitudesM[index] : null,
-      position_lat: Number.isFinite(recordsTyped.positionLatsDeg[index]) ? recordsTyped.positionLatsDeg[index] : null,
-      position_long: Number.isFinite(recordsTyped.positionLongsDeg[index]) ? recordsTyped.positionLongsDeg[index] : null
-    };
-  }
-
-  return records;
-}
-
 export function parseFitBufferTyped(buffer) {
   const rawBuffer = getArrayBuffer(buffer);
   const blob = new Uint8Array(rawBuffer);
@@ -427,7 +406,6 @@ export function parseFitBufferTyped(buffer) {
 
   return {
     sessions,
-    records: toRecordObjects(recordsTyped),
     recordsTyped,
     recordsAreSorted: true
   };

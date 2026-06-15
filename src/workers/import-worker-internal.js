@@ -844,7 +844,7 @@ export async function createApp(options = {}) {
       });
       timing.mark("process-fit-records", {
         segmentCount: segments?.length ?? 0,
-        gpsPointCount: gps_track?.track?.length ?? 0,
+        gpsPointCount: gps_track?.pointCount ?? gps_track?.track?.length ?? 0,
         validGps: !!gps_track?.validGps
       });
       const fitFile = {

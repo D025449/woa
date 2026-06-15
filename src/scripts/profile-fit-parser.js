@@ -7,6 +7,13 @@ import { parseFitBufferTyped } from "../services/fit-import-typed-service.js";
 import { parseFitBufferStandard } from "../services/fit-parser-service.js";
 import { parseFitBufferFast } from "../services/fit-parser-fast-service.js";
 
+function getParsedRecordCount(parsed) {
+  if (Number.isFinite(Number(parsed?.recordsTyped?.recordCount))) {
+    return Number(parsed.recordsTyped.recordCount);
+  }
+  return Array.isArray(parsed?.records) ? parsed.records.length : 0;
+}
+
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
@@ -67,7 +74,7 @@ async function main() {
     minMs: Number(minMs.toFixed(1)),
     maxMs: Number(maxMs.toFixed(1)),
     sessions: Array.isArray(lastParsed?.sessions) ? lastParsed.sessions.length : 0,
-    records: Array.isArray(lastParsed?.records) ? lastParsed.records.length : 0
+    records: getParsedRecordCount(lastParsed)
   });
 
   console.log("");

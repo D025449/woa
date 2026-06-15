@@ -1,7 +1,3 @@
-import IntervalDetector from "../shared/IntervalDetector.js";
-import RecordGapFiller from "../shared/RecordGapFiller.js";
-import BestEffortDetector from "../shared/BestEffortDetector.js";
-import SegmentService from "../shared/SegmentService.js";
 import Workout from "../shared/Workout.js";
 
 const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
@@ -234,144 +230,10 @@ export default class FitProcessor {
   // MAIN PIPELINE
   // -----------------------------
   static processFitRecords(fitFile, options = {}) {
-    if (
-      fitFile?.recordsTyped &&
-      options?.computeSegments === false
-    ) {
-      return FitProcessor.processFitTypedRecords(fitFile, options);
+    if (!fitFile?.recordsTyped) {
+      throw new Error("Typed FIT parser payload required");
     }
-
-    const timing = FitProcessor.createStepLogger("fit.process-fit-records", {
-      sourceName: options?.sourceName ?? null,
-      recordCount: fitFile?.records?.length ?? 0,
-      sessionCount: fitFile?.sessions?.length ?? 0
-    });
-    const recs = fitFile.records;
-    const aggregated = FitProcessor.aggregateSessions(fitFile);
-    timing.mark("aggregate-sessions");
-
-    if (!aggregated) {
-      timing.flush({
-        status: "failed",
-        error: "No sessions found in payload"
-      });
-      throw new Error("No sessions found in payload");
-    }
-    const startdate = new Date(aggregated.start_time);
-
-    if (fitFile?.recordsAreSorted) {
-      timing.mark("sort-records", {
-        skipped: true
-      });
-    } else {
-      recs.sort((a, b) => a.timestamp - b.timestamp);
-      timing.mark("sort-records");
-    }
-
-    if (recs?.length < 300) {
-      timing.flush({
-        status: "failed",
-        error: "less than five minutes"
-      });
-      throw new Error("less than five minutes");
-    }
-
-    const records = RecordGapFiller.fillGaps(recs);
-    timing.mark("fill-gaps", {
-      filledRecordCount: records.length
-    });
-
-    FitProcessor.cleanAltitude(records, {
-      sourceName: options?.sourceName ?? null
-    });
-    timing.mark("clean-altitude");
-
-    if (process.env.ALTITUDE_IMPORT_DEBUG === "1") {
-      console.log("[altitude-record-stats]", {
-        sourceName: options?.sourceName ?? null,
-        stage: "post-clean-records",
-        ...FitProcessor.describeAltitudeRecordStats(records)
-      });
-    }
-
-    const gps_track = FitProcessor.cleanGPSAndBuildTrack(records, {
-      sampleRate: 5,
-      sourceName: options?.sourceName ?? null
-    });
-    timing.mark("clean-gps-build-track", {
-      gpsPointCount: gps_track?.track?.length ?? 0,
-      validGps: !!gps_track?.validGps
-    });
-
-    const workoutObject = Workout.fromRecords(records, { validGps: gps_track.validGps, startTime: startdate });
-    timing.mark("workout-from-records");
-
-    if (process.env.ALTITUDE_IMPORT_DEBUG === "1") {
-      console.log("[altitude-workout-stats]", {
-        sourceName: options?.sourceName ?? null,
-        stage: "post-workout-from-records",
-        ...FitProcessor.describeWorkoutAltitudeStats(workoutObject)
-      });
-    }
-
-    const shouldComputeSegments = options?.computeSegments !== false;
-    const segments = [];
-    if (shouldComputeSegments) {
-      const autoSegments = SegmentService.createSgmentsFromIntervals(
-        IntervalDetector.detect(records),
-        'auto'
-      );
-      timing.mark("detect-auto-segments", {
-        autoSegmentCount: autoSegments.length
-      });
-
-      const segBE = SegmentService.createSgmentsFromIntervals(
-        BestEffortDetector.detect(records),
-        'crit'
-      );
-      timing.mark("detect-best-efforts", {
-        bestEffortSegmentCount: segBE.length
-      });
-
-      segments.push(...autoSegments, ...segBE);
-      timing.mark("merge-segments", {
-        segmentCount: segments.length
-      });
-    } else {
-      timing.mark("detect-auto-segments", {
-        autoSegmentCount: 0,
-        skipped: true
-      });
-      timing.mark("detect-best-efforts", {
-        bestEffortSegmentCount: 0,
-        skipped: true
-      });
-      timing.mark("merge-segments", {
-        segmentCount: 0,
-        skipped: true
-      });
-    }
-
-    timing.flush({
-      status: "completed",
-      validGps: !!gps_track?.validGps,
-      gpsPointCount: gps_track?.track?.length ?? 0,
-      segmentCount: segments.length
-    });
-
-    return {
-      aggregated,
-      segments,
-      gps_track,
-      workoutObject,
-      importGpsSource: FitProcessor.extractImportGpsSource(fitFile),
-      timingSteps: Array.isArray(timing?.steps)
-        ? timing.steps.map((step) => ({
-            label: step.label,
-            stepMs: Number(step.stepMs || 0)
-          }))
-        : []
-    };
+    return FitProcessor.processFitTypedRecords(fitFile, options);
   }
 
   static processFitTypedRecords(fitFile, options = {}) {
@@ -422,7 +284,7 @@ export default class FitProcessor {
       profile: gpsProfile
     });
     timing.mark("clean-gps-build-track", {
-      gpsPointCount: gps_track?.track?.length ?? 0,
+      gpsPointCount: gps_track?.pointCount ?? gps_track?.track?.length ?? 0,
       validGps: !!gps_track?.validGps,
       phases: gpsProfile
     });
@@ -449,7 +311,7 @@ export default class FitProcessor {
     timing.flush({
       status: "completed",
       validGps: !!gps_track?.validGps,
-      gpsPointCount: gps_track?.track?.length ?? 0,
+      gpsPointCount: gps_track?.pointCount ?? gps_track?.track?.length ?? 0,
       segmentCount: 0
     });
 
@@ -765,7 +627,9 @@ export default class FitProcessor {
     let maxLat = -Infinity;
     let minLng = Infinity;
     let maxLng = -Infinity;
-    const reduced = [];
+    const reducedLatsQ = FitProcessor.createGrowableNumericStore(Math.ceil(lats.length / Math.max(1, sampleRate)) + 8);
+    const reducedLngsQ = FitProcessor.createGrowableNumericStore(Math.ceil(longs.length / Math.max(1, sampleRate)) + 8);
+    const quantizationScale = 10 ** precision;
 
     const buildTrackStartedAt = profile ? Date.now() : 0;
     for (let index = 0; index < lats.length; index += 1) {
@@ -784,25 +648,53 @@ export default class FitProcessor {
       if (normalizedLng > maxLng) maxLng = normalizedLng;
 
       if (index % sampleRate === 0) {
-        reduced.push([normalizedLat, normalizedLng]);
+        reducedLatsQ.push(Math.round(normalizedLat * quantizationScale));
+        reducedLngsQ.push(Math.round(normalizedLng * quantizationScale));
       }
     }
     if (profile) {
       profile.buildTrackMs = Date.now() - buildTrackStartedAt;
     }
 
-    const validGps = reduced.length >= 2;
+    const latitudesQ = Int32Array.from(reducedLatsQ.toTypedArray(), (value) => Math.round(value));
+    const longitudesQ = Int32Array.from(reducedLngsQ.toTypedArray(), (value) => Math.round(value));
+    const validGps = latitudesQ.length >= 2;
     const hashStartedAt = profile ? Date.now() : 0;
-    const trackHash = validGps ? reduced.map((point) => point.join(",")).join("|") : null;
+    let trackHash = null;
+    if (validGps) {
+      const parts = new Array(latitudesQ.length);
+      for (let index = 0; index < latitudesQ.length; index += 1) {
+        parts[index] = `${latitudesQ[index] / quantizationScale},${longitudesQ[index] / quantizationScale}`;
+      }
+      trackHash = parts.join("|");
+    }
     if (profile) {
       profile.trackHashMs = Date.now() - hashStartedAt;
     }
+
+    let materializedTrack = null;
 
     return {
       validGps,
       sampleRate,
       bbox: validGps ? { minLat, maxLat, minLng, maxLng } : null,
-      track: reduced,
+      pointCount: latitudesQ.length,
+      quantizationScale,
+      latitudesQ,
+      longitudesQ,
+      get track() {
+        if (materializedTrack) {
+          return materializedTrack;
+        }
+        materializedTrack = new Array(latitudesQ.length);
+        for (let index = 0; index < latitudesQ.length; index += 1) {
+          materializedTrack[index] = [
+            latitudesQ[index] / quantizationScale,
+            longitudesQ[index] / quantizationScale
+          ];
+        }
+        return materializedTrack;
+      },
       trackHash,
       sourceName,
       firstTimestampMs: timestampsMs[0] ?? null

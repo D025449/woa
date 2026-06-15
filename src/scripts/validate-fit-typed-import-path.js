@@ -43,6 +43,13 @@ function compareScalar(label, expected, actual, mismatches) {
   }
 }
 
+function getParsedRecordCount(parsed) {
+  if (Number.isFinite(Number(parsed?.recordsTyped?.recordCount))) {
+    return Number(parsed.recordsTyped.recordCount);
+  }
+  return Array.isArray(parsed?.records) ? parsed.records.length : 0;
+}
+
 function summarizeWorkout(workoutObject) {
   return {
     length: workoutObject.length,
@@ -148,7 +155,7 @@ async function run() {
   const mismatches = [];
 
   compareScalar("sessions.length", Array.isArray(fastParsed.sessions) ? fastParsed.sessions.length : 0, Array.isArray(typedParsed.sessions) ? typedParsed.sessions.length : 0, mismatches);
-  compareScalar("records.length", Array.isArray(fastParsed.records) ? fastParsed.records.length : 0, Array.isArray(typedParsed.records) ? typedParsed.records.length : 0, mismatches);
+  compareScalar("records.length", getParsedRecordCount(fastParsed), getParsedRecordCount(typedParsed), mismatches);
   compareScalar("importGpsSource", fastResult.importGpsSource, typedResult.importGpsSource, mismatches);
 
   compareAggregated(fastResult.aggregated, typedResult.aggregated, floatTolerance, mismatches);
@@ -168,8 +175,8 @@ async function run() {
     },
     {
       label: "records.length",
-      fast: Array.isArray(fastParsed.records) ? fastParsed.records.length : 0,
-      typed: Array.isArray(typedParsed.records) ? typedParsed.records.length : 0
+      fast: getParsedRecordCount(fastParsed),
+      typed: getParsedRecordCount(typedParsed)
     },
     {
       label: "gps.validGps",

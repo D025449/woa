@@ -94,6 +94,59 @@ export default class GpsTrackBlobService {
     return Buffer.from(buffer);
   }
 
+  static encodeTrackBufferFromQuantized(payload = {}, options = {}) {
+    const latitudesQ = payload?.latitudesQ instanceof Int32Array
+      ? payload.latitudesQ
+      : new Int32Array(payload?.latitudesQ || []);
+    const longitudesQ = payload?.longitudesQ instanceof Int32Array
+      ? payload.longitudesQ
+      : new Int32Array(payload?.longitudesQ || []);
+    const pointCount = Math.min(latitudesQ.length, longitudesQ.length);
+    const sampleRateGps = Math.max(1, Math.round(Number(options.sampleRateGps ?? payload?.sampleRateGps) || 1));
+    const scale = Math.max(1, Math.round(Number(options.scale ?? payload?.scale) || GPS_TRACK_BLOB_SCALE));
+    const buffer = new ArrayBuffer(GPS_TRACK_BLOB_HEADER_BYTES + (pointCount * 8));
+    const view = new DataView(buffer);
+    const latOffset = GPS_TRACK_BLOB_HEADER_BYTES;
+    const lngOffset = latOffset + (pointCount * 4);
+    const outLats = new Int32Array(buffer, latOffset, pointCount);
+    const outLngs = new Int32Array(buffer, lngOffset, pointCount);
+
+    outLats.set(latitudesQ.subarray(0, pointCount));
+    outLngs.set(longitudesQ.subarray(0, pointCount));
+
+    let minLatQ = 0;
+    let maxLatQ = 0;
+    let minLngQ = 0;
+    let maxLngQ = 0;
+
+    if (pointCount > 0) {
+      minLatQ = maxLatQ = outLats[0];
+      minLngQ = maxLngQ = outLngs[0];
+      for (let index = 1; index < pointCount; index += 1) {
+        const latQ = outLats[index];
+        const lngQ = outLngs[index];
+        if (latQ < minLatQ) minLatQ = latQ;
+        if (latQ > maxLatQ) maxLatQ = latQ;
+        if (lngQ < minLngQ) minLngQ = lngQ;
+        if (lngQ > maxLngQ) maxLngQ = lngQ;
+      }
+    }
+
+    view.setUint8(0, GPS_TRACK_BLOB_VERSION);
+    view.setUint8(1, 0);
+    view.setUint16(2, 0);
+    view.setUint32(4, pointCount);
+    view.setUint16(8, sampleRateGps);
+    view.setUint16(10, 0);
+    view.setUint32(12, scale);
+    view.setInt32(16, minLatQ);
+    view.setInt32(20, maxLatQ);
+    view.setInt32(24, minLngQ);
+    view.setInt32(28, maxLngQ);
+
+    return Buffer.from(buffer);
+  }
+
   static decodeTrackBuffer(bufferLike) {
     const source = Buffer.isBuffer(bufferLike)
       ? bufferLike
@@ -157,6 +210,11 @@ export default class GpsTrackBlobService {
 
   static async encodeCompressed(track = [], options = {}) {
     const raw = this.encodeTrackBuffer(track, options);
+    return Workout.compress(raw);
+  }
+
+  static async encodeCompressedFromQuantized(payload = {}, options = {}) {
+    const raw = this.encodeTrackBufferFromQuantized(payload, options);
     return Workout.compress(raw);
   }
 

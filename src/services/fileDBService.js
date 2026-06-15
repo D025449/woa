@@ -1360,7 +1360,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     const timing = FileDBService.createStepLogger("db.insert-file", {
       uid: fileRow.uid,
       validGps: !!gps_track?.validGps,
-      gpsPointCount: gps_track?.track?.length ?? 0,
+      gpsPointCount: gps_track?.pointCount ?? gps_track?.track?.length ?? 0,
       segmentCount: segments?.length ?? 0
     });
     const d = new Date(fileRow.start_time);
@@ -1386,9 +1386,19 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     }
 
 
-    const points_count = gps_track?.track.length ?? 0;
-    const firstTrackPoint = points_count > 0 ? gps_track.track[0] : null;
-    const lastTrackPoint = points_count > 0 ? gps_track.track[points_count - 1] : null;
+    const points_count = gps_track?.pointCount ?? gps_track?.track?.length ?? 0;
+    const firstTrackPoint = points_count > 0
+      ? (gps_track?.latitudesQ ? [
+          gps_track.latitudesQ[0] / gps_track.quantizationScale,
+          gps_track.longitudesQ[0] / gps_track.quantizationScale
+        ] : gps_track.track[0])
+      : null;
+    const lastTrackPoint = points_count > 0
+      ? (gps_track?.latitudesQ ? [
+          gps_track.latitudesQ[points_count - 1] / gps_track.quantizationScale,
+          gps_track.longitudesQ[points_count - 1] / gps_track.quantizationScale
+        ] : gps_track.track[points_count - 1])
+      : null;
     const trackStartGeom = firstTrackPoint
       ? `POINT(${firstTrackPoint[1]} ${firstTrackPoint[0]})`
       : null;
@@ -1396,9 +1406,14 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       ? `POINT(${lastTrackPoint[1]} ${lastTrackPoint[0]})`
       : null;
     timing.mark("build-geometry-wkt");
-    const compressedGpsTrackBlob = await GpsTrackBlobService.encodeCompressed(gps_track?.track ?? [], {
-      sampleRateGps: sampleRateGPS
-    });
+    const compressedGpsTrackBlob = gps_track?.latitudesQ && gps_track?.longitudesQ
+      ? await GpsTrackBlobService.encodeCompressedFromQuantized(gps_track, {
+          sampleRateGps: sampleRateGPS,
+          scale: gps_track.quantizationScale
+        })
+      : await GpsTrackBlobService.encodeCompressed(gps_track?.track ?? [], {
+          sampleRateGps: sampleRateGPS
+        });
 
     if (fileRow.validGps && points_count < 2) {
       console.warn("[db.insert-file] forcing GPS invalid because track has fewer than 2 points", {

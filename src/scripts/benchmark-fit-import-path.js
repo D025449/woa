@@ -8,6 +8,13 @@ import { parseFitBufferFast } from "../services/fit-parser-fast-service.js";
 import { parseFitBufferTyped } from "../services/fit-import-typed-service.js";
 import { processFitRecords } from "../services/fitService.js";
 
+function getParsedRecordCount(parsed) {
+  if (Number.isFinite(Number(parsed?.recordsTyped?.recordCount))) {
+    return Number(parsed.recordsTyped.recordCount);
+  }
+  return Array.isArray(parsed?.records) ? parsed.records.length : 0;
+}
+
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
@@ -63,7 +70,7 @@ async function run() {
       avgProcessMs: Number((processTotalMs / iterations).toFixed(3)),
       avgTotalMs: Number((totalMs / iterations).toFixed(3)),
       sessions: Array.isArray(lastParsed?.sessions) ? lastParsed.sessions.length : 0,
-      records: Array.isArray(lastParsed?.records) ? lastParsed.records.length : 0,
+      records: getParsedRecordCount(lastParsed),
       validGps: !!lastResult?.gps_track?.validGps,
       gpsTrackPoints: Array.isArray(lastResult?.gps_track?.track) ? lastResult.gps_track.track.length : 0,
       workoutLength: Number(lastResult?.workoutObject?.length || 0),
