@@ -12,6 +12,7 @@
     "db:rebuild": "node src/db-rebuild.js",
     "bench:persistence": "node src/scripts/benchmark-workout-persistence.js",
     "bench:workout-insert-loop": "node src/scripts/benchmark-workout-insert-loop.js",
+    "bench:workout-insert-batch": "node src/scripts/benchmark-workout-insert-batch.js",
     "bench:segment-recompute": "node src/scripts/benchmark-segment-recompute.js",
     "bench:fit-typed-arrays": "node src/scripts/benchmark-fit-record-typed-arrays.js",
     "bench:fit-import-path": "node src/scripts/benchmark-fit-import-path.js",
