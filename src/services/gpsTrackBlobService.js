@@ -147,7 +147,8 @@ export default class GpsTrackBlobService {
     return Buffer.from(buffer);
   }
 
-  static decodeTrackBuffer(bufferLike) {
+  static decodeTrackBuffer(bufferLike, options = {}) {
+    const includeGeoJson = options?.includeGeoJson !== false;
     const source = Buffer.isBuffer(bufferLike)
       ? bufferLike
       : Buffer.from(bufferLike || []);
@@ -203,7 +204,7 @@ export default class GpsTrackBlobService {
       version,
       sampleRateGps,
       points,
-      geoJson: pointCount >= 2 ? toGeoJson(points) : null,
+      geoJson: includeGeoJson && pointCount >= 2 ? toGeoJson(points) : null,
       bbox
     };
   }
@@ -218,7 +219,7 @@ export default class GpsTrackBlobService {
     return Workout.compress(raw);
   }
 
-  static async decodeCompressed(bufferLike) {
+  static async decodeCompressed(bufferLike, options = {}) {
     if (!bufferLike) {
       return {
         version: null,
@@ -230,12 +231,13 @@ export default class GpsTrackBlobService {
     }
 
     const raw = await Workout.decompress(bufferLike);
-    return this.decodeTrackBuffer(raw);
+    return this.decodeTrackBuffer(raw, options);
   }
 
-  static async decodeRowTrack(row = {}) {
+  static async decodeRowTrack(row = {}, options = {}) {
+    const includeGeoJson = options?.includeGeoJson !== false;
     if (row?.gps_track_blob) {
-      return this.decodeCompressed(row.gps_track_blob);
+      return this.decodeCompressed(row.gps_track_blob, { includeGeoJson });
     }
 
     const points = this.parseGeoJsonTrack(row?.track ?? row?.track_geojson ?? row?.geom ?? null);
@@ -243,7 +245,7 @@ export default class GpsTrackBlobService {
       version: null,
       sampleRateGps: Number(row?.samplerategps ?? row?.sampleRateGPS ?? 1) || 1,
       points,
-      geoJson: points.length >= 2 ? toGeoJson(points) : null,
+      geoJson: includeGeoJson && points.length >= 2 ? toGeoJson(points) : null,
       bbox: row?.bounds ?? null
     };
   }

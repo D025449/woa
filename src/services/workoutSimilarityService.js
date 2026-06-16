@@ -45,6 +45,87 @@ export default class WorkoutSimilarityService {
     return sampled;
   }
 
+  static createProjectionContext(track = []) {
+    if (!Array.isArray(track) || track.length < 2) {
+      return null;
+    }
+
+    let latSum = 0;
+    for (let index = 0; index < track.length; index += 1) {
+      latSum += Number(track[index]?.lat || 0);
+    }
+    const avgLatDeg = latSum / track.length;
+    return {
+      metersPerDegLat: 111320,
+      metersPerDegLng: Math.cos(avgLatDeg * Math.PI / 180) * 111320,
+      originLat: Number(track[0]?.lat || 0),
+      originLng: Number(track[0]?.lng || 0)
+    };
+  }
+
+  static buildProjectedTrack(track = [], projectionContext = null) {
+    if (!Array.isArray(track) || track.length < 2) {
+      return null;
+    }
+
+    const context = projectionContext || this.createProjectionContext(track);
+    if (!context) {
+      return null;
+    }
+
+    const {
+      metersPerDegLat,
+      metersPerDegLng,
+      originLat,
+      originLng
+    } = context;
+    const xs = new Float64Array(track.length);
+    const ys = new Float64Array(track.length);
+
+    for (let index = 0; index < track.length; index += 1) {
+      const point = track[index];
+      xs[index] = (Number(point?.lng || 0) - originLng) * metersPerDegLng;
+      ys[index] = (Number(point?.lat || 0) - originLat) * metersPerDegLat;
+    }
+
+    return {
+      track,
+      xs,
+      ys,
+      projectionContext: context
+    };
+  }
+
+  static buildSampledProjectedPoints(projectedTrack, step = 10) {
+    if (!projectedTrack?.xs || projectedTrack.xs.length < 2) {
+      return { xs: new Float64Array(0), ys: new Float64Array(0) };
+    }
+
+    const normalizedStep = Math.max(1, Number(step) || 1);
+    const lastIndex = projectedTrack.xs.length - 1;
+    const sampledIndices = [];
+
+    for (let index = 0; index < projectedTrack.xs.length; index += normalizedStep) {
+      sampledIndices.push(index);
+    }
+    if (sampledIndices.length === 0 || sampledIndices[sampledIndices.length - 1] !== lastIndex) {
+      sampledIndices.push(lastIndex);
+    }
+
+    const sampledXs = new Float64Array(sampledIndices.length);
+    const sampledYs = new Float64Array(sampledIndices.length);
+    for (let index = 0; index < sampledIndices.length; index += 1) {
+      const sourceIndex = sampledIndices[index];
+      sampledXs[index] = projectedTrack.xs[sourceIndex];
+      sampledYs[index] = projectedTrack.ys[sourceIndex];
+    }
+
+    return {
+      xs: sampledXs,
+      ys: sampledYs
+    };
+  }
+
   static buildControlPoints(track = [], sampleRateSeconds = 5) {
     if (!Array.isArray(track) || track.length < 2) {
       return [];
@@ -65,6 +146,45 @@ export default class WorkoutSimilarityService {
         .map((index) => track[Math.max(0, Math.min(track.length - 1, index))])
         .filter(Boolean)
     )];
+  }
+
+  static buildControlPointIndices(trackLength = 0, sampleRateSeconds = 5) {
+    if (!Number.isFinite(trackLength) || trackLength < 2) {
+      return [];
+    }
+
+    const warmupSkipPoints = Math.max(1, Math.round(60 / Math.max(1, sampleRateSeconds)));
+    const startIndex = Math.min(trackLength - 1, warmupSkipPoints);
+    const checkpoints = [
+      startIndex,
+      Math.floor(trackLength * 0.25),
+      Math.floor(trackLength * 0.5),
+      Math.floor(trackLength * 0.75),
+      trackLength - 1
+    ];
+
+    return [...new Set(
+      checkpoints
+        .map((index) => Math.max(0, Math.min(trackLength - 1, index)))
+        .filter((index) => Number.isInteger(index))
+    )];
+  }
+
+  static buildProjectedControlPoints(projectedTrack, sampleRateSeconds = 5) {
+    if (!projectedTrack?.xs || projectedTrack.xs.length < 2) {
+      return { xs: new Float64Array(0), ys: new Float64Array(0) };
+    }
+
+    const indices = this.buildControlPointIndices(projectedTrack.xs.length, sampleRateSeconds);
+    const xs = new Float64Array(indices.length);
+    const ys = new Float64Array(indices.length);
+    for (let index = 0; index < indices.length; index += 1) {
+      const sourceIndex = indices[index];
+      xs[index] = projectedTrack.xs[sourceIndex];
+      ys[index] = projectedTrack.ys[sourceIndex];
+    }
+
+    return { xs, ys };
   }
 
   static computePointMatchRatio(sampledPoints, polyline, maxDistanceMeters = 20, options = {}) {
@@ -103,6 +223,92 @@ export default class WorkoutSimilarityService {
     }
 
     return matched / sampledPoints.length;
+  }
+
+  static computePointMatchRatioProjected(sampledPoints, projectedPolyline, maxDistanceMeters = 20, options = {}) {
+    const sampledXs = sampledPoints?.xs;
+    const sampledYs = sampledPoints?.ys;
+    const polylineXs = projectedPolyline?.xs;
+    const polylineYs = projectedPolyline?.ys;
+    if (
+      !(sampledXs instanceof Float64Array) ||
+      !(sampledYs instanceof Float64Array) ||
+      !(polylineXs instanceof Float64Array) ||
+      !(polylineYs instanceof Float64Array) ||
+      sampledXs.length === 0 ||
+      polylineXs.length < 2
+    ) {
+      return 0;
+    }
+
+    const minRequiredRatioRaw = Number(options.minRequiredRatio);
+    const minRequiredRatio = Number.isFinite(minRequiredRatioRaw)
+      ? Math.max(0, Math.min(1, minRequiredRatioRaw))
+      : null;
+    const hardAbortDistanceRaw = Number(options.hardAbortDistanceMeters);
+    const hardAbortDistanceMeters = Number.isFinite(hardAbortDistanceRaw) && hardAbortDistanceRaw > maxDistanceMeters
+      ? hardAbortDistanceRaw
+      : null;
+    const maxDistanceSquared = maxDistanceMeters * maxDistanceMeters;
+    const hardAbortDistanceSquared = hardAbortDistanceMeters !== null
+      ? hardAbortDistanceMeters * hardAbortDistanceMeters
+      : null;
+
+    let matched = 0;
+    for (let pointIndex = 0; pointIndex < sampledXs.length; pointIndex += 1) {
+      const px = sampledXs[pointIndex];
+      const py = sampledYs[pointIndex];
+      let minDistanceSquared = Infinity;
+
+      for (let segmentIndex = 0; segmentIndex < polylineXs.length - 1; segmentIndex += 1) {
+        const ax = polylineXs[segmentIndex];
+        const ay = polylineYs[segmentIndex];
+        const bx = polylineXs[segmentIndex + 1];
+        const by = polylineYs[segmentIndex + 1];
+        const dx = bx - ax;
+        const dy = by - ay;
+
+        let distanceSquared;
+        if (dx === 0 && dy === 0) {
+          const ddx = px - ax;
+          const ddy = py - ay;
+          distanceSquared = ddx * ddx + ddy * ddy;
+        } else {
+          const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
+          const clamped = t < 0 ? 0 : (t > 1 ? 1 : t);
+          const projX = ax + clamped * dx;
+          const projY = ay + clamped * dy;
+          const ddx = px - projX;
+          const ddy = py - projY;
+          distanceSquared = ddx * ddx + ddy * ddy;
+        }
+
+        if (distanceSquared < minDistanceSquared) {
+          minDistanceSquared = distanceSquared;
+          if (minDistanceSquared <= maxDistanceSquared) {
+            break;
+          }
+        }
+      }
+
+      if (hardAbortDistanceSquared !== null && minDistanceSquared > hardAbortDistanceSquared) {
+        return matched / sampledXs.length;
+      }
+
+      if (minDistanceSquared <= maxDistanceSquared) {
+        matched += 1;
+      }
+
+      if (minRequiredRatio !== null) {
+        const remainingPoints = sampledXs.length - (pointIndex + 1);
+        const maxPossibleRatio = (matched + remainingPoints) / sampledXs.length;
+        if (maxPossibleRatio < minRequiredRatio) {
+          return matched / sampledXs.length;
+        }
+      }
+    }
+
+    return matched / sampledXs.length;
   }
 
   static computeRequiredRouteOverlap({
@@ -154,6 +360,34 @@ export default class WorkoutSimilarityService {
     };
   }
 
+  static passesCheapPrecheckProjected(sourceProjectedTrack, candidateProjectedTrack, options = {}) {
+    const {
+      sourceSampleRateSeconds = 5,
+      candidateSampleRateSeconds = 5,
+      cheapPrecheckDistanceMeters = 40,
+      cheapPrecheckMinRatio = 0.6
+    } = options;
+
+    const sourceControlPoints = this.buildProjectedControlPoints(sourceProjectedTrack, sourceSampleRateSeconds);
+    const candidateControlPoints = this.buildProjectedControlPoints(candidateProjectedTrack, candidateSampleRateSeconds);
+    const sourceRatio = this.computePointMatchRatioProjected(
+      sourceControlPoints,
+      candidateProjectedTrack,
+      cheapPrecheckDistanceMeters
+    );
+    const candidateRatio = this.computePointMatchRatioProjected(
+      candidateControlPoints,
+      sourceProjectedTrack,
+      cheapPrecheckDistanceMeters
+    );
+
+    return {
+      passes: sourceRatio >= cheapPrecheckMinRatio && candidateRatio >= cheapPrecheckMinRatio,
+      sourceRatio,
+      candidateRatio
+    };
+  }
+
   static async classifySimilarGpsWorkoutsForWorkout(sourceWorkoutId, uid, options = {}) {
     const {
       distanceToleranceRatio = 0.04,
@@ -169,7 +403,8 @@ export default class WorkoutSimilarityService {
       hardAbortDistanceMeters = 140,
       rebuildMode = "full",
       deleteExistingEdgesPerWorkout = null,
-      onlyHigherWorkoutIds = false
+      onlyHigherWorkoutIds = false,
+      includeProfile = false
     } = options;
     const normalizedRebuildMode = String(rebuildMode || "full").trim().toLowerCase() === "delta"
       ? "delta"
@@ -180,22 +415,69 @@ export default class WorkoutSimilarityService {
       : normalizedRebuildMode === "full";
 
     const startedAt = Date.now();
+    let loadSourceTrackMs = 0;
+    let loadCandidatesMs = 0;
+    let deleteExistingEdgesMs = 0;
+    let sampleSourceTrackMs = 0;
+    let candidateTrackNormalizeMs = 0;
+    let cheapPrecheckMs = 0;
+    let sampleCandidateTrackMs = 0;
+    let compareRouteMs = 0;
+    let compareRouteABMs = 0;
+    let compareRouteBAMs = 0;
+    let scoreMs = 0;
+    let persistEdgeMs = 0;
+    let rejectedByRouteAB = 0;
+    let rejectedByRouteBA = 0;
+    let rejectedByScore = 0;
 
+    const loadSourceTrackStartedAt = Date.now();
     const sourceTrackRow = await WorkoutDBService.getTrack(sourceWorkoutId, uid);
+    loadSourceTrackMs = Date.now() - loadSourceTrackStartedAt;
     const sourceTrack = Array.isArray(sourceTrackRow?.trackPoints)
       ? sourceTrackRow.trackPoints
       : this.normalizeTrackGeoJson(sourceTrackRow?.track);
     if (sourceTrack.length < 2) {
       if (shouldDeleteExistingEdges) {
+        const deleteExistingEdgesStartedAt = Date.now();
         await WorkoutDBService.deleteSimilarityEdgesForWorkout(
           sourceWorkoutId,
           uid,
           this.MATCH_TYPE_GPS_ROUTE
         );
+        deleteExistingEdgesMs = Date.now() - deleteExistingEdgesStartedAt;
       }
-      return [];
+      return includeProfile
+        ? {
+            edges: [],
+            profile: {
+              candidateCount: 0,
+              comparedCandidates: 0,
+              precheckRejectedCandidates: 0,
+              matchedCandidates: 0,
+              persistedEdges: 0,
+              elapsedMs: Date.now() - startedAt,
+              loadSourceTrackMs,
+              loadCandidatesMs,
+              deleteExistingEdgesMs,
+              sampleSourceTrackMs,
+              candidateTrackNormalizeMs,
+              cheapPrecheckMs,
+              sampleCandidateTrackMs,
+              compareRouteMs,
+              compareRouteABMs,
+              compareRouteBAMs,
+              scoreMs,
+              persistEdgeMs,
+              rejectedByRouteAB,
+              rejectedByRouteBA,
+              rejectedByScore
+            }
+          }
+        : [];
     }
 
+    const loadCandidatesStartedAt = Date.now();
     const candidates = await WorkoutDBService.getSimilarRouteCandidates(sourceWorkoutId, uid, {
       distanceToleranceRatio,
       ascentToleranceRatio,
@@ -205,17 +487,25 @@ export default class WorkoutSimilarityService {
       minCandidateWorkoutId: onlyHigherWorkoutIds ? Number(sourceWorkoutId) : null,
       skipExistingEdgeMatchType: shouldSkipExistingEdges ? this.MATCH_TYPE_GPS_ROUTE : null
     });
+    loadCandidatesMs = Date.now() - loadCandidatesStartedAt;
 
     if (shouldDeleteExistingEdges) {
+      const deleteExistingEdgesStartedAt = Date.now();
       await WorkoutDBService.deleteSimilarityEdgesForWorkout(
         sourceWorkoutId,
         uid,
         this.MATCH_TYPE_GPS_ROUTE
       );
+      deleteExistingEdgesMs += Date.now() - deleteExistingEdgesStartedAt;
     }
 
-    const sampledSourcePoints = this.buildSampledPoints(sourceTrack, sampleEveryNthPoint);
-    const persistedEdges = [];
+    const sampleSourceTrackStartedAt = Date.now();
+    const projectionContext = this.createProjectionContext(sourceTrack);
+    const projectedSourceTrack = this.buildProjectedTrack(sourceTrack, projectionContext);
+    const sampledSourcePoints = this.buildSampledProjectedPoints(projectedSourceTrack, sampleEveryNthPoint);
+    sampleSourceTrackMs = Date.now() - sampleSourceTrackStartedAt;
+    const similarityEdgesToPersist = [];
+    let persistedEdges = [];
     let comparedCandidates = 0;
     let precheckRejectedCandidates = 0;
     let matchedCandidates = 0;
@@ -223,71 +513,90 @@ export default class WorkoutSimilarityService {
 
     for (const candidate of candidates) {
       comparedCandidates += 1;
+      const normalizeCandidateTrackStartedAt = Date.now();
       const candidateTrack = Array.isArray(candidate?.trackPoints)
         ? candidate.trackPoints
         : this.normalizeTrackGeoJson(candidate.track);
+      candidateTrackNormalizeMs += Date.now() - normalizeCandidateTrackStartedAt;
       if (candidateTrack.length < 2) {
         continue;
       }
 
-      const cheapPrecheck = this.passesCheapPrecheck(sourceTrack, candidateTrack, {
+      const cheapPrecheckStartedAt = Date.now();
+      const projectedCandidateTrack = this.buildProjectedTrack(candidateTrack, projectionContext);
+      const cheapPrecheck = this.passesCheapPrecheckProjected(projectedSourceTrack, projectedCandidateTrack, {
         sourceSampleRateSeconds,
         candidateSampleRateSeconds: Number(candidate?.samplerategps ?? candidate?.sampleRateGPS ?? 5) || 5,
         cheapPrecheckDistanceMeters,
         cheapPrecheckMinRatio
       });
+      cheapPrecheckMs += Date.now() - cheapPrecheckStartedAt;
       if (!cheapPrecheck.passes) {
         precheckRejectedCandidates += 1;
         continue;
       }
 
-      const sampledCandidatePoints = this.buildSampledPoints(candidateTrack, sampleEveryNthPoint);
+      const sampleCandidateTrackStartedAt = Date.now();
+      const sampledCandidatePoints = this.buildSampledProjectedPoints(projectedCandidateTrack, sampleEveryNthPoint);
+      sampleCandidateTrackMs += Date.now() - sampleCandidateTrackStartedAt;
       const minRequiredRouteOverlap = this.computeRequiredRouteOverlap({
         minScore,
         distanceDeltaRatio: candidate.distance_delta_ratio,
         ascentDeltaRatio: candidate.ascent_delta_ratio
       });
 
-      const pointMatchRatioAB = this.computePointMatchRatio(
+      const compareRouteABStartedAt = Date.now();
+      const pointMatchRatioAB = this.computePointMatchRatioProjected(
         sampledSourcePoints,
-        candidateTrack,
+        projectedCandidateTrack,
         maxPointToLineDistanceMeters,
         {
           minRequiredRatio: minRequiredRouteOverlap,
           hardAbortDistanceMeters
         }
       );
+      const compareRouteABElapsedMs = Date.now() - compareRouteABStartedAt;
+      compareRouteABMs += compareRouteABElapsedMs;
+      compareRouteMs += compareRouteABElapsedMs;
       if (pointMatchRatioAB < minRequiredRouteOverlap) {
+        rejectedByRouteAB += 1;
         continue;
       }
 
-      const pointMatchRatioBA = this.computePointMatchRatio(
+      const compareRouteBAStartedAt = Date.now();
+      const pointMatchRatioBA = this.computePointMatchRatioProjected(
         sampledCandidatePoints,
-        sourceTrack,
+        projectedSourceTrack,
         maxPointToLineDistanceMeters,
         {
           minRequiredRatio: minRequiredRouteOverlap,
           hardAbortDistanceMeters
         }
       );
+      const compareRouteBAElapsedMs = Date.now() - compareRouteBAStartedAt;
+      compareRouteBAMs += compareRouteBAElapsedMs;
+      compareRouteMs += compareRouteBAElapsedMs;
       if (pointMatchRatioBA < minRequiredRouteOverlap) {
+        rejectedByRouteBA += 1;
         continue;
       }
 
+      const scoreStartedAt = Date.now();
       const score = this.buildScore({
         pointMatchRatioAB,
         pointMatchRatioBA,
         distanceDeltaRatio: candidate.distance_delta_ratio,
         ascentDeltaRatio: candidate.ascent_delta_ratio
       });
+      scoreMs += Date.now() - scoreStartedAt;
 
       if (score < minScore) {
+        rejectedByScore += 1;
         continue;
       }
 
       matchedCandidates += 1;
-
-      const edge = await WorkoutDBService.upsertSimilarityEdge({
+      similarityEdgesToPersist.push({
         uid,
         workoutIdA: Number(sourceWorkoutId),
         workoutIdB: Number(candidate.id),
@@ -300,10 +609,12 @@ export default class WorkoutSimilarityService {
         pointMatchRatioAB,
         pointMatchRatioBA
       });
+    }
 
-      if (edge) {
-        persistedEdges.push(edge);
-      }
+    if (similarityEdgesToPersist.length > 0) {
+      const persistEdgeStartedAt = Date.now();
+      persistedEdges = await WorkoutDBService.upsertSimilarityEdgesBulk(similarityEdgesToPersist);
+      persistEdgeMs += Date.now() - persistEdgeStartedAt;
     }
 
     this.debug("classify-workout", {
@@ -318,6 +629,35 @@ export default class WorkoutSimilarityService {
       onlyHigherWorkoutIds,
       elapsedMs: Date.now() - startedAt
     });
+
+    if (includeProfile) {
+      return {
+        edges: persistedEdges,
+        profile: {
+          candidateCount: candidates.length,
+          comparedCandidates,
+          precheckRejectedCandidates,
+          matchedCandidates,
+          persistedEdges: persistedEdges.length,
+          elapsedMs: Date.now() - startedAt,
+          loadSourceTrackMs,
+          loadCandidatesMs,
+          deleteExistingEdgesMs,
+          sampleSourceTrackMs,
+          candidateTrackNormalizeMs,
+          cheapPrecheckMs,
+          sampleCandidateTrackMs,
+          compareRouteMs,
+          compareRouteABMs,
+          compareRouteBAMs,
+          scoreMs,
+          persistEdgeMs,
+          rejectedByRouteAB,
+          rejectedByRouteBA,
+          rejectedByScore
+        }
+      };
+    }
 
     return persistedEdges;
   }

@@ -200,12 +200,12 @@ function parseGeoJsonTrack(geoJsonTrack) {
     .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
 }
 
-async function hydrateTrackRow(row) {
+async function hydrateTrackRow(row, options = {}) {
   if (!row) {
     return row;
   }
 
-  const decoded = await GpsTrackBlobService.decodeRowTrack(row);
+  const decoded = await GpsTrackBlobService.decodeRowTrack(row, options);
   row.track = decoded.geoJson;
   row.trackPoints = decoded.points;
   if ((row.samplerategps == null && row.sampleRateGPS == null) && decoded.sampleRateGps) {
@@ -400,25 +400,13 @@ export default class WorkoutDBService {
 
     const result = await pool.query(sql, params);
 
-    return Promise.all(result.rows.map((row) => hydrateTrackRow(row)));
+    return Promise.all(result.rows.map((row) => hydrateTrackRow(row, {
+      includeGeoJson: false
+    })));
   }
 
   static async upsertSimilarityEdge(edge) {
-    const workoutIdA = Number(edge?.workoutIdA);
-    const workoutIdB = Number(edge?.workoutIdB);
-    const uid = Number(edge?.uid);
-    const matchType = String(edge?.matchType || "").trim();
-
-    if (!Number.isFinite(uid) || !Number.isFinite(workoutIdA) || !Number.isFinite(workoutIdB) || !matchType) {
-      throw new Error("Invalid similarity edge payload");
-    }
-
-    if (workoutIdA === workoutIdB) {
-      throw new Error("Similarity edge requires two different workout ids");
-    }
-
-    const a = Math.min(workoutIdA, workoutIdB);
-    const b = Math.max(workoutIdA, workoutIdB);
+    const normalized = this.normalizeSimilarityEdge(edge);
 
     const sql = `
       INSERT INTO workout_similarity_edges (
@@ -452,21 +440,114 @@ export default class WorkoutDBService {
     `;
 
     const values = [
-      uid,
-      a,
-      b,
-      matchType,
-      Number(edge.score ?? 0),
-      edge.distanceDeltaRatio ?? null,
-      edge.ascentDeltaRatio ?? null,
-      edge.startDistanceM ?? null,
-      edge.endDistanceM ?? null,
-      edge.pointMatchRatioAB ?? null,
-      edge.pointMatchRatioBA ?? null
+      normalized.uid,
+      normalized.workoutIdA,
+      normalized.workoutIdB,
+      normalized.matchType,
+      normalized.score,
+      normalized.distanceDeltaRatio,
+      normalized.ascentDeltaRatio,
+      normalized.startDistanceM,
+      normalized.endDistanceM,
+      normalized.pointMatchRatioAB,
+      normalized.pointMatchRatioBA
     ];
 
     const result = await pool.query(sql, values);
     return result.rows[0] || null;
+  }
+
+  static normalizeSimilarityEdge(edge) {
+    const workoutIdA = Number(edge?.workoutIdA);
+    const workoutIdB = Number(edge?.workoutIdB);
+    const uid = Number(edge?.uid);
+    const matchType = String(edge?.matchType || "").trim();
+
+    if (!Number.isFinite(uid) || !Number.isFinite(workoutIdA) || !Number.isFinite(workoutIdB) || !matchType) {
+      throw new Error("Invalid similarity edge payload");
+    }
+
+    if (workoutIdA === workoutIdB) {
+      throw new Error("Similarity edge requires two different workout ids");
+    }
+
+    const a = Math.min(workoutIdA, workoutIdB);
+    const b = Math.max(workoutIdA, workoutIdB);
+
+    return {
+      uid,
+      workoutIdA: a,
+      workoutIdB: b,
+      matchType,
+      score: Number(edge.score ?? 0),
+      distanceDeltaRatio: edge.distanceDeltaRatio ?? null,
+      ascentDeltaRatio: edge.ascentDeltaRatio ?? null,
+      startDistanceM: edge.startDistanceM ?? null,
+      endDistanceM: edge.endDistanceM ?? null,
+      pointMatchRatioAB: edge.pointMatchRatioAB ?? null,
+      pointMatchRatioBA: edge.pointMatchRatioBA ?? null
+    };
+  }
+
+  static async upsertSimilarityEdgesBulk(edges = []) {
+    const normalizedEdges = Array.isArray(edges)
+      ? edges.filter(Boolean).map((edge) => this.normalizeSimilarityEdge(edge))
+      : [];
+
+    if (normalizedEdges.length === 0) {
+      return [];
+    }
+
+    const values = [];
+    const placeholders = normalizedEdges.map((edge, index) => {
+      const base = index * 11;
+      values.push(
+        edge.uid,
+        edge.workoutIdA,
+        edge.workoutIdB,
+        edge.matchType,
+        edge.score,
+        edge.distanceDeltaRatio,
+        edge.ascentDeltaRatio,
+        edge.startDistanceM,
+        edge.endDistanceM,
+        edge.pointMatchRatioAB,
+        edge.pointMatchRatioBA
+      );
+      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11})`;
+    });
+
+    const sql = `
+      INSERT INTO workout_similarity_edges (
+        uid,
+        workout_id_a,
+        workout_id_b,
+        match_type,
+        score,
+        distance_delta_ratio,
+        ascent_delta_ratio,
+        start_distance_m,
+        end_distance_m,
+        point_match_ratio_ab,
+        point_match_ratio_ba
+      )
+      VALUES
+        ${placeholders.join(",\n        ")}
+      ON CONFLICT (uid, workout_id_a, workout_id_b, match_type)
+      DO UPDATE SET
+        score = EXCLUDED.score,
+        distance_delta_ratio = EXCLUDED.distance_delta_ratio,
+        ascent_delta_ratio = EXCLUDED.ascent_delta_ratio,
+        start_distance_m = EXCLUDED.start_distance_m,
+        end_distance_m = EXCLUDED.end_distance_m,
+        point_match_ratio_ab = EXCLUDED.point_match_ratio_ab,
+        point_match_ratio_ba = EXCLUDED.point_match_ratio_ba,
+        updated_at = NOW()
+      RETURNING *;
+    `;
+
+    const result = await pool.query(sql, values);
+    return result.rows;
   }
 
   static async getSimilarityEdgesForWorkout(workoutId, uid, matchType = null) {
@@ -671,7 +752,9 @@ export default class WorkoutDBService {
       throw new Error("no workouts found");
     }
 
-    return hydrateTrackRow(result.rows[0]);
+    return hydrateTrackRow(result.rows[0], {
+      includeGeoJson: false
+    });
   }
 
   static async getManualGpsContext(id, uid) {

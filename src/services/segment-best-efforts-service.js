@@ -1,6 +1,6 @@
 import { segmentBestEffortsQueue } from "../queue/segment-best-efforts-queue.js";
 
-export async function enqueueWorkoutSegmentPersistence({ uid, workoutId, payloadPath = null, entryName = null, recomputeFromDb = false }) {
+export async function enqueueWorkoutSegmentPersistence({ uid, workoutId, payloadPath = null, entryName = null, recomputeFromDb = false, importJobId = null }) {
   if (!uid || !Number.isInteger(Number(workoutId)) || (!payloadPath && !recomputeFromDb)) {
     return null;
   }
@@ -12,7 +12,8 @@ export async function enqueueWorkoutSegmentPersistence({ uid, workoutId, payload
       workoutId: Number(workoutId),
       payloadPath,
       entryName,
-      recomputeFromDb: !!recomputeFromDb
+      recomputeFromDb: !!recomputeFromDb,
+      importJobId
     },
     {
       attempts: 2,
@@ -27,7 +28,7 @@ export async function enqueueWorkoutSegmentPersistence({ uid, workoutId, payload
   );
 }
 
-export async function enqueueWorkoutThumbnailGeneration({ uid, workoutId, payloadPath, entryName = null }) {
+export async function enqueueWorkoutThumbnailGeneration({ uid, workoutId, payloadPath, entryName = null, importJobId = null }) {
   if (!uid || !Number.isInteger(Number(workoutId)) || !payloadPath) {
     return null;
   }
@@ -38,7 +39,8 @@ export async function enqueueWorkoutThumbnailGeneration({ uid, workoutId, payloa
       uid,
       workoutId: Number(workoutId),
       payloadPath,
-      entryName
+      entryName,
+      importJobId
     },
     {
       attempts: 2,
@@ -53,7 +55,7 @@ export async function enqueueWorkoutThumbnailGeneration({ uid, workoutId, payloa
   );
 }
 
-export async function enqueueWorkoutSegmentBestEfforts({ uid, workoutId }) {
+export async function enqueueWorkoutSegmentBestEfforts({ uid, workoutId, importJobId = null }) {
   if (!uid || !Number.isInteger(Number(workoutId))) {
     return null;
   }
@@ -62,7 +64,8 @@ export async function enqueueWorkoutSegmentBestEfforts({ uid, workoutId }) {
     "process-workout-segment-best-efforts",
     {
       uid,
-      workoutId: Number(workoutId)
+      workoutId: Number(workoutId),
+      importJobId
     },
     {
       attempts: 2,

@@ -60,6 +60,8 @@ export async function createApp(options = {}) {
   const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
   const IMPORT_VERBOSE_LOGS = String(process.env.IMPORT_VERBOSE_LOGS || "").trim() === "1";
   const IMPORT_POSTPROCESS_LOGS = String(process.env.IMPORT_POSTPROCESS_LOGS || "").trim() !== "0";
+  const IMPORT_POSTPROCESS_PROFILE_LOG = String(process.env.IMPORT_POSTPROCESS_PROFILE_LOG || "1").trim() !== "0";
+  const IMPORT_POSTPROCESS_PROFILE_EVERY = Math.max(1, Number(process.env.IMPORT_POSTPROCESS_PROFILE_EVERY) || 25);
   const IMPORT_SYNC_PROFILE_LOG = String(process.env.IMPORT_SYNC_PROFILE_LOG || "1").trim() !== "0";
   const SEGMENTS_RECOMPUTE_FROM_DB = String(process.env.SEGMENTS_RECOMPUTE_FROM_DB || "").trim() === "1";
   const {
@@ -78,6 +80,8 @@ export async function createApp(options = {}) {
     IMPORT_TIMING_DEBUG,
     IMPORT_VERBOSE_LOGS,
     IMPORT_POSTPROCESS_LOGS,
+    IMPORT_POSTPROCESS_PROFILE_LOG,
+    IMPORT_POSTPROCESS_PROFILE_EVERY,
     IMPORT_SYNC_PROFILE_LOG,
     SEGMENTS_RECOMPUTE_FROM_DB,
     IMPORT_QUEUE_CONCURRENCY,
@@ -116,11 +120,267 @@ export async function createApp(options = {}) {
     console.log(`[postprocess] ${type} ${formatLogPayload(payload)}`);
   }
 
+  function logPostProcessProfileEvent(type, payload = {}) {
+    if (!IMPORT_POSTPROCESS_PROFILE_LOG) {
+      return;
+    }
+    console.log(`[postprocess] ${type} ${formatLogPayload(payload)}`);
+  }
+
   function logVerboseImportEvent(type, payload = {}) {
     if (!IMPORT_VERBOSE_LOGS) {
       return;
     }
     logImportEvent(type, payload);
+  }
+
+  const postprocessProfiles = new Map();
+  const importPostprocessRuns = new Map();
+
+  function getPostprocessProfile(type) {
+    if (!postprocessProfiles.has(type)) {
+      postprocessProfiles.set(type, {
+        count: 0,
+        totalMs: 0,
+        durationsMs: [],
+        metricsTotals: {}
+      });
+    }
+    return postprocessProfiles.get(type);
+  }
+
+  function computePercentile(sortedValues, ratio) {
+    if (!Array.isArray(sortedValues) || sortedValues.length === 0) {
+      return 0;
+    }
+    const index = Math.min(sortedValues.length - 1, Math.max(0, Math.floor(sortedValues.length * ratio)));
+    return sortedValues[index] ?? 0;
+  }
+
+  function recordPostprocessProfile(type, elapsedMs, metrics = {}) {
+    const profile = getPostprocessProfile(type);
+    profile.count += 1;
+    profile.totalMs += Number(elapsedMs || 0);
+    profile.durationsMs.push(Number(elapsedMs || 0));
+    if (profile.durationsMs.length > 200) {
+      profile.durationsMs.shift();
+    }
+
+    for (const [metricName, metricValue] of Object.entries(metrics || {})) {
+      const numericValue = Number(metricValue || 0);
+      profile.metricsTotals[metricName] = Number(profile.metricsTotals[metricName] || 0) + numericValue;
+    }
+  }
+
+  function createImportPostprocessPhaseState(expected = 0) {
+    let resolveCompletion;
+    const completionPromise = new Promise((resolve) => {
+      resolveCompletion = resolve;
+    });
+    if (Number(expected || 0) === 0) {
+      resolveCompletion();
+    }
+    return {
+      expected: Number(expected || 0),
+      completed: 0,
+      failed: 0,
+      totalMs: 0,
+      metricsTotals: {},
+      durationsMs: [],
+      wallStartedAt: null,
+      wallCompletedAt: null,
+      completionPromise,
+      resolveCompletion,
+      completionResolved: Number(expected || 0) === 0,
+      completedLogged: expected === 0
+    };
+  }
+
+  function getImportPostprocessRun(importJobId) {
+    if (!importJobId) {
+      return null;
+    }
+    return importPostprocessRuns.get(String(importJobId)) || null;
+  }
+
+  function summarizeImportPostprocessPhase(phaseState) {
+    const durations = [...phaseState.durationsMs].sort((a, b) => a - b);
+    const successfulCount = Math.max(0, phaseState.completed);
+    const avgMs = successfulCount > 0 ? phaseState.totalMs / successfulCount : 0;
+    const avgMetrics = {};
+
+    for (const [metricName, totalValue] of Object.entries(phaseState.metricsTotals || {})) {
+      avgMetrics[metricName] = successfulCount > 0
+        ? Math.round((Number(totalValue || 0) / successfulCount) * 1000) / 1000
+        : 0;
+    }
+
+    return {
+      expected: phaseState.expected,
+      completed: phaseState.completed,
+      failed: phaseState.failed,
+      wallMs: phaseState.wallStartedAt && phaseState.wallCompletedAt
+        ? phaseState.wallCompletedAt - phaseState.wallStartedAt
+        : 0,
+      totalMs: Math.round(phaseState.totalMs * 1000) / 1000,
+      avgMs: Math.round(avgMs * 1000) / 1000,
+      minMs: durations[0] ?? 0,
+      p50Ms: computePercentile(durations, 0.5),
+      p95Ms: computePercentile(durations, 0.95),
+      maxMs: durations[durations.length - 1] ?? 0,
+      avgMetrics
+    };
+  }
+
+  function finalizeImportPostprocessRun(importJobId) {
+    const run = getImportPostprocessRun(importJobId);
+    if (!run) {
+      return;
+    }
+
+    const phaseEntries = Object.entries(run.phases);
+    const allDone = phaseEntries.every(([, phaseState]) => {
+      const finishedCount = phaseState.completed + phaseState.failed;
+      const expectedDone = finishedCount >= phaseState.expected;
+      const wallDone = phaseState.expected === 0 || !!phaseState.wallCompletedAt;
+      return expectedDone && wallDone;
+    });
+
+    if (!allDone) {
+      return;
+    }
+
+    const phases = {};
+    for (const [phaseType, phaseState] of phaseEntries) {
+      phases[phaseType] = summarizeImportPostprocessPhase(phaseState);
+    }
+
+    logPostProcessProfileEvent("import.profile.completed", {
+      importJobId: String(importJobId),
+      targetCount: run.targetCount,
+      totalWallMs: Date.now() - run.startedAt,
+      phases
+    });
+
+    importPostprocessRuns.delete(String(importJobId));
+  }
+
+  function recordImportPostprocessOutcome(importJobId, type, elapsedMs, metrics = {}, failed = false) {
+    const run = getImportPostprocessRun(importJobId);
+    if (!run) {
+      return;
+    }
+
+    const phaseState = run.phases[type];
+    if (!phaseState) {
+      return;
+    }
+
+    if (failed) {
+      phaseState.failed += 1;
+    } else {
+      phaseState.completed += 1;
+      phaseState.totalMs += Number(elapsedMs || 0);
+      phaseState.durationsMs.push(Number(elapsedMs || 0));
+      if (phaseState.durationsMs.length > 200) {
+        phaseState.durationsMs.shift();
+      }
+      for (const [metricName, metricValue] of Object.entries(metrics || {})) {
+        phaseState.metricsTotals[metricName] = Number(phaseState.metricsTotals[metricName] || 0) + Number(metricValue || 0);
+      }
+    }
+
+    const finishedCount = phaseState.completed + phaseState.failed;
+    if (!phaseState.completionResolved && finishedCount >= phaseState.expected) {
+      phaseState.completionResolved = true;
+      phaseState.resolveCompletion?.();
+    }
+
+  }
+
+  function registerImportPostprocessRun(importJobId, targets = []) {
+    if (!importJobId) {
+      return null;
+    }
+
+    const normalizedImportJobId = String(importJobId);
+    const expected = {
+      "segment-persist": 0,
+      "similarity": 0,
+      "segment-best-efforts": 0
+    };
+
+    for (const target of Array.isArray(targets) ? targets : []) {
+      const shouldPersistSegments = !!target?.recomputeSegmentsFromDb || (!!target?.hasSegments && !!target?.segmentPayloadPath);
+      if (shouldPersistSegments) {
+        expected["segment-persist"] += 1;
+      }
+      if (target?.validGps) {
+        expected.similarity += 1;
+        expected["segment-best-efforts"] += 1;
+      }
+    }
+
+    const run = {
+      importJobId: normalizedImportJobId,
+      targetCount: Array.isArray(targets) ? targets.length : 0,
+      startedAt: Date.now(),
+      phases: {
+        "segment-persist": createImportPostprocessPhaseState(expected["segment-persist"]),
+        similarity: createImportPostprocessPhaseState(expected.similarity),
+        "segment-best-efforts": createImportPostprocessPhaseState(expected["segment-best-efforts"])
+      }
+    };
+
+    importPostprocessRuns.set(normalizedImportJobId, run);
+    return run;
+  }
+
+  function markImportPostprocessPhaseStarted(importJobId, type) {
+    const run = getImportPostprocessRun(importJobId);
+    const phaseState = run?.phases?.[type];
+    if (!phaseState || phaseState.wallStartedAt) {
+      return;
+    }
+    phaseState.wallStartedAt = Date.now();
+    if (phaseState.expected === 0) {
+      phaseState.wallCompletedAt = phaseState.wallStartedAt;
+    }
+  }
+
+  function markImportPostprocessPhaseCompleted(importJobId, type) {
+    const run = getImportPostprocessRun(importJobId);
+    const phaseState = run?.phases?.[type];
+    if (!phaseState) {
+      return;
+    }
+    if (!phaseState.wallStartedAt) {
+      phaseState.wallStartedAt = Date.now();
+    }
+    phaseState.wallCompletedAt = Date.now();
+  }
+
+  function logImportPostprocessPhaseSummary(importJobId, type) {
+    const run = getImportPostprocessRun(importJobId);
+    const phaseState = run?.phases?.[type];
+    if (!run || !phaseState) {
+      return;
+    }
+
+    logPostProcessProfileEvent(`${type}.profile.completed`, {
+      importJobId: String(importJobId),
+      targetCount: run.targetCount,
+      ...summarizeImportPostprocessPhase(phaseState)
+    });
+  }
+
+  async function waitForImportPostprocessPhaseCompletion(importJobId, type) {
+    const run = getImportPostprocessRun(importJobId);
+    const phaseState = run?.phases?.[type];
+    if (!phaseState) {
+      return;
+    }
+    await phaseState.completionPromise;
   }
 
   function createStepLogger(scope, meta = {}) {
@@ -409,7 +669,7 @@ export async function createApp(options = {}) {
     });
   }
 
-  async function enqueueImmediatePostprocessTarget(target) {
+  async function enqueueImmediatePostprocessTarget(target, importJobId = null) {
     const { uid, workoutId, entryName, validGps, hasSegments, segmentPayloadPath, recomputeSegmentsFromDb } = target;
 
     if (recomputeSegmentsFromDb) {
@@ -417,70 +677,109 @@ export async function createApp(options = {}) {
         uid,
         workoutId,
         entryName: entryName || null,
-        recomputeFromDb: true
-      });
-      logPostProcessEvent("segment-persist.enqueued", {
-        uid,
-        workoutId,
-        entryName: entryName || null,
-        mode: "recompute-from-db"
+        recomputeFromDb: true,
+        importJobId
       });
     } else if (hasSegments && segmentPayloadPath) {
       await enqueueWorkoutSegmentPersistence({
         uid,
         workoutId,
         payloadPath: segmentPayloadPath,
-        entryName: entryName || null
-      });
-      logPostProcessEvent("segment-persist.enqueued", {
-        uid,
-        workoutId,
         entryName: entryName || null,
-        payloadPath: segmentPayloadPath
+        importJobId
       });
     } else {
       await FileDBService.updateWorkoutSegmentProcessingStatus(uid, workoutId, "completed", null);
-      logPostProcessEvent("segment-persist.skipped", {
-        uid,
-        workoutId,
-        entryName: entryName || null,
-        reason: "no_segments"
-      });
     }
 
     if (validGps) {
       await enqueueWorkoutSimilarityClassification({
         uid,
-        workoutId
-      });
-      logPostProcessEvent("similarity.enqueued", {
-        uid,
         workoutId,
-        entryName: entryName || null
+        importJobId
       });
 
       await enqueueWorkoutSegmentBestEfforts({
         uid,
-        workoutId
-      });
-      logPostProcessEvent("segment-best-efforts.enqueued", {
-        uid,
         workoutId,
-        entryName: entryName || null
+        importJobId
       });
-    } else {
-      logPostProcessEvent("similarity.skipped", {
-        uid,
-        workoutId,
-        entryName: entryName || null,
-        reason: "no_valid_gps"
-      });
-      logPostProcessEvent("segment-best-efforts.skipped", {
-        uid,
-        workoutId,
-        entryName: entryName || null,
-        reason: "no_valid_gps"
-      });
+    }
+  }
+
+  async function runDeferredPostprocessPhase(importJobId, phaseType, targets = []) {
+    const normalizedTargets = Array.isArray(targets) ? targets.filter(Boolean) : [];
+    markImportPostprocessPhaseStarted(importJobId, phaseType);
+
+    if (phaseType === "segment-persist") {
+      for (const target of normalizedTargets) {
+        const { uid, workoutId, entryName, hasSegments, segmentPayloadPath, recomputeSegmentsFromDb } = target;
+        if (recomputeSegmentsFromDb) {
+          await enqueueWorkoutSegmentPersistence({
+            uid,
+            workoutId,
+            entryName: entryName || null,
+            recomputeFromDb: true,
+            importJobId
+          });
+          continue;
+        }
+
+        if (hasSegments && segmentPayloadPath) {
+          await enqueueWorkoutSegmentPersistence({
+            uid,
+            workoutId,
+            payloadPath: segmentPayloadPath,
+            entryName: entryName || null,
+            importJobId
+          });
+          continue;
+        }
+
+        await FileDBService.updateWorkoutSegmentProcessingStatus(uid, workoutId, "completed", null);
+      }
+
+      await waitForImportPostprocessPhaseCompletion(importJobId, phaseType);
+      markImportPostprocessPhaseCompleted(importJobId, phaseType);
+      logImportPostprocessPhaseSummary(importJobId, phaseType);
+      return;
+    }
+
+    if (phaseType === "segment-best-efforts") {
+      for (const target of normalizedTargets) {
+        const { uid, workoutId, validGps } = target;
+        if (!validGps) {
+          continue;
+        }
+        await enqueueWorkoutSegmentBestEfforts({
+          uid,
+          workoutId,
+          importJobId
+        });
+      }
+
+      await waitForImportPostprocessPhaseCompletion(importJobId, phaseType);
+      markImportPostprocessPhaseCompleted(importJobId, phaseType);
+      logImportPostprocessPhaseSummary(importJobId, phaseType);
+      return;
+    }
+
+    if (phaseType === "similarity") {
+      for (const target of normalizedTargets) {
+        const { uid, workoutId, validGps } = target;
+        if (!validGps) {
+          continue;
+        }
+        await enqueueWorkoutSimilarityClassification({
+          uid,
+          workoutId,
+          importJobId
+        });
+      }
+
+      await waitForImportPostprocessPhaseCompletion(importJobId, phaseType);
+      markImportPostprocessPhaseCompleted(importJobId, phaseType);
+      logImportPostprocessPhaseSummary(importJobId, phaseType);
     }
   }
 
@@ -490,7 +789,7 @@ export async function createApp(options = {}) {
       return;
     }
 
-    await enqueueImmediatePostprocessTarget(target);
+    await enqueueImmediatePostprocessTarget(target, importJobId || null);
   }
 
   async function flushDeferredPostprocessTargets(importJobId, explicitTargets = null) {
@@ -508,27 +807,17 @@ export async function createApp(options = {}) {
       mode: IMPORT_POSTPROCESS_MODE
     });
 
-    logPostProcessEvent("phase.started", {
-      importJobId,
-      phase: "deferred-flush",
-      targetCount: resolvedTargets.length
-    });
-
-    for (const target of resolvedTargets) {
-      await enqueueImmediatePostprocessTarget(target);
-    }
+    registerImportPostprocessRun(importJobId, resolvedTargets);
+    await runDeferredPostprocessPhase(importJobId, "segment-persist", resolvedTargets);
+    await runDeferredPostprocessPhase(importJobId, "segment-best-efforts", resolvedTargets);
+    await runDeferredPostprocessPhase(importJobId, "similarity", resolvedTargets);
+    finalizeImportPostprocessRun(importJobId);
 
     if (!Array.isArray(explicitTargets)) {
       await updateImportJob(importJobId, {
         postprocessTargets: []
       });
     }
-
-    logPostProcessEvent("phase.completed", {
-      importJobId,
-      phase: "deferred-flush",
-      targetCount: resolvedTargets.length
-    });
   }
 
   async function persistFileStatuses(jobId, fileStatuses) {
@@ -622,85 +911,133 @@ export async function createApp(options = {}) {
   async function processWorkoutSimilarityClassificationJob(job) {
     const uid = job.data?.uid;
     const workoutId = Number(job.data?.workoutId);
+    const importJobId = job.data?.importJobId ? String(job.data.importJobId) : null;
 
     if (!uid || !Number.isInteger(workoutId)) {
       throw new Error("Workout similarity classification job is missing uid or workoutId");
     }
 
+    const startedAt = Date.now();
     await job.updateProgress({
       progressPercent: 0,
       workoutId
     });
 
-    logPostProcessEvent("similarity.started", {
-      queueJobId: job.id,
-      uid,
-      workoutId
-    });
+    try {
+      const similarityResult = await WorkoutSimilarityService.classifySimilarGpsWorkoutsForWorkout(workoutId, uid, {
+        rebuildMode: "delta"
+        ,
+        includeProfile: true
+      });
+      const edges = Array.isArray(similarityResult?.edges) ? similarityResult.edges : [];
+      const similarityProfile = similarityResult?.profile || {};
+      const edgeCount = edges.length;
+      const elapsedMs = Date.now() - startedAt;
 
-    const edges = await WorkoutSimilarityService.classifySimilarGpsWorkoutsForWorkout(workoutId, uid, {
-      rebuildMode: "delta"
-    });
+      await job.updateProgress({
+        progressPercent: 100,
+        workoutId,
+        edgeCount
+      });
 
-    await job.updateProgress({
-      progressPercent: 100,
-      workoutId,
-      edgeCount: Array.isArray(edges) ? edges.length : 0
-    });
+      recordPostprocessProfile("similarity", elapsedMs, {
+        edgeCount,
+        candidateCount: Number(similarityProfile.candidateCount || 0),
+        comparedCandidates: Number(similarityProfile.comparedCandidates || 0),
+        precheckRejectedCandidates: Number(similarityProfile.precheckRejectedCandidates || 0),
+        matchedCandidates: Number(similarityProfile.matchedCandidates || 0),
+        loadSourceTrackMs: Number(similarityProfile.loadSourceTrackMs || 0),
+        loadCandidatesMs: Number(similarityProfile.loadCandidatesMs || 0),
+        deleteExistingEdgesMs: Number(similarityProfile.deleteExistingEdgesMs || 0),
+        sampleSourceTrackMs: Number(similarityProfile.sampleSourceTrackMs || 0),
+        candidateTrackNormalizeMs: Number(similarityProfile.candidateTrackNormalizeMs || 0),
+        cheapPrecheckMs: Number(similarityProfile.cheapPrecheckMs || 0),
+        sampleCandidateTrackMs: Number(similarityProfile.sampleCandidateTrackMs || 0),
+        compareRouteMs: Number(similarityProfile.compareRouteMs || 0),
+        compareRouteABMs: Number(similarityProfile.compareRouteABMs || 0),
+        compareRouteBAMs: Number(similarityProfile.compareRouteBAMs || 0),
+        scoreMs: Number(similarityProfile.scoreMs || 0),
+        persistEdgeMs: Number(similarityProfile.persistEdgeMs || 0),
+        rejectedByRouteAB: Number(similarityProfile.rejectedByRouteAB || 0),
+        rejectedByRouteBA: Number(similarityProfile.rejectedByRouteBA || 0),
+        rejectedByScore: Number(similarityProfile.rejectedByScore || 0)
+      });
+      recordImportPostprocessOutcome(importJobId, "similarity", elapsedMs, {
+        edgeCount,
+        candidateCount: Number(similarityProfile.candidateCount || 0),
+        comparedCandidates: Number(similarityProfile.comparedCandidates || 0),
+        precheckRejectedCandidates: Number(similarityProfile.precheckRejectedCandidates || 0),
+        matchedCandidates: Number(similarityProfile.matchedCandidates || 0),
+        loadSourceTrackMs: Number(similarityProfile.loadSourceTrackMs || 0),
+        loadCandidatesMs: Number(similarityProfile.loadCandidatesMs || 0),
+        deleteExistingEdgesMs: Number(similarityProfile.deleteExistingEdgesMs || 0),
+        sampleSourceTrackMs: Number(similarityProfile.sampleSourceTrackMs || 0),
+        candidateTrackNormalizeMs: Number(similarityProfile.candidateTrackNormalizeMs || 0),
+        cheapPrecheckMs: Number(similarityProfile.cheapPrecheckMs || 0),
+        sampleCandidateTrackMs: Number(similarityProfile.sampleCandidateTrackMs || 0),
+        compareRouteMs: Number(similarityProfile.compareRouteMs || 0),
+        compareRouteABMs: Number(similarityProfile.compareRouteABMs || 0),
+        compareRouteBAMs: Number(similarityProfile.compareRouteBAMs || 0),
+        scoreMs: Number(similarityProfile.scoreMs || 0),
+        persistEdgeMs: Number(similarityProfile.persistEdgeMs || 0),
+        rejectedByRouteAB: Number(similarityProfile.rejectedByRouteAB || 0),
+        rejectedByRouteBA: Number(similarityProfile.rejectedByRouteBA || 0),
+        rejectedByScore: Number(similarityProfile.rejectedByScore || 0)
+      });
 
-    logPostProcessEvent("similarity.completed", {
-      queueJobId: job.id,
-      uid,
-      workoutId,
-      edgeCount: Array.isArray(edges) ? edges.length : 0
-    });
-
-    return {
-      progressPercent: 100,
-      workoutId,
-      edgeCount: Array.isArray(edges) ? edges.length : 0
-    };
+      return {
+        progressPercent: 100,
+        workoutId,
+        edgeCount
+      };
+    } catch (error) {
+      recordImportPostprocessOutcome(importJobId, "similarity", 0, {}, true);
+      throw error;
+    }
   }
 
   async function processWorkoutSegmentBestEffortsJob(job) {
     const uid = job.data?.uid;
     const workoutId = Number(job.data?.workoutId);
+    const importJobId = job.data?.importJobId ? String(job.data.importJobId) : null;
 
     if (!uid || !Number.isInteger(workoutId)) {
       throw new Error("Workout segment best-efforts job is missing uid or workoutId");
     }
 
+    const startedAt = Date.now();
     await job.updateProgress({
       progressPercent: 0,
       workoutId
     });
 
-    logPostProcessEvent("segment-best-efforts.started", {
-      queueJobId: job.id,
-      uid,
-      workoutId
-    });
+    try {
+      const matches = await SegmentDBService.rescanSegmentBestEffortsForWorkout(uid, workoutId);
+      const matchCount = Array.isArray(matches) ? matches.length : 0;
+      const elapsedMs = Date.now() - startedAt;
 
-    const matches = await SegmentDBService.rescanSegmentBestEffortsForWorkout(uid, workoutId);
+      await job.updateProgress({
+        progressPercent: 100,
+        workoutId,
+        matchCount
+      });
 
-    await job.updateProgress({
-      progressPercent: 100,
-      workoutId,
-      matchCount: Array.isArray(matches) ? matches.length : 0
-    });
+      recordPostprocessProfile("segment-best-efforts", elapsedMs, {
+        matchCount
+      });
+      recordImportPostprocessOutcome(importJobId, "segment-best-efforts", elapsedMs, {
+        matchCount
+      });
 
-    logPostProcessEvent("segment-best-efforts.completed", {
-      queueJobId: job.id,
-      uid,
-      workoutId,
-      matchCount: Array.isArray(matches) ? matches.length : 0
-    });
-
-    return {
-      progressPercent: 100,
-      workoutId,
-      matchCount: Array.isArray(matches) ? matches.length : 0
-    };
+      return {
+        progressPercent: 100,
+        workoutId,
+        matchCount
+      };
+    } catch (error) {
+      recordImportPostprocessOutcome(importJobId, "segment-best-efforts", 0, {}, true);
+      throw error;
+    }
   }
 
   async function processWorkoutSegmentPersistenceJob(job) {
@@ -708,40 +1045,48 @@ export async function createApp(options = {}) {
     const workoutId = Number(job.data?.workoutId);
     const payloadPath = job.data?.payloadPath;
     const recomputeFromDb = job.data?.recomputeFromDb === true;
+    const importJobId = job.data?.importJobId ? String(job.data.importJobId) : null;
 
     if (!uid || !Number.isInteger(workoutId) || (!payloadPath && !recomputeFromDb)) {
       throw new Error("Workout segment persistence job is missing uid, workoutId, or payload source");
     }
 
+    const startedAt = Date.now();
     await job.updateProgress({
       progressPercent: 0,
       workoutId
-    });
-
-    logPostProcessEvent("segment-persist.started", {
-      queueJobId: job.id,
-      uid,
-      workoutId,
-      payloadPath: payloadPath || null,
-      recomputeFromDb
     });
 
     await FileDBService.updateWorkoutSegmentProcessingStatus(uid, workoutId, "processing", null);
 
     try {
       let segments = [];
+      let dbReadMs = 0;
+      let decompressMs = 0;
+      let recordRebuildMs = 0;
+      let detectAutoMs = 0;
+      let detectBestEffortsMs = 0;
+      let mapSegmentsMs = 0;
+      let persistSegmentsMs = 0;
+      let statusUpdateMs = 0;
+      let cleanupMs = 0;
 
       if (recomputeFromDb) {
+        const dbReadStartedAt = Date.now();
         const rowResult = await pool.query(
           `SELECT stream FROM workouts WHERE id = $1 AND uid = $2`,
           [workoutId, uid]
         );
+        dbReadMs = Date.now() - dbReadStartedAt;
         if (rowResult.rowCount === 0) {
           throw new Error("Workout stream not found for segment recompute");
         }
 
+        const decompressStartedAt = Date.now();
         const workout = await Workout.fromCompressed(rowResult.rows[0].stream);
+        decompressMs = Date.now() - decompressStartedAt;
         const startTime = Number(workout.getStartTime());
+        const rebuildStartedAt = Date.now();
         const records = new Array(workout.length);
         for (let index = 0; index < workout.length; index += 1) {
           records[index] = {
@@ -754,22 +1099,35 @@ export async function createApp(options = {}) {
             distance: workout.getDistanceAt(index)
           };
         }
+        recordRebuildMs = Date.now() - rebuildStartedAt;
 
+        const autoStartedAt = Date.now();
         const autoIntervals = IntervalDetector.detect(records);
+        detectAutoMs = Date.now() - autoStartedAt;
+        const bestEffortsStartedAt = Date.now();
         const bestEffortIntervals = BestEffortDetector.detect(records);
+        detectBestEffortsMs = Date.now() - bestEffortsStartedAt;
+        const mapSegmentsStartedAt = Date.now();
         segments = [
           ...SegmentService.createSgmentsFromIntervals(autoIntervals, "auto"),
           ...SegmentService.createSgmentsFromIntervals(bestEffortIntervals, "crit")
         ];
+        mapSegmentsMs = Date.now() - mapSegmentsStartedAt;
       } else {
         const payload = await readSegmentPersistencePayload(payloadPath);
         segments = Array.isArray(payload?.segments) ? payload.segments : [];
       }
 
+      const persistSegmentsStartedAt = Date.now();
       await FileDBService.upsertSegmentsBulk(uid, workoutId, segments);
+      persistSegmentsMs = Date.now() - persistSegmentsStartedAt;
+      const statusUpdateStartedAt = Date.now();
       await FileDBService.updateWorkoutSegmentProcessingStatus(uid, workoutId, "completed", null);
+      statusUpdateMs = Date.now() - statusUpdateStartedAt;
       if (payloadPath) {
+        const cleanupStartedAt = Date.now();
         await cleanupSegmentPersistencePayload(payloadPath);
+        cleanupMs = Date.now() - cleanupStartedAt;
       }
 
       await job.updateProgress({
@@ -778,11 +1136,30 @@ export async function createApp(options = {}) {
         segmentCount: segments.length
       });
 
-      logPostProcessEvent("segment-persist.completed", {
-        queueJobId: job.id,
-        uid,
-        workoutId,
-        segmentCount: segments.length
+      const elapsedMs = Date.now() - startedAt;
+      recordPostprocessProfile("segment-persist", elapsedMs, {
+        segmentCount: segments.length,
+        dbReadMs,
+        decompressMs,
+        recordRebuildMs,
+        detectAutoMs,
+        detectBestEffortsMs,
+        mapSegmentsMs,
+        persistSegmentsMs,
+        statusUpdateMs,
+        cleanupMs
+      });
+      recordImportPostprocessOutcome(importJobId, "segment-persist", elapsedMs, {
+        segmentCount: segments.length,
+        dbReadMs,
+        decompressMs,
+        recordRebuildMs,
+        detectAutoMs,
+        detectBestEffortsMs,
+        mapSegmentsMs,
+        persistSegmentsMs,
+        statusUpdateMs,
+        cleanupMs
       });
 
       return {
@@ -791,6 +1168,7 @@ export async function createApp(options = {}) {
         segmentCount: segments.length
       };
     } catch (error) {
+      recordImportPostprocessOutcome(importJobId, "segment-persist", 0, {}, true);
       await FileDBService.updateWorkoutSegmentProcessingStatus(
         uid,
         workoutId,
@@ -810,13 +1188,7 @@ export async function createApp(options = {}) {
       throw new Error("Workout thumbnail generation job is missing uid, workoutId, or payloadPath");
     }
 
-    logPostProcessEvent("thumbnail.started", {
-      queueJobId: job.id,
-      uid,
-      workoutId,
-      payloadPath
-    });
-
+    const startedAt = Date.now();
     const payload = await readSegmentPersistencePayload(payloadPath);
     const thumbnailPayload = WorkoutThumbnailService.createThumbnailPayload({
       gpsTrack: payload?.gpsTrack ?? null,
@@ -826,12 +1198,6 @@ export async function createApp(options = {}) {
 
     if (!thumbnailPayload) {
       await cleanupSegmentPersistencePayload(payloadPath);
-      logPostProcessEvent("thumbnail.skipped", {
-        queueJobId: job.id,
-        uid,
-        workoutId,
-        reason: "no_thumbnail_payload"
-      });
       return {
         progressPercent: 100,
         workoutId,
@@ -842,11 +1208,8 @@ export async function createApp(options = {}) {
     const thumbnail = await WorkoutThumbnailService.upsertThumbnail(workoutId, thumbnailPayload);
     await cleanupSegmentPersistencePayload(payloadPath);
 
-    logPostProcessEvent("thumbnail.completed", {
-      queueJobId: job.id,
-      uid,
-      workoutId,
-      kind: thumbnail?.kind || thumbnailPayload.kind
+    recordPostprocessProfile("thumbnail", Date.now() - startedAt, {
+      generated: 1
     });
 
     return {
@@ -1584,28 +1947,6 @@ export async function createApp(options = {}) {
       });
     }
 
-    if (IMPORT_POSTPROCESS_MODE === "phased") {
-      await flushDeferredPostprocessTargets(jobId, deferredPostprocessTargets);
-    }
-
-    await updateImportJob(jobId, {
-      status: "completed",
-      stage: "completed",
-      fileStatuses,
-      totalFiles,
-      processedFiles,
-      failedFiles,
-      progressPercent: 100
-    });
-
-    batchTrace?.flush({
-      phase: "completed",
-      mode,
-      totalFiles,
-      processedFiles,
-      failedFiles
-    });
-
     if (IMPORT_SYNC_PROFILE_LOG) {
       logImportEvent("phase.sync-import.profile", summarizeSyncProfile(batchTrace?.totals, {
         totalFiles,
@@ -1620,6 +1961,28 @@ export async function createApp(options = {}) {
       processedFiles,
       failedFiles,
       mode
+    });
+
+    await updateImportJob(jobId, {
+      status: "completed",
+      stage: "completed",
+      fileStatuses,
+      totalFiles,
+      processedFiles,
+      failedFiles,
+      progressPercent: 100
+    });
+
+    if (IMPORT_POSTPROCESS_MODE === "phased") {
+      await flushDeferredPostprocessTargets(jobId, deferredPostprocessTargets);
+    }
+
+    batchTrace?.flush({
+      phase: "completed",
+      mode,
+      totalFiles,
+      processedFiles,
+      failedFiles
     });
   }
 
@@ -2054,30 +2417,7 @@ export async function createApp(options = {}) {
     });
 
     segmentBestEffortsWorker.on("completed", (job) => {
-      if (job.name === "persist-workout-segments") {
-        logPostProcessEvent("segment-persist.queue-job.completed", {
-          queueJobId: job.id,
-          uid: job.data?.uid,
-          workoutId: job.data?.workoutId ?? null
-        });
-        return;
-      }
-
-      if (job.name === "generate-workout-thumbnail") {
-        logPostProcessEvent("thumbnail.queue-job.completed", {
-          queueJobId: job.id,
-          uid: job.data?.uid,
-          workoutId: job.data?.workoutId ?? null
-        });
-        return;
-      }
-
-      logPostProcessEvent("segment-best-efforts.queue-job.completed", {
-        queueJobId: job.id,
-        uid: job.data?.uid,
-        workoutId: job.data?.workoutId ?? null,
-        segmentIds: job.data?.segmentIds
-      });
+      void job;
     });
 
     segmentBestEffortsWorker.on("failed", (job, error) => {
@@ -2148,12 +2488,7 @@ export async function createApp(options = {}) {
     });
 
     workoutSimilarityWorker.on("completed", (job) => {
-      logPostProcessEvent("similarity.queue-job.completed", {
-        queueJobId: job.id,
-        uid: job.data?.uid,
-        workoutId: job.data?.workoutId ?? null,
-        mode: job.data?.mode ?? null
-      });
+      void job;
     });
 
     workoutSimilarityWorker.on("failed", (job, error) => {

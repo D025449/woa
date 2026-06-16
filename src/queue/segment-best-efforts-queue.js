@@ -4,3 +4,5 @@ import { redisConnection } from "./connection.js";
 export const segmentBestEffortsQueue = new Queue("segment-best-efforts", {
   connection: redisConnection
 });
+
+segmentBestEffortsQueue.setMaxListeners(0);
