@@ -114,6 +114,7 @@
 
     <script>
         window.__I18N = <%- JSON.stringify(i18n || { locale: "en", messages: {} }) %>;
+        window.uploadNewConfig = <%- JSON.stringify(uploadNewConfig || { chunkMode: false, chunkSize: 50 }) %>;
     </script>
     <script type="module" src="/js/upload-new.js"></script>
 </body>

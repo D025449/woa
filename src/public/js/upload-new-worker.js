@@ -4,6 +4,7 @@ import { gzipSync, unzipSync, zipSync } from "/vendor/fflate/browser.js";
 
 const PER_FILE_GZIP_LEVEL = 4;
 const OUTER_ZIP_LEVEL = 4;
+const DEFAULT_WOA_ZIP_CHUNK_SIZE = 50;
 
 async function compressGzip(bytes, level = PER_FILE_GZIP_LEVEL) {
   return gzipSync(bytes, { level });
@@ -51,7 +52,12 @@ self.addEventListener("message", async (event) => {
 
   try {
     if (type === "convert-zip-to-woa-zip") {
-      await handleZipConversion({ fileName, arrayBuffer });
+      await handleZipConversion({
+        fileName,
+        arrayBuffer,
+        chunkMode: !!event.data?.chunkMode,
+        chunkSize: Number(event.data?.chunkSize) || DEFAULT_WOA_ZIP_CHUNK_SIZE
+      });
       return;
     }
 
@@ -143,7 +149,16 @@ self.addEventListener("message", async (event) => {
   }
 });
 
-async function handleZipConversion({ fileName, arrayBuffer }) {
+function chunkArray(values = [], chunkSize = DEFAULT_WOA_ZIP_CHUNK_SIZE) {
+  const size = Math.max(1, Number(chunkSize) || DEFAULT_WOA_ZIP_CHUNK_SIZE);
+  const chunks = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
+}
+
+async function handleZipConversion({ fileName, arrayBuffer, chunkMode = false, chunkSize = DEFAULT_WOA_ZIP_CHUNK_SIZE }) {
   const startedAt = nowMs();
   self.postMessage({
     type: "phase",
@@ -161,7 +176,7 @@ async function handleZipConversion({ fileName, arrayBuffer }) {
     throw new Error("The selected ZIP file does not contain any .fit entries");
   }
 
-  const woaEntries = {};
+  const woaEntries = [];
   const parseSamplesMs = [];
   const buildSamplesMs = [];
   const gzipSamplesMs = [];
@@ -197,7 +212,10 @@ async function handleZipConversion({ fileName, arrayBuffer }) {
       });
       buildSamplesMs.push(nowMs() - buildStartedAt);
       const outputEntryName = entryName.replace(/\.fit$/i, ".woa1");
-      woaEntries[outputEntryName] = [result.bytes, { level: OUTER_ZIP_LEVEL }];
+      woaEntries.push({
+        name: outputEntryName,
+        bytes: result.bytes
+      });
       totalRecordCount += Number(parsed.recordsTyped?.recordCount || 0);
       totalGpsPointCount += Number(result.gpsTrack?.pointCount || 0);
       convertedEntries += 1;
@@ -216,11 +234,70 @@ async function handleZipConversion({ fileName, arrayBuffer }) {
   self.postMessage({
     type: "phase",
     phase: "building-zip",
-    totalEntries: fitEntryNames.length
+    totalEntries: fitEntryNames.length,
+    totalChunks: chunkMode ? chunkArray(woaEntries, chunkSize).length : 1
   });
 
   const zipBuildStartedAt = nowMs();
-  const outputZipBytes = zipSync(woaEntries, { level: OUTER_ZIP_LEVEL });
+  if (chunkMode) {
+    const entryChunks = chunkArray(woaEntries, chunkSize);
+    const chunkArtifacts = [];
+
+    for (let chunkIndex = 0; chunkIndex < entryChunks.length; chunkIndex += 1) {
+      const chunkEntries = {};
+      for (const entry of entryChunks[chunkIndex]) {
+        chunkEntries[entry.name] = [entry.bytes, { level: OUTER_ZIP_LEVEL }];
+      }
+      const chunkZipBytes = zipSync(chunkEntries, { level: OUTER_ZIP_LEVEL });
+      chunkArtifacts.push({
+        chunkIndex,
+        entryCount: entryChunks[chunkIndex].length,
+        outputFileName: fileName.replace(/\.zip$/i, `.${String(chunkIndex + 1).padStart(3, "0")}.woa1.zip`),
+        bytes: chunkZipBytes
+      });
+    }
+
+    const zipBuildMs = nowMs() - zipBuildStartedAt;
+    const totalElapsedMs = nowMs() - startedAt;
+    const transferList = chunkArtifacts.map((artifact) => artifact.bytes.buffer);
+
+    self.postMessage({
+      type: "completed-zip-chunks",
+      fileName,
+      chunks: chunkArtifacts.map((artifact) => ({
+        chunkIndex: artifact.chunkIndex,
+        entryCount: artifact.entryCount,
+        outputFileName: artifact.outputFileName,
+        bytes: artifact.bytes.buffer
+      })),
+      stats: {
+        fitEntries: fitEntryNames.length,
+        convertedEntries,
+        skippedEntries: skippedEntries.length,
+        totalRecordCount,
+        totalGpsPointCount,
+        sourceZipBytes: zipBytes.byteLength,
+        outputZipBytes: chunkArtifacts.reduce((sum, artifact) => sum + artifact.bytes.byteLength, 0),
+        chunkCount: chunkArtifacts.length,
+        chunkSize: Math.max(1, Number(chunkSize) || DEFAULT_WOA_ZIP_CHUNK_SIZE)
+      },
+      skipped: skippedEntries,
+      timings: {
+        parseMs: average(parseSamplesMs),
+        buildWoaMs: average(buildSamplesMs),
+        gzipMs: average(gzipSamplesMs),
+        zipBuildMs,
+        totalMs: totalElapsedMs
+      }
+    }, transferList);
+    return;
+  }
+
+  const zipEntries = {};
+  for (const entry of woaEntries) {
+    zipEntries[entry.name] = [entry.bytes, { level: OUTER_ZIP_LEVEL }];
+  }
+  const outputZipBytes = zipSync(zipEntries, { level: OUTER_ZIP_LEVEL });
   const zipBuildMs = nowMs() - zipBuildStartedAt;
   const totalElapsedMs = nowMs() - startedAt;
 
