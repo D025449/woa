@@ -23,6 +23,7 @@ import authGlobal from "./middleware/authGlobal.js";
 import fs from "fs";
 
 import uploadsRouter from './routes/uploads.js';
+import woaUploadsRouter from "./routes/woaUploads.js";
 import importsRouter from './routes/imports.js';
 import { createI18nMiddleware, normalizeSupportedLocale } from "./i18n/index.js";
 import UserDBService from "./services/userDBService.js";
@@ -41,6 +42,8 @@ export async function createApp() {
     app.set("trust proxy", 1);
 
     app.use(express.static(path.join(__dirname, "public")));
+    app.use("/vendor", express.static(path.join(__dirname, "..", "vendor")));
+    app.use("/vendor/fflate", express.static(path.join(__dirname, "..", "node_modules", "fflate", "esm")));
     app.use("/shared", express.static("src/shared"));
     const sessionMiddleware = await createSessionMiddleware();
     app.use(sessionMiddleware);
@@ -81,6 +84,7 @@ export async function createApp() {
     app.use('/api/coaching', coachingRoutes);
 
     app.use('/api/uploads', uploadsRouter);
+    app.use('/api/uploads', woaUploadsRouter);
     app.use('/api/imports', importsRouter);
 
 

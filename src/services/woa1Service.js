@@ -1,0 +1,294 @@
+import Workout from "../shared/Workout.js";
+import FitProcessor, { mapAggregatedToFileRow } from "./fitService.js";
+
+const UINT8_NAN = 0xFF;
+const UINT16_NAN = 0xFFFF;
+const UINT32_NAN = 0xFFFFFFFF;
+const INT16_NAN = -0x8000;
+const INT32_NAN = -0x80000000;
+const MICRO_DEGREES = 1e7;
+const TEXT_DECODER = new TextDecoder();
+
+function readJsonBlock(bytes, offset, length) {
+  const slice = bytes.subarray(offset, offset + length);
+  return JSON.parse(TEXT_DECODER.decode(slice));
+}
+
+function decodeDistancePayload(bytes, recordCount) {
+  const values = new Float64Array(recordCount);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 0;
+  let writeIndex = 0;
+
+  while (offset < bytes.byteLength && writeIndex < recordCount) {
+    const mode = view.getUint8(offset);
+    const count = view.getUint16(offset + 1, true);
+    offset += 3;
+
+    if (mode === 1) {
+      let current = view.getUint32(offset, true);
+      offset += 4;
+      values[writeIndex] = current === UINT32_NAN ? Number.NaN : current / 10;
+      writeIndex += 1;
+
+      for (let i = 1; i < count && writeIndex < recordCount; i += 1) {
+        const delta = view.getInt16(offset, true);
+        offset += 2;
+        current += delta;
+        values[writeIndex] = current === UINT32_NAN ? Number.NaN : current / 10;
+        writeIndex += 1;
+      }
+      continue;
+    }
+
+    for (let i = 0; i < count && writeIndex < recordCount; i += 1) {
+      const raw = view.getUint32(offset, true);
+      offset += 4;
+      values[writeIndex] = raw === UINT32_NAN ? Number.NaN : raw / 10;
+      writeIndex += 1;
+    }
+  }
+
+  return values;
+}
+
+function decodeGpsCoordinatePayload(bytes, pointCount) {
+  const latitudes = new Float64Array(pointCount);
+  const longitudes = new Float64Array(pointCount);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 0;
+  let writeIndex = 0;
+
+  while (offset < bytes.byteLength && writeIndex < pointCount) {
+    const mode = view.getUint8(offset);
+    const count = view.getUint16(offset + 1, true);
+    offset += 3;
+
+    if (mode === 1) {
+      let currentLat = view.getInt32(offset, true);
+      offset += 4;
+      let currentLng = view.getInt32(offset, true);
+      offset += 4;
+      latitudes[writeIndex] = currentLat === INT32_NAN ? Number.NaN : currentLat / MICRO_DEGREES;
+      longitudes[writeIndex] = currentLng === INT32_NAN ? Number.NaN : currentLng / MICRO_DEGREES;
+      writeIndex += 1;
+
+      for (let i = 1; i < count && writeIndex < pointCount; i += 1) {
+        currentLat += view.getInt16(offset, true);
+        offset += 2;
+        currentLng += view.getInt16(offset, true);
+        offset += 2;
+        latitudes[writeIndex] = currentLat === INT32_NAN ? Number.NaN : currentLat / MICRO_DEGREES;
+        longitudes[writeIndex] = currentLng === INT32_NAN ? Number.NaN : currentLng / MICRO_DEGREES;
+        writeIndex += 1;
+      }
+      continue;
+    }
+
+    for (let i = 0; i < count && writeIndex < pointCount; i += 1) {
+      const rawLat = view.getInt32(offset, true);
+      offset += 4;
+      const rawLng = view.getInt32(offset, true);
+      offset += 4;
+      latitudes[writeIndex] = rawLat === INT32_NAN ? Number.NaN : rawLat / MICRO_DEGREES;
+      longitudes[writeIndex] = rawLng === INT32_NAN ? Number.NaN : rawLng / MICRO_DEGREES;
+      writeIndex += 1;
+    }
+  }
+
+  return { latitudes, longitudes };
+}
+
+function decodeWorkoutStreamBlock(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
+  if (magic !== "WST2") {
+    throw new Error(`Unsupported workout stream block: ${magic}`);
+  }
+
+  const recordCount = view.getUint32(4, true);
+  const baseTimestampMs = view.getFloat64(8, true);
+  const sampleIntervalMs = view.getUint32(16, true);
+  const lengths = [];
+  let headerOffset = 20;
+  for (let i = 0; i < 8; i += 1) {
+    lengths.push(view.getUint32(headerOffset, true));
+    headerOffset += 4;
+  }
+
+  let offset = headerOffset;
+  const distancePayload = bytes.subarray(offset, offset + lengths[0]);
+  offset += lengths[0];
+
+  const distancesM = decodeDistancePayload(distancePayload, recordCount);
+
+  const powersW = new Float64Array(recordCount);
+  for (let i = 0; i < recordCount; i += 1) {
+    const raw = view.getUint16(offset + (i * 2), true);
+    powersW[i] = raw === UINT16_NAN ? Number.NaN : raw;
+  }
+  offset += lengths[1];
+
+  const heartRatesBpm = new Float64Array(recordCount);
+  for (let i = 0; i < recordCount; i += 1) {
+    const raw = view.getUint8(offset + i);
+    heartRatesBpm[i] = raw === UINT8_NAN ? Number.NaN : raw;
+  }
+  offset += lengths[2];
+
+  const cadencesRpm = new Float64Array(recordCount);
+  for (let i = 0; i < recordCount; i += 1) {
+    const raw = view.getUint8(offset + i);
+    cadencesRpm[i] = raw === UINT8_NAN ? Number.NaN : raw;
+  }
+  offset += lengths[3];
+
+  const hasSpeeds = lengths[4] > 0;
+  const speedsMps = new Float64Array(recordCount);
+  if (hasSpeeds) {
+    for (let i = 0; i < recordCount; i += 1) {
+      const raw = view.getUint16(offset + (i * 2), true);
+      speedsMps[i] = raw === UINT16_NAN ? Number.NaN : raw / 100;
+    }
+  }
+  offset += lengths[4];
+
+  const altitudesM = new Float64Array(recordCount);
+  for (let i = 0; i < recordCount; i += 1) {
+    const raw = view.getInt16(offset + (i * 2), true);
+    altitudesM[i] = raw === INT16_NAN ? Number.NaN : raw / 10;
+  }
+  offset += lengths[5];
+
+  const positionLatsDeg = new Float64Array(recordCount);
+  for (let i = 0; i < recordCount; i += 1) {
+    const raw = view.getInt32(offset + (i * 4), true);
+    positionLatsDeg[i] = raw === INT32_NAN ? Number.NaN : raw / MICRO_DEGREES;
+  }
+  offset += lengths[6];
+
+  const positionLongsDeg = new Float64Array(recordCount);
+  for (let i = 0; i < recordCount; i += 1) {
+    const raw = view.getInt32(offset + (i * 4), true);
+    positionLongsDeg[i] = raw === INT32_NAN ? Number.NaN : raw / MICRO_DEGREES;
+  }
+
+  const timestampsMs = new Float64Array(recordCount);
+  for (let i = 0; i < recordCount; i += 1) {
+    timestampsMs[i] = baseTimestampMs + (i * sampleIntervalMs);
+  }
+
+  if (!hasSpeeds) {
+    speedsMps[0] = Number.NaN;
+    for (let i = 1; i < recordCount; i += 1) {
+      const prev = distancesM[i - 1];
+      const current = distancesM[i];
+      speedsMps[i] = Number.isFinite(prev) && Number.isFinite(current)
+        ? Math.max(0, current - prev)
+        : Number.NaN;
+    }
+  }
+
+  return {
+    recordCount,
+    timestampsMs,
+    distancesM,
+    powersW,
+    heartRatesBpm,
+    cadencesRpm,
+    speedsMps,
+    altitudesM,
+    positionLatsDeg,
+    positionLongsDeg
+  };
+}
+
+function decodeGpsTrackBlock(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
+  if (magic !== "GPS2") {
+    throw new Error(`Unsupported GPS track block: ${magic}`);
+  }
+
+  const sampleRateSeconds = view.getUint16(6, true);
+  const pointCount = view.getUint32(8, true);
+  const firstTimestampMs = view.getFloat64(12, true);
+  const payload = bytes.subarray(20);
+  const { latitudes, longitudes } = decodeGpsCoordinatePayload(payload, pointCount);
+  const track = [];
+
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+
+  for (let i = 0; i < pointCount; i += 1) {
+    const lat = latitudes[i];
+    const lng = longitudes[i];
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      continue;
+    }
+    track.push([lat, lng]);
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+  }
+
+  return {
+    validGps: track.length > 1,
+    pointCount: track.length,
+    sampleRate: sampleRateSeconds,
+    bbox: track.length > 0 ? { minLat, maxLat, minLng, maxLng } : null,
+    firstTimestampMs,
+    track
+  };
+}
+
+export function decodeWoa1Buffer(buffer) {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
+  if (magic !== "WOA1") {
+    throw new Error(`Unsupported WOA container: ${magic}`);
+  }
+
+  const metaLength = view.getUint32(8, true);
+  const sessionLength = view.getUint32(12, true);
+  const workoutStreamLength = view.getUint32(16, true);
+  const gpsTrackLength = view.getUint32(20, true);
+
+  let offset = 24;
+  const meta = readJsonBlock(bytes, offset, metaLength);
+  offset += metaLength;
+  const sessions = readJsonBlock(bytes, offset, sessionLength);
+  offset += sessionLength;
+  const workoutStream = decodeWorkoutStreamBlock(bytes.subarray(offset, offset + workoutStreamLength));
+  offset += workoutStreamLength;
+  const gpsTrack = decodeGpsTrackBlock(bytes.subarray(offset, offset + gpsTrackLength));
+
+  const fitLike = {
+    sessions: Array.isArray(sessions) ? sessions : [],
+    recordsTyped: workoutStream
+  };
+  const aggregated = FitProcessor.aggregateSessions(fitLike);
+  const workoutOptions = {
+    startTimeMs: Number.isFinite(Number(workoutStream.timestampsMs[0])) ? Number(workoutStream.timestampsMs[0]) : Date.now(),
+    validGps: !!gpsTrack.validGps
+  };
+  const workoutObject = Workout.fromTypedArrays(workoutStream, workoutOptions);
+  const fileRow = mapAggregatedToFileRow(aggregated, {
+    uid: null,
+    gps_source: meta?.gpsSource === "manual_lookup" ? "manual_lookup" : null
+  }, workoutObject.getNormalizedPower());
+
+  return {
+    meta,
+    sessions: fitLike.sessions,
+    recordsTyped: workoutStream,
+    aggregated,
+    fileRow,
+    gpsTrack,
+    workoutObject
+  };
+}

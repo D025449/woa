@@ -50,6 +50,59 @@ function getParsedRecordCount(parsed) {
   return Array.isArray(parsed?.records) ? parsed.records.length : 0;
 }
 
+function toTypedPayloadFromParsed(parsed) {
+  if (parsed?.recordsTyped) {
+    return parsed;
+  }
+
+  const records = Array.isArray(parsed?.records) ? parsed.records : [];
+  const length = records.length;
+
+  const timestampsMs = new Float64Array(length);
+  const distancesM = new Float64Array(length);
+  const powersW = new Float64Array(length);
+  const heartRatesBpm = new Float64Array(length);
+  const cadencesRpm = new Float64Array(length);
+  const speedsMps = new Float64Array(length);
+  const altitudesM = new Float64Array(length);
+  const positionLatsDeg = new Float64Array(length);
+  const positionLongsDeg = new Float64Array(length);
+
+  for (let index = 0; index < length; index += 1) {
+    const record = records[index] || {};
+    timestampsMs[index] = record.timestamp instanceof Date ? record.timestamp.getTime() : Number.NaN;
+    distancesM[index] = Number.isFinite(record.distance) ? Number(record.distance) : Number.NaN;
+    powersW[index] = Number.isFinite(record.power) ? Number(record.power) : Number.NaN;
+    heartRatesBpm[index] = Number.isFinite(record.heart_rate) ? Number(record.heart_rate) : Number.NaN;
+    cadencesRpm[index] = Number.isFinite(record.cadence) ? Number(record.cadence) : Number.NaN;
+    speedsMps[index] = Number.isFinite(record.enhanced_speed)
+      ? Number(record.enhanced_speed)
+      : (Number.isFinite(record.speed) ? Number(record.speed) : Number.NaN);
+    altitudesM[index] = Number.isFinite(record.enhanced_altitude)
+      ? Number(record.enhanced_altitude)
+      : (Number.isFinite(record.altitude) ? Number(record.altitude) : Number.NaN);
+    positionLatsDeg[index] = Number.isFinite(record.position_lat) ? Number(record.position_lat) : Number.NaN;
+    positionLongsDeg[index] = Number.isFinite(record.position_long) ? Number(record.position_long) : Number.NaN;
+  }
+
+  return {
+    ...parsed,
+    recordsTyped: {
+      recordCount: length,
+      timestampsMs,
+      distancesM,
+      powersW,
+      heartRatesBpm,
+      cadencesRpm,
+      speedsMps,
+      altitudesM,
+      positionLatsDeg,
+      positionLongsDeg
+    },
+    recordsAreSorted: true
+  };
+}
+
 function summarizeWorkout(workoutObject) {
   return {
     length: workoutObject.length,
@@ -148,8 +201,9 @@ async function run() {
 
   const fastParsed = await parseFitBufferFast(buffer);
   const typedParsed = parseFitBufferTyped(buffer);
+  const fastTypedPayload = toTypedPayloadFromParsed(fastParsed);
 
-  const fastResult = processFitRecords(fastParsed, { computeSegments: false, sourceName: resolvedPath });
+  const fastResult = processFitRecords(fastTypedPayload, { computeSegments: false, sourceName: resolvedPath });
   const typedResult = processFitRecords(typedParsed, { computeSegments: false, sourceName: resolvedPath });
 
   const mismatches = [];

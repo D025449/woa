@@ -32,10 +32,17 @@ async function run() {
   const resolvedPath = path.resolve(inputPath);
   const buffer = await fs.readFile(resolvedPath);
 
+  console.log("[fit-import-bench] start", {
+    file: resolvedPath,
+    bytes: buffer.byteLength,
+    iterations,
+    typedArrayInitialCapacity: process.env.FIT_TYPED_ARRAY_INITIAL_CAPACITY || "1024(default)"
+  });
+
   const variants = [
-    { name: "standard", parse: parseFitBufferStandard },
-    { name: "fast", parse: parseFitBufferFast },
-    { name: "typed", parse: parseFitBufferTyped }
+    { name: "standard", parse: parseFitBufferStandard, supportsImportPath: false },
+    { name: "fast", parse: parseFitBufferFast, supportsImportPath: false },
+    { name: "typed", parse: parseFitBufferTyped, supportsImportPath: true }
   ];
 
   const rows = [];
@@ -54,12 +61,16 @@ async function run() {
       lastParsed = await variant.parse(buffer);
       parseTotalMs += performance.now() - parseStartedAt;
 
-      const processStartedAt = performance.now();
-      lastResult = processFitRecords(lastParsed, {
-        computeSegments: false,
-        sourceName: path.basename(resolvedPath)
-      });
-      processTotalMs += performance.now() - processStartedAt;
+      if (variant.supportsImportPath) {
+        const processStartedAt = performance.now();
+        lastResult = processFitRecords(lastParsed, {
+          computeSegments: false,
+          sourceName: path.basename(resolvedPath)
+        });
+        processTotalMs += performance.now() - processStartedAt;
+      } else {
+        lastResult = null;
+      }
 
       totalMs += performance.now() - totalStartedAt;
     }
@@ -67,8 +78,11 @@ async function run() {
     rows.push({
       variant: variant.name,
       avgParseMs: Number((parseTotalMs / iterations).toFixed(3)),
-      avgProcessMs: Number((processTotalMs / iterations).toFixed(3)),
+      avgProcessMs: variant.supportsImportPath
+        ? Number((processTotalMs / iterations).toFixed(3))
+        : null,
       avgTotalMs: Number((totalMs / iterations).toFixed(3)),
+      importPathSupported: variant.supportsImportPath,
       sessions: Array.isArray(lastParsed?.sessions) ? lastParsed.sessions.length : 0,
       records: getParsedRecordCount(lastParsed),
       validGps: !!lastResult?.gps_track?.validGps,
@@ -81,7 +95,8 @@ async function run() {
   console.table(rows);
   console.log("Notes:");
   console.log("- avgParseMs covers FIT decode only.");
-  console.log("- avgProcessMs covers aggregate + gap fill + altitude clean + GPS clean + Workout build.");
+  console.log("- avgProcessMs is only populated for the typed parser because the import pipeline now requires typed payloads.");
+  console.log("- typed avgProcessMs covers aggregate + gap fill + altitude clean + GPS clean + Workout build.");
   console.log("- segments are disabled in this benchmark to isolate the sync preprocessing path.");
 }
 

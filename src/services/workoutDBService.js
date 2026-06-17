@@ -753,7 +753,9 @@ export default class WorkoutDBService {
     }
 
     return hydrateTrackRow(result.rows[0], {
-      includeGeoJson: false
+      // The workout details UI still consumes `track` as GeoJSON LineString.
+      // Keep returning it here, even though the source of truth is gps_track_blob.
+      includeGeoJson: true
     });
   }
 

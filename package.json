@@ -52,6 +52,7 @@
     "ejs": "^3.1.10",
     "express": "^4.17.3",
     "express-session": "^1.18.1",
+    "fflate": "^0.8.3",
     "fit-file-parser": "^2.3.3",
     "ioredis": "^5.10.0",
     "jsonwebtoken": "^9.0.3",

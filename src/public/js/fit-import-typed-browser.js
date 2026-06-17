@@ -1,10 +1,12 @@
-import { FIT } from "../../vendor/fit-file-parser-fast/dist/fit.js";
+import { FIT } from "/vendor/fit-file-parser-fast/dist/fit.js";
 
 const GARMIN_TIME_OFFSET_MS = 631065600000;
 const COMPRESSED_HEADER_MASK = 0x80;
 const COMPRESSED_LOCAL_MSG_NUM_MASK = 0x60;
 const SEMICIRCLES_TO_DEGREES = 180 / 0x80000000;
-const DEFAULT_TYPED_ARRAY_CAPACITY = resolveInitialTypedArrayCapacity();
+const DEFINITION_MESSAGE_MASK = 0x40;
+const DEVELOPER_DATA_MASK = 0x20;
+const DEFAULT_TYPED_ARRAY_CAPACITY = 1024;
 
 const SESSION_FIELDS = new Set([
   "timestamp",
@@ -47,9 +49,6 @@ const RECORD_FIELDS = new Set([
   "position_long"
 ]);
 
-const DEFINITION_MESSAGE_MASK = 0x40;
-const DEVELOPER_DATA_MASK = 0x20;
-
 class GrowableFloat64Array {
   constructor(initialCapacity = DEFAULT_TYPED_ARRAY_CAPACITY) {
     this.buffer = new Float64Array(initialCapacity);
@@ -69,11 +68,6 @@ class GrowableFloat64Array {
   toTypedArray() {
     return this.buffer.slice(0, this.length);
   }
-}
-
-function resolveInitialTypedArrayCapacity() {
-  const rawValue = Number.parseInt(process.env.FIT_TYPED_ARRAY_INITIAL_CAPACITY || "", 10);
-  return Number.isInteger(rawValue) && rawValue > 0 ? rawValue : 1024;
 }
 
 function getArrayBuffer(buffer) {
@@ -176,21 +170,17 @@ function readValue(view, offset, fieldDef) {
 
 function scaleValue(rawValue, scale = null, offset = 0) {
   if (!Number.isFinite(rawValue)) {
-    return NaN;
+    return Number.NaN;
   }
   return scale ? (rawValue / scale) + offset : rawValue;
 }
 
 function decodeValue(fieldName, rawValue, fieldDef) {
   if (rawValue == null || isInvalidValue(rawValue, fieldDef.type)) {
-    return NaN;
+    return Number.NaN;
   }
 
-  if (fieldDef.type === "string") {
-    return rawValue;
-  }
-
-  if (fieldDef.type === "byte_array") {
+  if (fieldDef.type === "string" || fieldDef.type === "byte_array") {
     return rawValue;
   }
 
@@ -268,7 +258,7 @@ function decodeDeveloperFieldDescription(fieldDescription) {
   };
 }
 
-export function parseFitBufferTyped(buffer) {
+export function parseFitBufferTypedBrowser(buffer) {
   const rawBuffer = getArrayBuffer(buffer);
   const blob = new Uint8Array(rawBuffer);
 
@@ -404,15 +394,15 @@ export function parseFitBufferTyped(buffer) {
     let currentOffset = 0;
 
     if (messageName === "record") {
-      let timestampMs = NaN;
-      let distanceM = NaN;
-      let powerW = NaN;
-      let heartRateBpm = NaN;
-      let cadenceRpm = NaN;
-      let speedMps = NaN;
-      let altitudeM = NaN;
-      let positionLatDeg = NaN;
-      let positionLongDeg = NaN;
+      let timestampMs = Number.NaN;
+      let distanceM = Number.NaN;
+      let powerW = Number.NaN;
+      let heartRateBpm = Number.NaN;
+      let cadenceRpm = Number.NaN;
+      let speedMps = Number.NaN;
+      let altitudeM = Number.NaN;
+      let positionLatDeg = Number.NaN;
+      let positionLongDeg = Number.NaN;
 
       for (const fieldDef of messageType.fieldDefs) {
         const rawValue = readValue(recordView, currentOffset, fieldDef);
@@ -508,22 +498,20 @@ export function parseFitBufferTyped(buffer) {
     loopIndex = recordViewOffset + currentOffset;
   }
 
-  const recordsTyped = {
-    recordCount: timestampsMs.length,
-    timestampsMs: timestampsMs.toTypedArray(),
-    distancesM: distancesM.toTypedArray(),
-    powersW: powersW.toTypedArray(),
-    heartRatesBpm: heartRatesBpm.toTypedArray(),
-    cadencesRpm: cadencesRpm.toTypedArray(),
-    speedsMps: speedsMps.toTypedArray(),
-    altitudesM: altitudesM.toTypedArray(),
-    positionLatsDeg: positionLatsDeg.toTypedArray(),
-    positionLongsDeg: positionLongsDeg.toTypedArray()
-  };
-
   return {
     sessions,
-    recordsTyped,
+    recordsTyped: {
+      recordCount: timestampsMs.length,
+      timestampsMs: timestampsMs.toTypedArray(),
+      distancesM: distancesM.toTypedArray(),
+      powersW: powersW.toTypedArray(),
+      heartRatesBpm: heartRatesBpm.toTypedArray(),
+      cadencesRpm: cadencesRpm.toTypedArray(),
+      speedsMps: speedsMps.toTypedArray(),
+      altitudesM: altitudesM.toTypedArray(),
+      positionLatsDeg: positionLatsDeg.toTypedArray(),
+      positionLongsDeg: positionLongsDeg.toTypedArray()
+    },
     recordsAreSorted: true
   };
 }

@@ -99,7 +99,8 @@ async function run() {
   console.log("[fit-typed-bench] start", {
     file: resolvedPath,
     bytes: buffer.byteLength,
-    iterations
+    iterations,
+    typedArrayInitialCapacity: process.env.FIT_TYPED_ARRAY_INITIAL_CAPACITY || "1024(default)"
   });
 
   for (let index = 0; index < iterations; index += 1) {

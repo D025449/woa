@@ -4,9 +4,10 @@ const GARMIN_TIME_OFFSET_MS = 631065600000;
 const COMPRESSED_HEADER_MASK = 0x80;
 const COMPRESSED_LOCAL_MSG_NUM_MASK = 0x60;
 const SEMICIRCLES_TO_DEGREES = 180 / 0x80000000;
+const DEFAULT_TYPED_ARRAY_CAPACITY = resolveInitialTypedArrayCapacity();
 
 class GrowableFloat64Array {
-  constructor(initialCapacity = 1024) {
+  constructor(initialCapacity = DEFAULT_TYPED_ARRAY_CAPACITY) {
     this.buffer = new Float64Array(initialCapacity);
     this.length = 0;
   }
@@ -24,6 +25,11 @@ class GrowableFloat64Array {
   toTypedArray() {
     return this.buffer.slice(0, this.length);
   }
+}
+
+function resolveInitialTypedArrayCapacity() {
+  const rawValue = Number.parseInt(process.env.FIT_TYPED_ARRAY_INITIAL_CAPACITY || "", 10);
+  return Number.isInteger(rawValue) && rawValue > 0 ? rawValue : 1024;
 }
 
 function getArrayBuffer(buffer) {

@@ -48,7 +48,8 @@ async function main() {
     file: resolvedPath,
     bytes: buffer.byteLength,
     iterations,
-    parserVariant
+    parserVariant,
+    typedArrayInitialCapacity: process.env.FIT_TYPED_ARRAY_INITIAL_CAPACITY || "1024(default)"
   });
 
   for (let index = 0; index < iterations; index += 1) {

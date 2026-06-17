@@ -1245,9 +1245,25 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
   }
 
   static async upsertSegmentsBulk(uid, workoutId, segments) {
+    const normalizedSegments = Array.isArray(segments) ? segments : [];
+    if (normalizedSegments.length === 0) {
+      return [];
+    }
+
+    const hasCreates = normalizedSegments.some((seg) => seg?.rowstate === 'CRE');
+    const hasUpdates = normalizedSegments.some((seg) => seg?.rowstate === 'UPD');
+
+    if (hasCreates && !hasUpdates) {
+      return FileDBService.insertSegmentsBulk(uid, workoutId, normalizedSegments);
+    }
+
+    if (!hasCreates && hasUpdates) {
+      return FileDBService.updateSegmentsBulk(uid, workoutId, normalizedSegments);
+    }
+
     const [inserted, updated] = await Promise.all([
-      FileDBService.insertSegmentsBulk(uid, workoutId, segments),
-      FileDBService.updateSegmentsBulk(uid, workoutId, segments)
+      FileDBService.insertSegmentsBulk(uid, workoutId, normalizedSegments),
+      FileDBService.updateSegmentsBulk(uid, workoutId, normalizedSegments)
     ]);
 
     return [...inserted, ...updated];
@@ -1414,6 +1430,9 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       : await GpsTrackBlobService.encodeCompressed(gps_track?.track ?? [], {
           sampleRateGps: sampleRateGPS
         });
+    timing.mark("encode-gps-track-blob", {
+      compressedBytes: compressedGpsTrackBlob?.length ?? 0
+    });
 
     if (fileRow.validGps && points_count < 2) {
       console.warn("[db.insert-file] forcing GPS invalid because track has fewer than 2 points", {
