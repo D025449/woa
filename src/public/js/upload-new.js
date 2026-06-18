@@ -82,14 +82,6 @@ function setLoading(isLoading) {
     }
 }
 
-function setUploadButtonLoading(isLoading) {
-    const button = document.getElementById("uploadGeneratedZipButton");
-    if (button) {
-        button.disabled = isLoading;
-        button.textContent = isLoading ? "Uploading..." : "Upload WOA1 ZIP To Backend";
-    }
-}
-
 function setBackendUploadProgress(percent, detailText = "") {
     const progressBar = document.getElementById("backendUploadProgressBar");
     const percentText = document.getElementById("backendUploadPercentText");
@@ -188,8 +180,6 @@ async function uploadGeneratedZipArtifact() {
         </div>
     `);
 
-    setUploadButtonLoading(true);
-
     try {
         const formData = new FormData();
         formData.append("file", latestGeneratedZipArtifact.blob, latestGeneratedZipArtifact.fileName);
@@ -215,8 +205,6 @@ async function uploadGeneratedZipArtifact() {
         `);
     } catch (error) {
         renderBackendUploadState(`<div class="alert alert-danger mb-0 mt-2">${escapeHtml(error?.message || String(error))}</div>`);
-    } finally {
-        setUploadButtonLoading(false);
     }
 }
 
@@ -442,11 +430,13 @@ async function handleConvertSubmit(event) {
 
                 const zipBytes = data.bytes instanceof ArrayBuffer ? data.bytes : new ArrayBuffer(0);
                 const zipBlob = new Blob([zipBytes], { type: "application/zip" });
-                const zipDownloadUrl = URL.createObjectURL(zipBlob);
                 setLatestGeneratedZipArtifactSingle(zipBlob, data.outputFileName || "output.woa1.zip");
                 const stats = data.stats || {};
                 const skipped = Array.isArray(data.skipped) ? data.skipped : [];
                 const timings = data.timings || {};
+                const outerZipLevel = Number.isFinite(Number(stats.outerZipLevel))
+                    ? Number(stats.outerZipLevel)
+                    : 0;
                 const compressionRatio = Number(stats.sourceZipBytes || 0) > 0
                     ? ((Number(stats.outputZipBytes || 0) / Number(stats.sourceZipBytes || 1)) * 100).toFixed(1)
                     : "0.0";
@@ -472,7 +462,7 @@ async function handleConvertSubmit(event) {
                         </div>
                         <div class="small mb-3">
                             Source ZIP size: ${escapeHtml(formatBytes(Number(stats.sourceZipBytes || 0)))}<br>
-                            Output ZIP size: ${escapeHtml(formatBytes(Number(stats.outputZipBytes || 0)))} (${escapeHtml(compressionRatio)}% of source ZIP, ZIP deflate level 4)
+                            Output ZIP size: ${escapeHtml(formatBytes(Number(stats.outputZipBytes || 0)))} (${escapeHtml(compressionRatio)}% of source ZIP, ZIP deflate level ${escapeHtml(String(outerZipLevel))})
                         </div>
                         ${skippedMarkup}
                         <div class="small mb-3">
@@ -481,15 +471,12 @@ async function handleConvertSubmit(event) {
                             Build output ZIP: ${escapeHtml(formatMs(timings.zipBuildMs))}<br>
                             Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
                         </div>
-                        <div class="d-flex flex-wrap gap-2">
-                            <a class="btn btn-sm btn-primary" href="${zipDownloadUrl}" download="${escapeHtml(data.outputFileName || "output.woa1.zip")}">Download WOA1 ZIP</a>
-                            <button type="button" id="uploadGeneratedZipButton" class="btn btn-sm btn-outline-primary">Upload WOA1 ZIP To Backend</button>
-                        </div>
+                        <div class="small mb-2 text-muted">Uploading generated WOA1 ZIP to backend automatically.</div>
                         <div id="backendUploadResult"></div>
                     </div>
                 `);
 
-                document.getElementById("uploadGeneratedZipButton")?.addEventListener("click", () => {
+                queueMicrotask(() => {
                     uploadGeneratedZipArtifact();
                 });
 

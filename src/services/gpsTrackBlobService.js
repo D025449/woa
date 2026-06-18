@@ -9,9 +9,7 @@ const DELTA_BLOCK_SIZE = 128;
 const INT32_NAN = -0x80000000;
 const TEXT_DECODER = new TextDecoder();
 const TEXT_ENCODER = new TextEncoder();
-const DEFAULT_GPS_TRACK_BLOB_CODEC = String(process.env.GPS_TRACK_BLOB_CODEC || "brotli").trim().toLowerCase() === "gzip"
-  ? "gzip"
-  : "brotli";
+const DEFAULT_GPS_TRACK_BLOB_CODEC = "brotli";
 
 function normalizeTrackPoints(track = []) {
   if (!Array.isArray(track)) {

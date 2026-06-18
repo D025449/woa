@@ -3,7 +3,7 @@ import { createWoa1File } from "./woa-format.js";
 import { gzipSync, unzipSync, zipSync } from "/vendor/fflate/browser.js";
 
 const PER_FILE_GZIP_LEVEL = 4;
-const OUTER_ZIP_LEVEL = 4;
+const OUTER_ZIP_LEVEL = 0;
 
 async function compressGzip(bytes, level = PER_FILE_GZIP_LEVEL) {
   return gzipSync(bytes, { level });
@@ -247,7 +247,8 @@ async function handleZipConversion({ fileName, arrayBuffer }) {
       totalRecordCount,
       totalGpsPointCount,
       sourceZipBytes: zipBytes.byteLength,
-      outputZipBytes: outputZipBytes.byteLength
+      outputZipBytes: outputZipBytes.byteLength,
+      outerZipLevel: OUTER_ZIP_LEVEL
     },
     skipped: skippedEntries,
     timings: {
