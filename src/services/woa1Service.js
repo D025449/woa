@@ -14,6 +14,26 @@ function readJsonBlock(bytes, offset, length) {
   return JSON.parse(TEXT_DECODER.decode(slice));
 }
 
+export function inspectWoa1Header(buffer) {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
+  if (magic !== "WOA1") {
+    throw new Error(`Unsupported WOA container: ${magic}`);
+  }
+
+  return {
+    magic,
+    majorVersion: view.getUint8(4),
+    minorVersion: view.getUint8(5),
+    metaLength: view.getUint32(8, true),
+    sessionLength: view.getUint32(12, true),
+    workoutStreamLength: view.getUint32(16, true),
+    gpsTrackLength: view.getUint32(20, true),
+    headerLength: 24
+  };
+}
+
 function decodeDistancePayload(bytes, recordCount) {
   const values = new Float64Array(recordCount);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -102,16 +122,17 @@ function decodeGpsCoordinatePayload(bytes, pointCount) {
 function decodeWorkoutStreamBlock(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
-  if (magic !== "WST2") {
+  if (magic !== "WST2" && magic !== "WST3") {
     throw new Error(`Unsupported workout stream block: ${magic}`);
   }
+  const isWst3 = magic === "WST3";
 
   const recordCount = view.getUint32(4, true);
   const baseTimestampMs = view.getFloat64(8, true);
   const sampleIntervalMs = view.getUint32(16, true);
   const lengths = [];
   let headerOffset = 20;
-  for (let i = 0; i < 8; i += 1) {
+  for (let i = 0; i < (isWst3 ? 6 : 8); i += 1) {
     lengths.push(view.getUint32(headerOffset, true));
     headerOffset += 4;
   }
@@ -160,17 +181,21 @@ function decodeWorkoutStreamBlock(bytes) {
   }
   offset += lengths[5];
 
-  const positionLatsDeg = new Float64Array(recordCount);
-  for (let i = 0; i < recordCount; i += 1) {
-    const raw = view.getInt32(offset + (i * 4), true);
-    positionLatsDeg[i] = raw === INT32_NAN ? Number.NaN : raw / MICRO_DEGREES;
-  }
-  offset += lengths[6];
+  let positionLatsDeg = null;
+  let positionLongsDeg = null;
+  if (!isWst3) {
+    positionLatsDeg = new Float64Array(recordCount);
+    for (let i = 0; i < recordCount; i += 1) {
+      const raw = view.getInt32(offset + (i * 4), true);
+      positionLatsDeg[i] = raw === INT32_NAN ? Number.NaN : raw / MICRO_DEGREES;
+    }
+    offset += lengths[6];
 
-  const positionLongsDeg = new Float64Array(recordCount);
-  for (let i = 0; i < recordCount; i += 1) {
-    const raw = view.getInt32(offset + (i * 4), true);
-    positionLongsDeg[i] = raw === INT32_NAN ? Number.NaN : raw / MICRO_DEGREES;
+    positionLongsDeg = new Float64Array(recordCount);
+    for (let i = 0; i < recordCount; i += 1) {
+      const raw = view.getInt32(offset + (i * 4), true);
+      positionLongsDeg[i] = raw === INT32_NAN ? Number.NaN : raw / MICRO_DEGREES;
+    }
   }
 
   const timestampsMs = new Float64Array(recordCount);
@@ -245,27 +270,47 @@ function decodeGpsTrackBlock(bytes) {
   };
 }
 
-export function decodeWoa1Buffer(buffer) {
+export async function decodeWoa1Buffer(buffer) {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
-  if (magic !== "WOA1") {
-    throw new Error(`Unsupported WOA container: ${magic}`);
-  }
+  const header = inspectWoa1Header(bytes);
+  const {
+    majorVersion,
+    metaLength,
+    sessionLength,
+    workoutStreamLength,
+    gpsTrackLength,
+    headerLength
+  } = header;
 
-  const metaLength = view.getUint32(8, true);
-  const sessionLength = view.getUint32(12, true);
-  const workoutStreamLength = view.getUint32(16, true);
-  const gpsTrackLength = view.getUint32(20, true);
-
-  let offset = 24;
+  let offset = headerLength;
   const meta = readJsonBlock(bytes, offset, metaLength);
   offset += metaLength;
   const sessions = readJsonBlock(bytes, offset, sessionLength);
   offset += sessionLength;
-  const workoutStream = decodeWorkoutStreamBlock(bytes.subarray(offset, offset + workoutStreamLength));
+  const workoutStreamStoredBytes = bytes.slice(offset, offset + workoutStreamLength);
   offset += workoutStreamLength;
-  const gpsTrack = decodeGpsTrackBlock(bytes.subarray(offset, offset + gpsTrackLength));
+  const gpsTrackStoredBytes = bytes.slice(offset, offset + gpsTrackLength);
+
+  const workoutStreamCodec = String(
+    meta?.blockCodecs?.workout_stream
+    || meta?.persistedRow?.stream_codec
+    || (majorVersion >= 2 ? "gzip" : "identity")
+  ).trim().toLowerCase();
+  const gpsTrackCodec = String(
+    meta?.blockCodecs?.gps_track
+    || meta?.persistedRow?.gps_track_blob_codec
+    || (majorVersion >= 2 ? "gzip" : "identity")
+  ).trim().toLowerCase();
+
+  const workoutStreamBytes = workoutStreamCodec === "gzip" || workoutStreamCodec === "brotli"
+    ? new Uint8Array(await Workout.decompress(workoutStreamStoredBytes, workoutStreamCodec))
+    : workoutStreamStoredBytes;
+  const gpsTrackBytes = gpsTrackCodec === "gzip" || gpsTrackCodec === "brotli"
+    ? new Uint8Array(await Workout.decompress(gpsTrackStoredBytes, gpsTrackCodec))
+    : gpsTrackStoredBytes;
+
+  const workoutStream = decodeWorkoutStreamBlock(workoutStreamBytes);
+  const gpsTrack = decodeGpsTrackBlock(gpsTrackBytes);
 
   const fitLike = {
     sessions: Array.isArray(sessions) ? sessions : [],
@@ -284,11 +329,48 @@ export function decodeWoa1Buffer(buffer) {
 
   return {
     meta,
+    majorVersion,
     sessions: fitLike.sessions,
     recordsTyped: workoutStream,
     aggregated,
     fileRow,
     gpsTrack,
-    workoutObject
+    workoutObject,
+    workoutStreamStoredBytes,
+    gpsTrackStoredBytes,
+    workoutStreamBytes,
+    gpsTrackBytes
+  };
+}
+
+export function decodeWoa1BufferLight(buffer) {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  const header = inspectWoa1Header(bytes);
+  const {
+    majorVersion,
+    minorVersion,
+    metaLength,
+    sessionLength,
+    workoutStreamLength,
+    gpsTrackLength,
+    headerLength
+  } = header;
+
+  let offset = headerLength;
+  const meta = readJsonBlock(bytes, offset, metaLength);
+  offset += metaLength;
+  const sessions = readJsonBlock(bytes, offset, sessionLength);
+  offset += sessionLength;
+  const workoutStreamStoredBytes = bytes.slice(offset, offset + workoutStreamLength);
+  offset += workoutStreamLength;
+  const gpsTrackStoredBytes = bytes.slice(offset, offset + gpsTrackLength);
+
+  return {
+    meta,
+    majorVersion,
+    minorVersion,
+    sessions: Array.isArray(sessions) ? sessions : [],
+    workoutStreamStoredBytes,
+    gpsTrackStoredBytes
   };
 }

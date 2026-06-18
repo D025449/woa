@@ -12,8 +12,6 @@ import CollaborationDBService from "../services/collaborationDBService.js";
 import EntitlementService from "../services/entitlementService.js";
 
 const router = express.Router();
-const WOA_UPLOAD_CHUNK_MODE = String(process.env.WOA_UPLOAD_CHUNK_MODE || "0").trim() === "1";
-const WOA_UPLOAD_CHUNK_SIZE = Math.max(1, Number(process.env.WOA_UPLOAD_CHUNK_SIZE) || 50);
 
 const checkAuth = (req, res, next) => {
   req.isAuthenticated = !!req.session.userInfo;
@@ -134,10 +132,6 @@ router.get('/uploadNewUI', checkAuth, async (req, res) => {
     isAuthenticated: req.isAuthenticated,
     uploadUsage: {
       storedWorkout: storedWorkoutUsage
-    },
-    uploadNewConfig: {
-      chunkMode: WOA_UPLOAD_CHUNK_MODE,
-      chunkSize: WOA_UPLOAD_CHUNK_SIZE
     }
   });
 });

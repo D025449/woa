@@ -13,6 +13,16 @@ const ALTITUDE_SCALE_INTERNAL = 1000; // store altitude as m * 1000
 const ALTITUDE_ABS_COMPACT_SCALE = 10; // compact absolute altitude storage in 0.1m
 const MPS_TO_KMH = 3.6;
 const FLAG_HAS_DISTANCE_DELTAS_CM = 1;
+const DEFAULT_STREAM_CODEC = "brotli";
+const TEXT_ENCODER = new TextEncoder();
+const TEXT_DECODER = new TextDecoder();
+const WOA_UINT8_NAN = 0xFF;
+const WOA_UINT16_NAN = 0xFFFF;
+const WOA_UINT32_NAN = 0xFFFFFFFF;
+const WOA_INT16_NAN = -0x8000;
+const WOA_INT32_NAN = -0x80000000;
+const WOA_MICRO_DEGREES = 1e7;
+const WOA_DELTA_BLOCK_SIZE = 128;
 
 export default class Workout {
 
@@ -28,6 +38,10 @@ export default class Workout {
     // =============================
     toBuffer() {
         return this.buffer;
+    }
+
+    toTransportBuffer() {
+        return Workout.encodeWst3FromWorkout(this);
     }
 
     // =============================
@@ -291,10 +305,312 @@ export default class Workout {
         return new Workout(buffer);
     }
 
+    static buildWoaDistancePayload(distancesM, recordCount) {
+        const values = new Uint32Array(recordCount);
+        for (let index = 0; index < recordCount; index += 1) {
+            const value = Number(distancesM[index]);
+            values[index] = Number.isFinite(value)
+                ? Math.max(0, Math.min(WOA_UINT32_NAN - 1, Math.round(value * 10)))
+                : WOA_UINT32_NAN;
+        }
+
+        const chunks = [];
+        let totalBytes = 0;
+
+        for (let start = 0; start < recordCount; start += WOA_DELTA_BLOCK_SIZE) {
+            const count = Math.min(WOA_DELTA_BLOCK_SIZE, recordCount - start);
+            let canDeltaEncode = count > 0;
+
+            for (let offset = 0; offset < count; offset += 1) {
+                const current = values[start + offset];
+                if (current === WOA_UINT32_NAN) {
+                    canDeltaEncode = false;
+                    break;
+                }
+                if (offset > 0) {
+                    const previous = values[start + offset - 1];
+                    const delta = current - previous;
+                    if (delta < -32767 || delta > 32767) {
+                        canDeltaEncode = false;
+                        break;
+                    }
+                }
+            }
+
+            if (canDeltaEncode) {
+                const chunk = new Uint8Array(1 + 2 + 4 + Math.max(0, count - 1) * 2);
+                const view = new DataView(chunk.buffer);
+                chunk[0] = 1;
+                view.setUint16(1, count, true);
+                view.setUint32(3, values[start], true);
+                let offset = 7;
+                for (let index = 1; index < count; index += 1) {
+                    const delta = values[start + index] - values[start + index - 1];
+                    view.setInt16(offset, delta, true);
+                    offset += 2;
+                }
+                chunks.push(chunk);
+                totalBytes += chunk.byteLength;
+                continue;
+            }
+
+            const chunk = new Uint8Array(1 + 2 + count * 4);
+            const view = new DataView(chunk.buffer);
+            chunk[0] = 0;
+            view.setUint16(1, count, true);
+            let offset = 3;
+            for (let index = 0; index < count; index += 1) {
+                view.setUint32(offset, values[start + index], true);
+                offset += 4;
+            }
+            chunks.push(chunk);
+            totalBytes += chunk.byteLength;
+        }
+
+        const payload = new Uint8Array(totalBytes);
+        let writeOffset = 0;
+        for (const chunk of chunks) {
+            payload.set(chunk, writeOffset);
+            writeOffset += chunk.byteLength;
+        }
+
+        return payload;
+    }
+
+    static decodeWoaDistancePayload(bytes, recordCount) {
+        const values = new Float64Array(recordCount);
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        let offset = 0;
+        let writeIndex = 0;
+
+        while (offset < bytes.byteLength && writeIndex < recordCount) {
+            const mode = view.getUint8(offset);
+            const count = view.getUint16(offset + 1, true);
+            offset += 3;
+
+            if (mode === 1) {
+                let current = view.getUint32(offset, true);
+                offset += 4;
+                values[writeIndex] = current === WOA_UINT32_NAN ? Number.NaN : current / 10;
+                writeIndex += 1;
+
+                for (let i = 1; i < count && writeIndex < recordCount; i += 1) {
+                    const delta = view.getInt16(offset, true);
+                    offset += 2;
+                    current += delta;
+                    values[writeIndex] = current === WOA_UINT32_NAN ? Number.NaN : current / 10;
+                    writeIndex += 1;
+                }
+                continue;
+            }
+
+            for (let i = 0; i < count && writeIndex < recordCount; i += 1) {
+                const raw = view.getUint32(offset, true);
+                offset += 4;
+                values[writeIndex] = raw === WOA_UINT32_NAN ? Number.NaN : raw / 10;
+                writeIndex += 1;
+            }
+        }
+
+        return values;
+    }
+
+    static decodeWst3Buffer(buffer) {
+        const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
+        if (magic !== "WST2" && magic !== "WST3") {
+            throw new Error(`Unsupported workout stream block: ${magic}`);
+        }
+        const isWst3 = magic === "WST3";
+        const recordCount = view.getUint32(4, true);
+        const baseTimestampMs = view.getFloat64(8, true);
+        const sampleIntervalMs = view.getUint32(16, true);
+        const lengths = [];
+        let headerOffset = 20;
+        for (let i = 0; i < (isWst3 ? 6 : 8); i += 1) {
+            lengths.push(view.getUint32(headerOffset, true));
+            headerOffset += 4;
+        }
+
+        let offset = headerOffset;
+        const distancePayload = bytes.subarray(offset, offset + lengths[0]);
+        offset += lengths[0];
+
+        const distancesM = this.decodeWoaDistancePayload(distancePayload, recordCount);
+        const powersW = new Float64Array(recordCount);
+        for (let i = 0; i < recordCount; i += 1) {
+            const raw = view.getUint16(offset + (i * 2), true);
+            powersW[i] = raw === WOA_UINT16_NAN ? Number.NaN : raw;
+        }
+        offset += lengths[1];
+
+        const heartRatesBpm = new Float64Array(recordCount);
+        for (let i = 0; i < recordCount; i += 1) {
+            const raw = view.getUint8(offset + i);
+            heartRatesBpm[i] = raw === WOA_UINT8_NAN ? Number.NaN : raw;
+        }
+        offset += lengths[2];
+
+        const cadencesRpm = new Float64Array(recordCount);
+        for (let i = 0; i < recordCount; i += 1) {
+            const raw = view.getUint8(offset + i);
+            cadencesRpm[i] = raw === WOA_UINT8_NAN ? Number.NaN : raw;
+        }
+        offset += lengths[3];
+
+        const hasSpeeds = lengths[4] > 0;
+        const speedsMps = new Float64Array(recordCount);
+        if (hasSpeeds) {
+            for (let i = 0; i < recordCount; i += 1) {
+                const raw = view.getUint16(offset + (i * 2), true);
+                speedsMps[i] = raw === WOA_UINT16_NAN ? Number.NaN : raw / 100;
+            }
+        }
+        offset += lengths[4];
+
+        const altitudesM = new Float64Array(recordCount);
+        for (let i = 0; i < recordCount; i += 1) {
+            const raw = view.getInt16(offset + (i * 2), true);
+            altitudesM[i] = raw === WOA_INT16_NAN ? Number.NaN : raw / 10;
+        }
+
+        const timestampsMs = new Float64Array(recordCount);
+        for (let i = 0; i < recordCount; i += 1) {
+            timestampsMs[i] = baseTimestampMs + (i * sampleIntervalMs);
+        }
+
+        if (!hasSpeeds) {
+            speedsMps[0] = Number.NaN;
+            for (let i = 1; i < recordCount; i += 1) {
+                const prev = distancesM[i - 1];
+                const current = distancesM[i];
+                speedsMps[i] = Number.isFinite(prev) && Number.isFinite(current)
+                    ? Math.max(0, current - prev)
+                    : Number.NaN;
+            }
+        }
+
+        return {
+            recordCount,
+            timestampsMs,
+            distancesM,
+            powersW,
+            heartRatesBpm,
+            cadencesRpm,
+            speedsMps,
+            altitudesM
+        };
+    }
+
+    static encodeWst3FromWorkout(workoutObject) {
+        const recordCount = Number(workoutObject?.length || 0);
+        const timestampsMs = new Float64Array(recordCount);
+        const distancesM = new Float64Array(recordCount);
+        const powersW = new Float64Array(recordCount);
+        const heartRatesBpm = new Float64Array(recordCount);
+        const cadencesRpm = new Float64Array(recordCount);
+        const speedsMps = new Float64Array(recordCount);
+        const altitudesM = new Float64Array(recordCount);
+        const startTimeMs = Number(workoutObject.getStartTime());
+
+        for (let index = 0; index < recordCount; index += 1) {
+            timestampsMs[index] = startTimeMs + (index * 1000);
+            distancesM[index] = Number(workoutObject.getDistanceAt(index));
+            powersW[index] = Number(workoutObject.getPowerAt(index));
+            heartRatesBpm[index] = Number(workoutObject.getHrAt(index));
+            cadencesRpm[index] = Number(workoutObject.getCadenceAt(index));
+            speedsMps[index] = Number(workoutObject.getSpeedAt(index));
+            altitudesM[index] = Number(workoutObject.getAltitudeAt(index));
+        }
+
+        let hasCompleteDistanceSeries = recordCount > 0;
+        for (let index = 0; index < recordCount; index += 1) {
+            if (!Number.isFinite(distancesM[index])) {
+                hasCompleteDistanceSeries = false;
+                break;
+            }
+        }
+
+        const headerBytes = 4 + 4 + 8 + 4 + 6 * 4;
+        const distancePayload = this.buildWoaDistancePayload(distancesM, recordCount);
+        const distancesBytes = distancePayload.byteLength;
+        const powersBytes = recordCount * 2;
+        const heartRatesBytes = recordCount;
+        const cadencesBytes = recordCount;
+        const speedsBytes = hasCompleteDistanceSeries ? 0 : (recordCount * 2);
+        const altitudesBytes = recordCount * 2;
+        const payloadBytes = distancesBytes + powersBytes + heartRatesBytes + cadencesBytes + speedsBytes + altitudesBytes;
+        const buffer = new ArrayBuffer(headerBytes + payloadBytes);
+        const view = new DataView(buffer);
+        const lengths = [distancesBytes, powersBytes, heartRatesBytes, cadencesBytes, speedsBytes, altitudesBytes];
+        const baseTimestampMs = recordCount > 0 && Number.isFinite(Number(timestampsMs[0])) ? Math.round(Number(timestampsMs[0])) : 0;
+        const sampleIntervalMs = 1000;
+
+        new Uint8Array(buffer, 0, 4).set(TEXT_ENCODER.encode("WST3"));
+        view.setUint32(4, recordCount, true);
+        view.setFloat64(8, baseTimestampMs, true);
+        view.setUint32(16, sampleIntervalMs, true);
+
+        let headerOffset = 20;
+        for (const length of lengths) {
+            view.setUint32(headerOffset, length, true);
+            headerOffset += 4;
+        }
+
+        let payloadOffset = headerBytes;
+        new Uint8Array(buffer, payloadOffset, distancesBytes).set(distancePayload);
+        payloadOffset += distancesBytes;
+
+        for (let index = 0; index < recordCount; index += 1) {
+            const value = Number(powersW[index]);
+            const encoded = Number.isFinite(value) ? Math.max(0, Math.min(WOA_UINT16_NAN - 1, Math.round(value))) : WOA_UINT16_NAN;
+            view.setUint16(payloadOffset + (index * 2), encoded, true);
+        }
+        payloadOffset += powersBytes;
+
+        for (let index = 0; index < recordCount; index += 1) {
+            const value = Number(heartRatesBpm[index]);
+            view.setUint8(payloadOffset + index, Number.isFinite(value) ? Math.max(0, Math.min(WOA_UINT8_NAN - 1, Math.round(value))) : WOA_UINT8_NAN);
+        }
+        payloadOffset += heartRatesBytes;
+
+        for (let index = 0; index < recordCount; index += 1) {
+            const value = Number(cadencesRpm[index]);
+            view.setUint8(payloadOffset + index, Number.isFinite(value) ? Math.max(0, Math.min(WOA_UINT8_NAN - 1, Math.round(value))) : WOA_UINT8_NAN);
+        }
+        payloadOffset += cadencesBytes;
+
+        for (let index = 0; index < recordCount && speedsBytes > 0; index += 1) {
+            const value = Number(speedsMps[index]);
+            const encoded = Number.isFinite(value) ? Math.max(0, Math.min(WOA_UINT16_NAN - 1, Math.round(value * 100))) : WOA_UINT16_NAN;
+            view.setUint16(payloadOffset + (index * 2), encoded, true);
+        }
+        payloadOffset += speedsBytes;
+
+        for (let index = 0; index < recordCount; index += 1) {
+            const value = Number(altitudesM[index]);
+            const encoded = Number.isFinite(value) ? Math.max(WOA_INT16_NAN + 1, Math.min(0x7FFF, Math.round(value * 10))) : WOA_INT16_NAN;
+            view.setInt16(payloadOffset + (index * 2), encoded, true);
+        }
+
+        return buffer;
+    }
+
     // =============================
     // FACTORY: FROM BUFFER
     // =============================
     static fromBuffer(buffer) {
+        const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+        const magic = bytes.byteLength >= 4 ? TEXT_DECODER.decode(bytes.subarray(0, 4)) : "";
+        if (magic === "WST2" || magic === "WST3") {
+            const decoded = this.decodeWst3Buffer(bytes);
+            return this.fromTypedArrays(decoded, {
+                startTimeMs: Number.isFinite(Number(decoded.timestampsMs?.[0])) ? Number(decoded.timestampsMs[0]) : Date.now(),
+                validGps: false
+            });
+        }
+
         const version = this.readFormatVersion(buffer);
 
         if (version === STREAM_FORMAT_ABSOLUTE) {
@@ -318,6 +634,11 @@ export default class Workout {
     // =============================
     static async fromCompressed(buffer) {
         const raw = await this.decompress(buffer);
+        return this.fromBuffer(raw);
+    }
+
+    static async fromCompressedWithCodec(buffer, codec = DEFAULT_STREAM_CODEC) {
+        const raw = await this.decompress(buffer, codec);
         return this.fromBuffer(raw);
     }
 
@@ -729,11 +1050,24 @@ export default class Workout {
         return Workout.compress(this.buffer);
     }
 
-    static async compress(buffer) {
+    static normalizeCodec(codec = DEFAULT_STREAM_CODEC) {
+        return String(codec || DEFAULT_STREAM_CODEC).trim().toLowerCase() === "gzip"
+            ? "gzip"
+            : DEFAULT_STREAM_CODEC;
+    }
+
+    static async compress(buffer, codec = DEFAULT_STREAM_CODEC) {
+        const normalizedCodec = this.normalizeCodec(codec);
 
         // 🔥 Node fast path
         if (this.isNode()) {
-            const { brotliCompressSync, constants } = await import("zlib");
+            const { brotliCompressSync, gzipSync, constants } = await import("zlib");
+
+            if (normalizedCodec === "gzip") {
+                return gzipSync(Buffer.from(buffer), {
+                    level: 6
+                });
+            }
 
             return brotliCompressSync(Buffer.from(buffer), {
                 params: {
@@ -744,7 +1078,7 @@ export default class Workout {
 
         // Browser
         if (typeof CompressionStream !== "undefined") {
-            const cs = new CompressionStream("brotli");
+            const cs = new CompressionStream(normalizedCodec === "gzip" ? "gzip" : "brotli");
             const stream = new Blob([buffer]).stream().pipeThrough(cs);
             return new Response(stream).arrayBuffer();
         }
@@ -755,13 +1089,16 @@ export default class Workout {
     // =============================
     // DECOMPRESS
     // =============================
-    static async decompress(buffer) {
+    static async decompress(buffer, codec = DEFAULT_STREAM_CODEC) {
+        const normalizedCodec = this.normalizeCodec(codec);
 
         // 🔥 Node fast path
         if (this.isNode()) {
-            const { brotliDecompressSync } = await import("zlib");
+            const { brotliDecompressSync, gunzipSync } = await import("zlib");
 
-            const result = brotliDecompressSync(buffer);
+            const result = normalizedCodec === "gzip"
+                ? gunzipSync(buffer)
+                : brotliDecompressSync(buffer);
 
             return result.buffer.slice(
                 result.byteOffset,
@@ -771,7 +1108,7 @@ export default class Workout {
 
         // Browser
         if (typeof DecompressionStream !== "undefined") {
-            const ds = new DecompressionStream("brotli");
+            const ds = new DecompressionStream(normalizedCodec === "gzip" ? "gzip" : "brotli");
             const stream = new Blob([buffer]).stream().pipeThrough(ds);
             return new Response(stream).arrayBuffer();
         }

@@ -742,7 +742,8 @@ export default class WorkoutDBService {
         sampleRateGPS,
         gps_source,
         manual_gps_lookup_points,
-        gps_track_blob
+        gps_track_blob,
+        gps_track_blob_codec
         FROM workouts 
         WHERE id = $1`,
       [id]
@@ -778,7 +779,9 @@ export default class WorkoutDBService {
         gps_source,
         manual_gps_lookup_points,
         gps_track_blob,
-        stream
+        gps_track_blob_codec,
+        stream,
+        stream_codec
        FROM workouts
        WHERE id = $1
          AND uid = $2`,
@@ -790,7 +793,7 @@ export default class WorkoutDBService {
     }
 
     const row = result.rows[0];
-    row.workoutObject = await Workout.fromCompressed(row.stream);
+    row.workoutObject = await Workout.fromCompressedWithCodec(row.stream, row.stream_codec || "brotli");
     return row;
   }
 
@@ -865,7 +868,9 @@ export default class WorkoutDBService {
         samplerategps,
         gps_source,
         stream,
-        gps_track_blob
+        stream_codec,
+        gps_track_blob,
+        gps_track_blob_codec
        FROM workouts
        WHERE id = $1
          AND uid = $2
@@ -879,7 +884,7 @@ export default class WorkoutDBService {
     }
 
     const row = result.rows[0];
-    row.workoutObject = await Workout.fromCompressed(row.stream);
+    row.workoutObject = await Workout.fromCompressedWithCodec(row.stream, row.stream_codec || "brotli");
     return hydrateTrackRow(row);
   }
 
@@ -1181,7 +1186,8 @@ export default class WorkoutDBService {
     const gpsTrackBlob = await GpsTrackBlobService.encodeCompressed(
       normalizedTrack.map((point) => [point.lat, point.lng]),
       {
-        sampleRateGps: Number(manualGpsTrack?.sampleRateSeconds) || 5
+        sampleRateGps: Number(manualGpsTrack?.sampleRateSeconds) || 5,
+        codec: "brotli"
       }
     );
 
@@ -1195,6 +1201,7 @@ export default class WorkoutDBService {
         track_start = ST_GeomFromText($9, 4326),
         track_end = ST_GeomFromText($10, 4326),
         gps_track_blob = $11::bytea,
+        gps_track_blob_codec = 'brotli',
         gps_source = 'manual_lookup',
         manual_gps_lookup_points = $12::jsonb,
         stream = COALESCE($13::bytea, stream),
@@ -1243,6 +1250,7 @@ export default class WorkoutDBService {
     const result = await pool.query(
       `SELECT
         stream,
+        stream_codec,
         uploaded_at,
         octet_length(stream) AS stream_size
        FROM workouts
@@ -1259,7 +1267,7 @@ export default class WorkoutDBService {
 
   static async getWorkout(id) {
     const result = await pool.query(
-      `SELECT stream FROM workouts WHERE id = $1`,
+      `SELECT stream, stream_codec FROM workouts WHERE id = $1`,
       [id]
     );
 
@@ -1268,15 +1276,16 @@ export default class WorkoutDBService {
     }
 
     const stream = result.rows[0].stream;
+    const streamCodec = result.rows[0].stream_codec || "brotli";
 
-    const workoutObject = await Workout.fromCompressed(stream);
+    const workoutObject = await Workout.fromCompressedWithCodec(stream, streamCodec);
 
     return workoutObject;
   }
 
   static async getWorkouts(ids) {
     const result = await pool.query(
-      `SELECT id, stream FROM workouts WHERE id = ANY($1::bigint[]);`,
+      `SELECT id, stream, stream_codec FROM workouts WHERE id = ANY($1::bigint[]);`,
       [ids]
     );
 
@@ -1287,7 +1296,7 @@ export default class WorkoutDBService {
     const workoutMap = new Map();
 
     for (const w of result.rows) {
-      const workoutObject = await Workout.fromCompressed(w.stream);
+      const workoutObject = await Workout.fromCompressedWithCodec(w.stream, w.stream_codec || "brotli");
       workoutMap.set(w.id, workoutObject);
     };
 

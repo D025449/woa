@@ -93,7 +93,7 @@ async function run() {
     params.push(limit);
 
     const query = `
-      SELECT id, uid, stream
+      SELECT id, uid, stream, stream_codec
       FROM workouts
       ${where}
       ORDER BY uploaded_at DESC
@@ -127,7 +127,7 @@ async function run() {
     for (const row of result.rows) {
       let workout;
       try {
-        workout = await Workout.fromCompressed(row.stream);
+        workout = await Workout.fromCompressedWithCodec(row.stream, row.stream_codec || "brotli");
       } catch {
         skippedUnsupported += 1;
         continue;

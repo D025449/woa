@@ -1144,7 +1144,8 @@ export default class SegmentDBService {
       SELECT
         id,
         samplerategps,
-        gps_track_blob
+        gps_track_blob,
+        gps_track_blob_codec
       FROM workouts
       WHERE id = $1
         AND uid = $2
@@ -1158,6 +1159,7 @@ export default class SegmentDBService {
     const workoutRow = workoutRowResult.rows[0];
     const decodedTrack = await GpsTrackBlobService.decodeRowTrack({
       gps_track_blob: workoutRow.gps_track_blob,
+      gps_track_blob_codec: workoutRow.gps_track_blob_codec,
       samplerategps: workoutRow.samplerategps
     });
     const track = decodedTrack.points;

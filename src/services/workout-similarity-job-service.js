@@ -1,5 +1,30 @@
 import { workoutSimilarityQueue } from "../queue/workout-similarity-queue.js";
 
+function buildQueueOptions(jobId) {
+  return {
+    attempts: 2,
+    backoff: {
+      type: "exponential",
+      delay: 2000
+    },
+    removeOnComplete: 100,
+    removeOnFail: 100,
+    jobId
+  };
+}
+
+function buildWorkoutSimilarityClassificationJob({ uid, workoutId, importJobId = null }) {
+  return {
+    name: "classify-workout-similarity",
+    data: {
+      uid,
+      workoutId: Number(workoutId),
+      importJobId
+    },
+    opts: buildQueueOptions(`classify-workout-similarity:${uid}:${Number(workoutId)}`)
+  };
+}
+
 export async function enqueueWorkoutSimilarityClassification({ uid, workoutId, importJobId = null }) {
   if (!uid) {
     throw new Error("uid is required");
@@ -9,24 +34,18 @@ export async function enqueueWorkoutSimilarityClassification({ uid, workoutId, i
     throw new Error("workoutId is required");
   }
 
-  return workoutSimilarityQueue.add(
-    "classify-workout-similarity",
-    {
-      uid,
-      workoutId: Number(workoutId),
-      importJobId
-    },
-    {
-      attempts: 2,
-      backoff: {
-        type: "exponential",
-        delay: 2000
-      },
-      removeOnComplete: 100,
-      removeOnFail: 100,
-      jobId: `classify-workout-similarity:${uid}:${Number(workoutId)}`
-    }
-  );
+  const job = buildWorkoutSimilarityClassificationJob({ uid, workoutId, importJobId });
+  return workoutSimilarityQueue.add(job.name, job.data, job.opts);
+}
+
+export async function enqueueWorkoutSimilarityClassificationBulk(items = []) {
+  const jobs = items
+    .filter((item) => item?.uid && Number.isInteger(Number(item?.workoutId)))
+    .map((item) => buildWorkoutSimilarityClassificationJob(item));
+  if (jobs.length === 0) {
+    return [];
+  }
+  return workoutSimilarityQueue.addBulk(jobs);
 }
 
 export async function enqueueWorkoutSimilarityRebuild({ uid, mode = "delta" }) {

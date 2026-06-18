@@ -1074,7 +1074,7 @@ export async function createApp(options = {}) {
       if (recomputeFromDb) {
         const dbReadStartedAt = Date.now();
         const rowResult = await pool.query(
-          `SELECT stream FROM workouts WHERE id = $1 AND uid = $2`,
+          `SELECT stream, stream_codec FROM workouts WHERE id = $1 AND uid = $2`,
           [workoutId, uid]
         );
         dbReadMs = Date.now() - dbReadStartedAt;
@@ -1083,7 +1083,10 @@ export async function createApp(options = {}) {
         }
 
         const decompressStartedAt = Date.now();
-        const workout = await Workout.fromCompressed(rowResult.rows[0].stream);
+        const workout = await Workout.fromCompressedWithCodec(
+          rowResult.rows[0].stream,
+          rowResult.rows[0].stream_codec || "brotli"
+        );
         decompressMs = Date.now() - decompressStartedAt;
         const startTime = Number(workout.getStartTime());
         const rebuildStartedAt = Date.now();

@@ -1,13 +1,22 @@
 import { segmentBestEffortsQueue } from "../queue/segment-best-efforts-queue.js";
 
-export async function enqueueWorkoutSegmentPersistence({ uid, workoutId, payloadPath = null, entryName = null, recomputeFromDb = false, importJobId = null }) {
-  if (!uid || !Number.isInteger(Number(workoutId)) || (!payloadPath && !recomputeFromDb)) {
-    return null;
-  }
+function buildQueueOptions(jobId) {
+  return {
+    attempts: 2,
+    backoff: {
+      type: "exponential",
+      delay: 2000
+    },
+    removeOnComplete: 100,
+    removeOnFail: 100,
+    jobId
+  };
+}
 
-  return segmentBestEffortsQueue.add(
-    "persist-workout-segments",
-    {
+function buildSegmentPersistenceJob({ uid, workoutId, payloadPath = null, entryName = null, recomputeFromDb = false, importJobId = null }) {
+  return {
+    name: "persist-workout-segments",
+    data: {
       uid,
       workoutId: Number(workoutId),
       payloadPath,
@@ -15,17 +24,29 @@ export async function enqueueWorkoutSegmentPersistence({ uid, workoutId, payload
       recomputeFromDb: !!recomputeFromDb,
       importJobId
     },
-    {
-      attempts: 2,
-      backoff: {
-        type: "exponential",
-        delay: 2000
-      },
-      removeOnComplete: 100,
-      removeOnFail: 100,
-      jobId: `persist-workout-segments:${uid}:${Number(workoutId)}`
-    }
-  );
+    opts: buildQueueOptions(`persist-workout-segments:${uid}:${Number(workoutId)}`)
+  };
+}
+
+function buildWorkoutSegmentBestEffortsJob({ uid, workoutId, importJobId = null }) {
+  return {
+    name: "process-workout-segment-best-efforts",
+    data: {
+      uid,
+      workoutId: Number(workoutId),
+      importJobId
+    },
+    opts: buildQueueOptions(`process-workout-segment-best-efforts:${uid}:${Number(workoutId)}`)
+  };
+}
+
+export async function enqueueWorkoutSegmentPersistence({ uid, workoutId, payloadPath = null, entryName = null, recomputeFromDb = false, importJobId = null }) {
+  if (!uid || !Number.isInteger(Number(workoutId)) || (!payloadPath && !recomputeFromDb)) {
+    return null;
+  }
+
+  const job = buildSegmentPersistenceJob({ uid, workoutId, payloadPath, entryName, recomputeFromDb, importJobId });
+  return segmentBestEffortsQueue.add(job.name, job.data, job.opts);
 }
 
 export async function enqueueWorkoutThumbnailGeneration({ uid, workoutId, payloadPath, entryName = null, importJobId = null }) {
@@ -60,24 +81,28 @@ export async function enqueueWorkoutSegmentBestEfforts({ uid, workoutId, importJ
     return null;
   }
 
-  return segmentBestEffortsQueue.add(
-    "process-workout-segment-best-efforts",
-    {
-      uid,
-      workoutId: Number(workoutId),
-      importJobId
-    },
-    {
-      attempts: 2,
-      backoff: {
-        type: "exponential",
-        delay: 2000
-      },
-      removeOnComplete: 100,
-      removeOnFail: 100,
-      jobId: `process-workout-segment-best-efforts:${uid}:${Number(workoutId)}`
-    }
-  );
+  const job = buildWorkoutSegmentBestEffortsJob({ uid, workoutId, importJobId });
+  return segmentBestEffortsQueue.add(job.name, job.data, job.opts);
+}
+
+export async function enqueueWorkoutSegmentPersistenceBulk(items = []) {
+  const jobs = items
+    .filter((item) => item?.uid && Number.isInteger(Number(item?.workoutId)) && (item?.payloadPath || item?.recomputeFromDb))
+    .map((item) => buildSegmentPersistenceJob(item));
+  if (jobs.length === 0) {
+    return [];
+  }
+  return segmentBestEffortsQueue.addBulk(jobs);
+}
+
+export async function enqueueWorkoutSegmentBestEffortsBulk(items = []) {
+  const jobs = items
+    .filter((item) => item?.uid && Number.isInteger(Number(item?.workoutId)))
+    .map((item) => buildWorkoutSegmentBestEffortsJob(item));
+  if (jobs.length === 0) {
+    return [];
+  }
+  return segmentBestEffortsQueue.addBulk(jobs);
 }
 
 export async function enqueueSegmentBestEfforts({ uid, segmentIds }) {

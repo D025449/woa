@@ -44,6 +44,7 @@ CREATE TABLE workouts (
     avg_cadence          DOUBLE PRECISION,
     max_cadence          DOUBLE PRECISION,
     stream               BYTEA NOT NULL,
+    stream_codec         TEXT,
     validGps             BOOLEAN,
     gps_source           TEXT,
     manual_gps_lookup_points JSONB,
@@ -53,6 +54,7 @@ CREATE TABLE workouts (
     points_count         INTEGER,
     sampleRateGPS        DOUBLE PRECISION,
     gps_track_blob       BYTEA,
+    gps_track_blob_codec TEXT,
 
     bounds               geometry(POLYGON, 4326),
     track_start          geometry(POINT, 4326),
@@ -64,6 +66,10 @@ CREATE TABLE workouts (
         ON DELETE CASCADE,
     CONSTRAINT workouts_gps_source_check
         CHECK (gps_source IS NULL OR gps_source IN ('recorded', 'manual_lookup')),
+    CONSTRAINT workouts_stream_codec_check
+        CHECK (stream_codec IS NULL OR stream_codec IN ('brotli', 'gzip')),
+    CONSTRAINT workouts_gps_track_blob_codec_check
+        CHECK (gps_track_blob_codec IS NULL OR gps_track_blob_codec IN ('brotli', 'gzip')),
     CONSTRAINT chk_workouts_segment_processing_status
         CHECK (segment_processing_status IN ('pending', 'processing', 'completed', 'failed'))
 );

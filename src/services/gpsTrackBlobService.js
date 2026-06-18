@@ -2,7 +2,16 @@ import Workout from "../shared/Workout.js";
 
 const GPS_TRACK_BLOB_VERSION = 1;
 const GPS_TRACK_BLOB_SCALE = 100000;
+const GPS2_COORDINATE_SCALE = 10000000;
 const GPS_TRACK_BLOB_HEADER_BYTES = 32;
+const GPS2_HEADER_BYTES = 20;
+const DELTA_BLOCK_SIZE = 128;
+const INT32_NAN = -0x80000000;
+const TEXT_DECODER = new TextDecoder();
+const TEXT_ENCODER = new TextEncoder();
+const DEFAULT_GPS_TRACK_BLOB_CODEC = String(process.env.GPS_TRACK_BLOB_CODEC || "brotli").trim().toLowerCase() === "gzip"
+  ? "gzip"
+  : "brotli";
 
 function normalizeTrackPoints(track = []) {
   if (!Array.isArray(track)) {
@@ -31,6 +40,129 @@ function toGeoJson(points = []) {
   };
 }
 
+function buildGpsCoordinatePayload(points) {
+  const quantized = points.map((point) => ({
+    lat: Number.isFinite(Number(point.lat)) ? Math.round(Number(point.lat) * GPS_TRACK_BLOB_SCALE) : INT32_NAN,
+    lng: Number.isFinite(Number(point.lng)) ? Math.round(Number(point.lng) * GPS_TRACK_BLOB_SCALE) : INT32_NAN
+  }));
+
+  const chunks = [];
+  let totalBytes = 0;
+
+  for (let start = 0; start < quantized.length; start += DELTA_BLOCK_SIZE) {
+    const count = Math.min(DELTA_BLOCK_SIZE, quantized.length - start);
+    let canDeltaEncode = count > 0;
+
+    for (let offset = 0; offset < count; offset += 1) {
+      const current = quantized[start + offset];
+      if (current.lat === INT32_NAN || current.lng === INT32_NAN) {
+        canDeltaEncode = false;
+        break;
+      }
+      if (offset > 0) {
+        const previous = quantized[start + offset - 1];
+        const deltaLat = current.lat - previous.lat;
+        const deltaLng = current.lng - previous.lng;
+        if (deltaLat < -32767 || deltaLat > 32767 || deltaLng < -32767 || deltaLng > 32767) {
+          canDeltaEncode = false;
+          break;
+        }
+      }
+    }
+
+    if (canDeltaEncode) {
+      const chunk = new Uint8Array(1 + 2 + 4 + 4 + Math.max(0, count - 1) * 4);
+      const view = new DataView(chunk.buffer);
+      chunk[0] = 1;
+      view.setUint16(1, count, true);
+      view.setInt32(3, quantized[start].lat, true);
+      view.setInt32(7, quantized[start].lng, true);
+      let offset = 11;
+      for (let index = 1; index < count; index += 1) {
+        const current = quantized[start + index];
+        const previous = quantized[start + index - 1];
+        view.setInt16(offset, current.lat - previous.lat, true);
+        offset += 2;
+        view.setInt16(offset, current.lng - previous.lng, true);
+        offset += 2;
+      }
+      chunks.push(chunk);
+      totalBytes += chunk.byteLength;
+      continue;
+    }
+
+    const chunk = new Uint8Array(1 + 2 + count * 8);
+    const view = new DataView(chunk.buffer);
+    chunk[0] = 0;
+    view.setUint16(1, count, true);
+    let offset = 3;
+    for (let index = 0; index < count; index += 1) {
+      view.setInt32(offset, quantized[start + index].lat, true);
+      offset += 4;
+      view.setInt32(offset, quantized[start + index].lng, true);
+      offset += 4;
+    }
+    chunks.push(chunk);
+    totalBytes += chunk.byteLength;
+  }
+
+  const payload = new Uint8Array(totalBytes);
+  let writeOffset = 0;
+  for (const chunk of chunks) {
+    payload.set(chunk, writeOffset);
+    writeOffset += chunk.byteLength;
+  }
+
+  return payload;
+}
+
+function decodeGpsCoordinatePayload(bytes, pointCount) {
+  const latitudes = new Float64Array(pointCount);
+  const longitudes = new Float64Array(pointCount);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 0;
+  let writeIndex = 0;
+
+  while (offset < bytes.byteLength && writeIndex < pointCount) {
+    const mode = view.getUint8(offset);
+    const count = view.getUint16(offset + 1, true);
+    offset += 3;
+
+    if (mode === 1) {
+      let currentLat = view.getInt32(offset, true);
+      offset += 4;
+      let currentLng = view.getInt32(offset, true);
+      offset += 4;
+      latitudes[writeIndex] = currentLat === INT32_NAN ? Number.NaN : currentLat / GPS2_COORDINATE_SCALE;
+      longitudes[writeIndex] = currentLng === INT32_NAN ? Number.NaN : currentLng / GPS2_COORDINATE_SCALE;
+      writeIndex += 1;
+
+      for (let i = 1; i < count && writeIndex < pointCount; i += 1) {
+        currentLat += view.getInt16(offset, true);
+        offset += 2;
+        currentLng += view.getInt16(offset, true);
+        offset += 2;
+        latitudes[writeIndex] = currentLat === INT32_NAN ? Number.NaN : currentLat / GPS2_COORDINATE_SCALE;
+        longitudes[writeIndex] = currentLng === INT32_NAN ? Number.NaN : currentLng / GPS2_COORDINATE_SCALE;
+        writeIndex += 1;
+      }
+      continue;
+    }
+
+    for (let i = 0; i < count && writeIndex < pointCount; i += 1) {
+      const rawLat = view.getInt32(offset, true);
+      offset += 4;
+      const rawLng = view.getInt32(offset, true);
+      offset += 4;
+      latitudes[writeIndex] = rawLat === INT32_NAN ? Number.NaN : rawLat / GPS2_COORDINATE_SCALE;
+      longitudes[writeIndex] = rawLng === INT32_NAN ? Number.NaN : rawLng / GPS2_COORDINATE_SCALE;
+      writeIndex += 1;
+    }
+  }
+
+  return { latitudes, longitudes };
+}
+
 export default class GpsTrackBlobService {
   static parseGeoJsonTrack(geoJsonTrack = null) {
     const coordinates = Array.isArray(geoJsonTrack?.coordinates)
@@ -51,7 +183,6 @@ export default class GpsTrackBlobService {
     const sampleRateGps = Math.max(1, Math.round(Number(options.sampleRateGps) || 1));
     const buffer = new ArrayBuffer(GPS_TRACK_BLOB_HEADER_BYTES + (pointCount * 8));
     const view = new DataView(buffer);
-
     const latOffset = GPS_TRACK_BLOB_HEADER_BYTES;
     const lngOffset = latOffset + (pointCount * 4);
     const lats = new Int32Array(buffer, latOffset, pointCount);
@@ -152,11 +283,32 @@ export default class GpsTrackBlobService {
     const source = Buffer.isBuffer(bufferLike)
       ? bufferLike
       : Buffer.from(bufferLike || []);
-    if (!source || source.length < GPS_TRACK_BLOB_HEADER_BYTES) {
+    if (!source || source.length < 4) {
       return {
         version: null,
         sampleRateGps: 1,
         points: [],
+        track: [],
+        pointCount: 0,
+        validGps: false,
+        geoJson: null,
+        bbox: null
+      };
+    }
+
+    const magic = TEXT_DECODER.decode(source.subarray(0, 4));
+    if (magic === "GPS2") {
+      return this.decodeGps2TrackBuffer(source, options);
+    }
+
+    if (source.length < GPS_TRACK_BLOB_HEADER_BYTES) {
+      return {
+        version: null,
+        sampleRateGps: 1,
+        points: [],
+        track: [],
+        pointCount: 0,
+        validGps: false,
         geoJson: null,
         bbox: null
       };
@@ -204,19 +356,71 @@ export default class GpsTrackBlobService {
       version,
       sampleRateGps,
       points,
+      track: points,
+      pointCount,
+      validGps: pointCount >= 2,
       geoJson: includeGeoJson && pointCount >= 2 ? toGeoJson(points) : null,
       bbox
     };
   }
 
+  static decodeGps2TrackBuffer(bufferLike, options = {}) {
+    const includeGeoJson = options?.includeGeoJson !== false;
+    const source = Buffer.isBuffer(bufferLike)
+      ? bufferLike
+      : Buffer.from(bufferLike || []);
+    const view = new DataView(source.buffer, source.byteOffset, source.byteLength);
+    const magic = TEXT_DECODER.decode(source.subarray(0, 4));
+    if (magic !== "GPS2") {
+      throw new Error(`Unsupported GPS track block: ${magic}`);
+    }
+
+    const sampleRateSeconds = view.getUint16(6, true) || 1;
+    const pointCount = view.getUint32(8, true);
+    const firstTimestampMs = view.getFloat64(12, true);
+    const payload = source.subarray(GPS2_HEADER_BYTES);
+    const { latitudes, longitudes } = decodeGpsCoordinatePayload(payload, pointCount);
+    const points = [];
+
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    let minLng = Infinity;
+    let maxLng = -Infinity;
+
+    for (let index = 0; index < pointCount; index += 1) {
+      const lat = latitudes[index];
+      const lng = longitudes[index];
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        continue;
+      }
+      points.push({ lat, lng });
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+    }
+
+    return {
+      version: 2,
+      sampleRateGps: sampleRateSeconds,
+      points,
+      track: points,
+      pointCount: points.length,
+      validGps: points.length >= 2,
+      geoJson: includeGeoJson && points.length >= 2 ? toGeoJson(points) : null,
+      bbox: points.length > 0 ? { minLat, maxLat, minLng, maxLng } : null,
+      firstTimestampMs
+    };
+  }
+
   static async encodeCompressed(track = [], options = {}) {
     const raw = this.encodeTrackBuffer(track, options);
-    return Workout.compress(raw);
+    return Workout.compress(raw, options.codec || DEFAULT_GPS_TRACK_BLOB_CODEC);
   }
 
   static async encodeCompressedFromQuantized(payload = {}, options = {}) {
     const raw = this.encodeTrackBufferFromQuantized(payload, options);
-    return Workout.compress(raw);
+    return Workout.compress(raw, options.codec || DEFAULT_GPS_TRACK_BLOB_CODEC);
   }
 
   static async decodeCompressed(bufferLike, options = {}) {
@@ -225,19 +429,25 @@ export default class GpsTrackBlobService {
         version: null,
         sampleRateGps: 1,
         points: [],
+        track: [],
+        pointCount: 0,
+        validGps: false,
         geoJson: null,
         bbox: null
       };
     }
 
-    const raw = await Workout.decompress(bufferLike);
+    const raw = await Workout.decompress(bufferLike, options.codec || "brotli");
     return this.decodeTrackBuffer(raw, options);
   }
 
   static async decodeRowTrack(row = {}, options = {}) {
     const includeGeoJson = options?.includeGeoJson !== false;
     if (row?.gps_track_blob) {
-      return this.decodeCompressed(row.gps_track_blob, { includeGeoJson });
+      return this.decodeCompressed(row.gps_track_blob, {
+        includeGeoJson,
+        codec: row?.gps_track_blob_codec || "brotli"
+      });
     }
 
     const points = this.parseGeoJsonTrack(row?.track ?? row?.track_geojson ?? row?.geom ?? null);
@@ -245,6 +455,9 @@ export default class GpsTrackBlobService {
       version: null,
       sampleRateGps: Number(row?.samplerategps ?? row?.sampleRateGPS ?? 1) || 1,
       points,
+      track: points,
+      pointCount: points.length,
+      validGps: points.length >= 2,
       geoJson: includeGeoJson && points.length >= 2 ? toGeoJson(points) : null,
       bbox: row?.bounds ?? null
     };

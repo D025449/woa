@@ -107,7 +107,7 @@ async function run() {
     params.push(limit);
 
     const query = `
-      SELECT id, uid, stream
+      SELECT id, uid, stream, stream_codec
       FROM workouts
       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
       ORDER BY uploaded_at DESC
@@ -140,7 +140,7 @@ async function run() {
       const workoutStartedAt = performance.now();
 
       const t0 = performance.now();
-      const workout = await Workout.fromCompressed(row.stream);
+      const workout = await Workout.fromCompressedWithCodec(row.stream, row.stream_codec || "brotli");
       const t1 = performance.now();
       stats.decompressMs += (t1 - t0);
 

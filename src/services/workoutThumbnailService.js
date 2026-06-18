@@ -433,7 +433,9 @@ export default class WorkoutThumbnailService {
         `SELECT
           id,
           stream,
-          gps_track_blob
+          stream_codec,
+          gps_track_blob,
+          gps_track_blob_codec
          FROM workouts
          WHERE id = $1`,
         [normalizedWorkoutId]
@@ -444,7 +446,7 @@ export default class WorkoutThumbnailService {
       }
 
       const row = result.rows[0];
-      const workoutObject = row?.stream ? await Workout.fromCompressed(row.stream) : null;
+      const workoutObject = row?.stream ? await Workout.fromCompressedWithCodec(row.stream, row?.stream_codec || "brotli") : null;
       const decodedTrack = await GpsTrackBlobService.decodeRowTrack(row);
       const gpsTrack = decodedTrack.points.map((point) => [point.lat, point.lng]);
       const payload = WorkoutThumbnailService.createThumbnailPayload({

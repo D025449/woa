@@ -13,7 +13,6 @@ const processingProgressBar = document.getElementById("processingProgressBar");
 const processingPercentText = document.getElementById("processingPercentText");
 const processingDetailText = document.getElementById("processingDetailText");
 const uploadShell = document.getElementById("upload-shell");
-const uploadNewConfig = globalThis.uploadNewConfig || { chunkMode: false, chunkSize: 50 };
 let latestGeneratedZipArtifact = null;
 
 initializeClientLayout();
@@ -168,7 +167,7 @@ function buildIterationSuffix(data) {
 }
 
 async function uploadGeneratedZipArtifact() {
-    if (!latestGeneratedZipArtifact) {
+    if (!latestGeneratedZipArtifact?.blob || !latestGeneratedZipArtifact?.fileName) {
         return;
     }
 
@@ -192,55 +191,25 @@ async function uploadGeneratedZipArtifact() {
     setUploadButtonLoading(true);
 
     try {
-        const artifacts = Array.isArray(latestGeneratedZipArtifact?.chunks)
-            ? latestGeneratedZipArtifact.chunks
-            : [latestGeneratedZipArtifact];
-        const totalChunks = artifacts.length;
-        const totalBytes = artifacts.reduce((sum, artifact) => sum + Number(artifact?.blob?.size || 0), 0);
-        let uploadedBaseBytes = 0;
-        let totalImported = 0;
-        let totalSkipped = 0;
-        let totalEntries = 0;
-        let totalBackendElapsedMs = 0;
-        let totalHttpElapsedMs = 0;
+        const formData = new FormData();
+        formData.append("file", latestGeneratedZipArtifact.blob, latestGeneratedZipArtifact.fileName);
 
-        for (let chunkIndex = 0; chunkIndex < artifacts.length; chunkIndex += 1) {
-            const artifact = artifacts[chunkIndex];
-            const formData = new FormData();
-            formData.append("file", artifact.blob, artifact.fileName);
-
-            const payload = await uploadGeneratedZipFormData(formData, ({ loaded, total }) => {
-                const currentLoaded = uploadedBaseBytes + loaded;
-                const percent = totalBytes > 0 ? (currentLoaded / totalBytes) * 100 : 0;
-                const detailText = totalBytes > 0
-                    ? `${formatBytes(currentLoaded)} / ${formatBytes(totalBytes)} uploaded (${chunkIndex + 1}/${totalChunks})`
-                    : `${formatBytes(currentLoaded)} uploaded (${chunkIndex + 1}/${totalChunks})`;
-                setBackendUploadProgress(percent, detailText);
-            });
-
-            uploadedBaseBytes += Number(artifact?.blob?.size || 0);
-            totalImported += Number(payload.importedCount || 0);
-            totalSkipped += Number(payload.skippedCount || 0);
-            totalEntries += Number(payload.totalEntries || 0);
-            totalBackendElapsedMs += Number(payload.elapsedMs || 0);
-            totalHttpElapsedMs += Number(payload.httpElapsedMs || 0);
-
-            setBackendUploadProgress(
-                totalBytes > 0 ? (uploadedBaseBytes / totalBytes) * 100 : 100,
-                `Chunk ${chunkIndex + 1}/${totalChunks} completed`
-            );
-        }
+        const payload = await uploadGeneratedZipFormData(formData, ({ loaded, total, percent }) => {
+            const detailText = total > 0
+                ? `${formatBytes(loaded)} / ${formatBytes(total)}`
+                : `${formatBytes(loaded)} uploaded`;
+            setBackendUploadProgress(percent, detailText);
+        });
 
         renderBackendUploadState(`
             <div class="alert alert-info mb-0 mt-2">
                 <div class="fw-semibold mb-2">Backend upload completed.</div>
                 <div class="small">
-                    Uploaded chunks: ${escapeHtml(String(totalChunks))}<br>
-                    Imported workouts: ${escapeHtml(String(totalImported))}<br>
-                    Skipped workouts: ${escapeHtml(String(totalSkipped))}<br>
-                    ZIP entries seen: ${escapeHtml(String(totalEntries))}<br>
-                    Backend elapsed: ${escapeHtml(formatMs(totalBackendElapsedMs))}<br>
-                    HTTP roundtrip: ${escapeHtml(formatMs(totalHttpElapsedMs))}
+                    Imported workouts: ${escapeHtml(String(payload.importedCount || 0))}<br>
+                    Skipped workouts: ${escapeHtml(String(payload.skippedCount || 0))}<br>
+                    ZIP entries seen: ${escapeHtml(String(payload.totalEntries || 0))}<br>
+                    Backend elapsed: ${escapeHtml(formatMs(payload.elapsedMs))}<br>
+                    HTTP roundtrip: ${escapeHtml(formatMs(payload.httpElapsedMs))}
                 </div>
             </div>
         `);
@@ -251,89 +220,8 @@ async function uploadGeneratedZipArtifact() {
     }
 }
 
-function buildChunkDownloadButtons(chunks = []) {
-    return chunks.map((chunk, index) => {
-        const url = URL.createObjectURL(chunk.blob);
-        return `<a class="btn btn-sm btn-primary" href="${url}" download="${escapeHtml(chunk.fileName)}">Download chunk ${index + 1}</a>`;
-    }).join("");
-}
-
-function setLatestGeneratedZipArtifactFromChunks(chunks = []) {
-    latestGeneratedZipArtifact = {
-        chunked: true,
-        chunks
-    };
-}
-
 function setLatestGeneratedZipArtifactSingle(blob, fileName) {
-    latestGeneratedZipArtifact = {
-        chunked: false,
-        blob,
-        fileName
-    };
-}
-
-function renderCompletedChunkedZipResult(data) {
-    const stats = data.stats || {};
-    const skipped = Array.isArray(data.skipped) ? data.skipped : [];
-    const timings = data.timings || {};
-    const chunkPayloads = Array.isArray(data.chunks) ? data.chunks : [];
-    const chunks = chunkPayloads.map((chunk) => {
-        const bytes = chunk.bytes instanceof ArrayBuffer ? chunk.bytes : new ArrayBuffer(0);
-        return {
-            blob: new Blob([bytes], { type: "application/zip" }),
-            fileName: chunk.outputFileName || `chunk-${chunk.chunkIndex || 0}.woa1.zip`,
-            entryCount: Number(chunk.entryCount || 0)
-        };
-    });
-
-    setLatestGeneratedZipArtifactFromChunks(chunks);
-
-    const compressionRatio = Number(stats.sourceZipBytes || 0) > 0
-        ? ((Number(stats.outputZipBytes || 0) / Number(stats.sourceZipBytes || 1)) * 100).toFixed(1)
-        : "0.0";
-    const skippedMarkup = skipped.length > 0
-        ? `
-            <div class="small mb-3 text-warning">
-                Skipped FIT entries: ${escapeHtml(String(stats.skippedEntries || skipped.length))}<br>
-                ${skipped.slice(0, 10).map((item) => `${escapeHtml(item.entryName)}: ${escapeHtml(item.error)}`).join("<br>")}
-                ${skipped.length > 10 ? "<br>..." : ""}
-            </div>
-        `
-        : "";
-
-    setResponseMarkup(`
-        <div class="alert alert-success">
-            <div class="fw-semibold mb-2">ZIP converted locally to ${escapeHtml(String(stats.chunkCount || chunks.length))} WOA1 ZIP chunks.</div>
-            <div class="small mb-2">
-                Source ZIP: ${escapeHtml(data.fileName || "")}<br>
-                FIT entries converted: ${escapeHtml(String(stats.fitEntries || 0))}<br>
-                Successfully converted: ${escapeHtml(String(stats.convertedEntries || 0))}<br>
-                Chunk size: ${escapeHtml(String(stats.chunkSize || 0))}<br>
-                Output chunks: ${escapeHtml(String(stats.chunkCount || chunks.length))}
-            </div>
-            <div class="small mb-3">
-                Source ZIP size: ${escapeHtml(formatBytes(Number(stats.sourceZipBytes || 0)))}<br>
-                Output ZIP size: ${escapeHtml(formatBytes(Number(stats.outputZipBytes || 0)))} (${escapeHtml(compressionRatio)}% of source ZIP, chunked, ZIP deflate level 4)
-            </div>
-            ${skippedMarkup}
-            <div class="small mb-3">
-                Average parse FIT: ${escapeHtml(formatMs(timings.parseMs))}<br>
-                Average build WOA1: ${escapeHtml(formatMs(timings.buildWoaMs))}<br>
-                Build output ZIPs: ${escapeHtml(formatMs(timings.zipBuildMs))}<br>
-                Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
-            </div>
-            <div class="d-flex flex-wrap gap-2">
-                ${buildChunkDownloadButtons(chunks)}
-                <button type="button" id="uploadGeneratedZipButton" class="btn btn-sm btn-outline-primary">Upload WOA1 ZIP Chunks To Backend</button>
-            </div>
-            <div id="backendUploadResult"></div>
-        </div>
-    `);
-
-    document.getElementById("uploadGeneratedZipButton")?.addEventListener("click", () => {
-        uploadGeneratedZipArtifact();
-    });
+    latestGeneratedZipArtifact = { blob, fileName };
 }
 
 function uploadGeneratedZipFormData(formData, onProgress) {
@@ -610,22 +498,12 @@ async function handleConvertSubmit(event) {
                 return;
             }
 
-            if (data.type === "completed-zip-chunks") {
-                finished = true;
-                setPhase("Completed");
-                setProcessingProgress(100, "WOA1 ZIP chunks ready");
-                renderCompletedChunkedZipResult(data);
-                setLoading(false);
-                worker.terminate();
-            }
         });
 
         worker.postMessage({
             type: isZipFile ? "convert-zip-to-woa-zip" : "convert-fit-to-woa",
             fileName: file.name,
-            arrayBuffer,
-            chunkMode: isZipFile ? !!uploadNewConfig?.chunkMode : false,
-            chunkSize: Number(uploadNewConfig?.chunkSize) || 50
+            arrayBuffer
         }, [arrayBuffer]);
     } catch (error) {
         setPhase("Failed");

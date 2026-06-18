@@ -2,9 +2,16 @@ import pool from "./database.js";
 import pgPromise from "pg-promise";
 import WorkoutSharingService from "./workoutSharingService.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
+import Workout from "../shared/Workout.js";
 
 const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
+const WORKOUT_STREAM_CODEC = String(process.env.WORKOUT_STREAM_CODEC || "brotli").trim().toLowerCase() === "gzip"
+  ? "gzip"
+  : "brotli";
+const GPS_TRACK_BLOB_CODEC = String(process.env.GPS_TRACK_BLOB_CODEC || "brotli").trim().toLowerCase() === "gzip"
+  ? "gzip"
+  : "brotli";
 
 class FileDBService {
   static searchColumns = [
@@ -129,6 +136,7 @@ static async getMatchingWorkoutCandidates(sids, uid) {
       w.id as wid,
       w.samplerategps as wsamplerate,
       w.gps_track_blob,
+      w.gps_track_blob_codec,
       s.id as sid,
       ST_AsGeoJSON(s.geom)::json AS sgeom
     FROM gps_segments s
@@ -148,7 +156,8 @@ static async getMatchingWorkoutCandidates(sids, uid) {
 
   return Promise.all(result.rows.map(async (row) => {
     const decoded = await GpsTrackBlobService.decodeRowTrack({
-      gps_track_blob: row.gps_track_blob
+      gps_track_blob: row.gps_track_blob,
+      gps_track_blob_codec: row.gps_track_blob_codec
     });
     return {
       ...row,
@@ -162,7 +171,8 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     SELECT
       w.id as wid,
       w.samplerategps as wsamplerate,
-      w.gps_track_blob
+      w.gps_track_blob,
+      w.gps_track_blob_codec
     FROM workouts w
     WHERE
       (
@@ -199,7 +209,8 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
 
   return Promise.all(result.rows.map(async (row) => {
     const decoded = await GpsTrackBlobService.decodeRowTrack({
-      gps_track_blob: row.gps_track_blob
+      gps_track_blob: row.gps_track_blob,
+      gps_track_blob_codec: row.gps_track_blob_codec
     });
     return {
       ...row,
@@ -1377,15 +1388,26 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     return `Upload failed: At '${date.toLocaleDateString()}' there's already a workout for this user`;
   }
 
-  static async prepareInsertFilePayload(fileRow, gps_track, workoutObject) {
+  static async prepareInsertFilePayload(fileRow, gps_track, workoutObject, options = {}) {
     const timing = FileDBService.createStepLogger("db.prepare-insert-file", {
       uid: fileRow.uid,
       validGps: !!gps_track?.validGps,
       gpsPointCount: gps_track?.pointCount ?? gps_track?.track?.length ?? 0
     });
 
-    const compressedBuffer = await workoutObject.toCompressedBuffer();
+    const rawWorkoutBuffer = options?.workoutStreamBytes
+      ? Buffer.from(options.workoutStreamBytes)
+      : Buffer.from(workoutObject.toTransportBuffer());
+    timing.mark("prepare-workout-buffer", {
+      rawBytes: rawWorkoutBuffer?.byteLength ?? rawWorkoutBuffer?.length ?? 0
+    });
+
+    const compressedBuffer = await workoutObject.constructor.compress(rawWorkoutBuffer, WORKOUT_STREAM_CODEC);
+    timing.mark("compress-workout-buffer", {
+      compressedBytes: compressedBuffer.length
+    });
     timing.mark("to-compressed-buffer", {
+      rawBytes: rawWorkoutBuffer?.byteLength ?? rawWorkoutBuffer?.length ?? 0,
       compressedBytes: compressedBuffer.length
     });
 
@@ -1422,14 +1444,18 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       : null;
     timing.mark("build-geometry-wkt");
 
-    const compressedGpsTrackBlob = gps_track?.latitudesQ && gps_track?.longitudesQ
-      ? await GpsTrackBlobService.encodeCompressedFromQuantized(gps_track, {
-          sampleRateGps: sampleRateGPS,
-          scale: gps_track.quantizationScale
-        })
-      : await GpsTrackBlobService.encodeCompressed(gps_track?.track ?? [], {
-          sampleRateGps: sampleRateGPS
-        });
+    const compressedGpsTrackBlob = options?.gpsTrackBytes
+      ? await Workout.compress(Buffer.from(options.gpsTrackBytes), GPS_TRACK_BLOB_CODEC)
+      : (gps_track?.latitudesQ && gps_track?.longitudesQ
+          ? await GpsTrackBlobService.encodeCompressedFromQuantized(gps_track, {
+              sampleRateGps: sampleRateGPS,
+              scale: gps_track.quantizationScale,
+              codec: GPS_TRACK_BLOB_CODEC
+            })
+          : await GpsTrackBlobService.encodeCompressed(gps_track?.track ?? [], {
+              sampleRateGps: sampleRateGPS,
+              codec: GPS_TRACK_BLOB_CODEC
+            }));
     timing.mark("encode-gps-track-blob", {
       compressedBytes: compressedGpsTrackBlob?.length ?? 0
     });
@@ -1451,6 +1477,8 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       workoutObject,
       compressedBuffer,
       compressedGpsTrackBlob,
+      streamCodec: WORKOUT_STREAM_CODEC,
+      gpsTrackBlobCodec: GPS_TRACK_BLOB_CODEC,
       trackStartGeom,
       trackEndGeom,
       points_count,
@@ -1459,9 +1487,130 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       timingSteps: Array.isArray(timing?.steps)
         ? timing.steps.map((step) => ({
             label: step.label,
-            stepMs: Number(step.stepMs || 0)
+            stepMs: Number(step.stepMs || 0),
+            rawBytes: Number(step.rawBytes || 0),
+            compressedBytes: Number(step.compressedBytes || 0)
           }))
         : []
+    };
+  }
+
+  static preparePersistedWoaInsertPayload(meta = {}, options = {}) {
+    const persistedRow = meta?.persistedRow && typeof meta.persistedRow === "object"
+      ? meta.persistedRow
+      : null;
+    if (!persistedRow) {
+      throw new Error("WOA persistedRow metadata is missing");
+    }
+
+    const fileRow = {
+      uid: options.uid,
+      start_time: persistedRow.start_time,
+      end_time: persistedRow.end_time,
+      total_elapsed_time: persistedRow.total_elapsed_time,
+      total_timer_time: persistedRow.total_timer_time,
+      total_distance: persistedRow.total_distance,
+      total_cycles: persistedRow.total_cycles,
+      total_work: persistedRow.total_work,
+      total_calories: persistedRow.total_calories,
+      total_ascent: persistedRow.total_ascent,
+      total_descent: persistedRow.total_descent,
+      avg_speed: persistedRow.avg_speed,
+      max_speed: persistedRow.max_speed,
+      avg_power: persistedRow.avg_power,
+      max_power: persistedRow.max_power,
+      avg_normalized_power: persistedRow.avg_normalized_power,
+      avg_heart_rate: persistedRow.avg_heart_rate,
+      max_heart_rate: persistedRow.max_heart_rate,
+      avg_cadence: persistedRow.avg_cadence,
+      max_cadence: persistedRow.max_cadence,
+      validGps: !!persistedRow.validGps,
+      year: persistedRow.year,
+      month: persistedRow.month,
+      week: persistedRow.week,
+      year_quarter: persistedRow.year_quarter,
+      year_month: persistedRow.year_month,
+      year_week: persistedRow.year_week,
+      gps_source: persistedRow.gps_source || null
+    };
+
+    const bounds = persistedRow?.bounds || null;
+    const trackStart = persistedRow?.track_start || null;
+    const trackEnd = persistedRow?.track_end || null;
+    const validGps = !!persistedRow.validGps;
+    const points_count = validGps ? Number(persistedRow?.points_count || 0) : 0;
+    const sampleRateGPS = validGps ? Math.max(1, Number(persistedRow?.sampleRateGPS || 1)) : 1;
+
+    if (validGps && points_count < 2) {
+      throw new Error("WOA persistedRow declares validGps=true but points_count < 2");
+    }
+
+    if (validGps && (!bounds || !trackStart || !trackEnd)) {
+      throw new Error("WOA persistedRow is missing GPS geometry metadata");
+    }
+
+    const trackStartGeom = validGps
+      ? `POINT(${Number(trackStart.lng)} ${Number(trackStart.lat)})`
+      : null;
+    const trackEndGeom = validGps
+      ? `POINT(${Number(trackEnd.lng)} ${Number(trackEnd.lat)})`
+      : null;
+
+    return {
+      fileRow,
+      gps_track: {
+        validGps,
+        pointCount: points_count,
+        sampleRate: sampleRateGPS,
+        bbox: validGps ? {
+          minLat: Number(bounds.minLat),
+          maxLat: Number(bounds.maxLat),
+          minLng: Number(bounds.minLng),
+          maxLng: Number(bounds.maxLng)
+        } : null
+      },
+      workoutObject: null,
+      compressedBuffer: Buffer.from(options.workoutStreamStoredBytes || []),
+      compressedGpsTrackBlob: Buffer.from(options.gpsTrackStoredBytes || []),
+      streamCodec: String(persistedRow.stream_codec || "gzip"),
+      gpsTrackBlobCodec: String(persistedRow.gps_track_blob_codec || "gzip"),
+      trackStartGeom,
+      trackEndGeom,
+      points_count,
+      sampleRateGPS,
+      gpsSource: fileRow.gps_source,
+      timingSteps: [
+        {
+          label: "prepare-workout-buffer",
+          stepMs: 0,
+          rawBytes: Number(meta?.blockBytes?.workout_stream_raw || 0),
+          compressedBytes: 0
+        },
+        {
+          label: "compress-workout-buffer",
+          stepMs: 0,
+          rawBytes: 0,
+          compressedBytes: Buffer.from(options.workoutStreamStoredBytes || []).length
+        },
+        {
+          label: "to-compressed-buffer",
+          stepMs: 0,
+          rawBytes: Number(meta?.blockBytes?.workout_stream_raw || 0),
+          compressedBytes: Buffer.from(options.workoutStreamStoredBytes || []).length
+        },
+        {
+          label: "build-geometry-wkt",
+          stepMs: 0,
+          rawBytes: 0,
+          compressedBytes: 0
+        },
+        {
+          label: "encode-gps-track-blob",
+          stepMs: 0,
+          rawBytes: 0,
+          compressedBytes: Buffer.from(options.gpsTrackStoredBytes || []).length
+        }
+      ]
     };
   }
 
@@ -1471,6 +1620,8 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       gps_track,
       compressedBuffer,
       compressedGpsTrackBlob,
+      streamCodec,
+      gpsTrackBlobCodec,
       trackStartGeom,
       trackEndGeom,
       points_count,
@@ -1545,12 +1696,14 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       sampleRateGPS,
       compressedGpsTrackBlob,
       compressedBuffer,
+      gpsTrackBlobCodec,
+      streamCodec,
       gpsSource
     ];
   }
 
   static buildWorkoutInsertValuesClause(rowIndex) {
-    const offset = rowIndex * 38;
+    const offset = rowIndex * 40;
     const p = (index) => `$${offset + index}`;
     return `(
   ${p(1)},${p(2)},
@@ -1582,7 +1735,9 @@ END,
   ${p(35)},
   ${p(36)},
   ${p(37)},
-  ${p(38)}
+  ${p(38)},
+  ${p(39)},
+  ${p(40)}
 )`;
   }
 
@@ -1664,6 +1819,8 @@ INSERT INTO workouts (
   sampleRateGPS,
   gps_track_blob,
   stream,
+  gps_track_blob_codec,
+  stream_codec,
   gps_source
 )
 VALUES
@@ -1748,6 +1905,8 @@ INSERT INTO workouts (
   sampleRateGPS,
   gps_track_blob,
   stream,
+  gps_track_blob_codec,
+  stream_codec,
   gps_source
 )
 VALUES (
@@ -1780,7 +1939,9 @@ END,
   $35,
   $36,
   $37,
-  $38
+  $38,
+  $39,
+  $40
 )
 ON CONFLICT (uid, start_time)
 DO NOTHING

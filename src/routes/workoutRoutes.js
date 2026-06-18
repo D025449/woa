@@ -248,7 +248,7 @@ router.get("/:id/stream", authMiddleware, async (req, res) => {
     }
 
     res.setHeader("Content-Type", "application/octet-stream");
-    res.setHeader("Content-Encoding", "br");
+    res.setHeader("Content-Encoding", String(streamRow.stream_codec || "brotli") === "gzip" ? "gzip" : "br");
     return res.send(stream);
 
   } catch (err) {

@@ -4,7 +4,6 @@ import { gzipSync, unzipSync, zipSync } from "/vendor/fflate/browser.js";
 
 const PER_FILE_GZIP_LEVEL = 4;
 const OUTER_ZIP_LEVEL = 4;
-const DEFAULT_WOA_ZIP_CHUNK_SIZE = 50;
 
 async function compressGzip(bytes, level = PER_FILE_GZIP_LEVEL) {
   return gzipSync(bytes, { level });
@@ -52,12 +51,7 @@ self.addEventListener("message", async (event) => {
 
   try {
     if (type === "convert-zip-to-woa-zip") {
-      await handleZipConversion({
-        fileName,
-        arrayBuffer,
-        chunkMode: !!event.data?.chunkMode,
-        chunkSize: Number(event.data?.chunkSize) || DEFAULT_WOA_ZIP_CHUNK_SIZE
-      });
+      await handleZipConversion({ fileName, arrayBuffer });
       return;
     }
 
@@ -100,7 +94,9 @@ self.addEventListener("message", async (event) => {
       const woaStartedAt = nowMs();
       const result = createWoa1File(parsed, {
         sourceName: fileName,
-        sampleRateSeconds: 5
+        sampleRateSeconds: 5,
+        compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
+        compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
       });
       buildSamplesMs.push(nowMs() - woaStartedAt);
       finalWoaBytes = result.bytes;
@@ -149,16 +145,7 @@ self.addEventListener("message", async (event) => {
   }
 });
 
-function chunkArray(values = [], chunkSize = DEFAULT_WOA_ZIP_CHUNK_SIZE) {
-  const size = Math.max(1, Number(chunkSize) || DEFAULT_WOA_ZIP_CHUNK_SIZE);
-  const chunks = [];
-  for (let index = 0; index < values.length; index += size) {
-    chunks.push(values.slice(index, index + size));
-  }
-  return chunks;
-}
-
-async function handleZipConversion({ fileName, arrayBuffer, chunkMode = false, chunkSize = DEFAULT_WOA_ZIP_CHUNK_SIZE }) {
+async function handleZipConversion({ fileName, arrayBuffer }) {
   const startedAt = nowMs();
   self.postMessage({
     type: "phase",
@@ -208,7 +195,9 @@ async function handleZipConversion({ fileName, arrayBuffer, chunkMode = false, c
       const buildStartedAt = nowMs();
       const result = createWoa1File(parsed, {
         sourceName: entryName,
-        sampleRateSeconds: 5
+        sampleRateSeconds: 5,
+        compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
+        compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
       });
       buildSamplesMs.push(nowMs() - buildStartedAt);
       const outputEntryName = entryName.replace(/\.fit$/i, ".woa1");
@@ -234,65 +223,10 @@ async function handleZipConversion({ fileName, arrayBuffer, chunkMode = false, c
   self.postMessage({
     type: "phase",
     phase: "building-zip",
-    totalEntries: fitEntryNames.length,
-    totalChunks: chunkMode ? chunkArray(woaEntries, chunkSize).length : 1
+    totalEntries: fitEntryNames.length
   });
 
   const zipBuildStartedAt = nowMs();
-  if (chunkMode) {
-    const entryChunks = chunkArray(woaEntries, chunkSize);
-    const chunkArtifacts = [];
-
-    for (let chunkIndex = 0; chunkIndex < entryChunks.length; chunkIndex += 1) {
-      const chunkEntries = {};
-      for (const entry of entryChunks[chunkIndex]) {
-        chunkEntries[entry.name] = [entry.bytes, { level: OUTER_ZIP_LEVEL }];
-      }
-      const chunkZipBytes = zipSync(chunkEntries, { level: OUTER_ZIP_LEVEL });
-      chunkArtifacts.push({
-        chunkIndex,
-        entryCount: entryChunks[chunkIndex].length,
-        outputFileName: fileName.replace(/\.zip$/i, `.${String(chunkIndex + 1).padStart(3, "0")}.woa1.zip`),
-        bytes: chunkZipBytes
-      });
-    }
-
-    const zipBuildMs = nowMs() - zipBuildStartedAt;
-    const totalElapsedMs = nowMs() - startedAt;
-    const transferList = chunkArtifacts.map((artifact) => artifact.bytes.buffer);
-
-    self.postMessage({
-      type: "completed-zip-chunks",
-      fileName,
-      chunks: chunkArtifacts.map((artifact) => ({
-        chunkIndex: artifact.chunkIndex,
-        entryCount: artifact.entryCount,
-        outputFileName: artifact.outputFileName,
-        bytes: artifact.bytes.buffer
-      })),
-      stats: {
-        fitEntries: fitEntryNames.length,
-        convertedEntries,
-        skippedEntries: skippedEntries.length,
-        totalRecordCount,
-        totalGpsPointCount,
-        sourceZipBytes: zipBytes.byteLength,
-        outputZipBytes: chunkArtifacts.reduce((sum, artifact) => sum + artifact.bytes.byteLength, 0),
-        chunkCount: chunkArtifacts.length,
-        chunkSize: Math.max(1, Number(chunkSize) || DEFAULT_WOA_ZIP_CHUNK_SIZE)
-      },
-      skipped: skippedEntries,
-      timings: {
-        parseMs: average(parseSamplesMs),
-        buildWoaMs: average(buildSamplesMs),
-        gzipMs: average(gzipSamplesMs),
-        zipBuildMs,
-        totalMs: totalElapsedMs
-      }
-    }, transferList);
-    return;
-  }
-
   const zipEntries = {};
   for (const entry of woaEntries) {
     zipEntries[entry.name] = [entry.bytes, { level: OUTER_ZIP_LEVEL }];
