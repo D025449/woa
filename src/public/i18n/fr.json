@@ -171,9 +171,13 @@
   "uploadPage": {
     "title": "Import FIT",
     "topbarTitle": "Import",
+    "woaTitle": "Import WOA",
+    "woaTopbarTitle": "Import WOA",
     "heroKicker": "Espace d'import",
     "heroTitle": "Import FIT",
     "heroSubtitle": "Importez des fichiers FIT individuels ou des fichiers ZIP complets.",
+    "woaHeroTitle": "Import WOA",
+    "woaHeroSubtitle": "Prétraitement côté navigateur pour les imports FIT et ZIP FIT. Le navigateur convertit la source en artefacts de transport WOA et peut envoyer directement le ZIP WOA généré vers le backend.",
     "chipUser": "Utilisateur",
     "chipUnknownUser": "Inconnu",
     "chipFormats": "Formats",
@@ -182,7 +186,10 @@
     "headerEyebrow": "Importateur",
     "headerTitle": "Téléverser des fichiers FIT ou ZIP",
     "headerCopy": "Sélectionnez un ou plusieurs fichiers puis lancez l’import.",
+    "woaHeaderTitle": "Conversion locale pour les entrées FIT et ZIP",
+    "woaHeaderCopy": "C'est désormais le chemin d'import standard. Le navigateur prétraite la source, construit les artefacts de transport WOA et téléverse directement le ZIP WOA généré vers le backend.",
     "selectFiles": "Sélectionner des fichiers FIT ou ZIP",
+    "woaSelectFiles": "Sélectionner un ou plusieurs fichiers FIT ou ZIP",
     "chooseFiles": "Choisir des fichiers",
     "noFilesSelected": "Aucun fichier sélectionné",
     "visibilityLabel": "Visibilité pour cet import",
@@ -195,7 +202,10 @@
     "currentPhase": "Phase actuelle",
     "ready": "Prêt",
     "upload": "Téléverser",
-    "processing": "Traitement"
+    "processing": "Traitement",
+    "woaSubmit": "Convertir et téléverser",
+    "woaRead": "Lecture",
+    "woaConvert": "Conversion"
   },
   "login": {
     "title": "Se connecter",

@@ -13,12 +13,27 @@ const processingProgressBar = document.getElementById("processingProgressBar");
 const processingPercentText = document.getElementById("processingPercentText");
 const processingDetailText = document.getElementById("processingDetailText");
 const uploadShell = document.getElementById("upload-shell");
+const i18nMessages = window.__I18N?.messages || {};
 let latestGeneratedZipArtifact = null;
 
 initializeClientLayout();
 form?.addEventListener("submit", handleConvertSubmit);
 filePickerButton?.addEventListener("click", () => fileInput?.click());
 fileInput?.addEventListener("change", updateFilePickerLabel);
+
+function tr(path, fallback) {
+    const parts = String(path || "").split(".");
+    let current = i18nMessages;
+
+    for (const part of parts) {
+        if (!current || typeof current !== "object" || !(part in current)) {
+            return fallback;
+        }
+        current = current[part];
+    }
+
+    return typeof current === "string" ? current : fallback;
+}
 
 function initializeClientLayout() {
     if (!uploadShell) {
@@ -68,14 +83,14 @@ function initializeClientLayout() {
 function updateFilePickerLabel() {
     const files = Array.from(fileInput?.files || []);
     if (files.length === 0) {
-        filePickerLabel.textContent = "No file selected";
+        filePickerLabel.textContent = tr("uploadPage.noFilesSelected", "No file selected");
         return;
     }
     if (files.length === 1) {
         filePickerLabel.textContent = files[0].name;
         return;
     }
-    filePickerLabel.textContent = `${files.length} files selected`;
+    filePickerLabel.textContent = `${files.length} ${tr("uploadPage.woaFilesSelectedSuffix", "files selected")}`;
 }
 
 function setResponseMarkup(markup) {
@@ -174,15 +189,15 @@ function buildTimingLines(timings = {}) {
         "assembleWoaFileMs"
     ];
     const labels = {
-        buildReducedGpsTrackMs: "Build reduced GPS track",
-        buildWorkoutStreamBlockMs: "Build workout stream block",
-        buildGpsTrackBlockMs: "Build GPS track block",
-        compressWorkoutStreamMs: "Compress workout stream",
-        compressGpsTrackMs: "Compress GPS track",
-        deriveSummaryMs: "Derive persisted summary",
-        encodeMetaJsonMs: "Encode meta JSON",
-        encodeSessionsJsonMs: "Encode sessions JSON",
-        assembleWoaFileMs: "Assemble WOA file"
+        buildReducedGpsTrackMs: tr("uploadPage.woaTimingBuildReducedGpsTrack", "Build reduced GPS track"),
+        buildWorkoutStreamBlockMs: tr("uploadPage.woaTimingBuildWorkoutStreamBlock", "Build workout stream block"),
+        buildGpsTrackBlockMs: tr("uploadPage.woaTimingBuildGpsTrackBlock", "Build GPS track block"),
+        compressWorkoutStreamMs: tr("uploadPage.woaTimingCompressWorkoutStream", "Compress workout stream"),
+        compressGpsTrackMs: tr("uploadPage.woaTimingCompressGpsTrack", "Compress GPS track"),
+        deriveSummaryMs: tr("uploadPage.woaTimingDeriveSummary", "Derive persisted summary"),
+        encodeMetaJsonMs: tr("uploadPage.woaTimingEncodeMetaJson", "Encode meta JSON"),
+        encodeSessionsJsonMs: tr("uploadPage.woaTimingEncodeSessionsJson", "Encode sessions JSON"),
+        assembleWoaFileMs: tr("uploadPage.woaTimingAssembleWoaFile", "Assemble WOA file")
     };
 
     return orderedKeys
@@ -207,7 +222,7 @@ async function uploadGeneratedZipArtifact() {
 
     renderBackendUploadState(`
         <div class="alert alert-info mb-0 mt-2">
-            <div class="fw-semibold mb-2">Uploading generated WOA1 ZIP to backend.</div>
+            <div class="fw-semibold mb-2">${escapeHtml(tr("uploadPage.woaBackendUploadRunning", "Uploading generated WOA1 ZIP to backend."))}</div>
             <div class="upload-progress-block mb-2">
                 <div class="d-flex justify-content-between">
                     <span>Transfer</span>
@@ -217,7 +232,7 @@ async function uploadGeneratedZipArtifact() {
                     <div id="backendUploadProgressBar" class="progress-bar" role="progressbar"
                         style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
                 </div>
-                <div id="backendUploadDetailText" class="small text-muted mt-1">Preparing request</div>
+                <div id="backendUploadDetailText" class="small text-muted mt-1">${escapeHtml(tr("uploadPage.woaPreparingRequest", "Preparing request"))}</div>
             </div>
         </div>
     `);
@@ -229,13 +244,13 @@ async function uploadGeneratedZipArtifact() {
         const payload = await uploadGeneratedZipFormData(formData, ({ loaded, total, percent }) => {
             const detailText = total > 0
                 ? `${formatBytes(loaded)} / ${formatBytes(total)}`
-                : `${formatBytes(loaded)} uploaded`;
+                : `${formatBytes(loaded)} ${tr("uploadPage.woaUploadedSuffix", "uploaded")}`;
             setBackendUploadProgress(percent, detailText);
         });
 
         renderBackendUploadState(`
             <div class="alert alert-info mb-0 mt-2">
-                <div class="fw-semibold mb-2">Backend upload completed.</div>
+                <div class="fw-semibold mb-2">${escapeHtml(tr("uploadPage.woaBackendUploadCompleted", "Backend upload completed."))}</div>
                 <div class="small">
                     Imported workouts: ${escapeHtml(String(payload.importedCount || 0))}<br>
                     Skipped workouts: ${escapeHtml(String(payload.skippedCount || 0))}<br>
@@ -270,7 +285,7 @@ async function fetchExistingWorkoutStartTimes() {
     }
 
     if (!response.ok) {
-        throw new Error(payload?.error || `Failed to load existing workouts (${response.status})`);
+        throw new Error(payload?.error || `${tr("uploadPage.woaLoadExistingFailed", "Failed to load existing workouts")} (${response.status})`);
     }
 
     return Array.isArray(payload.startTimes)
@@ -314,15 +329,15 @@ function uploadGeneratedZipFormData(formData, onProgress) {
                 return;
             }
 
-            reject(new Error(payload?.error || `Upload failed with status ${request.status}`));
+            reject(new Error(payload?.error || `${tr("uploadPage.woaUploadFailed", "Upload failed with status")} ${request.status}`));
         });
 
         request.addEventListener("error", () => {
-            reject(new Error("Network error while uploading generated WOA1 ZIP"));
+            reject(new Error(tr("uploadPage.woaNetworkUploadError", "Network error while uploading generated WOA1 ZIP")));
         });
 
         request.addEventListener("abort", () => {
-            reject(new Error("Upload aborted"));
+            reject(new Error(tr("uploadPage.woaUploadAborted", "Upload aborted")));
         });
 
         request.send(formData);
@@ -337,7 +352,7 @@ async function handleConvertSubmit(event) {
     setResponseMarkup("");
 
     if (files.length === 0) {
-        setResponseMarkup(`<div class="alert alert-danger mb-0">Please select one or more FIT or ZIP files.</div>`);
+        setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(tr("uploadPage.woaSelectOneOrMore", "Please select one or more FIT or ZIP files."))}</div>`);
         return;
     }
 
@@ -349,7 +364,7 @@ async function handleConvertSubmit(event) {
     });
 
     if (unsupportedFiles.length > 0) {
-        setResponseMarkup(`<div class="alert alert-danger mb-0">Only .fit or .zip files are supported in this demo.</div>`);
+        setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(tr("uploadPage.woaUnsupportedFiles", "Only .fit or .zip files are supported in this demo."))}</div>`);
         return;
     }
 
@@ -362,7 +377,7 @@ async function handleConvertSubmit(event) {
     }
 
     setLoading(true);
-    setPhase(isZipMode ? "Reading ZIP file" : "Reading source files");
+    setPhase(isZipMode ? tr("uploadPage.woaPhaseReadingZip", "Reading ZIP file") : tr("uploadPage.woaPhaseReadingSources", "Reading source files"));
     setReadProgress(0, "");
     setProcessingProgress(0, "");
 
@@ -395,11 +410,11 @@ async function handleConvertSubmit(event) {
         }
 
         setReadProgress(100, `${formatBytes(totalLoadedBytes)} loaded`);
-        setPhase("Loading existing workouts");
-        setProcessingProgress(3, "Fetching existing workout timestamps for duplicate detection");
+        setPhase(tr("uploadPage.woaPhaseLoadingExisting", "Loading existing workouts"));
+        setProcessingProgress(3, tr("uploadPage.woaFetchingExisting", "Fetching existing workout timestamps for duplicate detection"));
         const existingStartTimes = await fetchExistingWorkoutStartTimes();
-        setPhase("Starting worker");
-        setProcessingProgress(5, "Worker bootstrapped");
+        setPhase(tr("uploadPage.woaPhaseStartingWorker", "Starting worker"));
+        setProcessingProgress(5, tr("uploadPage.woaWorkerBootstrapped", "Worker bootstrapped"));
 
         const worker = new Worker("/js/upload-new-worker.js", { type: "module" });
         let finished = false;
@@ -409,9 +424,9 @@ async function handleConvertSubmit(event) {
                 return;
             }
             finished = true;
-            setPhase("Failed");
+            setPhase(tr("uploadPage.woaPhaseFailed", "Failed"));
             setProcessingProgress(0, "");
-            setResponseMarkup(`<div class="alert alert-danger mb-0">Worker failed to start or crashed: ${escapeHtml(workerError.message || "Unknown worker error")}</div>`);
+            setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(tr("uploadPage.woaWorkerFailedPrefix", "Worker failed to start or crashed:"))} ${escapeHtml(workerError.message || tr("uploadPage.woaUnknownWorkerError", "Unknown worker error"))}</div>`);
             setLoading(false);
             worker.terminate();
         });
@@ -421,9 +436,9 @@ async function handleConvertSubmit(event) {
                 return;
             }
             finished = true;
-            setPhase("Failed");
+            setPhase(tr("uploadPage.woaPhaseFailed", "Failed"));
             setProcessingProgress(0, "");
-            setResponseMarkup(`<div class="alert alert-danger mb-0">Worker message transfer failed.</div>`);
+            setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(tr("uploadPage.woaWorkerMessageTransferFailed", "Worker message transfer failed."))}</div>`);
             setLoading(false);
             worker.terminate();
         });
@@ -433,40 +448,40 @@ async function handleConvertSubmit(event) {
 
             if (data.type === "phase") {
                 if (data.phase === "reading-zip") {
-                    setPhase("Opening ZIP archive");
-                    setProcessingProgress(10, "Loading ZIP directory");
+                    setPhase(tr("uploadPage.woaPhaseOpeningZip", "Opening ZIP archive"));
+                    setProcessingProgress(10, tr("uploadPage.woaLoadingZipDirectory", "Loading ZIP directory"));
                 }
                 if (data.phase === "zip-entry") {
                     const processedEntries = Number(data.processedEntries || 0);
                     const totalEntries = Number(data.totalEntries || 0);
                     const percent = totalEntries > 0 ? 15 + Math.round((processedEntries / totalEntries) * 65) : 15;
-                    setPhase("Converting source entries to WOA1");
-                    setProcessingProgress(percent, `${processedEntries}/${totalEntries} entries finished: ${data.entryName || ""}`);
+                    setPhase(tr("uploadPage.woaPhaseConvertingEntries", "Converting source entries to WOA1"));
+                    setProcessingProgress(percent, `${processedEntries}/${totalEntries} ${tr("uploadPage.woaEntriesFinishedSuffix", "entries finished")}: ${data.entryName || ""}`);
                 }
                 if (data.phase === "building-zip") {
-                    setPhase("Building output ZIP");
-                    setProcessingProgress(90, "Packing converted WOA1 entries into a deflated ZIP archive");
+                    setPhase(tr("uploadPage.woaPhaseBuildingZip", "Building output ZIP"));
+                    setProcessingProgress(90, tr("uploadPage.woaPackingZip", "Packing converted WOA1 entries into a deflated ZIP archive"));
                 }
                 if (data.phase === "parsing-fit") {
-                    setPhase(`Parsing FIT${buildIterationSuffix(data)}`);
-                    setProcessingProgress(20, "Typed parser is decoding the FIT payload");
+                    setPhase(`${tr("uploadPage.woaPhaseParsingFit", "Parsing FIT")}${buildIterationSuffix(data)}`);
+                    setProcessingProgress(20, tr("uploadPage.woaParsingFitDetail", "Typed parser is decoding the FIT payload"));
                 }
                 if (data.phase === "building-woa") {
-                    setPhase(`Building WOA1${buildIterationSuffix(data)}`);
-                    setProcessingProgress(45, "Serializing session, stream and GPS blocks");
+                    setPhase(`${tr("uploadPage.woaPhaseBuildingWoa", "Building WOA1")}${buildIterationSuffix(data)}`);
+                    setProcessingProgress(45, tr("uploadPage.woaBuildingWoaDetail", "Serializing session, stream and GPS blocks"));
                 }
                 if (data.phase === "compressing-gzip") {
-                    setPhase(`Compressing WOA2 (GZip)${buildIterationSuffix(data)}`);
-                    setProcessingProgress(85, "Applying GZip compression to the raw WOA1 bytes");
+                    setPhase(`${tr("uploadPage.woaPhaseCompressingGzip", "Compressing WOA2 (GZip)")}${buildIterationSuffix(data)}`);
+                    setProcessingProgress(85, tr("uploadPage.woaCompressingGzipDetail", "Applying GZip compression to the raw WOA1 bytes"));
                 }
                 return;
             }
 
             if (data.type === "failed") {
                 finished = true;
-                setPhase("Failed");
+                setPhase(tr("uploadPage.woaPhaseFailed", "Failed"));
                 setProcessingProgress(0, "");
-                setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(data.error || "Conversion failed")}</div>`);
+                setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(data.error || tr("uploadPage.woaConversionFailed", "Conversion failed"))}</div>`);
                 setLoading(false);
                 worker.terminate();
                 return;
@@ -474,11 +489,11 @@ async function handleConvertSubmit(event) {
 
             if (data.type === "skipped-existing") {
                 finished = true;
-                setPhase("Completed");
-                setProcessingProgress(100, "Workout already exists");
+                setPhase(tr("uploadPage.woaPhaseCompleted", "Completed"));
+                setProcessingProgress(100, tr("uploadPage.woaWorkoutAlreadyExists", "Workout already exists"));
                 setResponseMarkup(`
                     <div class="alert alert-info mb-0">
-                        <div class="fw-semibold mb-2">Workout already exists and was skipped before conversion.</div>
+                        <div class="fw-semibold mb-2">${escapeHtml(tr("uploadPage.woaSkippedExistingTitle", "Workout already exists and was skipped before conversion."))}</div>
                         <div class="small">
                             Source: ${escapeHtml(data.fileName || "")}<br>
                             Existing start time: ${escapeHtml(String(data.startTime || ""))}
@@ -492,11 +507,11 @@ async function handleConvertSubmit(event) {
 
             if (data.type === "skipped-too-short") {
                 finished = true;
-                setPhase("Completed");
-                setProcessingProgress(100, "Workout too short");
+                setPhase(tr("uploadPage.woaPhaseCompleted", "Completed"));
+                setProcessingProgress(100, tr("uploadPage.woaWorkoutTooShort", "Workout too short"));
                 setResponseMarkup(`
                     <div class="alert alert-info mb-0">
-                        <div class="fw-semibold mb-2">Workout was skipped because it is shorter than five minutes.</div>
+                        <div class="fw-semibold mb-2">${escapeHtml(tr("uploadPage.woaSkippedTooShortTitle", "Workout was skipped because it is shorter than five minutes."))}</div>
                         <div class="small">
                             Source: ${escapeHtml(data.fileName || "")}<br>
                             Record count: ${escapeHtml(String(data.recordCount || 0))}
@@ -510,8 +525,8 @@ async function handleConvertSubmit(event) {
 
             if (data.type === "completed") {
                 finished = true;
-                setPhase("Completed");
-                setProcessingProgress(100, "WOA1 file ready");
+                setPhase(tr("uploadPage.woaPhaseCompleted", "Completed"));
+                setProcessingProgress(100, tr("uploadPage.woaFileReady", "WOA1 file ready"));
 
                 const woaBytes = data.bytes instanceof ArrayBuffer ? data.bytes : new ArrayBuffer(0);
                 const gzipBytes = data.gzipBytes instanceof ArrayBuffer ? data.gzipBytes : new ArrayBuffer(0);
@@ -527,7 +542,7 @@ async function handleConvertSubmit(event) {
 
                 setResponseMarkup(`
                     <div class="alert alert-success">
-                        <div class="fw-semibold mb-2">FIT converted to two local transport variants in the browser worker.</div>
+                        <div class="fw-semibold mb-2">${escapeHtml(tr("uploadPage.woaSingleCompletedTitle", "FIT converted to two local transport variants in the browser worker."))}</div>
                         <div class="small mb-2">
                             Source: ${escapeHtml(data.fileName || "")}<br>
                             Records: ${escapeHtml(String(data.recordCount || 0))}<br>
@@ -547,8 +562,8 @@ async function handleConvertSubmit(event) {
                             Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
                         </div>
                         <div class="d-flex flex-wrap gap-2">
-                            <a class="btn btn-sm btn-outline-primary" href="${woaDownloadUrl}" download="${escapeHtml(data.outputFileName || "output.woa1")}">Download WOA1 Raw</a>
-                            <a class="btn btn-sm btn-primary" href="${gzipDownloadUrl}" download="${escapeHtml(data.gzipFileName || "output.woa2")}">Download WOA2 GZip</a>
+                            <a class="btn btn-sm btn-outline-primary" href="${woaDownloadUrl}" download="${escapeHtml(data.outputFileName || "output.woa1")}">${escapeHtml(tr("uploadPage.woaDownloadRaw", "Download WOA1 Raw"))}</a>
+                            <a class="btn btn-sm btn-primary" href="${gzipDownloadUrl}" download="${escapeHtml(data.gzipFileName || "output.woa2")}">${escapeHtml(tr("uploadPage.woaDownloadGzip", "Download WOA2 GZip"))}</a>
                         </div>
                     </div>
                 `);
@@ -560,8 +575,8 @@ async function handleConvertSubmit(event) {
 
             if (data.type === "completed-zip") {
                 finished = true;
-                setPhase("Completed");
-                setProcessingProgress(100, "WOA1 ZIP ready");
+                setPhase(tr("uploadPage.woaPhaseCompleted", "Completed"));
+                setProcessingProgress(100, tr("uploadPage.woaZipReady", "WOA1 ZIP ready"));
 
                 const stats = data.stats || {};
                 const zipBytes = data.bytes instanceof ArrayBuffer ? data.bytes : new ArrayBuffer(0);
@@ -611,7 +626,7 @@ async function handleConvertSubmit(event) {
 
                 setResponseMarkup(`
                     <div class="alert alert-success">
-                        <div class="fw-semibold mb-2">ZIP converted locally to a ZIP of WOA1 entries.</div>
+                        <div class="fw-semibold mb-2">${escapeHtml(tr("uploadPage.woaZipCompletedTitle", "ZIP converted locally to a ZIP of WOA1 entries."))}</div>
                         <div class="small mb-2">
                             Source ZIP: ${escapeHtml(data.fileName || "")}<br>
                             FIT entries seen: ${escapeHtml(String(stats.fitEntries || 0))}<br>
@@ -635,7 +650,7 @@ async function handleConvertSubmit(event) {
                             Build output ZIP: ${escapeHtml(formatMs(timings.zipBuildMs))}<br>
                             Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
                         </div>
-                        <div class="small mb-2 text-muted">${shouldUploadGeneratedZip ? "Uploading generated WOA1 ZIP to backend automatically." : "No new workouts remained after duplicate filtering, so no backend upload was needed."}</div>
+                        <div class="small mb-2 text-muted">${shouldUploadGeneratedZip ? escapeHtml(tr("uploadPage.woaBackendUploadRunning", "Uploading generated WOA1 ZIP to backend.")) : escapeHtml(tr("uploadPage.woaNoBackendUploadNeeded", "No new workouts remained after duplicate filtering, so no backend upload was needed."))}</div>
                         <div id="backendUploadResult"></div>
                     </div>
                 `);
@@ -668,7 +683,7 @@ async function handleConvertSubmit(event) {
             ...workerFiles.map((entry) => entry.arrayBuffer)
         ]);
     } catch (error) {
-        setPhase("Failed");
+        setPhase(tr("uploadPage.woaPhaseFailed", "Failed"));
         setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(error?.message || String(error))}</div>`);
         setLoading(false);
     }

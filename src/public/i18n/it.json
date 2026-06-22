@@ -171,9 +171,13 @@
   "uploadPage": {
     "title": "Upload FIT",
     "topbarTitle": "Caricamento",
+    "woaTitle": "Upload WOA",
+    "woaTopbarTitle": "Upload WOA",
     "heroKicker": "Area importazione",
     "heroTitle": "Upload FIT",
     "heroSubtitle": "Carica singoli file FIT o file ZIP completi.",
+    "woaHeroTitle": "Upload WOA",
+    "woaHeroSubtitle": "Preprocessing lato browser per upload FIT e ZIP con FIT. Il browser converte la sorgente in artefatti di trasporto WOA e puo caricare direttamente nel backend lo ZIP WOA generato.",
     "chipUser": "Utente",
     "chipUnknownUser": "Sconosciuto",
     "chipFormats": "Formati",
@@ -182,7 +186,10 @@
     "headerEyebrow": "Importatore",
     "headerTitle": "Carica file FIT o ZIP",
     "headerCopy": "Seleziona uno o più file e avvia l'importazione.",
+    "woaHeaderTitle": "Conversione locale per input FIT e ZIP",
+    "woaHeaderCopy": "Questo e ora il percorso di upload standard. Il browser preelabora la sorgente, costruisce artefatti di trasporto WOA e carica direttamente nel backend lo ZIP WOA generato.",
     "selectFiles": "Seleziona file FIT o ZIP",
+    "woaSelectFiles": "Seleziona uno o piu file FIT o ZIP",
     "chooseFiles": "Scegli file",
     "noFilesSelected": "Nessun file selezionato",
     "visibilityLabel": "Visibilità per questo upload",
@@ -195,7 +202,10 @@
     "currentPhase": "Fase attuale",
     "ready": "Pronto",
     "upload": "Caricamento",
-    "processing": "Elaborazione"
+    "processing": "Elaborazione",
+    "woaSubmit": "Converti e carica",
+    "woaRead": "Lettura",
+    "woaConvert": "Conversione"
   },
   "login": {
     "title": "Accedi",

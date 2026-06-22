@@ -106,7 +106,7 @@ router.get('/uploadUI', checkAuth, async (req, res) => {
     ? usage.items.find((item) => item.featureKey === "stored_workout") || null
     : null;
 
-  res.render('fileUpload', {
+  res.render('fileUploadNew', {
     userInfo: req.user,
     isAuthenticated: req.isAuthenticated,
     uploadUsage: {
@@ -116,24 +116,7 @@ router.get('/uploadUI', checkAuth, async (req, res) => {
 });
 
 router.get('/uploadNewUI', checkAuth, async (req, res) => {
-  console.log(req.user);
-  if (!req?.user?.id) {
-    const redirectUrl = encodeURIComponent(req.originalUrl);
-    return res.redirect(`/login?redirect=${redirectUrl}`);
-  }
-
-  const usage = await EntitlementService.getUsageOverview(req.user.id);
-  const storedWorkoutUsage = Array.isArray(usage?.items)
-    ? usage.items.find((item) => item.featureKey === "stored_workout") || null
-    : null;
-
-  res.render('fileUploadNew', {
-    userInfo: req.user,
-    isAuthenticated: req.isAuthenticated,
-    uploadUsage: {
-      storedWorkout: storedWorkoutUsage
-    }
-  });
+  return res.redirect('/files/uploadUI');
 });
 
 // -------------------------------------
