@@ -99,13 +99,13 @@ module.exports = {
       env: workerEnv,
       env_production: workerEnv
     },
-    {
-      name: "import-batch-worker",
-      script: "src/workers/import-batch-worker.js",
-      instances: 2,
-      exec_mode: "fork",
-      env: workerEnv,
-      env_production: workerEnv
-    }
+    // {
+    //   name: "import-batch-worker",
+    //   script: "src/workers/import-batch-worker.js",
+    //   instances: 2,
+    //   exec_mode: "fork",
+    //   env: workerEnv,
+    //   env_production: workerEnv
+    // }
   ]
 };
