@@ -66,8 +66,16 @@ function initializeClientLayout() {
 }
 
 function updateFilePickerLabel() {
-    const file = fileInput?.files?.[0];
-    filePickerLabel.textContent = file ? file.name : "No file selected";
+    const files = Array.from(fileInput?.files || []);
+    if (files.length === 0) {
+        filePickerLabel.textContent = "No file selected";
+        return;
+    }
+    if (files.length === 1) {
+        filePickerLabel.textContent = files[0].name;
+        return;
+    }
+    filePickerLabel.textContent = `${files.length} files selected`;
 }
 
 function setResponseMarkup(markup) {
@@ -149,6 +157,40 @@ function formatMs(value) {
     return `${Number(value || 0).toFixed(1)} ms`;
 }
 
+function buildTimingLines(timings = {}) {
+    if (!timings || typeof timings !== "object") {
+        return "";
+    }
+
+    const orderedKeys = [
+        "buildReducedGpsTrackMs",
+        "buildWorkoutStreamBlockMs",
+        "buildGpsTrackBlockMs",
+        "compressWorkoutStreamMs",
+        "compressGpsTrackMs",
+        "deriveSummaryMs",
+        "encodeMetaJsonMs",
+        "encodeSessionsJsonMs",
+        "assembleWoaFileMs"
+    ];
+    const labels = {
+        buildReducedGpsTrackMs: "Build reduced GPS track",
+        buildWorkoutStreamBlockMs: "Build workout stream block",
+        buildGpsTrackBlockMs: "Build GPS track block",
+        compressWorkoutStreamMs: "Compress workout stream",
+        compressGpsTrackMs: "Compress GPS track",
+        deriveSummaryMs: "Derive persisted summary",
+        encodeMetaJsonMs: "Encode meta JSON",
+        encodeSessionsJsonMs: "Encode sessions JSON",
+        assembleWoaFileMs: "Assemble WOA file"
+    };
+
+    return orderedKeys
+        .filter((key) => Number.isFinite(Number(timings[key])))
+        .map((key) => `${labels[key]}: ${escapeHtml(formatMs(timings[key]))}`)
+        .join("<br>");
+}
+
 function buildIterationSuffix(data) {
     const iteration = Number(data?.iteration || 0);
     const totalIterations = Number(data?.totalIterations || 0);
@@ -212,6 +254,30 @@ function setLatestGeneratedZipArtifactSingle(blob, fileName) {
     latestGeneratedZipArtifact = { blob, fileName };
 }
 
+async function fetchExistingWorkoutStartTimes() {
+    const response = await fetch("/api/uploads/existing-start-times", {
+        credentials: "same-origin",
+        headers: {
+            Accept: "application/json"
+        }
+    });
+
+    let payload = {};
+    try {
+        payload = await response.json();
+    } catch {
+        payload = {};
+    }
+
+    if (!response.ok) {
+        throw new Error(payload?.error || `Failed to load existing workouts (${response.status})`);
+    }
+
+    return Array.isArray(payload.startTimes)
+        ? payload.startTimes.filter((value) => typeof value === "string" && value)
+        : [];
+}
+
 function uploadGeneratedZipFormData(formData, onProgress) {
     return new Promise((resolve, reject) => {
         const request = new XMLHttpRequest();
@@ -267,39 +333,71 @@ async function handleConvertSubmit(event) {
     event.preventDefault();
     latestGeneratedZipArtifact = null;
 
-    const file = fileInput?.files?.[0];
+    const files = Array.from(fileInput?.files || []);
     setResponseMarkup("");
 
-    if (!file) {
-        setResponseMarkup(`<div class="alert alert-danger mb-0">Please select one FIT or ZIP file.</div>`);
+    if (files.length === 0) {
+        setResponseMarkup(`<div class="alert alert-danger mb-0">Please select one or more FIT or ZIP files.</div>`);
         return;
     }
 
-    const lowerName = file.name.toLowerCase();
-    const isFitFile = lowerName.endsWith(".fit");
-    const isZipFile = lowerName.endsWith(".zip");
+    const zipFiles = files.filter((file) => file.name.toLowerCase().endsWith(".zip"));
+    const fitFiles = files.filter((file) => file.name.toLowerCase().endsWith(".fit"));
+    const unsupportedFiles = files.filter((file) => {
+        const lowerName = file.name.toLowerCase();
+        return !lowerName.endsWith(".fit") && !lowerName.endsWith(".zip");
+    });
 
-    if (!isFitFile && !isZipFile) {
+    if (unsupportedFiles.length > 0) {
         setResponseMarkup(`<div class="alert alert-danger mb-0">Only .fit or .zip files are supported in this demo.</div>`);
         return;
     }
+
+    const isZipMode = files.length === 1 && zipFiles.length === 1 && fitFiles.length === 0;
+    const selectedFiles = files;
+    const selectedFile = files.length === 1 ? files[0] : null;
 
     if (statusArea) {
         statusArea.classList.remove("d-none");
     }
 
     setLoading(true);
-    setPhase(isZipFile ? "Reading ZIP file" : "Reading FIT file");
+    setPhase(isZipMode ? "Reading ZIP file" : "Reading source files");
     setReadProgress(0, "");
     setProcessingProgress(0, "");
 
     try {
-        const arrayBuffer = await readFileWithProgress(file, (loaded, total) => {
-            const percent = total > 0 ? (loaded / total) * 100 : 0;
-            setReadProgress(percent, `${formatBytes(loaded)} / ${formatBytes(total)}`);
-        });
+        let arrayBuffer = null;
+        let workerFiles = [];
+        let totalLoadedBytes = 0;
+        const totalSourceBytes = selectedFiles.reduce((sum, file) => sum + Number(file.size || 0), 0);
 
-        setReadProgress(100, `${formatBytes(file.size)} loaded`);
+        if (isZipMode) {
+            arrayBuffer = await readFileWithProgress(selectedFile, (loaded, total) => {
+                const percent = total > 0 ? (loaded / total) * 100 : 0;
+                setReadProgress(percent, `${formatBytes(loaded)} / ${formatBytes(total)}`);
+            });
+            totalLoadedBytes = selectedFile.size;
+        } else {
+            for (let index = 0; index < selectedFiles.length; index += 1) {
+                const currentFile = selectedFiles[index];
+                const currentArrayBuffer = await readFileWithProgress(currentFile, (loaded) => {
+                    const aggregateLoaded = totalLoadedBytes + Number(loaded || 0);
+                    const percent = totalSourceBytes > 0 ? (aggregateLoaded / totalSourceBytes) * 100 : 0;
+                    setReadProgress(percent, `${formatBytes(aggregateLoaded)} / ${formatBytes(totalSourceBytes)}`);
+                });
+                totalLoadedBytes += currentFile.size;
+                workerFiles.push({
+                    name: currentFile.name,
+                    arrayBuffer: currentArrayBuffer
+                });
+            }
+        }
+
+        setReadProgress(100, `${formatBytes(totalLoadedBytes)} loaded`);
+        setPhase("Loading existing workouts");
+        setProcessingProgress(3, "Fetching existing workout timestamps for duplicate detection");
+        const existingStartTimes = await fetchExistingWorkoutStartTimes();
         setPhase("Starting worker");
         setProcessingProgress(5, "Worker bootstrapped");
 
@@ -342,7 +440,7 @@ async function handleConvertSubmit(event) {
                     const processedEntries = Number(data.processedEntries || 0);
                     const totalEntries = Number(data.totalEntries || 0);
                     const percent = totalEntries > 0 ? 15 + Math.round((processedEntries / totalEntries) * 65) : 15;
-                    setPhase("Converting FIT entries to WOA1");
+                    setPhase("Converting source entries to WOA1");
                     setProcessingProgress(percent, `${processedEntries}/${totalEntries} entries finished: ${data.entryName || ""}`);
                 }
                 if (data.phase === "building-zip") {
@@ -369,6 +467,42 @@ async function handleConvertSubmit(event) {
                 setPhase("Failed");
                 setProcessingProgress(0, "");
                 setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(data.error || "Conversion failed")}</div>`);
+                setLoading(false);
+                worker.terminate();
+                return;
+            }
+
+            if (data.type === "skipped-existing") {
+                finished = true;
+                setPhase("Completed");
+                setProcessingProgress(100, "Workout already exists");
+                setResponseMarkup(`
+                    <div class="alert alert-info mb-0">
+                        <div class="fw-semibold mb-2">Workout already exists and was skipped before conversion.</div>
+                        <div class="small">
+                            Source: ${escapeHtml(data.fileName || "")}<br>
+                            Existing start time: ${escapeHtml(String(data.startTime || ""))}
+                        </div>
+                    </div>
+                `);
+                setLoading(false);
+                worker.terminate();
+                return;
+            }
+
+            if (data.type === "skipped-too-short") {
+                finished = true;
+                setPhase("Completed");
+                setProcessingProgress(100, "Workout too short");
+                setResponseMarkup(`
+                    <div class="alert alert-info mb-0">
+                        <div class="fw-semibold mb-2">Workout was skipped because it is shorter than five minutes.</div>
+                        <div class="small">
+                            Source: ${escapeHtml(data.fileName || "")}<br>
+                            Record count: ${escapeHtml(String(data.recordCount || 0))}
+                        </div>
+                    </div>
+                `);
                 setLoading(false);
                 worker.terminate();
                 return;
@@ -408,6 +542,7 @@ async function handleConvertSubmit(event) {
                             Benchmark repeats: ${escapeHtml(String(timings.repeatCount || 1))}<br>
                             Parse FIT: ${escapeHtml(formatMs(timings.parseMs))}<br>
                             Build WOA1: ${escapeHtml(formatMs(timings.buildWoaMs))}<br>
+                            ${buildTimingLines(timings.buildWoaStepsMs) ? `${buildTimingLines(timings.buildWoaStepsMs)}<br>` : ""}
                             Compress GZip: ${escapeHtml(formatMs(timings.gzipMs))}<br>
                             Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
                         </div>
@@ -428,11 +563,17 @@ async function handleConvertSubmit(event) {
                 setPhase("Completed");
                 setProcessingProgress(100, "WOA1 ZIP ready");
 
+                const stats = data.stats || {};
                 const zipBytes = data.bytes instanceof ArrayBuffer ? data.bytes : new ArrayBuffer(0);
                 const zipBlob = new Blob([zipBytes], { type: "application/zip" });
-                setLatestGeneratedZipArtifactSingle(zipBlob, data.outputFileName || "output.woa1.zip");
-                const stats = data.stats || {};
+                const shouldUploadGeneratedZip = Number(stats.convertedEntries || 0) > 0 && zipBlob.size > 0;
+                latestGeneratedZipArtifact = null;
+                if (shouldUploadGeneratedZip) {
+                    setLatestGeneratedZipArtifactSingle(zipBlob, data.outputFileName || "output.woa1.zip");
+                }
                 const skipped = Array.isArray(data.skipped) ? data.skipped : [];
+                const skippedExisting = Array.isArray(data.skippedExisting) ? data.skippedExisting : [];
+                const skippedTooShort = Array.isArray(data.skippedTooShort) ? data.skippedTooShort : [];
                 const timings = data.timings || {};
                 const outerZipLevel = Number.isFinite(Number(stats.outerZipLevel))
                     ? Number(stats.outerZipLevel)
@@ -449,14 +590,34 @@ async function handleConvertSubmit(event) {
                         </div>
                     `
                     : "";
+                const skippedExistingMarkup = skippedExisting.length > 0
+                    ? `
+                        <div class="small mb-3 text-info">
+                            Already existing workouts skipped before WOA build: ${escapeHtml(String(stats.skippedExistingEntries || skippedExisting.length))}<br>
+                            ${skippedExisting.slice(0, 10).map((item) => `${escapeHtml(item.entryName)}: ${escapeHtml(item.startTime || "")}`).join("<br>")}
+                            ${skippedExisting.length > 10 ? "<br>..." : ""}
+                        </div>
+                    `
+                    : "";
+                const skippedTooShortMarkup = skippedTooShort.length > 0
+                    ? `
+                        <div class="small mb-3 text-secondary">
+                            Too-short workouts skipped before WOA build: ${escapeHtml(String(stats.skippedTooShortEntries || skippedTooShort.length))}<br>
+                            ${skippedTooShort.slice(0, 10).map((item) => `${escapeHtml(item.entryName)}: ${escapeHtml(String(item.recordCount || 0))} records`).join("<br>")}
+                            ${skippedTooShort.length > 10 ? "<br>..." : ""}
+                        </div>
+                    `
+                    : "";
 
                 setResponseMarkup(`
                     <div class="alert alert-success">
                         <div class="fw-semibold mb-2">ZIP converted locally to a ZIP of WOA1 entries.</div>
                         <div class="small mb-2">
                             Source ZIP: ${escapeHtml(data.fileName || "")}<br>
-                            FIT entries converted: ${escapeHtml(String(stats.fitEntries || 0))}<br>
+                            FIT entries seen: ${escapeHtml(String(stats.fitEntries || 0))}<br>
                             Successfully converted: ${escapeHtml(String(stats.convertedEntries || 0))}<br>
+                            Existing duplicates skipped: ${escapeHtml(String(stats.skippedExistingEntries || 0))}<br>
+                            Too-short workouts skipped: ${escapeHtml(String(stats.skippedTooShortEntries || 0))}<br>
                             Total records: ${escapeHtml(String(stats.totalRecordCount || 0))}<br>
                             Reduced GPS points: ${escapeHtml(String(stats.totalGpsPointCount || 0))}
                         </div>
@@ -464,21 +625,26 @@ async function handleConvertSubmit(event) {
                             Source ZIP size: ${escapeHtml(formatBytes(Number(stats.sourceZipBytes || 0)))}<br>
                             Output ZIP size: ${escapeHtml(formatBytes(Number(stats.outputZipBytes || 0)))} (${escapeHtml(compressionRatio)}% of source ZIP, ZIP deflate level ${escapeHtml(String(outerZipLevel))})
                         </div>
+                        ${skippedExistingMarkup}
+                        ${skippedTooShortMarkup}
                         ${skippedMarkup}
                         <div class="small mb-3">
                             Average parse FIT: ${escapeHtml(formatMs(timings.parseMs))}<br>
                             Average build WOA1: ${escapeHtml(formatMs(timings.buildWoaMs))}<br>
+                            ${buildTimingLines(timings.buildWoaStepsMs) ? `${buildTimingLines(timings.buildWoaStepsMs)}<br>` : ""}
                             Build output ZIP: ${escapeHtml(formatMs(timings.zipBuildMs))}<br>
                             Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
                         </div>
-                        <div class="small mb-2 text-muted">Uploading generated WOA1 ZIP to backend automatically.</div>
+                        <div class="small mb-2 text-muted">${shouldUploadGeneratedZip ? "Uploading generated WOA1 ZIP to backend automatically." : "No new workouts remained after duplicate filtering, so no backend upload was needed."}</div>
                         <div id="backendUploadResult"></div>
                     </div>
                 `);
 
-                queueMicrotask(() => {
-                    uploadGeneratedZipArtifact();
-                });
+                if (shouldUploadGeneratedZip) {
+                    queueMicrotask(() => {
+                        uploadGeneratedZipArtifact();
+                    });
+                }
 
                 setLoading(false);
                 worker.terminate();
@@ -488,10 +654,19 @@ async function handleConvertSubmit(event) {
         });
 
         worker.postMessage({
-            type: isZipFile ? "convert-zip-to-woa-zip" : "convert-fit-to-woa",
-            fileName: file.name,
-            arrayBuffer
-        }, [arrayBuffer]);
+            type: isZipMode
+                ? "convert-zip-to-woa-zip"
+                : (selectedFiles.length > 1 ? "convert-fit-files-to-woa-zip" : "convert-fit-to-woa"),
+            fileName: isZipMode
+                ? selectedFile.name
+                : (selectedFiles.length > 1 ? "fit-files.woa1.zip" : selectedFile.name),
+            arrayBuffer,
+            files: workerFiles,
+            existingStartTimes
+        }, [
+            ...(arrayBuffer ? [arrayBuffer] : []),
+            ...workerFiles.map((entry) => entry.arrayBuffer)
+        ]);
     } catch (error) {
         setPhase("Failed");
         setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(error?.message || String(error))}</div>`);

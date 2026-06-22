@@ -49,6 +49,25 @@ const RECORD_FIELDS = new Set([
   "position_long"
 ]);
 
+function normalizeExcludeStartTimeSet(excludeStartTimes) {
+  if (excludeStartTimes instanceof Set) {
+    return excludeStartTimes.size > 0 ? excludeStartTimes : null;
+  }
+
+  if (!Array.isArray(excludeStartTimes) || excludeStartTimes.length === 0) {
+    return null;
+  }
+
+  const values = excludeStartTimes.filter((value) => typeof value === "string" && value);
+  return values.length > 0 ? new Set(values) : null;
+}
+
+function toIsoStartTimeKey(timestampMs) {
+  return Number.isFinite(timestampMs)
+    ? new Date(timestampMs).toISOString()
+    : null;
+}
+
 class GrowableFloat64Array {
   constructor(initialCapacity = DEFAULT_TYPED_ARRAY_CAPACITY) {
     this.buffer = new Float64Array(initialCapacity);
@@ -70,13 +89,13 @@ class GrowableFloat64Array {
   }
 }
 
-function getArrayBuffer(buffer) {
+function getBufferView(buffer) {
   if (buffer instanceof ArrayBuffer) {
-    return buffer;
+    return new Uint8Array(buffer);
   }
 
   if (ArrayBuffer.isView(buffer)) {
-    return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+    return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
   }
 
   throw new Error("Unsupported FIT input buffer");
@@ -258,9 +277,9 @@ function decodeDeveloperFieldDescription(fieldDescription) {
   };
 }
 
-export function parseFitBufferTypedBrowser(buffer) {
-  const rawBuffer = getArrayBuffer(buffer);
-  const blob = new Uint8Array(rawBuffer);
+export function parseFitBufferTypedBrowser(buffer, options = {}) {
+  const blob = getBufferView(buffer);
+  const excludeStartTimeSet = normalizeExcludeStartTimeSet(options?.excludeStartTimes);
 
   if (blob.length < 12) {
     throw new Error("File too small to be a FIT file");
@@ -492,6 +511,28 @@ export function parseFitBufferTypedBrowser(buffer) {
         }
       } else {
         sessions.push(target);
+        const startTimeMs = Number(target?.start_time);
+        const startTimeKey = toIsoStartTimeKey(startTimeMs);
+        if (excludeStartTimeSet && startTimeKey && excludeStartTimeSet.has(startTimeKey)) {
+          return {
+            sessions,
+            recordsTyped: {
+              recordCount: timestampsMs.length,
+              timestampsMs: timestampsMs.toTypedArray(),
+              distancesM: distancesM.toTypedArray(),
+              powersW: powersW.toTypedArray(),
+              heartRatesBpm: heartRatesBpm.toTypedArray(),
+              cadencesRpm: cadencesRpm.toTypedArray(),
+              speedsMps: speedsMps.toTypedArray(),
+              altitudesM: altitudesM.toTypedArray(),
+              positionLatsDeg: positionLatsDeg.toTypedArray(),
+              positionLongsDeg: positionLongsDeg.toTypedArray()
+            },
+            recordsAreSorted: true,
+            skippedExisting: true,
+            skippedStartTime: startTimeKey
+          };
+        }
       }
     }
 

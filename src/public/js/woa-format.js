@@ -11,6 +11,13 @@ const DEFAULT_GPS_TRACK_CODEC = "gzip";
 const DEFAULT_STREAM_GZIP_LEVEL = 4;
 const DEFAULT_GPS_GZIP_LEVEL = 4;
 
+function nowMs() {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
+}
+
 function encodeJson(value) {
   return textEncoder.encode(JSON.stringify(value));
 }
@@ -267,129 +274,127 @@ function buildReducedGpsTrack(recordsTyped, sampleRateSeconds = 5) {
   const EARTH_RADIUS_METERS = 6371000;
   const sampleRate = Math.max(1, Math.round(Number(sampleRateSeconds) || 1));
   const precision = 5;
+  const recordCount = Number(recordsTyped?.recordCount || 0);
 
-  function haversine(a, b) {
-    const dLat = (b.position_lat - a.position_lat) * DEG_TO_RAD;
-    const dLng = (b.position_long - a.position_long) * DEG_TO_RAD;
-    const lat1 = a.position_lat * DEG_TO_RAD;
-    const lat2 = b.position_lat * DEG_TO_RAD;
+  function haversine(latA, lngA, latB, lngB) {
+    const dLat = (latB - latA) * DEG_TO_RAD;
+    const dLng = (lngB - lngA) * DEG_TO_RAD;
+    const lat1 = latA * DEG_TO_RAD;
+    const lat2 = latB * DEG_TO_RAD;
     const aVal = Math.sin(dLat / 2) ** 2
       + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
     return 2 * EARTH_RADIUS_METERS * Math.atan2(Math.sqrt(aVal), Math.sqrt(1 - aVal));
   }
 
-  const records = [];
-  for (let index = 0; index < Number(recordsTyped?.recordCount || 0); index += 1) {
+  const timestamps = new Array(recordCount);
+  const rawLatitudes = new Array(recordCount);
+  const rawLongitudes = new Array(recordCount);
+  const latitudes = new Array(recordCount);
+  const longitudes = new Array(recordCount);
+
+  for (let index = 0; index < recordCount; index += 1) {
     const lat = Number(recordsTyped?.positionLatsDeg?.[index]);
     const lng = Number(recordsTyped?.positionLongsDeg?.[index]);
     const timestamp = Number(recordsTyped?.timestampsMs?.[index]);
-    records.push({
-      timestamp: Number.isFinite(timestamp) ? timestamp : null,
-      position_lat: Number.isFinite(lat) ? lat : null,
-      position_long: Number.isFinite(lng) ? lng : null
-    });
+    const normalizedLat = Number.isFinite(lat) ? lat : null;
+    const normalizedLng = Number.isFinite(lng) ? lng : null;
+    timestamps[index] = Number.isFinite(timestamp) ? timestamp : null;
+    rawLatitudes[index] = normalizedLat;
+    rawLongitudes[index] = normalizedLng;
+    latitudes[index] = normalizedLat;
+    longitudes[index] = normalizedLng;
   }
 
-  const rawPositions = new Array(records.length);
-  for (let i = 0; i < records.length; i += 1) {
-    rawPositions[i] = {
-      position_lat: records[i].position_lat,
-      position_long: records[i].position_long
-    };
-  }
+  let lastValidIndex = -1;
+  const relockCandidateIndexes = [];
 
-  let lastValid = null;
-  let relockCandidate = [];
-
-  for (let i = 0; i < records.length; i += 1) {
-    const record = records[i];
-    const invalid = !Number.isFinite(record.position_lat)
-      || !Number.isFinite(record.position_long)
-      || (record.position_lat === 0 && record.position_long === 0);
+  for (let i = 0; i < recordCount; i += 1) {
+    const lat = latitudes[i];
+    const lng = longitudes[i];
+    const invalid = !Number.isFinite(lat)
+      || !Number.isFinite(lng)
+      || (lat === 0 && lng === 0);
 
     if (invalid) {
-      record.position_lat = null;
-      record.position_long = null;
+      latitudes[i] = null;
+      longitudes[i] = null;
       continue;
     }
 
-    if (!lastValid) {
-      lastValid = record;
+    if (lastValidIndex < 0) {
+      lastValidIndex = i;
       continue;
     }
 
-    const dist = haversine(lastValid, record);
+    const dist = haversine(latitudes[lastValidIndex], longitudes[lastValidIndex], lat, lng);
     if (dist <= MAX_STEP_DISTANCE_METERS) {
-      lastValid = record;
-      relockCandidate = [];
+      lastValidIndex = i;
+      relockCandidateIndexes.length = 0;
       continue;
     }
 
-    const rawCandidate = {
-      index: i,
-      timestamp: record.timestamp ?? null,
-      position_lat: Number(rawPositions[i].position_lat),
-      position_long: Number(rawPositions[i].position_long)
-    };
-    rawCandidate.position_lat = Number.isFinite(rawCandidate.position_lat) ? rawCandidate.position_lat : null;
-    rawCandidate.position_long = Number.isFinite(rawCandidate.position_long) ? rawCandidate.position_long : null;
+    latitudes[i] = null;
+    longitudes[i] = null;
 
-    record.position_lat = null;
-    record.position_long = null;
-
-    if (rawCandidate.position_lat == null || rawCandidate.position_long == null) {
-      relockCandidate = [];
+    const rawLat = rawLatitudes[i];
+    const rawLng = rawLongitudes[i];
+    if (rawLat == null || rawLng == null) {
+      relockCandidateIndexes.length = 0;
       continue;
     }
 
-    if (relockCandidate.length === 0) {
-      relockCandidate.push(rawCandidate);
+    if (relockCandidateIndexes.length === 0) {
+      relockCandidateIndexes.push(i);
       continue;
     }
 
-    const prevCandidate = relockCandidate[relockCandidate.length - 1];
-    const candidateDist = haversine(prevCandidate, rawCandidate);
+    const previousCandidateIndex = relockCandidateIndexes[relockCandidateIndexes.length - 1];
+    const candidateDist = haversine(
+      rawLatitudes[previousCandidateIndex],
+      rawLongitudes[previousCandidateIndex],
+      rawLat,
+      rawLng
+    );
 
     if (candidateDist <= MAX_STEP_DISTANCE_METERS) {
-      relockCandidate.push(rawCandidate);
+      relockCandidateIndexes.push(i);
     } else {
-      relockCandidate = [rawCandidate];
+      relockCandidateIndexes.length = 0;
+      relockCandidateIndexes.push(i);
     }
 
-    if (relockCandidate.length >= MIN_RELOCK_SEQUENCE) {
-      for (const candidate of relockCandidate) {
-        const target = records[candidate.index];
-        target.position_lat = candidate.position_lat;
-        target.position_long = candidate.position_long;
+    if (relockCandidateIndexes.length >= MIN_RELOCK_SEQUENCE) {
+      for (const candidateIndex of relockCandidateIndexes) {
+        latitudes[candidateIndex] = rawLatitudes[candidateIndex];
+        longitudes[candidateIndex] = rawLongitudes[candidateIndex];
       }
-      lastValid = records[relockCandidate[relockCandidate.length - 1].index];
-      relockCandidate = [];
+      lastValidIndex = relockCandidateIndexes[relockCandidateIndexes.length - 1];
+      relockCandidateIndexes.length = 0;
     }
   }
 
-  const prevValidIndex = new Array(records.length).fill(-1);
-  const nextValidIndex = new Array(records.length).fill(-1);
-  let lastValidIndex = -1;
+  const prevValidIndex = new Array(recordCount).fill(-1);
+  const nextValidIndex = new Array(recordCount).fill(-1);
+  let previousValidIndex = -1;
 
-  for (let i = 0; i < records.length; i += 1) {
-    prevValidIndex[i] = lastValidIndex;
-    if (Number.isFinite(records[i].position_lat) && Number.isFinite(records[i].position_long)) {
-      lastValidIndex = i;
+  for (let i = 0; i < recordCount; i += 1) {
+    prevValidIndex[i] = previousValidIndex;
+    if (Number.isFinite(latitudes[i]) && Number.isFinite(longitudes[i])) {
+      previousValidIndex = i;
     }
   }
 
   let nextIndex = -1;
-  for (let i = records.length - 1; i >= 0; i -= 1) {
+  for (let i = recordCount - 1; i >= 0; i -= 1) {
     nextValidIndex[i] = nextIndex;
-    if (Number.isFinite(records[i].position_lat) && Number.isFinite(records[i].position_long)) {
+    if (Number.isFinite(latitudes[i]) && Number.isFinite(longitudes[i])) {
       nextIndex = i;
     }
   }
 
   let currentGapLength = 0;
-  for (let i = 0; i < records.length; i += 1) {
-    const record = records[i];
-    if (Number.isFinite(record.position_lat) && Number.isFinite(record.position_long)) {
+  for (let i = 0; i < recordCount; i += 1) {
+    if (Number.isFinite(latitudes[i]) && Number.isFinite(longitudes[i])) {
       currentGapLength = 0;
       continue;
     }
@@ -397,23 +402,23 @@ function buildReducedGpsTrack(recordsTyped, sampleRateSeconds = 5) {
     currentGapLength += 1;
     const prevIndex = prevValidIndex[i];
     const nextValid = nextValidIndex[i];
-    const prev = prevIndex >= 0 ? records[prevIndex] : null;
-    const next = nextValid >= 0 ? records[nextValid] : null;
+    const prevLat = prevIndex >= 0 ? latitudes[prevIndex] : null;
+    const prevLng = prevIndex >= 0 ? longitudes[prevIndex] : null;
+    const nextLat = nextValid >= 0 ? latitudes[nextValid] : null;
+    const nextLng = nextValid >= 0 ? longitudes[nextValid] : null;
 
     if (
-      !prev
-      || !next
-      || !Number.isFinite(prev.position_lat)
-      || !Number.isFinite(prev.position_long)
-      || !Number.isFinite(next.position_lat)
-      || !Number.isFinite(next.position_long)
+      !Number.isFinite(prevLat)
+      || !Number.isFinite(prevLng)
+      || !Number.isFinite(nextLat)
+      || !Number.isFinite(nextLng)
       || currentGapLength > MAX_INTERPOLATION_GAP
     ) {
       continue;
     }
 
-    record.position_lat = (prev.position_lat + next.position_lat) / 2;
-    record.position_long = (prev.position_long + next.position_long) / 2;
+    latitudes[i] = (prevLat + nextLat) / 2;
+    longitudes[i] = (prevLng + nextLng) / 2;
   }
 
   let minLat = Infinity;
@@ -422,14 +427,15 @@ function buildReducedGpsTrack(recordsTyped, sampleRateSeconds = 5) {
   let maxLng = -Infinity;
   const points = [];
 
-  for (let i = 0; i < records.length; i += 1) {
-    const record = records[i];
-    if (!Number.isFinite(record.position_lat) || !Number.isFinite(record.position_long)) {
+  for (let i = 0; i < recordCount; i += 1) {
+    const latValue = latitudes[i];
+    const lngValue = longitudes[i];
+    if (!Number.isFinite(latValue) || !Number.isFinite(lngValue)) {
       continue;
     }
 
-    const lat = Number(record.position_lat.toFixed(precision));
-    const lng = Number(record.position_long.toFixed(precision));
+    const lat = Number(latValue.toFixed(precision));
+    const lng = Number(lngValue.toFixed(precision));
     if (lat < minLat) minLat = lat;
     if (lat > maxLat) maxLat = lat;
     if (lng < minLng) minLng = lng;
@@ -439,7 +445,7 @@ function buildReducedGpsTrack(recordsTyped, sampleRateSeconds = 5) {
       points.push({
         lat,
         lng,
-        timestampMs: Number.isFinite(Number(record.timestamp)) ? Number(record.timestamp) : 0
+        timestampMs: Number.isFinite(Number(timestamps[i])) ? Number(timestamps[i]) : 0
       });
     }
   }
@@ -674,17 +680,47 @@ export function createWoa1File(parsed, {
   compressWorkoutStream = null,
   compressGpsTrack = null
 } = {}) {
+  const timings = {
+    buildReducedGpsTrackMs: 0,
+    buildWorkoutStreamBlockMs: 0,
+    buildGpsTrackBlockMs: 0,
+    compressWorkoutStreamMs: 0,
+    compressGpsTrackMs: 0,
+    deriveSummaryMs: 0,
+    encodeMetaJsonMs: 0,
+    encodeSessionsJsonMs: 0,
+    assembleWoaFileMs: 0
+  };
+
+  let stepStartedAt = nowMs();
   const gpsTrack = buildReducedGpsTrack(parsed.recordsTyped, sampleRateSeconds);
+  timings.buildReducedGpsTrackMs = nowMs() - stepStartedAt;
+
+  stepStartedAt = nowMs();
   const workoutStreamRawBytes = buildWorkoutStreamBlock(parsed.recordsTyped);
+  timings.buildWorkoutStreamBlockMs = nowMs() - stepStartedAt;
+
+  stepStartedAt = nowMs();
   const gpsTrackRawBytes = buildGpsTrackBlock(gpsTrack);
+  timings.buildGpsTrackBlockMs = nowMs() - stepStartedAt;
+
+  stepStartedAt = nowMs();
   const workoutStreamBytes = compressWorkoutStream
     ? compressWorkoutStream(workoutStreamRawBytes, { level: DEFAULT_STREAM_GZIP_LEVEL })
     : workoutStreamRawBytes;
+  timings.compressWorkoutStreamMs = nowMs() - stepStartedAt;
+
+  stepStartedAt = nowMs();
   const gpsTrackBytes = compressGpsTrack
     ? compressGpsTrack(gpsTrackRawBytes, { level: DEFAULT_GPS_GZIP_LEVEL })
     : gpsTrackRawBytes;
+  timings.compressGpsTrackMs = nowMs() - stepStartedAt;
+
   const usesCompressedBlocks = !!(compressWorkoutStream && compressGpsTrack);
+
+  stepStartedAt = nowMs();
   const summary = deriveSummary(parsed, gpsTrack, sourceName);
+  timings.deriveSummaryMs = nowMs() - stepStartedAt;
   if (summary?.persistedRow) {
     summary.persistedRow.stream_codec = usesCompressedBlocks ? DEFAULT_STREAM_CODEC : "identity";
     summary.persistedRow.gps_track_blob_codec = usesCompressedBlocks ? DEFAULT_GPS_TRACK_CODEC : "identity";
@@ -699,8 +735,14 @@ export function createWoa1File(parsed, {
     gps_track_raw: gpsTrackRawBytes.byteLength,
     gps_track_compressed: gpsTrackBytes.byteLength
   };
+
+  stepStartedAt = nowMs();
   const metaBytes = encodeJson(summary);
+  timings.encodeMetaJsonMs = nowMs() - stepStartedAt;
+
+  stepStartedAt = nowMs();
   const sessionBytes = encodeJson(Array.isArray(parsed?.sessions) ? parsed.sessions : []);
+  timings.encodeSessionsJsonMs = nowMs() - stepStartedAt;
 
   const headerLength = 4 + 1 + 1 + 2 + 4 + 4 + 4 + 4;
   const totalLength = headerLength
@@ -709,6 +751,7 @@ export function createWoa1File(parsed, {
     + workoutStreamBytes.length
     + gpsTrackBytes.length;
 
+  stepStartedAt = nowMs();
   const buffer = new ArrayBuffer(totalLength);
   const bytes = new Uint8Array(buffer);
   const view = new DataView(buffer);
@@ -730,12 +773,14 @@ export function createWoa1File(parsed, {
   bytes.set(workoutStreamBytes, offset);
   offset += workoutStreamBytes.length;
   bytes.set(gpsTrackBytes, offset);
+  timings.assembleWoaFileMs = nowMs() - stepStartedAt;
 
   return {
     bytes,
     meta: JSON.parse(new TextDecoder().decode(metaBytes)),
     gpsTrack,
     workoutStreamBytes,
-    gpsTrackBytes
+    gpsTrackBytes,
+    timings
   };
 }

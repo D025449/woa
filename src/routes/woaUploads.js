@@ -8,6 +8,7 @@ import authMiddleware from "../middleware/authMiddleware.js";
 import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
 import uploadMiddleware from "../middleware/uploadMiddleware.js";
 import { FileDBService } from "../services/fileDBService.js";
+import pool from "../services/database.js";
 import { decodeWoa1Buffer, decodeWoa1BufferLight, inspectWoa1Header } from "../services/woa1Service.js";
 import {
   enqueueWorkoutSegmentBestEffortsBulk,
@@ -31,6 +32,35 @@ function formatLogPayload(payload = {}) {
 function logImportEvent(type, payload = {}) {
   console.log(`[import] ${type} ${formatLogPayload(payload)}`);
 }
+
+router.get(
+  "/existing-start-times",
+  authMiddleware,
+  async (req, res, next) => {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: "Nicht angemeldet" });
+      }
+
+      const result = await pool.query(
+        `
+          SELECT start_time
+          FROM workouts
+          WHERE uid = $1
+            AND start_time IS NOT NULL
+          ORDER BY start_time DESC
+        `,
+        [req.user.id]
+      );
+
+      return res.json({
+        startTimes: result.rows.map((row) => new Date(row.start_time).toISOString())
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 router.post(
   "/woa-zip",
