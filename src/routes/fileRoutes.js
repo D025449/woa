@@ -2,11 +2,6 @@ import express from "express";
 
 import authMiddleware from "../middleware/authMiddleware.js";
 import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
-//import checkSessionMiddleware from "../middleware/checkSessionMiddleware.js";
-//import uploadMiddleware from "../middleware/uploadMiddleware.js";
-
-
-
 import { FileDBService } from "../services/fileDBService.js";
 import CollaborationDBService from "../services/collaborationDBService.js";
 import EntitlementService from "../services/entitlementService.js";
@@ -34,17 +29,6 @@ function normalizeArrayParam(value) {
 
   return [];
 }
-
-
-// POST /files/upload
-/*router.post(
-  '/upload',
-  authMiddleware,
-  uploadMiddleware.single('file'),
-  fileController.uploadFile
-);*/
-
-
 router.delete("/workouts/:id", authMiddleware, requireActiveAccountWrite, async (req, res) => {
   const workoutId = req.params.id;
   const uid = req.user.id;
@@ -94,9 +78,7 @@ router.post("/workouts/bulk-delete", authMiddleware, requireActiveAccountWrite, 
 
 
 router.get('/uploadUI', checkAuth, async (req, res) => {
-  console.log(req.user);
   if (!req?.user?.id) {
-    //return res.redirect("/");
     const redirectUrl = encodeURIComponent(req.originalUrl);
     return res.redirect(`/login?redirect=${redirectUrl}`);
   }
@@ -124,12 +106,6 @@ router.get('/uploadNewUI', checkAuth, async (req, res) => {
 // -------------------------------------
 router.get("/workouts", authMiddleware, async (req, res, next) => {
   try {
-
-    /*if (!req.session.userInfo) {
-      return res.status(401).json({
-        error: "Session expired"
-      });
-    }*/
     console.log("QUERY:", req.query);
     const page = parseInt(req.query.page || req.body.page) || 1;
     const size = parseInt(req.query.size || req.body.size) || 20;

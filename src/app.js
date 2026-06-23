@@ -22,9 +22,7 @@ import { CognitoJwtVerifier } from "aws-jwt-verify";
 import authGlobal from "./middleware/authGlobal.js";
 import fs from "fs";
 
-import uploadsRouter from './routes/uploads.js';
 import woaUploadsRouter from "./routes/woaUploads.js";
-import importsRouter from './routes/imports.js';
 import { createI18nMiddleware, normalizeSupportedLocale } from "./i18n/index.js";
 import UserDBService from "./services/userDBService.js";
 
@@ -83,9 +81,7 @@ export async function createApp() {
     app.use('/api/payments', paymentsRoutes);
     app.use('/api/coaching', coachingRoutes);
 
-    app.use('/api/uploads', uploadsRouter);
     app.use('/api/uploads', woaUploadsRouter);
-    app.use('/api/imports', importsRouter);
 
 
     app.use((err, req, res, next) => {

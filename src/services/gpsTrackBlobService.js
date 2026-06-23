@@ -11,6 +11,22 @@ const TEXT_DECODER = new TextDecoder();
 const TEXT_ENCODER = new TextEncoder();
 const DEFAULT_GPS_TRACK_BLOB_CODEC = "brotli";
 
+function inferCompressedCodec(bufferLike, fallback = DEFAULT_GPS_TRACK_BLOB_CODEC) {
+  if (!bufferLike) {
+    return fallback;
+  }
+
+  const bytes = Buffer.isBuffer(bufferLike)
+    ? bufferLike
+    : Buffer.from(bufferLike);
+
+  if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    return "gzip";
+  }
+
+  return fallback;
+}
+
 function normalizeTrackPoints(track = []) {
   if (!Array.isArray(track)) {
     return [];
@@ -442,10 +458,31 @@ export default class GpsTrackBlobService {
   static async decodeRowTrack(row = {}, options = {}) {
     const includeGeoJson = options?.includeGeoJson !== false;
     if (row?.gps_track_blob) {
-      return this.decodeCompressed(row.gps_track_blob, {
-        includeGeoJson,
-        codec: row?.gps_track_blob_codec || "brotli"
-      });
+      const codec = row?.gps_track_blob_codec
+        ? String(row.gps_track_blob_codec)
+        : inferCompressedCodec(row.gps_track_blob, "brotli");
+      try {
+        return await this.decodeCompressed(row.gps_track_blob, {
+          includeGeoJson,
+          codec
+        });
+      } catch (error) {
+        const diagnostic = {
+          workoutId: row?.id ?? row?.wid ?? null,
+          uid: row?.uid ?? null,
+          codec,
+          blobBytes: Buffer.isBuffer(row.gps_track_blob)
+            ? row.gps_track_blob.byteLength
+            : Number(row?.gps_track_blob?.length || 0),
+          sampleRateGps: Number(row?.samplerategps ?? row?.sampleRateGPS ?? 0) || null,
+          validGps: row?.validgps ?? row?.validGps ?? null,
+          hasBounds: row?.bounds != null,
+          includeGeoJson
+        };
+        console.error("[gps-track] decodeRowTrack.failed", diagnostic);
+        error.message = `${error.message} [gps_track_blob decode workoutId=${diagnostic.workoutId ?? "unknown"} codec=${codec} bytes=${diagnostic.blobBytes}]`;
+        throw error;
+      }
     }
 
     const points = this.parseGeoJsonTrack(row?.track ?? row?.track_geojson ?? row?.geom ?? null);

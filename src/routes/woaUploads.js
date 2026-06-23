@@ -189,7 +189,12 @@ router.post(
           pendingItems.push({
             entryName: entry.path,
             preparedInsert,
-            validGps: !!decoded.gpsTrack?.validGps
+            validGps: !!(
+              preparedInsert?.gps_track?.validGps
+              ?? preparedInsert?.fileRow?.validGps
+              ?? decoded?.gpsTrack?.validGps
+              ?? decoded?.meta?.persistedRow?.validGps
+            )
           });
         } catch (error) {
           skipped.push({
