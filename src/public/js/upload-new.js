@@ -15,11 +15,16 @@ const processingDetailText = document.getElementById("processingDetailText");
 const uploadShell = document.getElementById("upload-shell");
 const i18nMessages = window.__I18N?.messages || {};
 let latestGeneratedZipArtifact = null;
+let currentDeviceProfile = window.getDeviceProfile?.() || window.__DEVICE_PROFILE__ || null;
 
 initializeClientLayout();
 form?.addEventListener("submit", handleConvertSubmit);
 filePickerButton?.addEventListener("click", () => fileInput?.click());
 fileInput?.addEventListener("change", updateFilePickerLabel);
+window.addEventListener("deviceprofilechange", (event) => {
+    currentDeviceProfile = event.detail || window.getDeviceProfile?.() || null;
+    applyDeviceProfileToUploadShell();
+});
 
 function tr(path, fallback) {
     const parts = String(path || "").split(".");
@@ -51,9 +56,11 @@ function initializeClientLayout() {
         const paddingTop = containerStyles ? parseFloat(containerStyles.paddingTop || "0") : 0;
         const paddingBottom = containerStyles ? parseFloat(containerStyles.paddingBottom || "0") : 0;
         const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-        const availableHeight = Math.max(560, viewportHeight - bodyOffsetTop - paddingTop - paddingBottom);
+        const minHeight = currentDeviceProfile?.isMobileLayout ? 0 : 560;
+        const availableHeight = Math.max(minHeight, viewportHeight - bodyOffsetTop - paddingTop - paddingBottom);
         uploadShell.style.setProperty("--upload-client-height", `${availableHeight}px`);
         uploadShell.classList.add("upload-shell--client");
+        applyDeviceProfileToUploadShell();
     };
 
     const schedule = () => {
@@ -78,6 +85,17 @@ function initializeClientLayout() {
     }
 
     schedule();
+}
+
+function applyDeviceProfileToUploadShell() {
+    if (!uploadShell) {
+        return;
+    }
+
+    const profile = currentDeviceProfile || window.getDeviceProfile?.() || {};
+    uploadShell.classList.toggle("upload-shell--mobile-layout", !!profile.isMobileLayout);
+    uploadShell.classList.toggle("upload-shell--compact-layout", !!profile.isCompactLayout);
+    uploadShell.dataset.mobileLayout = profile.isMobileLayout ? "1" : "0";
 }
 
 function updateFilePickerLabel() {
