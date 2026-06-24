@@ -403,6 +403,7 @@ export default class Controller {
       await this.loadSimilarWorkouts(workout);
       this.scheduleDesktopLayoutMeasure(true);
       this.closeMobileLibrary();
+      this.scrollDetailIntoViewOnMobile();
       this.renderQuickAccess();
       this.updateDetailNavigation();
     } catch (err) {
@@ -1090,6 +1091,24 @@ export default class Controller {
     if (!window.matchMedia("(max-width: 991.98px)").matches) {
       this.closeMobileLibrary();
     }
+  }
+
+  scrollDetailIntoViewOnMobile() {
+    if (!window.matchMedia("(max-width: 991.98px)").matches) {
+      return;
+    }
+
+    const target = this.detailGridElement || this.workspacePanelElement;
+    if (!target) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      target.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+    });
   }
 
   registerSplitterEvents() {
