@@ -7,6 +7,7 @@ import unzipper from "unzipper";
 import authMiddleware from "../middleware/authMiddleware.js";
 import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
 import uploadMiddleware from "../middleware/uploadMiddleware.js";
+import { appendImportJobPostprocessTargets, createImportJob, updateImportJob } from "../db/import-jobs-repo.js";
 import { FileDBService } from "../services/fileDBService.js";
 import pool from "../services/database.js";
 import { decodeWoa1Buffer, decodeWoa1BufferLight, inspectWoa1Header } from "../services/woa1Service.js";
@@ -91,6 +92,14 @@ router.post(
       const skipped = [];
       const startedAt = Date.now();
       const pendingItems = [];
+      const resolvedPostprocessTargets = [];
+      const importJob = await createImportJob({
+        localPaths: null,
+        originalFileNames: [uploadedFile.originalname],
+        sizeBytes: Number(uploadedFile.size || 0),
+        uid: req.user.id
+      });
+      const importJobId = String(importJob.id);
       const profile = {
         openZipMs: 0,
         filterEntriesMs: 0,
@@ -130,7 +139,17 @@ router.post(
         return res.status(400).json({ error: "ZIP enthält keine .woa1 Dateien" });
       }
 
+      await updateImportJob(importJobId, {
+        status: "processing",
+        stage: "saving_results",
+        totalFiles: woaEntries.length,
+        processedFiles: 0,
+        failedFiles: 0,
+        fileStatuses: []
+      });
+
       logImportEvent("woa-sync-import.started", {
+        importJobId,
         uid: req.user.id,
         sourceName: uploadedFile.originalname,
         totalEntries: woaEntries.length
@@ -245,15 +264,26 @@ router.post(
             workoutId: item.workoutId,
             entryName: item.entryName,
             recomputeFromDb: true,
-            importJobId: null
+            importJobId
           }));
           const validGpsItems = resolvedChunkItems
             .filter((item) => item.validGps)
             .map((item) => ({
               uid: item.preparedInsert.fileRow.uid,
               workoutId: item.workoutId,
-              importJobId: null
+              importJobId
             }));
+          const chunkTargets = resolvedChunkItems.map((item) => ({
+            uid: item.preparedInsert.fileRow.uid,
+            workoutId: item.workoutId,
+            entryName: item.entryName,
+            validGps: !!item.validGps,
+            recomputeSegmentsFromDb: true,
+            hasSegments: false,
+            segmentPayloadPath: null
+          }));
+          resolvedPostprocessTargets.push(...chunkTargets);
+          await appendImportJobPostprocessTargets(importJobId, chunkTargets);
 
           const scheduleErrorsByEntry = new Map();
           const addScheduleError = (entryName, label, error) => {
@@ -324,8 +354,15 @@ router.post(
       await fs.rm(uploadedFile.path, { force: true }).catch(() => {});
 
       const elapsedMs = Date.now() - startedAt;
+      await updateImportJob(importJobId, {
+        status: "completed",
+        stage: "completed",
+        processedFiles: inserted.length,
+        failedFiles: skipped.length
+      });
       if (IMPORT_SYNC_PROFILE_LOG) {
         logImportEvent("woa-sync-import.profile", {
+          importJobId,
           sourceName: uploadedFile.originalname,
           totalEntries: woaEntries.length,
           importedEntries: inserted.length,
@@ -364,6 +401,7 @@ router.post(
       }
 
       logImportEvent("woa-sync-import.completed", {
+        importJobId,
         sourceName: uploadedFile.originalname,
         totalEntries: woaEntries.length,
         importedEntries: inserted.length,
@@ -372,6 +410,7 @@ router.post(
       });
 
       res.status(200).json({
+        importJobId,
         importedCount: inserted.length,
         skippedCount: skipped.length,
         totalEntries: woaEntries.length,

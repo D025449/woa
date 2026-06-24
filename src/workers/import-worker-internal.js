@@ -203,6 +203,83 @@ export async function createApp(options = {}) {
     return importPostprocessRuns.get(String(importJobId)) || null;
   }
 
+  function computeImportPostprocessExpectedCounts(targets = []) {
+    const expected = {
+      "segment-persist": 0,
+      similarity: 0,
+      "segment-best-efforts": 0
+    };
+
+    for (const target of Array.isArray(targets) ? targets : []) {
+      const shouldPersistSegments = !!target?.recomputeSegmentsFromDb || (!!target?.hasSegments && !!target?.segmentPayloadPath);
+      if (shouldPersistSegments) {
+        expected["segment-persist"] += 1;
+      }
+      if (target?.validGps) {
+        expected.similarity += 1;
+        expected["segment-best-efforts"] += 1;
+      }
+    }
+
+    return expected;
+  }
+
+  function syncImportPostprocessRunExpectations(run, targets = []) {
+    if (!run) {
+      return null;
+    }
+
+    const normalizedTargets = Array.isArray(targets) ? targets : [];
+    const expected = computeImportPostprocessExpectedCounts(normalizedTargets);
+    run.targetCount = Math.max(Number(run.targetCount || 0), normalizedTargets.length);
+
+    for (const [phaseType, expectedCount] of Object.entries(expected)) {
+      const phaseState = run.phases?.[phaseType];
+      if (!phaseState) {
+        continue;
+      }
+
+      if (expectedCount > Number(phaseState.expected || 0)) {
+        phaseState.expected = expectedCount;
+        if (!phaseState.completionResolved && (phaseState.completed + phaseState.failed) >= phaseState.expected) {
+          phaseState.completionResolved = true;
+          phaseState.wallCompletedAt = phaseState.wallCompletedAt || Date.now();
+          phaseState.resolveCompletion?.();
+        }
+      }
+    }
+
+    return run;
+  }
+
+  async function ensureImportPostprocessRun(importJobId, phaseType = null) {
+    if (!importJobId) {
+      return null;
+    }
+
+    const existingRun = getImportPostprocessRun(importJobId);
+    const shouldRefreshExisting = !!(
+      existingRun
+      && phaseType
+      && Number(existingRun?.phases?.[phaseType]?.expected || 0) === 0
+    );
+
+    if (existingRun && !shouldRefreshExisting) {
+      return existingRun;
+    }
+
+    const importJob = await getImportJobById(importJobId);
+    const targets = Array.isArray(importJob?.postprocessTargets)
+      ? importJob.postprocessTargets
+      : [];
+
+    if (existingRun) {
+      return syncImportPostprocessRunExpectations(existingRun, targets);
+    }
+
+    return registerImportPostprocessRun(importJobId, targets);
+  }
+
   function summarizeImportPostprocessPhase(phaseState) {
     const durations = [...phaseState.durationsMs].sort((a, b) => a - b);
     const successfulCount = Math.max(0, phaseState.completed);
@@ -261,12 +338,17 @@ export async function createApp(options = {}) {
       totalWallMs: Date.now() - run.startedAt,
       phases
     });
+    logPostProcessProfileEvent("import.wall.completed", {
+      importJobId: String(importJobId),
+      targetCount: run.targetCount,
+      totalWallMs: Date.now() - run.startedAt
+    });
 
     importPostprocessRuns.delete(String(importJobId));
   }
 
-  function recordImportPostprocessOutcome(importJobId, type, elapsedMs, metrics = {}, failed = false) {
-    const run = getImportPostprocessRun(importJobId);
+  async function recordImportPostprocessOutcome(importJobId, type, elapsedMs, metrics = {}, failed = false) {
+    const run = await ensureImportPostprocessRun(importJobId, type);
     if (!run) {
       return;
     }
@@ -277,8 +359,14 @@ export async function createApp(options = {}) {
     }
 
     if (failed) {
+      if (!phaseState.wallStartedAt) {
+        phaseState.wallStartedAt = Date.now();
+      }
       phaseState.failed += 1;
     } else {
+      if (!phaseState.wallStartedAt) {
+        phaseState.wallStartedAt = Date.now();
+      }
       phaseState.completed += 1;
       phaseState.totalMs += Number(elapsedMs || 0);
       phaseState.durationsMs.push(Number(elapsedMs || 0));
@@ -293,7 +381,14 @@ export async function createApp(options = {}) {
     const finishedCount = phaseState.completed + phaseState.failed;
     if (!phaseState.completionResolved && finishedCount >= phaseState.expected) {
       phaseState.completionResolved = true;
+      phaseState.wallCompletedAt = Date.now();
       phaseState.resolveCompletion?.();
+    }
+
+    if (phaseState.completionResolved && !phaseState.completedLogged) {
+      phaseState.completedLogged = true;
+      logImportPostprocessPhaseSummary(importJobId, type);
+      finalizeImportPostprocessRun(importJobId);
     }
 
   }
@@ -304,22 +399,7 @@ export async function createApp(options = {}) {
     }
 
     const normalizedImportJobId = String(importJobId);
-    const expected = {
-      "segment-persist": 0,
-      "similarity": 0,
-      "segment-best-efforts": 0
-    };
-
-    for (const target of Array.isArray(targets) ? targets : []) {
-      const shouldPersistSegments = !!target?.recomputeSegmentsFromDb || (!!target?.hasSegments && !!target?.segmentPayloadPath);
-      if (shouldPersistSegments) {
-        expected["segment-persist"] += 1;
-      }
-      if (target?.validGps) {
-        expected.similarity += 1;
-        expected["segment-best-efforts"] += 1;
-      }
-    }
+    const expected = computeImportPostprocessExpectedCounts(targets);
 
     const run = {
       importJobId: normalizedImportJobId,
@@ -962,7 +1042,7 @@ export async function createApp(options = {}) {
         rejectedByRouteBA: Number(similarityProfile.rejectedByRouteBA || 0),
         rejectedByScore: Number(similarityProfile.rejectedByScore || 0)
       });
-      recordImportPostprocessOutcome(importJobId, "similarity", elapsedMs, {
+      await recordImportPostprocessOutcome(importJobId, "similarity", elapsedMs, {
         edgeCount,
         candidateCount: Number(similarityProfile.candidateCount || 0),
         comparedCandidates: Number(similarityProfile.comparedCandidates || 0),
@@ -991,7 +1071,7 @@ export async function createApp(options = {}) {
         edgeCount
       };
     } catch (error) {
-      recordImportPostprocessOutcome(importJobId, "similarity", 0, {}, true);
+      await recordImportPostprocessOutcome(importJobId, "similarity", 0, {}, true);
       throw error;
     }
   }
@@ -1012,8 +1092,14 @@ export async function createApp(options = {}) {
     });
 
     try {
-      const matches = await SegmentDBService.rescanSegmentBestEffortsForWorkout(uid, workoutId);
-      const matchCount = Array.isArray(matches) ? matches.length : 0;
+      const segmentBestEffortsResult = await SegmentDBService.rescanSegmentBestEffortsForWorkout(uid, workoutId, {
+        includeProfile: true
+      });
+      const matches = Array.isArray(segmentBestEffortsResult?.matches)
+        ? segmentBestEffortsResult.matches
+        : [];
+      const segmentBestEffortsProfile = segmentBestEffortsResult?.profile || {};
+      const matchCount = matches.length;
       const elapsedMs = Date.now() - startedAt;
 
       await job.updateProgress({
@@ -1023,10 +1109,26 @@ export async function createApp(options = {}) {
       });
 
       recordPostprocessProfile("segment-best-efforts", elapsedMs, {
-        matchCount
+        matchCount,
+        loadWorkoutTrackMs: Number(segmentBestEffortsProfile.loadWorkoutTrackMs || 0),
+        buildBoundsMs: Number(segmentBestEffortsProfile.buildBoundsMs || 0),
+        loadSegmentCandidatesMs: Number(segmentBestEffortsProfile.loadSegmentCandidatesMs || 0),
+        matchSegmentsMs: Number(segmentBestEffortsProfile.matchSegmentsMs || 0),
+        loadWorkoutObjectMs: Number(segmentBestEffortsProfile.loadWorkoutObjectMs || 0),
+        persistBestEffortsMs: Number(segmentBestEffortsProfile.persistBestEffortsMs || 0),
+        candidateCount: Number(segmentBestEffortsProfile.candidateCount || 0),
+        rawMatchCount: Number(segmentBestEffortsProfile.rawMatchCount || 0)
       });
-      recordImportPostprocessOutcome(importJobId, "segment-best-efforts", elapsedMs, {
-        matchCount
+      await recordImportPostprocessOutcome(importJobId, "segment-best-efforts", elapsedMs, {
+        matchCount,
+        loadWorkoutTrackMs: Number(segmentBestEffortsProfile.loadWorkoutTrackMs || 0),
+        buildBoundsMs: Number(segmentBestEffortsProfile.buildBoundsMs || 0),
+        loadSegmentCandidatesMs: Number(segmentBestEffortsProfile.loadSegmentCandidatesMs || 0),
+        matchSegmentsMs: Number(segmentBestEffortsProfile.matchSegmentsMs || 0),
+        loadWorkoutObjectMs: Number(segmentBestEffortsProfile.loadWorkoutObjectMs || 0),
+        persistBestEffortsMs: Number(segmentBestEffortsProfile.persistBestEffortsMs || 0),
+        candidateCount: Number(segmentBestEffortsProfile.candidateCount || 0),
+        rawMatchCount: Number(segmentBestEffortsProfile.rawMatchCount || 0)
       });
 
       return {
@@ -1035,7 +1137,7 @@ export async function createApp(options = {}) {
         matchCount
       };
     } catch (error) {
-      recordImportPostprocessOutcome(importJobId, "segment-best-efforts", 0, {}, true);
+      await recordImportPostprocessOutcome(importJobId, "segment-best-efforts", 0, {}, true);
       throw error;
     }
   }
@@ -1152,7 +1254,7 @@ export async function createApp(options = {}) {
         statusUpdateMs,
         cleanupMs
       });
-      recordImportPostprocessOutcome(importJobId, "segment-persist", elapsedMs, {
+      await recordImportPostprocessOutcome(importJobId, "segment-persist", elapsedMs, {
         segmentCount: segments.length,
         dbReadMs,
         decompressMs,
@@ -1171,7 +1273,7 @@ export async function createApp(options = {}) {
         segmentCount: segments.length
       };
     } catch (error) {
-      recordImportPostprocessOutcome(importJobId, "segment-persist", 0, {}, true);
+      await recordImportPostprocessOutcome(importJobId, "segment-persist", 0, {}, true);
       await FileDBService.updateWorkoutSegmentProcessingStatus(
         uid,
         workoutId,

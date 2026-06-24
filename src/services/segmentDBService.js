@@ -158,10 +158,31 @@ export default class SegmentDBService {
   static matchSegments(workout, segments) {
     const results = [];
 
+    const normalizedWorkoutTrack = Array.isArray(workout?.track)
+      ? workout.track
+          .map((point) => {
+            if (Array.isArray(point)) {
+              return {
+                lat: Number(point[0]),
+                lng: Number(point[1])
+              };
+            }
+
+            return {
+              lat: Number(point?.lat),
+              lng: Number(point?.lng)
+            };
+          })
+          .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))
+      : [];
+
+    if (normalizedWorkoutTrack.length < 2) {
+      return results;
+    }
 
     const wotrack = {
       wid: workout.id,
-      track: workout.track.map(p => ({ lat: p[0], lng: p[1] })),
+      track: normalizedWorkoutTrack,
       sampleRate: workout.sampleRate
     }
 
@@ -1139,7 +1160,20 @@ export default class SegmentDBService {
     }));
   }
 
-  static async rescanSegmentBestEffortsForWorkout(uid, workoutId) {
+  static async rescanSegmentBestEffortsForWorkout(uid, workoutId, options = {}) {
+    const includeProfile = options?.includeProfile === true;
+    const profile = {
+      loadWorkoutTrackMs: 0,
+      buildBoundsMs: 0,
+      loadSegmentCandidatesMs: 0,
+      matchSegmentsMs: 0,
+      loadWorkoutObjectMs: 0,
+      persistBestEffortsMs: 0,
+      candidateCount: 0,
+      rawMatchCount: 0
+    };
+
+    const loadWorkoutTrackStartedAt = Date.now();
     const workoutRowResult = await pool.query(`
       SELECT
         id,
@@ -1151,23 +1185,27 @@ export default class SegmentDBService {
         AND uid = $2
       LIMIT 1
     `, [workoutId, uid]);
+    profile.loadWorkoutTrackMs += Date.now() - loadWorkoutTrackStartedAt;
 
     if (workoutRowResult.rowCount === 0) {
-      return [];
+      return includeProfile ? { matches: [], profile } : [];
     }
 
     const workoutRow = workoutRowResult.rows[0];
+    const decodeTrackStartedAt = Date.now();
     const decodedTrack = await GpsTrackBlobService.decodeRowTrack({
       gps_track_blob: workoutRow.gps_track_blob,
       gps_track_blob_codec: workoutRow.gps_track_blob_codec,
       samplerategps: workoutRow.samplerategps
     });
+    profile.loadWorkoutTrackMs += Date.now() - decodeTrackStartedAt;
     const track = decodedTrack.points;
 
     if (track.length === 0) {
-      return [];
+      return includeProfile ? { matches: [], profile } : [];
     }
 
+    const buildBoundsStartedAt = Date.now();
     const bounds = track.reduce((acc, point) => ({
       minLat: Math.min(acc.minLat, point.lat),
       maxLat: Math.max(acc.maxLat, point.lat),
@@ -1179,11 +1217,15 @@ export default class SegmentDBService {
       minLng: Infinity,
       maxLng: -Infinity
     });
+    profile.buildBoundsMs += Date.now() - buildBoundsStartedAt;
 
+    const loadSegmentCandidatesStartedAt = Date.now();
     const candidates = await SegmentDBService.getMatchingSegmentCandidatesV2(bounds, uid, workoutId);
+    profile.loadSegmentCandidatesMs += Date.now() - loadSegmentCandidatesStartedAt;
+    profile.candidateCount = Array.isArray(candidates) ? candidates.length : 0;
 
     if (candidates.length === 0) {
-      return [];
+      return includeProfile ? { matches: [], profile } : [];
     }
 
     const workout = {
@@ -1192,14 +1234,23 @@ export default class SegmentDBService {
       sampleRate: workoutRow.samplerategps
     };
 
+    const matchSegmentsStartedAt = Date.now();
     const matches = SegmentDBService.matchSegments(workout, candidates);
+    profile.matchSegmentsMs += Date.now() - matchSegmentsStartedAt;
+    profile.rawMatchCount = Array.isArray(matches) ? matches.length : 0;
     if (matches.length === 0) {
-      return [];
+      return includeProfile ? { matches: [], profile } : [];
     }
 
+    const loadWorkoutObjectStartedAt = Date.now();
     const workoutObject = await WorkoutDBService.getWorkout(workoutId);
+    profile.loadWorkoutObjectMs += Date.now() - loadWorkoutObjectStartedAt;
+
+    const persistBestEffortsStartedAt = Date.now();
     await SegmentDBService.storeSegmentBestEfforts(matches, workoutObject);
-    return matches;
+    profile.persistBestEffortsMs += Date.now() - persistBestEffortsStartedAt;
+
+    return includeProfile ? { matches, profile } : matches;
   }
 
   static async insertGpsSegmentsBulk(uid, segments) {

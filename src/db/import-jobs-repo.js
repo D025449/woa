@@ -120,3 +120,21 @@ export async function appendImportJobPostprocessTarget(id, target) {
         [JSON.stringify([target]), id]
     );
 }
+
+export async function appendImportJobPostprocessTargets(id, targets = []) {
+    const normalizedTargets = Array.isArray(targets) ? targets.filter(Boolean) : [];
+    if (!normalizedTargets.length) {
+        return;
+    }
+
+    await pool.query(
+        `
+        update import_jobs
+        set
+            postprocess_targets = coalesce(postprocess_targets, '[]'::jsonb) || $1::jsonb,
+            updated_at = now()
+        where id = $2
+        `,
+        [JSON.stringify(normalizedTargets), id]
+    );
+}
