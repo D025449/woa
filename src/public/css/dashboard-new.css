@@ -2145,27 +2145,47 @@ body.dashboard-page {
 }
 
 @media (max-width: 991.98px) {
+  .dashboard-shell {
+    gap: 1rem;
+  }
+
   .dashboard-hero {
     flex-direction: column;
     align-items: flex-start;
+    padding: 1rem 1rem 1.1rem;
+    border-radius: 1.25rem;
+    gap: 0.9rem;
+  }
+
+  .dashboard-title {
+    font-size: clamp(1.2rem, 4vw, 1.45rem);
+    line-height: 1.05;
   }
 
   .dashboard-hero-meta {
     justify-content: flex-start;
   }
 
+  .dashboard-quick-access__group {
+    align-items: flex-start;
+    gap: 0.35rem;
+  }
+
   .dashboard-master-detail {
     grid-template-columns: 1fr;
+    row-gap: 1rem;
   }
 
   .dashboard-detail-grid,
   .dashboard-master-detail .dashboard-detail-grid {
     grid-template-columns: 1fr;
     height: auto;
+    gap: 0.85rem;
   }
 
   .dashboard-detail-main-stack {
     grid-template-rows: auto;
+    gap: 0.85rem;
   }
 
   .dashboard-detail-splitter {
@@ -2182,16 +2202,20 @@ body.dashboard-page {
 
   .dashboard-mobile-library-toggle {
     display: inline-flex;
+    position: sticky;
+    top: 0;
+    z-index: 15;
+    margin-bottom: 0.85rem;
   }
 
   .dashboard-library-column {
     position: fixed;
-    top: 0;
+    top: var(--app-topbar-offset, 0px);
     left: 0;
-    bottom: 0;
+    bottom: 0.75rem;
     width: min(26rem, 100vw);
     z-index: 1060;
-    padding: 0.9rem;
+    padding: 0.75rem;
     transform: translateX(calc(-100% - 1rem));
     transition: transform 180ms ease;
     pointer-events: none;
@@ -2202,10 +2226,10 @@ body.dashboard-page {
     pointer-events: auto;
   }
 
-.dashboard-library-section {
+  .dashboard-library-section {
     position: relative;
     top: auto;
-    height: calc(100vh - 1.8rem);
+    height: calc(100dvh - var(--app-topbar-offset, 0px) - 1.5rem);
     display: flex;
     flex-direction: column;
     border-radius: var(--ui-card-radius-panel);
@@ -2229,7 +2253,7 @@ body.dashboard-page {
 
   .dashboard-mobile-library-backdrop {
     position: fixed;
-    inset: 0;
+    inset: var(--app-topbar-offset, 0px) 0 0 0;
     z-index: 1055;
     background: var(--ui-backdrop-dark);
     backdrop-filter: blur(4px);
@@ -2239,8 +2263,16 @@ body.dashboard-page {
     display: block;
   }
 
+  .dashboard-detail-panel .dashboard-surface-body {
+    overflow: visible;
+  }
+
   #workout-chart,
   #workout-map {
-    height: 460px !important;
+    height: 320px !important;
+  }
+
+  #workout-map {
+    height: 280px !important;
   }
 }
