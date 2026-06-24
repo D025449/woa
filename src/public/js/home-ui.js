@@ -5,6 +5,7 @@ import { createTranslator, getCurrentLocale } from "./i18n.js";
 document.addEventListener("DOMContentLoaded", async () => {
   const shellFrame = document.getElementById("home-shell-frame");
   const shell = document.getElementById("home-shell");
+  let currentDeviceProfile = window.getDeviceProfile?.() || window.__DEVICE_PROFILE__ || null;
   let layoutRaf = null;
   let layoutObserver = null;
 
@@ -24,7 +25,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     const paddingTop = containerStyles ? parseFloat(containerStyles.paddingTop || "0") : 0;
     const paddingBottom = containerStyles ? parseFloat(containerStyles.paddingBottom || "0") : 0;
     const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-    const availableHeight = Math.max(520, viewportHeight - reservedTopOffset - paddingTop - paddingBottom);
+    const isMobileLayout = !!currentDeviceProfile?.isMobileLayout;
+    const minHeight = isMobileLayout ? 0 : 520;
+    const availableHeight = Math.max(minHeight, viewportHeight - reservedTopOffset - paddingTop - paddingBottom);
 
     if (fixedTopbarOffset) {
       document.documentElement.style.setProperty("--app-topbar-offset", `${fixedTopbarOffset}px`);
@@ -33,6 +36,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     shellFrame.style.setProperty("--home-client-height", `${availableHeight}px`);
     shell.classList.add("home-shell--client");
+    shell.classList.toggle("home-shell--mobile-layout", isMobileLayout);
+    shellFrame.classList.toggle("home-shell-frame--mobile-layout", isMobileLayout);
   }
 
   function scheduleClientLayoutMeasure() {
@@ -121,6 +126,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   controller.registerEvents();
   window.addEventListener("resize", scheduleClientLayoutMeasure);
+  window.addEventListener("deviceprofilechange", (event) => {
+    currentDeviceProfile = event.detail || window.getDeviceProfile?.() || null;
+    scheduleClientLayoutMeasure();
+  });
 
   if (typeof ResizeObserver === "function") {
     const topbar = document.querySelector(".app-topbar");
