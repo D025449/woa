@@ -14,6 +14,7 @@ const processingPercentText = document.getElementById("processingPercentText");
 const processingDetailText = document.getElementById("processingDetailText");
 const uploadShell = document.getElementById("upload-shell");
 const i18nMessages = window.__I18N?.messages || {};
+const activeLocale = window.__I18N?.locale || navigator.language || "en";
 let latestGeneratedZipArtifact = null;
 let currentDeviceProfile = window.getDeviceProfile?.() || window.__DEVICE_PROFILE__ || null;
 
@@ -188,6 +189,22 @@ function formatBytes(bytes) {
 
 function formatMs(value) {
     return `${Number(value || 0).toFixed(1)} ms`;
+}
+
+function formatLocalDateTime(value) {
+    if (!value) {
+        return "";
+    }
+
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return String(value);
+    }
+
+    return new Intl.DateTimeFormat(activeLocale, {
+        dateStyle: "medium",
+        timeStyle: "short"
+    }).format(date);
 }
 
 function buildTimingLines(timings = {}) {
@@ -627,7 +644,7 @@ async function handleConvertSubmit(event) {
                     ? `
                         <div class="small mb-3 text-info">
                             Already existing workouts skipped before WOA build: ${escapeHtml(String(stats.skippedExistingEntries || skippedExisting.length))}<br>
-                            ${skippedExisting.slice(0, 10).map((item) => `${escapeHtml(item.entryName)}: ${escapeHtml(item.startTime || "")}`).join("<br>")}
+                            ${skippedExisting.slice(0, 10).map((item) => `${escapeHtml(item.entryName)}: ${escapeHtml(formatLocalDateTime(item.startTime || ""))}`).join("<br>")}
                             ${skippedExisting.length > 10 ? "<br>..." : ""}
                         </div>
                     `
