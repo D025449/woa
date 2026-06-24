@@ -2270,9 +2270,24 @@ body.dashboard-page {
   #workout-chart,
   #workout-map {
     height: 320px !important;
+    min-height: 320px;
   }
 
   #workout-map {
+    height: 280px !important;
+    min-height: 280px;
+  }
+
+  .dashboard-master-detail #workout-chart,
+  .dashboard-master-detail #workout-map {
+    height: auto !important;
+  }
+
+  .dashboard-master-detail #workout-chart {
+    height: 320px !important;
+  }
+
+  .dashboard-master-detail #workout-map {
     height: 280px !important;
   }
 }
