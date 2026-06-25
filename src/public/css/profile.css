@@ -6,13 +6,45 @@ body.profile-page {
   color: var(--ui-page-text);
 }
 
+.profile-shell {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.profile-hero {
+  padding: 1.2rem 1.35rem;
+}
+
+.profile-title {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .profile-subtitle {
   margin: 0.75rem 0 0;
   max-width: 44rem;
 }
 
+.profile-section-header {
+  align-items: flex-start;
+}
+
 .profile-form {
   padding: 1.2rem 1.35rem 1.35rem;
+}
+
+.profile-form .form-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.profile-form .form-control,
+.profile-form select.form-control {
+  border-radius: 0.95rem;
+  min-height: 2.8rem;
 }
 
 .profile-plans-grid {
@@ -139,6 +171,41 @@ body.profile-page {
 }
 
 @media (max-width: 992px) {
+  .profile-shell {
+    gap: 1rem;
+  }
+
+  .profile-hero {
+    padding: 1rem 1.05rem;
+  }
+
+  .profile-title {
+    font-size: clamp(1.45rem, 5vw, 1.95rem);
+    line-height: 1.02;
+  }
+
+  .profile-subtitle {
+    margin-top: 0.55rem;
+    font-size: 0.95rem;
+  }
+
+  .profile-section-header {
+    gap: 0.45rem;
+    padding: 0.95rem 1rem 0.85rem;
+  }
+
+  .profile-section-title {
+    font-size: 1rem;
+  }
+
+  .profile-section-copy {
+    font-size: 0.88rem;
+  }
+
+  .profile-form {
+    padding: 1rem;
+  }
+
   .profile-plans-grid {
     grid-template-columns: 1fr;
   }
@@ -150,5 +217,75 @@ body.profile-page {
   .profile-deletion-actions {
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .profile-hero {
+    padding: 0.85rem 0.95rem;
+  }
+
+  .profile-title {
+    font-size: clamp(1.25rem, 6vw, 1.6rem);
+  }
+
+  .profile-subtitle {
+    font-size: 0.9rem;
+    max-width: 100%;
+  }
+
+  .profile-section-header {
+    padding: 0.85rem 0.95rem 0.75rem;
+  }
+
+  .profile-form {
+    padding: 0.9rem 0.95rem 1rem;
+  }
+
+  .profile-form .row {
+    --bs-gutter-y: 0.75rem;
+  }
+
+  .profile-form .form-label {
+    font-size: 0.74rem;
+    letter-spacing: 0.05em;
+  }
+
+  .profile-form .form-control,
+  .profile-form select.form-control {
+    min-height: 2.65rem;
+    font-size: 0.95rem;
+  }
+
+  .profile-plan-card {
+    padding: 0.95rem;
+  }
+
+  .profile-plan-name {
+    font-size: 0.95rem;
+  }
+
+  .profile-plan-price {
+    font-size: 0.9rem;
+  }
+
+  .profile-plan-copy,
+  .profile-usage-meta,
+  .profile-deletion-status {
+    font-size: 0.84rem;
+  }
+
+  .profile-plan-features {
+    font-size: 0.8rem;
+  }
+
+  .profile-deletion-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .profile-deletion-actions .btn,
+  .profile-form .btn {
+    width: 100%;
   }
 }
