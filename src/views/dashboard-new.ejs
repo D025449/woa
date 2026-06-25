@@ -72,6 +72,19 @@
                     </button>
                     <div class="dashboard-library-column">
                         <section class="dashboard-section dashboard-library-section">
+                            <div class="dashboard-mobile-library-header">
+                                <div>
+                                    <span class="dashboard-eyebrow"><%= t("dashboardNewPage.libraryTitle") %></span>
+                                    <h2 class="dashboard-section-title mb-0"><%= t("dashboardNewPage.libraryTitle") %></h2>
+                                </div>
+                                <button
+                                    id="dashboard-mobile-library-close"
+                                    class="dashboard-mobile-library-close"
+                                    type="button"
+                                    aria-label="<%= t('dashboardNewPage.mobileLibraryClose') %>">
+                                    <span aria-hidden="true">×</span>
+                                </button>
+                            </div>
                             <div class="dashboard-table-body">
                                 <div class="workout-library-toolbar">
                                     <div id="workout-library-bulk-bar" class="workout-library-bulk-bar d-none">

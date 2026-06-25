@@ -63,6 +63,7 @@ export default class Controller {
     this.gpsCopyStatusElement = document.getElementById("dashboard-gps-copy-status");
     this.gpsCopyCandidatesElement = document.getElementById("dashboard-gps-copy-candidates");
     this.mobileLibraryToggle = document.getElementById("dashboard-mobile-library-toggle");
+    this.mobileLibraryCloseButton = document.getElementById("dashboard-mobile-library-close");
     this.mobileLibraryBackdrop = document.getElementById("dashboard-mobile-library-backdrop");
     this.map3dToggleButton = document.getElementById("dashboard-map-3d-toggle");
     this.libraryColumn = document.querySelector(".dashboard-library-column");
@@ -331,6 +332,7 @@ export default class Controller {
   registerEvents() {
     window.addEventListener("resize", () => this.onResize());
     this.mobileLibraryToggle?.addEventListener("click", () => this.toggleMobileLibrary());
+    this.mobileLibraryCloseButton?.addEventListener("click", () => this.closeMobileLibrary());
     this.mobileLibraryBackdrop?.addEventListener("click", () => this.closeMobileLibrary());
     this.libraryScrollElement?.addEventListener("scroll", () => {
       this.libraryScrollTop = this.libraryScrollElement.scrollTop;
@@ -635,6 +637,12 @@ export default class Controller {
     );
 
     if (event.key === "Escape" && !isTypingContext) {
+      if (this.isMobileLibraryOpen) {
+        this.closeMobileLibrary();
+        event.preventDefault();
+        return;
+      }
+
       if (this.libraryView.handleEscape()) {
         event.preventDefault();
       }

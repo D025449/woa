@@ -2117,6 +2117,10 @@ body.dashboard-page {
   display: none;
 }
 
+.dashboard-mobile-library-header {
+  display: none;
+}
+
 .dashboard-surface {
   background: var(--ui-bg-surface-gradient);
 }
@@ -2248,6 +2252,34 @@ body.dashboard-page {
   .dashboard-library-column.is-open {
     transform: translateX(0);
     pointer-events: auto;
+  }
+
+  .dashboard-mobile-library-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.9rem 1rem 0.55rem;
+    border-bottom: 1px solid var(--ui-divider-color);
+    background: linear-gradient(180deg, var(--ui-bg-subtle), var(--ui-bg-panel-soft));
+    border-top-left-radius: inherit;
+    border-top-right-radius: inherit;
+  }
+
+  .dashboard-mobile-library-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.2rem;
+    height: 2.2rem;
+    border: 1px solid var(--ui-card-border-soft);
+    border-radius: 999px;
+    background: var(--ui-bg-panel);
+    color: var(--ui-text-strong);
+    font-size: 1.4rem;
+    line-height: 1;
+    padding: 0;
+    flex: 0 0 auto;
   }
 
   .dashboard-library-section {
