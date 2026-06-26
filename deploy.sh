@@ -16,6 +16,13 @@ log() {
   echo "[deploy] $*"
 }
 
+log_runtime_versions() {
+  log "Runtime versions"
+  log "node=$(node -v) path=$(command -v node)"
+  log "npm=$(npm -v) path=$(command -v npm)"
+  log "pm2=$(pm2 -v) path=$(command -v pm2)"
+}
+
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "Missing required command: $1" >&2
@@ -175,6 +182,7 @@ main() {
 
   cd "${APP_DIR}" || exit 1
 
+  log_runtime_versions
   load_env_file
   ensure_valkey
   run_pull_and_install
