@@ -436,6 +436,10 @@ body.home-page.has-fixed-app-topbar {
   }
 
   .home-tile__icon {
+    display: none;
+  }
+
+  .home-tile__icon {
     width: 3.7rem;
     height: 3.7rem;
     margin-bottom: 0.8rem;

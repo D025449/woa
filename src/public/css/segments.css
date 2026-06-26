@@ -1272,7 +1272,119 @@ body.segments-page {
         display: none !important;
     }
 
+    .segments-map-panel > .segments-section-header,
+    .segments-detail-surface > .segments-section-header {
+        padding: 0.8rem 0.85rem 0.75rem;
+    }
+
+    .segments-map-panel > .segments-section-header {
+        align-items: flex-start;
+    }
+
+    .segments-map-panel > .segments-section-header > :first-child {
+        display: none;
+    }
+
+    #segments-map-header-toolbar,
+    .segments-detail-surface > .segments-section-header > .segments-toolbar {
+        gap: 0.4rem;
+    }
+
+    #segments-map-header-toolbar {
+        width: 100%;
+        justify-content: flex-start;
+        align-items: flex-start;
+    }
+
+    .segments-map-header-toolbar-main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto auto;
+        align-items: center;
+        gap: 0.35rem;
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+
+    .segments-toolbar .btn,
+    .segments-map-scope-toggle .btn,
+    .segments-map-actions-menu__trigger,
+    .segments-detail-actions-menu__trigger {
+        min-height: 1.95rem;
+        padding-inline: 0.58rem;
+        font-size: 0.7rem;
+    }
+
+    .segments-map-create-toggle,
+    .segments-favorite-filter,
+    .segments-favorite-toggle,
+    .segments-detail-nav__button {
+        width: 1.95rem;
+        height: 1.95rem;
+    }
+
+    .segments-map-create-toggle svg,
+    .segments-favorite-filter svg {
+        width: 0.92rem;
+        height: 0.92rem;
+    }
+
+    .segments-map-scope-toggle {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .segments-map-scope-toggle .btn {
+        min-width: 0;
+        padding-inline: 0.42rem;
+        font-size: 0.66rem;
+        letter-spacing: 0.01em;
+    }
+
+    .segments-map-lookup-inline,
+    #segments-map-3d-toggle {
+        white-space: nowrap;
+    }
+
+    .segments-map-actions-menu__trigger span,
+    .segments-detail-actions-menu__trigger span {
+        font-size: 0.66rem;
+        letter-spacing: 0.12em;
+    }
+
+    .segments-detail-heading {
+        gap: 0.55rem;
+    }
+
+    .segments-detail-heading__icon {
+        display: none;
+    }
+
+    .segments-detail-heading__icon {
+        width: 1.85rem;
+        height: 1.85rem;
+        border-radius: 0.8rem;
+    }
+
+    .segments-detail-heading__icon svg {
+        width: 1.05rem;
+        height: 1.05rem;
+    }
+
+    .segments-detail-heading__title {
+        font-size: 0.92rem;
+    }
+
+    .segments-detail-heading__meta {
+        font-size: 0.76rem;
+    }
+
+    #segment-elevation-chart,
+    #segment-elevation-empty {
+        height: 200px !important;
+        min-height: 200px !important;
+    }
+
     #workout-map {
-        height: 460px !important;
+        height: 305px !important;
     }
 }
