@@ -6,12 +6,128 @@ const UINT16_NAN = 0xFFFF;
 const UINT32_NAN = 0xFFFFFFFF;
 const INT16_NAN = -0x8000;
 const INT32_NAN = -0x80000000;
-const MICRO_DEGREES = 1e7;
+const MICRO_DEGREES = 1e6;
+const ALTITUDE_SCALE = 4;
+const DISTANCE_SCALE = 4;
 const TEXT_DECODER = new TextDecoder();
+const SESSION_TIME_SCALE = 100;
+const SESSION_DISTANCE_SCALE = 10;
+const SESSION_ASCENT_SCALE = 10;
+const SESSION_SPEED_SCALE = 100;
+const SESSION_COORD_SCALE = 1e7;
+const SESSION_SPEC = [
+  { key: "timestamp", type: "time" },
+  { key: "start_time", type: "time" },
+  { key: "total_elapsed_time", type: "scaled-uint32", scale: SESSION_TIME_SCALE },
+  { key: "total_timer_time", type: "scaled-uint32", scale: SESSION_TIME_SCALE },
+  { key: "total_distance", type: "scaled-uint32", scale: SESSION_DISTANCE_SCALE },
+  { key: "total_cycles", type: "uint32" },
+  { key: "total_work", type: "uint32" },
+  { key: "total_calories", type: "uint32" },
+  { key: "total_ascent", type: "scaled-uint32", scale: SESSION_ASCENT_SCALE },
+  { key: "total_descent", type: "scaled-uint32", scale: SESSION_ASCENT_SCALE },
+  { key: "avg_speed", type: "scaled-uint16", scale: SESSION_SPEED_SCALE },
+  { key: "avg_power", type: "uint16" },
+  { key: "avg_heart_rate", type: "uint8" },
+  { key: "avg_cadence", type: "uint8" },
+  { key: "normalized_power", type: "uint16" },
+  { key: "max_speed", type: "scaled-uint16", scale: SESSION_SPEED_SCALE },
+  { key: "max_power", type: "uint16" },
+  { key: "max_heart_rate", type: "uint8" },
+  { key: "max_cadence", type: "uint8" },
+  { key: "nec_lat", type: "coord" },
+  { key: "nec_long", type: "coord" },
+  { key: "swc_lat", type: "coord" },
+  { key: "swc_long", type: "coord" },
+  { key: "woa_manual_gps", type: "bool" }
+];
 
 function readJsonBlock(bytes, offset, length) {
   const slice = bytes.subarray(offset, offset + length);
   return JSON.parse(TEXT_DECODER.decode(slice));
+}
+
+function decodeSessionBlock(bytes, offset, length) {
+  if (length <= 0) {
+    return [];
+  }
+
+  const slice = bytes.subarray(offset, offset + length);
+  const magic = TEXT_DECODER.decode(slice.subarray(0, Math.min(4, slice.byteLength)));
+  if (magic !== "SES1") {
+    const parsed = JSON.parse(TEXT_DECODER.decode(slice));
+    return Array.isArray(parsed) ? parsed : [];
+  }
+
+  const view = new DataView(slice.buffer, slice.byteOffset, slice.byteLength);
+  const recordSize = view.getUint16(6, true);
+  const sessionCount = view.getUint32(8, true);
+  let readOffset = 12;
+  const sessions = [];
+
+  for (let index = 0; index < sessionCount; index += 1) {
+    const session = {};
+    for (const field of SESSION_SPEC) {
+      switch (field.type) {
+        case "time": {
+          const raw = view.getUint32(readOffset, true);
+          readOffset += 4;
+          session[field.key] = raw === UINT32_NAN ? null : new Date(raw * 1000).toISOString();
+          break;
+        }
+        case "scaled-uint32": {
+          const raw = view.getUint32(readOffset, true);
+          readOffset += 4;
+          session[field.key] = raw === UINT32_NAN ? null : raw / field.scale;
+          break;
+        }
+        case "uint32": {
+          const raw = view.getUint32(readOffset, true);
+          readOffset += 4;
+          session[field.key] = raw === UINT32_NAN ? null : raw;
+          break;
+        }
+        case "scaled-uint16": {
+          const raw = view.getUint16(readOffset, true);
+          readOffset += 2;
+          session[field.key] = raw === UINT16_NAN ? null : raw / field.scale;
+          break;
+        }
+        case "uint16": {
+          const raw = view.getUint16(readOffset, true);
+          readOffset += 2;
+          session[field.key] = raw === UINT16_NAN ? null : raw;
+          break;
+        }
+        case "uint8": {
+          const raw = view.getUint8(readOffset);
+          readOffset += 1;
+          session[field.key] = raw === UINT8_NAN ? null : raw;
+          break;
+        }
+        case "coord": {
+          const raw = view.getInt32(readOffset, true);
+          readOffset += 4;
+          session[field.key] = raw === INT32_NAN ? null : raw / SESSION_COORD_SCALE;
+          break;
+        }
+        case "bool":
+          session[field.key] = view.getUint8(readOffset) === 1;
+          readOffset += 1;
+          break;
+        default:
+          break;
+      }
+    }
+
+    sessions.push(session);
+    const expectedOffset = 12 + ((index + 1) * recordSize);
+    if (readOffset < expectedOffset) {
+      readOffset = expectedOffset;
+    }
+  }
+
+  return sessions;
 }
 
 export function inspectWoa1Header(buffer) {
@@ -48,14 +164,14 @@ function decodeDistancePayload(bytes, recordCount) {
     if (mode === 1) {
       let current = view.getUint32(offset, true);
       offset += 4;
-      values[writeIndex] = current === UINT32_NAN ? Number.NaN : current / 10;
+      values[writeIndex] = current === UINT32_NAN ? Number.NaN : current / DISTANCE_SCALE;
       writeIndex += 1;
 
       for (let i = 1; i < count && writeIndex < recordCount; i += 1) {
         const delta = view.getInt16(offset, true);
         offset += 2;
         current += delta;
-        values[writeIndex] = current === UINT32_NAN ? Number.NaN : current / 10;
+        values[writeIndex] = current === UINT32_NAN ? Number.NaN : current / DISTANCE_SCALE;
         writeIndex += 1;
       }
       continue;
@@ -64,7 +180,7 @@ function decodeDistancePayload(bytes, recordCount) {
     for (let i = 0; i < count && writeIndex < recordCount; i += 1) {
       const raw = view.getUint32(offset, true);
       offset += 4;
-      values[writeIndex] = raw === UINT32_NAN ? Number.NaN : raw / 10;
+      values[writeIndex] = raw === UINT32_NAN ? Number.NaN : raw / DISTANCE_SCALE;
       writeIndex += 1;
     }
   }
@@ -72,7 +188,7 @@ function decodeDistancePayload(bytes, recordCount) {
   return values;
 }
 
-function decodeGpsCoordinatePayload(bytes, pointCount) {
+function decodeGpsCoordinatePayload(bytes, pointCount, layoutVersion = 1) {
   const latitudes = new Float64Array(pointCount);
   const longitudes = new Float64Array(pointCount);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -83,6 +199,44 @@ function decodeGpsCoordinatePayload(bytes, pointCount) {
     const mode = view.getUint8(offset);
     const count = view.getUint16(offset + 1, true);
     offset += 3;
+
+    if (layoutVersion >= 2) {
+      if (mode === 1) {
+        let currentLat = view.getInt32(offset, true);
+        offset += 4;
+        latitudes[writeIndex] = currentLat === INT32_NAN ? Number.NaN : currentLat / MICRO_DEGREES;
+        for (let i = 1; i < count && (writeIndex + i) < pointCount; i += 1) {
+          currentLat += view.getInt16(offset, true);
+          offset += 2;
+          latitudes[writeIndex + i] = currentLat === INT32_NAN ? Number.NaN : currentLat / MICRO_DEGREES;
+        }
+
+        let currentLng = view.getInt32(offset, true);
+        offset += 4;
+        longitudes[writeIndex] = currentLng === INT32_NAN ? Number.NaN : currentLng / MICRO_DEGREES;
+        for (let i = 1; i < count && (writeIndex + i) < pointCount; i += 1) {
+          currentLng += view.getInt16(offset, true);
+          offset += 2;
+          longitudes[writeIndex + i] = currentLng === INT32_NAN ? Number.NaN : currentLng / MICRO_DEGREES;
+        }
+
+        writeIndex += count;
+        continue;
+      }
+
+      for (let i = 0; i < count && (writeIndex + i) < pointCount; i += 1) {
+        const rawLat = view.getInt32(offset, true);
+        offset += 4;
+        latitudes[writeIndex + i] = rawLat === INT32_NAN ? Number.NaN : rawLat / MICRO_DEGREES;
+      }
+      for (let i = 0; i < count && (writeIndex + i) < pointCount; i += 1) {
+        const rawLng = view.getInt32(offset, true);
+        offset += 4;
+        longitudes[writeIndex + i] = rawLng === INT32_NAN ? Number.NaN : rawLng / MICRO_DEGREES;
+      }
+      writeIndex += count;
+      continue;
+    }
 
     if (mode === 1) {
       let currentLat = view.getInt32(offset, true);
@@ -177,7 +331,7 @@ function decodeWorkoutStreamBlock(bytes) {
   const altitudesM = new Float64Array(recordCount);
   for (let i = 0; i < recordCount; i += 1) {
     const raw = view.getInt16(offset + (i * 2), true);
-    altitudesM[i] = raw === INT16_NAN ? Number.NaN : raw / 10;
+    altitudesM[i] = raw === INT16_NAN ? Number.NaN : raw / ALTITUDE_SCALE;
   }
   offset += lengths[5];
 
@@ -235,11 +389,12 @@ function decodeGpsTrackBlock(bytes) {
     throw new Error(`Unsupported GPS track block: ${magic}`);
   }
 
+  const layoutVersion = view.getUint16(4, true) || 1;
   const sampleRateSeconds = view.getUint16(6, true);
   const pointCount = view.getUint32(8, true);
   const firstTimestampMs = view.getFloat64(12, true);
   const payload = bytes.subarray(20);
-  const { latitudes, longitudes } = decodeGpsCoordinatePayload(payload, pointCount);
+  const { latitudes, longitudes } = decodeGpsCoordinatePayload(payload, pointCount, layoutVersion);
   const track = [];
 
   let minLat = Infinity;
@@ -285,7 +440,7 @@ export async function decodeWoa1Buffer(buffer) {
   let offset = headerLength;
   const meta = readJsonBlock(bytes, offset, metaLength);
   offset += metaLength;
-  const sessions = readJsonBlock(bytes, offset, sessionLength);
+  const sessions = decodeSessionBlock(bytes, offset, sessionLength);
   offset += sessionLength;
   const workoutStreamStoredBytes = bytes.slice(offset, offset + workoutStreamLength);
   offset += workoutStreamLength;
@@ -359,7 +514,7 @@ export function decodeWoa1BufferLight(buffer) {
   let offset = headerLength;
   const meta = readJsonBlock(bytes, offset, metaLength);
   offset += metaLength;
-  const sessions = readJsonBlock(bytes, offset, sessionLength);
+  const sessions = decodeSessionBlock(bytes, offset, sessionLength);
   offset += sessionLength;
   const workoutStreamStoredBytes = bytes.slice(offset, offset + workoutStreamLength);
   offset += workoutStreamLength;

@@ -2,7 +2,7 @@ import Workout from "../shared/Workout.js";
 
 const GPS_TRACK_BLOB_VERSION = 1;
 const GPS_TRACK_BLOB_SCALE = 100000;
-const GPS2_COORDINATE_SCALE = 10000000;
+const GPS2_COORDINATE_SCALE = 1000000;
 const GPS_TRACK_BLOB_HEADER_BYTES = 32;
 const GPS2_HEADER_BYTES = 20;
 const DELTA_BLOCK_SIZE = 128;
@@ -130,7 +130,7 @@ function buildGpsCoordinatePayload(points) {
   return payload;
 }
 
-function decodeGpsCoordinatePayload(bytes, pointCount) {
+function decodeGpsCoordinatePayload(bytes, pointCount, layoutVersion = 1) {
   const latitudes = new Float64Array(pointCount);
   const longitudes = new Float64Array(pointCount);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -141,6 +141,44 @@ function decodeGpsCoordinatePayload(bytes, pointCount) {
     const mode = view.getUint8(offset);
     const count = view.getUint16(offset + 1, true);
     offset += 3;
+
+    if (layoutVersion >= 2) {
+      if (mode === 1) {
+        let currentLat = view.getInt32(offset, true);
+        offset += 4;
+        latitudes[writeIndex] = currentLat === INT32_NAN ? Number.NaN : currentLat / GPS2_COORDINATE_SCALE;
+        for (let i = 1; i < count && (writeIndex + i) < pointCount; i += 1) {
+          currentLat += view.getInt16(offset, true);
+          offset += 2;
+          latitudes[writeIndex + i] = currentLat === INT32_NAN ? Number.NaN : currentLat / GPS2_COORDINATE_SCALE;
+        }
+
+        let currentLng = view.getInt32(offset, true);
+        offset += 4;
+        longitudes[writeIndex] = currentLng === INT32_NAN ? Number.NaN : currentLng / GPS2_COORDINATE_SCALE;
+        for (let i = 1; i < count && (writeIndex + i) < pointCount; i += 1) {
+          currentLng += view.getInt16(offset, true);
+          offset += 2;
+          longitudes[writeIndex + i] = currentLng === INT32_NAN ? Number.NaN : currentLng / GPS2_COORDINATE_SCALE;
+        }
+
+        writeIndex += count;
+        continue;
+      }
+
+      for (let i = 0; i < count && (writeIndex + i) < pointCount; i += 1) {
+        const rawLat = view.getInt32(offset, true);
+        offset += 4;
+        latitudes[writeIndex + i] = rawLat === INT32_NAN ? Number.NaN : rawLat / GPS2_COORDINATE_SCALE;
+      }
+      for (let i = 0; i < count && (writeIndex + i) < pointCount; i += 1) {
+        const rawLng = view.getInt32(offset, true);
+        offset += 4;
+        longitudes[writeIndex + i] = rawLng === INT32_NAN ? Number.NaN : rawLng / GPS2_COORDINATE_SCALE;
+      }
+      writeIndex += count;
+      continue;
+    }
 
     if (mode === 1) {
       let currentLat = view.getInt32(offset, true);
@@ -389,11 +427,12 @@ export default class GpsTrackBlobService {
       throw new Error(`Unsupported GPS track block: ${magic}`);
     }
 
+    const layoutVersion = view.getUint16(4, true) || 1;
     const sampleRateSeconds = view.getUint16(6, true) || 1;
     const pointCount = view.getUint32(8, true);
     const firstTimestampMs = view.getFloat64(12, true);
     const payload = source.subarray(GPS2_HEADER_BYTES);
-    const { latitudes, longitudes } = decodeGpsCoordinatePayload(payload, pointCount);
+    const { latitudes, longitudes } = decodeGpsCoordinatePayload(payload, pointCount, layoutVersion);
     const points = [];
 
     let minLat = Infinity;

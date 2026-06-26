@@ -241,6 +241,20 @@ function buildTimingLines(timings = {}) {
         .join("<br>");
 }
 
+function buildWorkoutStreamStatLines(stats = {}) {
+    if (!stats || typeof stats !== "object") {
+        return "";
+    }
+
+    const fallbackWorkoutCount = Number(stats.fallbackWorkoutCount || 0);
+    const fallbackRecordCount = Number(stats.fallbackRecordCount || 0);
+
+    return [
+        `Workouts mit Speed-Fallback: ${escapeHtml(String(fallbackWorkoutCount))}`,
+        `Records mit Speed-Fallback: ${escapeHtml(String(fallbackRecordCount))}`
+    ].join("<br>");
+}
+
 function buildIterationSuffix(data) {
     const iteration = Number(data?.iteration || 0);
     const totalIterations = Number(data?.totalIterations || 0);
@@ -681,6 +695,7 @@ async function handleConvertSubmit(event) {
                         <div class="small mb-3">
                             Average parse FIT: ${escapeHtml(formatMs(timings.parseMs))}<br>
                             Average build WOA1: ${escapeHtml(formatMs(timings.buildWoaMs))}<br>
+                            ${buildWorkoutStreamStatLines(timings.workoutStreamStats) ? `${buildWorkoutStreamStatLines(timings.workoutStreamStats)}<br>` : ""}
                             ${buildTimingLines(timings.buildWoaStepsMs) ? `${buildTimingLines(timings.buildWoaStepsMs)}<br>` : ""}
                             Build output ZIP: ${escapeHtml(formatMs(timings.zipBuildMs))}<br>
                             Total worker time: ${escapeHtml(formatMs(timings.totalMs))}

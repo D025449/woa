@@ -4,12 +4,66 @@ const UINT16_NAN = 0xFFFF;
 const UINT32_NAN = 0xFFFFFFFF;
 const INT16_NAN = -0x8000;
 const INT32_NAN = -0x80000000;
-const MICRO_DEGREES = 1e7;
+const MICRO_DEGREES = 1e6;
 const DELTA_BLOCK_SIZE = 128;
 const DEFAULT_STREAM_CODEC = "gzip";
 const DEFAULT_GPS_TRACK_CODEC = "gzip";
 const DEFAULT_STREAM_GZIP_LEVEL = 4;
 const DEFAULT_GPS_GZIP_LEVEL = 4;
+const ALTITUDE_SCALE = 4;
+const DISTANCE_SCALE = 4;
+const SESSION_BLOCK_VERSION = 1;
+const SESSION_TIME_SCALE = 100;
+const SESSION_DISTANCE_SCALE = 10;
+const SESSION_ASCENT_SCALE = 10;
+const SESSION_SPEED_SCALE = 100;
+const SESSION_COORD_SCALE = 1e7;
+const SESSION_SPEC = [
+  { key: "timestamp", type: "time" },
+  { key: "start_time", type: "time" },
+  { key: "total_elapsed_time", type: "scaled-uint32", scale: SESSION_TIME_SCALE },
+  { key: "total_timer_time", type: "scaled-uint32", scale: SESSION_TIME_SCALE },
+  { key: "total_distance", type: "scaled-uint32", scale: SESSION_DISTANCE_SCALE },
+  { key: "total_cycles", type: "uint32" },
+  { key: "total_work", type: "uint32" },
+  { key: "total_calories", type: "uint32" },
+  { key: "total_ascent", type: "scaled-uint32", scale: SESSION_ASCENT_SCALE },
+  { key: "total_descent", type: "scaled-uint32", scale: SESSION_ASCENT_SCALE },
+  { key: "avg_speed", type: "scaled-uint16", scale: SESSION_SPEED_SCALE },
+  { key: "avg_power", type: "uint16" },
+  { key: "avg_heart_rate", type: "uint8" },
+  { key: "avg_cadence", type: "uint8" },
+  { key: "normalized_power", type: "uint16" },
+  { key: "max_speed", type: "scaled-uint16", scale: SESSION_SPEED_SCALE },
+  { key: "max_power", type: "uint16" },
+  { key: "max_heart_rate", type: "uint8" },
+  { key: "max_cadence", type: "uint8" },
+  { key: "nec_lat", type: "coord" },
+  { key: "nec_long", type: "coord" },
+  { key: "swc_lat", type: "coord" },
+  { key: "swc_long", type: "coord" },
+  { key: "woa_manual_gps", type: "bool" }
+];
+
+function getSessionRecordSize() {
+  return SESSION_SPEC.reduce((size, field) => {
+    switch (field.type) {
+      case "uint8":
+      case "bool":
+        return size + 1;
+      case "uint16":
+      case "scaled-uint16":
+        return size + 2;
+      case "uint32":
+      case "scaled-uint32":
+      case "time":
+      case "coord":
+        return size + 4;
+      default:
+        return size;
+    }
+  }, 0);
+}
 
 function nowMs() {
   if (typeof performance !== "undefined" && typeof performance.now === "function") {
@@ -22,12 +76,128 @@ function encodeJson(value) {
   return textEncoder.encode(JSON.stringify(value));
 }
 
+function encodeSessionTime(value) {
+  const timestampMs = typeof value === "string" || value instanceof Date
+    ? new Date(value).getTime()
+    : Number(value);
+  if (!Number.isFinite(timestampMs) || timestampMs < 0) {
+    return UINT32_NAN;
+  }
+  return Math.max(0, Math.min(UINT32_NAN - 1, Math.round(timestampMs / 1000)));
+}
+
+function encodeScaledUint32(value, scale) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return UINT32_NAN;
+  }
+  return Math.max(0, Math.min(UINT32_NAN - 1, Math.round(numeric * scale)));
+}
+
+function encodeScaledUint16(value, scale) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return UINT16_NAN;
+  }
+  return Math.max(0, Math.min(UINT16_NAN - 1, Math.round(numeric * scale)));
+}
+
+function encodeSessionCoord(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return INT32_NAN;
+  }
+  return Math.max(INT32_NAN + 1, Math.min(0x7FFFFFFF, Math.round(numeric * SESSION_COORD_SCALE)));
+}
+
+function encodeSessionBlock(sessions = []) {
+  const normalizedSessions = Array.isArray(sessions) ? sessions : [];
+  const recordSize = getSessionRecordSize();
+  const headerBytes = 4 + 2 + 2 + 4;
+  const buffer = new ArrayBuffer(headerBytes + (normalizedSessions.length * recordSize));
+  const bytes = new Uint8Array(buffer);
+  const view = new DataView(buffer);
+
+  bytes.set(textEncoder.encode("SES1"), 0);
+  view.setUint16(4, SESSION_BLOCK_VERSION, true);
+  view.setUint16(6, recordSize, true);
+  view.setUint32(8, normalizedSessions.length, true);
+
+  let offset = headerBytes;
+  for (const session of normalizedSessions) {
+    for (const field of SESSION_SPEC) {
+      const value = session?.[field.key];
+      switch (field.type) {
+        case "time":
+          view.setUint32(offset, encodeSessionTime(value), true);
+          offset += 4;
+          break;
+        case "scaled-uint32":
+          view.setUint32(offset, encodeScaledUint32(value, field.scale), true);
+          offset += 4;
+          break;
+        case "uint32": {
+          const numeric = Number(value);
+          view.setUint32(
+            offset,
+            Number.isFinite(numeric) && numeric >= 0
+              ? Math.max(0, Math.min(UINT32_NAN - 1, Math.round(numeric)))
+              : UINT32_NAN,
+            true
+          );
+          offset += 4;
+          break;
+        }
+        case "scaled-uint16":
+          view.setUint16(offset, encodeScaledUint16(value, field.scale), true);
+          offset += 2;
+          break;
+        case "uint16": {
+          const numeric = Number(value);
+          view.setUint16(
+            offset,
+            Number.isFinite(numeric) && numeric >= 0
+              ? Math.max(0, Math.min(UINT16_NAN - 1, Math.round(numeric)))
+              : UINT16_NAN,
+            true
+          );
+          offset += 2;
+          break;
+        }
+        case "uint8": {
+          const numeric = Number(value);
+          view.setUint8(
+            offset,
+            Number.isFinite(numeric) && numeric >= 0
+              ? Math.max(0, Math.min(UINT8_NAN - 1, Math.round(numeric)))
+              : UINT8_NAN
+          );
+          offset += 1;
+          break;
+        }
+        case "coord":
+          view.setInt32(offset, encodeSessionCoord(value), true);
+          offset += 4;
+          break;
+        case "bool":
+          view.setUint8(offset, value === true || Number(value) === 1 ? 1 : 0);
+          offset += 1;
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  return bytes;
+}
+
 function buildDistancePayload(recordsTyped, recordCount) {
   const values = new Uint32Array(recordCount);
   for (let index = 0; index < recordCount; index += 1) {
     const value = Number(recordsTyped.distancesM[index]);
     values[index] = Number.isFinite(value)
-      ? Math.max(0, Math.min(UINT32_NAN - 1, Math.round(value * 10)))
+      ? Math.max(0, Math.min(UINT32_NAN - 1, Math.round(value * DISTANCE_SCALE)))
       : UINT32_NAN;
   }
 
@@ -125,18 +295,23 @@ function buildGpsCoordinatePayload(points) {
     }
 
     if (canDeltaEncode) {
-      const chunk = new Uint8Array(1 + 2 + 4 + 4 + Math.max(0, count - 1) * 4);
+      const chunk = new Uint8Array(1 + 2 + 4 + Math.max(0, count - 1) * 2 + 4 + Math.max(0, count - 1) * 2);
       const view = new DataView(chunk.buffer);
       chunk[0] = 1;
       view.setUint16(1, count, true);
       view.setInt32(3, quantized[start].lat, true);
-      view.setInt32(7, quantized[start].lng, true);
-      let offset = 11;
+      let offset = 7;
       for (let index = 1; index < count; index += 1) {
         const current = quantized[start + index];
         const previous = quantized[start + index - 1];
         view.setInt16(offset, current.lat - previous.lat, true);
         offset += 2;
+      }
+      view.setInt32(offset, quantized[start].lng, true);
+      offset += 4;
+      for (let index = 1; index < count; index += 1) {
+        const current = quantized[start + index];
+        const previous = quantized[start + index - 1];
         view.setInt16(offset, current.lng - previous.lng, true);
         offset += 2;
       }
@@ -153,6 +328,8 @@ function buildGpsCoordinatePayload(points) {
     for (let index = 0; index < count; index += 1) {
       view.setInt32(offset, quantized[start + index].lat, true);
       offset += 4;
+    }
+    for (let index = 0; index < count; index += 1) {
       view.setInt32(offset, quantized[start + index].lng, true);
       offset += 4;
     }
@@ -179,6 +356,8 @@ function buildWorkoutStreamBlock(recordsTyped) {
       break;
     }
   }
+
+  const usesSpeedFallback = !hasCompleteDistanceSeries;
 
   const headerBytes = 4 + 4 + 8 + 4 + 6 * 4;
   const distancePayload = buildDistancePayload(recordsTyped, recordCount);
@@ -258,12 +437,19 @@ function buildWorkoutStreamBlock(recordsTyped) {
   for (let index = 0; index < recordCount; index += 1) {
     const value = Number(recordsTyped.altitudesM[index]);
     const encoded = Number.isFinite(value)
-      ? Math.max(INT16_NAN + 1, Math.min(0x7FFF, Math.round(value * 10)))
+      ? Math.max(INT16_NAN + 1, Math.min(0x7FFF, Math.round(value * ALTITUDE_SCALE)))
       : INT16_NAN;
     view.setInt16(payloadOffset + (index * 2), encoded, true);
   }
 
-  return new Uint8Array(buffer);
+  return {
+    bytes: new Uint8Array(buffer),
+    stats: {
+      recordCount,
+      usesSpeedFallback,
+      speedFallbackRecordCount: usesSpeedFallback ? recordCount : 0
+    }
+  };
 }
 
 function buildReducedGpsTrack(recordsTyped, sampleRateSeconds = 5) {
@@ -483,7 +669,7 @@ function buildGpsTrackBlock(gpsTrack) {
   const view = new DataView(buffer);
 
   new Uint8Array(buffer, 0, 4).set(textEncoder.encode("GPS2"));
-  view.setUint16(4, 1, true);
+  view.setUint16(4, 2, true);
   view.setUint16(6, Number(gpsTrack?.sampleRateSeconds || 0), true);
   view.setUint32(8, pointCount, true);
   view.setFloat64(12, firstTimestampMs, true);
@@ -697,7 +883,8 @@ export function createWoa1File(parsed, {
   timings.buildReducedGpsTrackMs = nowMs() - stepStartedAt;
 
   stepStartedAt = nowMs();
-  const workoutStreamRawBytes = buildWorkoutStreamBlock(parsed.recordsTyped);
+  const workoutStreamBlock = buildWorkoutStreamBlock(parsed.recordsTyped);
+  const workoutStreamRawBytes = workoutStreamBlock.bytes;
   timings.buildWorkoutStreamBlockMs = nowMs() - stepStartedAt;
 
   stepStartedAt = nowMs();
@@ -735,13 +922,16 @@ export function createWoa1File(parsed, {
     gps_track_raw: gpsTrackRawBytes.byteLength,
     gps_track_compressed: gpsTrackBytes.byteLength
   };
+  summary.blockStats = {
+    workout_stream: workoutStreamBlock.stats
+  };
 
   stepStartedAt = nowMs();
   const metaBytes = encodeJson(summary);
   timings.encodeMetaJsonMs = nowMs() - stepStartedAt;
 
   stepStartedAt = nowMs();
-  const sessionBytes = encodeJson(Array.isArray(parsed?.sessions) ? parsed.sessions : []);
+  const sessionBytes = encodeSessionBlock(Array.isArray(parsed?.sessions) ? parsed.sessions : []);
   timings.encodeSessionsJsonMs = nowMs() - stepStartedAt;
 
   const headerLength = 4 + 1 + 1 + 2 + 4 + 4 + 4 + 4;
@@ -781,6 +971,9 @@ export function createWoa1File(parsed, {
     gpsTrack,
     workoutStreamBytes,
     gpsTrackBytes,
-    timings
+    timings,
+    stats: {
+      workoutStream: workoutStreamBlock.stats
+    }
   };
 }

@@ -102,6 +102,18 @@ function averageTimingMaps(samples = []) {
   return averages;
 }
 
+function sumNumericField(samples = [], fieldName) {
+  if (!Array.isArray(samples) || !fieldName) {
+    return 0;
+  }
+
+  let total = 0;
+  for (const sample of samples) {
+    total += Number(sample?.[fieldName] || 0);
+  }
+  return total;
+}
+
 function normalizeExistingStartTimeSet(existingStartTimes = []) {
   return new Set(
     Array.isArray(existingStartTimes)
@@ -202,6 +214,7 @@ self.addEventListener("message", async (event) => {
     const buildSamplesMs = [];
     const gzipSamplesMs = [];
     const buildTimingSamples = [];
+    const workoutStreamStatSamples = [];
     let finalParsed = null;
     let finalWoaBytes = null;
     let finalGzipBytes = null;
@@ -259,6 +272,7 @@ self.addEventListener("message", async (event) => {
       });
       buildSamplesMs.push(nowMs() - woaStartedAt);
       buildTimingSamples.push(result.timings || {});
+      workoutStreamStatSamples.push(result.stats?.workoutStream || {});
       finalWoaBytes = result.bytes;
       finalMeta = result.meta;
       finalGpsPointCount = Number(result.gpsTrack?.pointCount || 0);
@@ -294,6 +308,10 @@ self.addEventListener("message", async (event) => {
         parseMs: average(parseSamplesMs),
         buildWoaMs: average(buildSamplesMs),
         buildWoaStepsMs: averageTimingMaps(buildTimingSamples),
+        workoutStreamStats: {
+          fallbackWorkoutCount: sumNumericField(workoutStreamStatSamples, "usesSpeedFallback"),
+          fallbackRecordCount: sumNumericField(workoutStreamStatSamples, "speedFallbackRecordCount")
+        },
         gzipMs: average(gzipSamplesMs),
         totalMs: totalElapsedMs
       }
@@ -332,6 +350,8 @@ async function convertMixedEntriesToWoaZip({
   const buildSamplesMs = [];
   const gzipSamplesMs = [];
   const buildTimingSamples = [];
+  let speedFallbackWorkoutCount = 0;
+  let speedFallbackRecordCount = 0;
   const skippedEntries = [];
   const skippedExistingEntries = [];
   const skippedTooShortEntries = [];
@@ -386,6 +406,8 @@ async function convertMixedEntriesToWoaZip({
       });
       buildSamplesMs.push(nowMs() - buildStartedAt);
       buildTimingSamples.push(result.timings || {});
+      speedFallbackWorkoutCount += Number(result.stats?.workoutStream?.usesSpeedFallback ? 1 : 0);
+      speedFallbackRecordCount += Number(result.stats?.workoutStream?.speedFallbackRecordCount || 0);
 
       outputEntries.push({
         name: createUniqueEntryName(fitEntry.name.replace(/\.fit$/i, ".woa1"), usedOutputNames),
@@ -527,6 +549,10 @@ async function convertMixedEntriesToWoaZip({
       parseMs: average(parseSamplesMs),
       buildWoaMs: average(buildSamplesMs),
       buildWoaStepsMs: averageTimingMaps(buildTimingSamples),
+      workoutStreamStats: {
+        fallbackWorkoutCount: speedFallbackWorkoutCount,
+        fallbackRecordCount: speedFallbackRecordCount
+      },
       gzipMs: average(gzipSamplesMs),
       zipBuildMs,
       totalMs: totalElapsedMs
