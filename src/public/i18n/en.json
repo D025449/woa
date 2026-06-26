@@ -291,7 +291,7 @@
     "auth": {
       "heroKicker": "App Home",
       "heroTitle": "Welcome back",
-      "heroSubtitle": "Choose what you want to do next: analyze workouts, compare segments, review trends, or upload new activities.",
+      "heroSubtitle": "What would you like to do?",
       "chipUser": "User",
       "chipMode": "Mode",
       "chipModeValue": "Workspace Hub",

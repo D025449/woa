@@ -68,8 +68,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     idPrefix: "home",
     listSelector: "#home-feed-list",
     t,
-    locale
+    locale,
+    defaultRange: "1d",
+    defaultActorScope: "others"
   });
+
+  controller.feedFilter = "1d";
+  controller.feedActorFilter = "others";
+  controller.uiState.set("feedFilter", "1d");
+  controller.uiState.set("feedActorFilter", "others");
 
   const invitesView = new GroupInvitesView("#home-group-invites-list", {
     onAcceptInvite: async (invite) => {

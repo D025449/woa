@@ -291,7 +291,7 @@
     "auth": {
       "heroKicker": "App Home",
       "heroTitle": "Willkommen zurück",
-      "heroSubtitle": "Wähle aus, womit du weitermachen willst: Workouts analysieren, Segmente vergleichen, Trends prüfen oder neue Aktivitäten hochladen.",
+      "heroSubtitle": "Was möchtest du tun?",
       "chipUser": "Benutzer",
       "chipMode": "Modus",
       "chipModeValue": "Workspace Hub",

@@ -10,11 +10,15 @@
     const othersOnlyLabel = labels.othersOnly || tr("groups.filters.othersOnly");
     const loadMoreLabel = labels.loadMore || "Load more";
     const showLoadMore = Boolean(typeof loadMoreEnabled === "boolean" ? loadMoreEnabled : false);
+    const showPanelIcon = typeof panelIconEnabled === "boolean" ? panelIconEnabled : idPrefix !== "home";
+    const showRangeFilter = typeof rangeFilterEnabled === "boolean" ? rangeFilterEnabled : true;
+    const showActorFilter = typeof actorFilterEnabled === "boolean" ? actorFilterEnabled : true;
+    const showActorAll = typeof actorAllEnabled === "boolean" ? actorAllEnabled : true;
 %>
 <section class="<%= surfaceClass %>">
     <div class="<%= headerClass %>">
         <div>
-            <% if (idPrefix === "home") { %>
+            <% if (idPrefix === "home" && showPanelIcon) { %>
                 <a class="home-panel-icon home-panel-icon--activity home-panel-icon--link" href="/groups" aria-label="<%= tr('home.auth.activityTitle') %>">
                     <svg viewBox="0 0 64 64" fill="none">
                         <defs>
@@ -33,46 +37,52 @@
         </div>
 
         <div class="<%= toolbarClass %>">
-            <div class="<%= toggleClass %>" role="group" aria-label="<%= rangeAriaLabel %>">
-                <button
-                    class="btn btn-sm btn-outline-secondary <%= defaultRange === '1d' ? 'active' : '' %>"
-                    type="button"
-                    id="<%= idPrefix %>-feed-filter-1d"
-                    data-feed-filter-value="1d">
-                    <%= lastDayLabel %>
-                </button>
-                <button
-                    class="btn btn-sm btn-outline-secondary <%= defaultRange === '7d' ? 'active' : '' %>"
-                    type="button"
-                    id="<%= idPrefix %>-feed-filter-7d"
-                    data-feed-filter-value="7d">
-                    <%= last7DaysLabel %>
-                </button>
-                <button
-                    class="btn btn-sm btn-outline-secondary <%= defaultRange === 'all' ? 'active' : '' %>"
-                    type="button"
-                    id="<%= idPrefix %>-feed-filter-all"
-                    data-feed-filter-value="all">
-                    <%= allLabel %>
-            </button>
-            </div>
+            <% if (showRangeFilter) { %>
+                <div class="<%= toggleClass %>" role="group" aria-label="<%= rangeAriaLabel %>">
+                    <button
+                        class="btn btn-sm btn-outline-secondary <%= defaultRange === '1d' ? 'active' : '' %>"
+                        type="button"
+                        id="<%= idPrefix %>-feed-filter-1d"
+                        data-feed-filter-value="1d">
+                        <%= lastDayLabel %>
+                    </button>
+                    <button
+                        class="btn btn-sm btn-outline-secondary <%= defaultRange === '7d' ? 'active' : '' %>"
+                        type="button"
+                        id="<%= idPrefix %>-feed-filter-7d"
+                        data-feed-filter-value="7d">
+                        <%= last7DaysLabel %>
+                    </button>
+                    <button
+                        class="btn btn-sm btn-outline-secondary <%= defaultRange === 'all' ? 'active' : '' %>"
+                        type="button"
+                        id="<%= idPrefix %>-feed-filter-all"
+                        data-feed-filter-value="all">
+                        <%= allLabel %>
+                    </button>
+                </div>
+            <% } %>
 
-            <div class="<%= toggleClass %>" role="group" aria-label="<%= sourceAriaLabel %>">
-                <button
-                    class="btn btn-sm btn-outline-secondary <%= defaultActorScope !== 'others' ? 'active' : '' %>"
-                    type="button"
-                    id="<%= idPrefix %>-feed-actor-all"
-                    data-feed-actor-value="all">
-                    <%= allUsersLabel %>
-                </button>
-                <button
-                    class="btn btn-sm btn-outline-secondary <%= defaultActorScope === 'others' ? 'active' : '' %>"
-                    type="button"
-                    id="<%= idPrefix %>-feed-actor-others"
-                    data-feed-actor-value="others">
-                    <%= othersOnlyLabel %>
-                </button>
-            </div>
+            <% if (showActorFilter) { %>
+                <div class="<%= toggleClass %>" role="group" aria-label="<%= sourceAriaLabel %>">
+                    <% if (showActorAll) { %>
+                        <button
+                            class="btn btn-sm btn-outline-secondary <%= defaultActorScope !== 'others' ? 'active' : '' %>"
+                            type="button"
+                            id="<%= idPrefix %>-feed-actor-all"
+                            data-feed-actor-value="all">
+                            <%= allUsersLabel %>
+                        </button>
+                    <% } %>
+                    <button
+                        class="btn btn-sm btn-outline-secondary <%= defaultActorScope === 'others' ? 'active' : '' %>"
+                        type="button"
+                        id="<%= idPrefix %>-feed-actor-others"
+                        data-feed-actor-value="others">
+                        <%= othersOnlyLabel %>
+                    </button>
+                </div>
+            <% } %>
         </div>
     </div>
 
