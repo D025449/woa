@@ -1219,6 +1219,51 @@ body.segments-page {
 }
 
 @media (max-width: 991.98px) {
+    .segments-shell {
+        gap: 1rem;
+    }
+
+    .segments-hero {
+        padding: 0.7rem 0.85rem 0.8rem;
+        gap: 0.55rem;
+        border-radius: 1.1rem;
+    }
+
+    .segments-title {
+        font-size: clamp(1rem, 3.6vw, 1.2rem);
+        line-height: 1;
+    }
+
+    .segments-subtitle {
+        margin-top: 0.4rem;
+        font-size: 0.9rem;
+        max-width: 100%;
+    }
+
+    .segments-quick-access {
+        margin-top: 0.3rem;
+        gap: 0.25rem;
+    }
+
+    .segments-quick-access__group {
+        align-items: flex-start;
+        gap: 0.25rem;
+    }
+
+    .segments-quick-access__label {
+        font-size: 0.62rem;
+    }
+
+    .segments-quick-access__chip {
+        font-size: 0.68rem;
+        padding: 0.18rem 0.45rem;
+    }
+
+    .segments-hero-meta,
+    .segments-hero .ui-hero__art {
+        display: none;
+    }
+
     .segments-workspace {
         grid-template-columns: 1fr;
     }
