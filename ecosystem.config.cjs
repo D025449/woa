@@ -99,6 +99,7 @@ module.exports = {
       env: workerEnv,
       env_production: workerEnv
     }
+    
     // {
     //   name: "import-batch-worker",
     //   script: "src/workers/import-batch-worker.js",
