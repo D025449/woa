@@ -2,7 +2,6 @@ const form = document.getElementById("uploadForm");
 const fileInput = document.getElementById("file");
 const filePickerButton = document.getElementById("filePickerButton");
 const filePickerLabel = document.getElementById("filePickerLabel");
-const gentleQuantizationToggle = document.getElementById("gentleQuantizationToggle");
 const submitButton = document.getElementById("submitButton");
 const response = document.getElementById("response");
 const statusArea = document.getElementById("statusArea");
@@ -247,15 +246,6 @@ function buildWorkoutStreamStatLines(stats = {}) {
 }
 
 function getEncodingOptions() {
-    if (!gentleQuantizationToggle?.checked) {
-        return {
-            gentleQuantization: false,
-            powerStep: 1,
-            cadenceStep: 1,
-            hrStep: 1
-        };
-    }
-
     return {
         gentleQuantization: true,
         powerStep: 2,
@@ -640,7 +630,7 @@ async function handleConvertSubmit(event) {
                             Compress GZip: ${escapeHtml(formatMs(timings.gzipMs))}<br>
                             Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
                         </div>
-                        ${encodingOptions.gentleQuantization ? `<div class="small mb-3 text-muted">Sanfte Kompression aktiv: 2 W / 2 rpm / 2 bpm</div>` : ""}
+                        <div class="small mb-3 text-muted">Sanfte Kompression aktiv: 2 W / 2 rpm / 2 bpm</div>
                         <div class="d-flex flex-wrap gap-2">
                             <a class="btn btn-sm btn-outline-primary" href="${woaDownloadUrl}" download="${escapeHtml(data.outputFileName || "output.woa1")}">${escapeHtml(tr("uploadPage.woaDownloadRaw", "Download WOA1 Raw"))}</a>
                             <a class="btn btn-sm btn-primary" href="${gzipDownloadUrl}" download="${escapeHtml(data.gzipFileName || "output.woa2")}">${escapeHtml(tr("uploadPage.woaDownloadGzip", "Download WOA2 GZip"))}</a>
@@ -737,7 +727,7 @@ async function handleConvertSubmit(event) {
                             Build output ZIP: ${escapeHtml(formatMs(timings.zipBuildMs))}<br>
                             Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
                         </div>
-                        ${encodingOptions.gentleQuantization ? `<div class="small mb-3 text-muted">Sanfte Kompression aktiv: 2 W / 2 rpm / 2 bpm</div>` : ""}
+                        <div class="small mb-3 text-muted">Sanfte Kompression aktiv: 2 W / 2 rpm / 2 bpm</div>
                         ${shouldUploadGeneratedZip
                             ? `<div id="backendUploadResult">${buildBackendUploadPendingMarkup()}</div>`
                             : `<div class="small mb-2 text-muted">${escapeHtml(tr("uploadPage.woaNoBackendUploadNeeded", "No new workouts remained after duplicate filtering, so no backend upload was needed."))}</div><div id="backendUploadResult"></div>`}

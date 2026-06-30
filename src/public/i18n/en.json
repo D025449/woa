@@ -193,8 +193,6 @@
     "woaSelectFiles": "Select one or more FIT or ZIP files",
     "chooseFiles": "Choose files",
     "noFilesSelected": "No files selected",
-    "gentleQuantizationLabel": "Enable gentle compression",
-    "gentleQuantizationHint": "Rounds power to 2 W, cadence to 2 rpm, and heart rate to 2 bpm. This slightly reduces upload size without touching GPS, distance, or altitude.",
     "visibilityLabel": "Visibility for this upload",
     "private": "Private",
     "privateCopy": "Only you can see the imported workouts.",

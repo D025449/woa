@@ -193,8 +193,6 @@
     "woaSelectFiles": "Eine oder mehrere FIT- oder ZIP-Dateien auswählen",
     "chooseFiles": "Dateien wählen",
     "noFilesSelected": "Keine Dateien ausgewählt",
-    "gentleQuantizationLabel": "Sanfte Kompression aktivieren",
-    "gentleQuantizationHint": "Rundet Leistung auf 2 W, Kadenz auf 2 rpm und Herzfrequenz auf 2 bpm. Das reduziert die Upload-Groesse leicht, ohne GPS, Distanz oder Hoehe anzutasten.",
     "visibilityLabel": "Sichtbarkeit für diesen Upload",
     "private": "Privat",
     "privateCopy": "Nur du kannst die importierten Workouts sehen.",

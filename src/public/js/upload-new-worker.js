@@ -120,23 +120,22 @@ function quantizeSeries(sourceArray, recordCount, step) {
 }
 
 function applyEncodingOptions(parsed, encodingOptions = {}) {
-  if (!encodingOptions?.gentleQuantization) {
-    return parsed;
-  }
-
   const source = parsed?.recordsTyped;
   if (!source || !Number.isFinite(Number(source.recordCount))) {
     return parsed;
   }
 
   const recordCount = Number(source.recordCount);
+  const powerStep = Math.max(1, Number.parseInt(String(encodingOptions.powerStep ?? 2), 10) || 2);
+  const cadenceStep = Math.max(1, Number.parseInt(String(encodingOptions.cadenceStep ?? 2), 10) || 2);
+  const hrStep = Math.max(1, Number.parseInt(String(encodingOptions.hrStep ?? 2), 10) || 2);
   return {
     ...parsed,
     recordsTyped: {
       ...source,
-      powersW: quantizeSeries(source.powersW, recordCount, encodingOptions.powerStep),
-      cadencesRpm: quantizeSeries(source.cadencesRpm, recordCount, encodingOptions.cadenceStep),
-      heartRatesBpm: quantizeSeries(source.heartRatesBpm, recordCount, encodingOptions.hrStep)
+      powersW: quantizeSeries(source.powersW, recordCount, powerStep),
+      cadencesRpm: quantizeSeries(source.cadencesRpm, recordCount, cadenceStep),
+      heartRatesBpm: quantizeSeries(source.heartRatesBpm, recordCount, hrStep)
     }
   };
 }
