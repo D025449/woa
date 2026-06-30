@@ -643,13 +643,17 @@ async function handleConvertSubmit(event) {
 
             if (data.type === "completed-zip") {
                 finished = true;
-                setPhase(tr("uploadPage.woaPhaseCompleted", "Completed"));
-                setProcessingProgress(100, tr("uploadPage.woaZipReady", "WOA1 ZIP ready"));
-
                 const stats = data.stats || {};
                 const zipBytes = data.bytes instanceof ArrayBuffer ? data.bytes : new ArrayBuffer(0);
                 const zipBlob = new Blob([zipBytes], { type: "application/zip" });
                 const shouldUploadGeneratedZip = Number(stats.convertedEntries || 0) > 0 && zipBlob.size > 0;
+                if (shouldUploadGeneratedZip) {
+                    setPhase(tr("uploadPage.woaPhaseUploadingBackend", "Uploading and storing on server"));
+                    setProcessingProgress(0, tr("uploadPage.woaPreparingRequest", "Preparing request"));
+                } else {
+                    setPhase(tr("uploadPage.woaPhaseCompleted", "Completed"));
+                    setProcessingProgress(100, tr("uploadPage.woaZipReady", "WOA1 ZIP ready"));
+                }
                 latestGeneratedZipArtifact = null;
                 if (shouldUploadGeneratedZip) {
                     setLatestGeneratedZipArtifactSingle(zipBlob, data.outputFileName || "output.woa1.zip");
