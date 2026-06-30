@@ -13,6 +13,7 @@ const uploadDetailText = document.getElementById("uploadDetailText");
 const processingProgressBar = document.getElementById("processingProgressBar");
 const processingPercentText = document.getElementById("processingPercentText");
 const processingDetailText = document.getElementById("processingDetailText");
+const processingLabel = document.getElementById("processingLabel");
 const uploadShell = document.getElementById("upload-shell");
 const i18nMessages = window.__I18N?.messages || {};
 const activeLocale = window.__I18N?.locale || navigator.language || "en";
@@ -164,6 +165,12 @@ function setProcessingProgress(percent, detailText = "") {
     }
 }
 
+function setProcessingLabel(text) {
+    if (processingLabel) {
+        processingLabel.textContent = text;
+    }
+}
+
 function formatBytes(bytes) {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -281,6 +288,7 @@ async function uploadGeneratedZipArtifact() {
     }
 
     renderBackendUploadState(buildBackendUploadPendingMarkup());
+    setProcessingLabel(tr("uploadPage.woaUploadAndStore", "Upload and store"));
     setPhase(tr("uploadPage.woaPhaseUploadingBackend", "Uploading to backend"));
     setProcessingProgress(0, tr("uploadPage.woaPreparingRequest", "Preparing request"));
 
@@ -295,10 +303,12 @@ async function uploadGeneratedZipArtifact() {
             setPhase(tr("uploadPage.woaPhaseUploadingBackend", "Uploading to backend"));
             setProcessingProgress(percent, detailText);
         }, () => {
+            setProcessingLabel(tr("uploadPage.woaServerProcessing", "Server processing"));
             setPhase(tr("uploadPage.woaPhaseBackendProcessing", "Backend processing"));
             setProcessingProgress(100, tr("uploadPage.woaBackendProcessingDetail", "Upload finished, waiting for backend response"));
         });
 
+        setProcessingLabel(tr("uploadPage.woaCompletedLabel", "Completed"));
         setPhase(tr("uploadPage.woaPhaseCompleted", "Completed"));
         setProcessingProgress(100, tr("uploadPage.woaBackendUploadCompleted", "Backend upload completed."));
         renderBackendUploadState(`
@@ -314,6 +324,7 @@ async function uploadGeneratedZipArtifact() {
             </div>
         `);
     } catch (error) {
+        setProcessingLabel(tr("uploadPage.woaUploadAndStore", "Upload and store"));
         setPhase(tr("uploadPage.woaPhaseFailed", "Failed"));
         setProcessingProgress(0, tr("uploadPage.woaBackendUploadFailed", "Backend upload failed"));
         renderBackendUploadState(`<div class="alert alert-danger mb-0 mt-2">${escapeHtml(error?.message || String(error))}</div>`);
@@ -443,6 +454,7 @@ async function handleConvertSubmit(event) {
     }
 
     setLoading(true);
+    setProcessingLabel(tr("uploadPage.woaConvert", "Convert"));
     setPhase(isZipMode ? tr("uploadPage.woaPhaseReadingZip", "Reading ZIP file") : tr("uploadPage.woaPhaseReadingSources", "Reading source files"));
     setReadProgress(0, "");
     setProcessingProgress(0, "");
@@ -648,9 +660,11 @@ async function handleConvertSubmit(event) {
                 const zipBlob = new Blob([zipBytes], { type: "application/zip" });
                 const shouldUploadGeneratedZip = Number(stats.convertedEntries || 0) > 0 && zipBlob.size > 0;
                 if (shouldUploadGeneratedZip) {
+                    setProcessingLabel(tr("uploadPage.woaUploadAndStore", "Upload and store"));
                     setPhase(tr("uploadPage.woaPhaseUploadingBackend", "Uploading and storing on server"));
                     setProcessingProgress(0, tr("uploadPage.woaPreparingRequest", "Preparing request"));
                 } else {
+                    setProcessingLabel(tr("uploadPage.woaCompletedLabel", "Completed"));
                     setPhase(tr("uploadPage.woaPhaseCompleted", "Completed"));
                     setProcessingProgress(100, tr("uploadPage.woaZipReady", "WOA1 ZIP ready"));
                 }
