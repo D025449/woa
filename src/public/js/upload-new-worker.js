@@ -102,6 +102,45 @@ function averageTimingMaps(samples = []) {
   return averages;
 }
 
+function quantizeSeries(sourceArray, recordCount, step) {
+  const normalizedStep = Math.max(1, Number.parseInt(String(step ?? 1), 10) || 1);
+  if (normalizedStep <= 1 || !sourceArray || recordCount <= 0) {
+    return sourceArray;
+  }
+
+  const quantizedValues = new Float64Array(recordCount);
+  for (let index = 0; index < recordCount; index += 1) {
+    const value = Number(sourceArray[index]);
+    quantizedValues[index] = Number.isFinite(value)
+      ? Math.round(value / normalizedStep) * normalizedStep
+      : Number.NaN;
+  }
+
+  return quantizedValues;
+}
+
+function applyEncodingOptions(parsed, encodingOptions = {}) {
+  if (!encodingOptions?.gentleQuantization) {
+    return parsed;
+  }
+
+  const source = parsed?.recordsTyped;
+  if (!source || !Number.isFinite(Number(source.recordCount))) {
+    return parsed;
+  }
+
+  const recordCount = Number(source.recordCount);
+  return {
+    ...parsed,
+    recordsTyped: {
+      ...source,
+      powersW: quantizeSeries(source.powersW, recordCount, encodingOptions.powerStep),
+      cadencesRpm: quantizeSeries(source.cadencesRpm, recordCount, encodingOptions.cadenceStep),
+      heartRatesBpm: quantizeSeries(source.heartRatesBpm, recordCount, encodingOptions.hrStep)
+    }
+  };
+}
+
 function sumNumericField(samples = [], fieldName) {
   if (!Array.isArray(samples) || !fieldName) {
     return 0;
@@ -187,7 +226,8 @@ self.addEventListener("message", async (event) => {
     arrayBuffer,
     files = [],
     repeatCount = DEFAULT_BENCH_REPEAT_COUNT,
-    existingStartTimes = []
+    existingStartTimes = [],
+    encodingOptions = {}
   } = event.data || {};
 
   if (!arrayBuffer && (!Array.isArray(files) || files.length === 0)) {
@@ -196,12 +236,12 @@ self.addEventListener("message", async (event) => {
 
   try {
     if (type === "convert-zip-to-woa-zip") {
-      await handleZipConversion({ fileName, arrayBuffer, existingStartTimes });
+      await handleZipConversion({ fileName, arrayBuffer, existingStartTimes, encodingOptions });
       return;
     }
 
     if (type === "convert-fit-files-to-woa-zip") {
-      await handleFitFilesConversion({ fileName, files, existingStartTimes });
+      await handleFitFilesConversion({ fileName, files, existingStartTimes, encodingOptions });
       return;
     }
 
@@ -236,7 +276,8 @@ self.addEventListener("message", async (event) => {
         excludeStartTimes: existingStartTimes
       });
       parseSamplesMs.push(nowMs() - parseStartedAt);
-      finalParsed = parsed;
+      const adjustedParsed = applyEncodingOptions(parsed, encodingOptions);
+      finalParsed = adjustedParsed;
 
       if (parsed?.skippedExisting) {
         self.postMessage({
@@ -264,7 +305,7 @@ self.addEventListener("message", async (event) => {
       });
 
       const woaStartedAt = nowMs();
-      const result = createWoa1File(parsed, {
+      const result = createWoa1File(adjustedParsed, {
         sourceName: fileName,
         sampleRateSeconds: 5,
         compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
@@ -329,7 +370,8 @@ async function convertMixedEntriesToWoaZip({
   fitEntries = [],
   woaEntries = [],
   existingStartTimes = [],
-  sourceBytes = 0
+  sourceBytes = 0,
+  encodingOptions = {}
 }) {
   const startedAt = nowMs();
   const existingStartTimeSet = normalizeExistingStartTimeSet(existingStartTimes);
@@ -397,8 +439,10 @@ async function convertMixedEntriesToWoaZip({
         continue;
       }
 
+      const adjustedParsed = applyEncodingOptions(parsed, encodingOptions);
+
       const buildStartedAt = nowMs();
-      const result = createWoa1File(parsed, {
+      const result = createWoa1File(adjustedParsed, {
         sourceName: fitEntry.name,
         sampleRateSeconds: 5,
         compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
@@ -560,7 +604,7 @@ async function convertMixedEntriesToWoaZip({
   }, [outputZipBytes.buffer]);
 }
 
-async function handleZipConversion({ fileName, arrayBuffer, existingStartTimes = [] }) {
+async function handleZipConversion({ fileName, arrayBuffer, existingStartTimes = [], encodingOptions = {} }) {
   self.postMessage({
     type: "phase",
     phase: "reading-zip"
@@ -589,11 +633,12 @@ async function handleZipConversion({ fileName, arrayBuffer, existingStartTimes =
     fitEntries,
     woaEntries,
     existingStartTimes,
-    sourceBytes: zipBytes.byteLength
+    sourceBytes: zipBytes.byteLength,
+    encodingOptions
   });
 }
 
-async function handleFitFilesConversion({ fileName, files = [], existingStartTimes = [] }) {
+async function handleFitFilesConversion({ fileName, files = [], existingStartTimes = [], encodingOptions = {} }) {
   const fitEntries = [];
   const woaEntries = [];
   let sourceBytes = 0;
@@ -640,6 +685,7 @@ async function handleFitFilesConversion({ fileName, files = [], existingStartTim
     fitEntries,
     woaEntries,
     existingStartTimes,
-    sourceBytes
+    sourceBytes,
+    encodingOptions
   });
 }

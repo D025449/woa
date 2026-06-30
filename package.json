@@ -17,6 +17,8 @@
     "bench:segment-recompute": "node src/scripts/benchmark-segment-recompute.js",
     "bench:fit-typed-arrays": "node src/scripts/benchmark-fit-record-typed-arrays.js",
     "bench:fit-import-path": "node src/scripts/benchmark-fit-import-path.js",
+    "bench:fit-woa-file": "node src/scripts/benchmark-fit-woa-file.js",
+    "bench:fit-woa-zip": "node src/scripts/benchmark-fit-woa-zip.js",
     "db:explain-workout-insert": "node src/scripts/explain-workout-insert.js",
     "validate:fit-typed-arrays": "node src/scripts/validate-fit-typed-arrays.js",
     "validate:fit-typed-import-path": "node src/scripts/validate-fit-typed-import-path.js",

@@ -2,6 +2,7 @@ const form = document.getElementById("uploadForm");
 const fileInput = document.getElementById("file");
 const filePickerButton = document.getElementById("filePickerButton");
 const filePickerLabel = document.getElementById("filePickerLabel");
+const gentleQuantizationToggle = document.getElementById("gentleQuantizationToggle");
 const submitButton = document.getElementById("submitButton");
 const response = document.getElementById("response");
 const statusArea = document.getElementById("statusArea");
@@ -124,23 +125,6 @@ function setLoading(isLoading) {
     }
 }
 
-function setBackendUploadProgress(percent, detailText = "") {
-    const progressBar = document.getElementById("backendUploadProgressBar");
-    const percentText = document.getElementById("backendUploadPercentText");
-    const detailNode = document.getElementById("backendUploadDetailText");
-
-    if (progressBar) {
-        progressBar.style.width = `${percent}%`;
-        progressBar.setAttribute("aria-valuenow", String(percent));
-    }
-    if (percentText) {
-        percentText.textContent = `${Math.round(percent)}%`;
-    }
-    if (detailNode) {
-        detailNode.textContent = detailText;
-    }
-}
-
 function renderBackendUploadState(markup) {
     const resultNode = document.getElementById("backendUploadResult");
     if (resultNode) {
@@ -255,6 +239,24 @@ function buildWorkoutStreamStatLines(stats = {}) {
     ].join("<br>");
 }
 
+function getEncodingOptions() {
+    if (!gentleQuantizationToggle?.checked) {
+        return {
+            gentleQuantization: false,
+            powerStep: 1,
+            cadenceStep: 1,
+            hrStep: 1
+        };
+    }
+
+    return {
+        gentleQuantization: true,
+        powerStep: 2,
+        cadenceStep: 2,
+        hrStep: 2
+    };
+}
+
 function buildIterationSuffix(data) {
     const iteration = Number(data?.iteration || 0);
     const totalIterations = Number(data?.totalIterations || 0);
@@ -264,27 +266,23 @@ function buildIterationSuffix(data) {
     return "";
 }
 
+function buildBackendUploadPendingMarkup() {
+    return `
+        <div class="alert alert-info mb-0 mt-2">
+            <div class="fw-semibold mb-1">${escapeHtml(tr("uploadPage.woaBackendUploadRunning", "Uploading generated WOA1 ZIP to backend."))}</div>
+            <div class="small text-muted">${escapeHtml(tr("uploadPage.woaBackendUploadTrackedInProgress", "Progress is shown in the status panel on the right."))}</div>
+        </div>
+    `;
+}
+
 async function uploadGeneratedZipArtifact() {
     if (!latestGeneratedZipArtifact?.blob || !latestGeneratedZipArtifact?.fileName) {
         return;
     }
 
-    renderBackendUploadState(`
-        <div class="alert alert-info mb-0 mt-2">
-            <div class="fw-semibold mb-2">${escapeHtml(tr("uploadPage.woaBackendUploadRunning", "Uploading generated WOA1 ZIP to backend."))}</div>
-            <div class="upload-progress-block mb-2">
-                <div class="d-flex justify-content-between">
-                    <span>Transfer</span>
-                    <span id="backendUploadPercentText">0%</span>
-                </div>
-                <div class="progress">
-                    <div id="backendUploadProgressBar" class="progress-bar" role="progressbar"
-                        style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
-                </div>
-                <div id="backendUploadDetailText" class="small text-muted mt-1">${escapeHtml(tr("uploadPage.woaPreparingRequest", "Preparing request"))}</div>
-            </div>
-        </div>
-    `);
+    renderBackendUploadState(buildBackendUploadPendingMarkup());
+    setPhase(tr("uploadPage.woaPhaseUploadingBackend", "Uploading to backend"));
+    setProcessingProgress(0, tr("uploadPage.woaPreparingRequest", "Preparing request"));
 
     try {
         const formData = new FormData();
@@ -294,9 +292,15 @@ async function uploadGeneratedZipArtifact() {
             const detailText = total > 0
                 ? `${formatBytes(loaded)} / ${formatBytes(total)}`
                 : `${formatBytes(loaded)} ${tr("uploadPage.woaUploadedSuffix", "uploaded")}`;
-            setBackendUploadProgress(percent, detailText);
+            setPhase(tr("uploadPage.woaPhaseUploadingBackend", "Uploading to backend"));
+            setProcessingProgress(percent, detailText);
+        }, () => {
+            setPhase(tr("uploadPage.woaPhaseBackendProcessing", "Backend processing"));
+            setProcessingProgress(100, tr("uploadPage.woaBackendProcessingDetail", "Upload finished, waiting for backend response"));
         });
 
+        setPhase(tr("uploadPage.woaPhaseCompleted", "Completed"));
+        setProcessingProgress(100, tr("uploadPage.woaBackendUploadCompleted", "Backend upload completed."));
         renderBackendUploadState(`
             <div class="alert alert-info mb-0 mt-2">
                 <div class="fw-semibold mb-2">${escapeHtml(tr("uploadPage.woaBackendUploadCompleted", "Backend upload completed."))}</div>
@@ -310,6 +314,8 @@ async function uploadGeneratedZipArtifact() {
             </div>
         `);
     } catch (error) {
+        setPhase(tr("uploadPage.woaPhaseFailed", "Failed"));
+        setProcessingProgress(0, tr("uploadPage.woaBackendUploadFailed", "Backend upload failed"));
         renderBackendUploadState(`<div class="alert alert-danger mb-0 mt-2">${escapeHtml(error?.message || String(error))}</div>`);
     }
 }
@@ -342,10 +348,11 @@ async function fetchExistingWorkoutStartTimes() {
         : [];
 }
 
-function uploadGeneratedZipFormData(formData, onProgress) {
+function uploadGeneratedZipFormData(formData, onProgress, onUploadComplete) {
     return new Promise((resolve, reject) => {
         const request = new XMLHttpRequest();
         const startedAt = performance.now();
+        let uploadCompleted = false;
 
         request.open("POST", "/api/uploads/woa-zip", true);
         request.responseType = "text";
@@ -358,6 +365,16 @@ function uploadGeneratedZipFormData(formData, onProgress) {
             const total = Number(event.total || 0);
             const percent = total > 0 ? (loaded / total) * 100 : 0;
             onProgress({ loaded, total, percent });
+        });
+
+        request.upload.addEventListener("load", () => {
+            if (uploadCompleted) {
+                return;
+            }
+            uploadCompleted = true;
+            if (onUploadComplete) {
+                onUploadComplete();
+            }
         });
 
         request.addEventListener("load", () => {
@@ -431,6 +448,7 @@ async function handleConvertSubmit(event) {
     setProcessingProgress(0, "");
 
     try {
+        const encodingOptions = getEncodingOptions();
         let arrayBuffer = null;
         let workerFiles = [];
         let totalLoadedBytes = 0;
@@ -610,6 +628,7 @@ async function handleConvertSubmit(event) {
                             Compress GZip: ${escapeHtml(formatMs(timings.gzipMs))}<br>
                             Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
                         </div>
+                        ${encodingOptions.gentleQuantization ? `<div class="small mb-3 text-muted">Sanfte Kompression aktiv: 2 W / 2 rpm / 2 bpm</div>` : ""}
                         <div class="d-flex flex-wrap gap-2">
                             <a class="btn btn-sm btn-outline-primary" href="${woaDownloadUrl}" download="${escapeHtml(data.outputFileName || "output.woa1")}">${escapeHtml(tr("uploadPage.woaDownloadRaw", "Download WOA1 Raw"))}</a>
                             <a class="btn btn-sm btn-primary" href="${gzipDownloadUrl}" download="${escapeHtml(data.gzipFileName || "output.woa2")}">${escapeHtml(tr("uploadPage.woaDownloadGzip", "Download WOA2 GZip"))}</a>
@@ -700,8 +719,10 @@ async function handleConvertSubmit(event) {
                             Build output ZIP: ${escapeHtml(formatMs(timings.zipBuildMs))}<br>
                             Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
                         </div>
-                        <div class="small mb-2 text-muted">${shouldUploadGeneratedZip ? escapeHtml(tr("uploadPage.woaBackendUploadRunning", "Uploading generated WOA1 ZIP to backend.")) : escapeHtml(tr("uploadPage.woaNoBackendUploadNeeded", "No new workouts remained after duplicate filtering, so no backend upload was needed."))}</div>
-                        <div id="backendUploadResult"></div>
+                        ${encodingOptions.gentleQuantization ? `<div class="small mb-3 text-muted">Sanfte Kompression aktiv: 2 W / 2 rpm / 2 bpm</div>` : ""}
+                        ${shouldUploadGeneratedZip
+                            ? `<div id="backendUploadResult">${buildBackendUploadPendingMarkup()}</div>`
+                            : `<div class="small mb-2 text-muted">${escapeHtml(tr("uploadPage.woaNoBackendUploadNeeded", "No new workouts remained after duplicate filtering, so no backend upload was needed."))}</div><div id="backendUploadResult"></div>`}
                     </div>
                 `);
 
@@ -727,7 +748,8 @@ async function handleConvertSubmit(event) {
                 : (selectedFiles.length > 1 ? "fit-files.woa1.zip" : selectedFile.name),
             arrayBuffer,
             files: workerFiles,
-            existingStartTimes
+            existingStartTimes,
+            encodingOptions
         }, [
             ...(arrayBuffer ? [arrayBuffer] : []),
             ...workerFiles.map((entry) => entry.arrayBuffer)
