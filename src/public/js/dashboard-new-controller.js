@@ -371,10 +371,26 @@ export default class Controller {
     }
 
     this.chartView.showLoading();
+    const profilingEnabled = WorkoutService.isOpenProfilingEnabled?.();
+    const profile = {
+      workoutId: String(workoutId),
+      loadWorkoutMs: 0,
+      applyMetaMs: 0,
+      chartRenderMs: 0,
+      mapRenderMs: 0,
+      flyoverBindMs: 0,
+      similarLoadMs: 0,
+      postRenderUiMs: 0,
+      firstPaintWallMs: 0,
+      totalOpenMs: 0
+    };
+    const totalStartedAt = performance.now();
 
     try {
       const workoutMeta = this.libraryView.getWorkoutById(workoutId) || {};
+      let stepStartedAt = performance.now();
       const workout = await WorkoutService.loadWorkoutByRow(workoutId);
+      profile.loadWorkoutMs = performance.now() - stepStartedAt;
       if (!workout) {
         this.uiState.remove("selectedWorkoutId");
         this.currentWorkoutId = null;
@@ -383,6 +399,7 @@ export default class Controller {
         return;
       }
 
+      stepStartedAt = performance.now();
       Object.assign(workout, {
         start_time: workoutMeta.start_time ?? null,
         total_timer_time: workoutMeta.total_timer_time ?? null,
@@ -393,22 +410,55 @@ export default class Controller {
         segmentProcessingUpdatedAt: workout.segmentProcessingUpdatedAt ?? workoutMeta.segment_processing_updated_at ?? workoutMeta.segmentProcessingUpdatedAt ?? null,
         is_owned: workoutMeta.is_owned ?? (workout.access?.isOwner !== false)
       });
+      profile.applyMetaMs = performance.now() - stepStartedAt;
 
       this.currentWorkoutId = workout.id;
       this.uiState.set("selectedWorkoutId", workout.id);
       this.pushRecentWorkout(workout.id);
+
+      stepStartedAt = performance.now();
       this.chartView.updateWorkout(workout);
+      profile.chartRenderMs = performance.now() - stepStartedAt;
+
+      stepStartedAt = performance.now();
       this.mapView.renderTrack(workout);
+      profile.mapRenderMs = performance.now() - stepStartedAt;
+
+      stepStartedAt = performance.now();
       this.flyoverView.setWorkout(workout);
+      profile.flyoverBindMs = performance.now() - stepStartedAt;
+
       this.libraryView.setSelectedWorkout(workout.id);
       this.updateWorkoutMeta(workout);
+
+      stepStartedAt = performance.now();
       await this.loadSimilarWorkouts(workout);
+      profile.similarLoadMs = performance.now() - stepStartedAt;
+
+      stepStartedAt = performance.now();
       this.scheduleDesktopLayoutMeasure(true);
       this.closeMobileLibrary();
       this.scrollDetailIntoViewOnMobile();
       this.renderQuickAccess();
       this.updateDetailNavigation();
+      profile.postRenderUiMs = performance.now() - stepStartedAt;
+
+      const paintStartedAt = performance.now();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      profile.firstPaintWallMs = performance.now() - paintStartedAt;
+      profile.totalOpenMs = performance.now() - totalStartedAt;
+
+      if (profilingEnabled) {
+        console.info("[workout-open] render.profile", profile);
+      }
     } catch (err) {
+      profile.totalOpenMs = performance.now() - totalStartedAt;
+      if (profilingEnabled) {
+        console.info("[workout-open] render.profile.failed", {
+          ...profile,
+          error: err?.message || String(err)
+        });
+      }
       console.error(err);
       this.resetWorkspaceSummary();
       this.showToast(this.t("messages.workoutOpenFailed"));
