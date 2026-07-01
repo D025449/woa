@@ -29,6 +29,16 @@ export default class WorkoutService {
       : Date.now();
   }
 
+  static base64ToArrayBuffer(base64) {
+    const binary = window.atob(String(base64 || ""));
+    const length = binary.length;
+    const bytes = new Uint8Array(length);
+    for (let index = 0; index < length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes.buffer;
+  }
+
   // -----------------------------
   // PUBLIC API
   // -----------------------------
@@ -112,10 +122,10 @@ export default class WorkoutService {
     const profile = {
       workoutId: wid,
       initialFetchWallMs: 0,
+      responseBodyWallMs: 0,
       streamArrayBufferMs: 0,
       streamDecodeMs: 0,
       trackJsonMs: 0,
-      responseBodyWallMs: 0,
       segmentFetchMs: 0,
       totalMs: 0,
       streamBytes: 0,
@@ -126,53 +136,50 @@ export default class WorkoutService {
 
     try {
       const fetchStartedAt = this.nowMs();
-      const [streamResponse, trackResonse] = await Promise.all([
-        fetch(`/workouts/${wid}/stream`),
-        fetch(`/workouts/${wid}/track`)
-      ]);
+      const openResponse = await fetch(`/workouts/${wid}/open`);
       profile.initialFetchWallMs = this.nowMs() - fetchStartedAt;
 
-      if (streamResponse.status === 401 || trackResonse.status === 401) {
+      if (openResponse.status === 401) {
         window.location.href = '/login';
         return;
       }
-      if (!streamResponse.ok) {
-        throw new Error(`Workout stream fetch failed (${streamResponse.status})`);
-      }
-      if (!trackResonse.ok) {
-        throw new Error(`Track fetch failed (${trackResonse.status})`);
+      if (!openResponse.ok) {
+        throw new Error(`Workout open fetch failed (${openResponse.status})`);
       }
 
       const bodyStartedAt = this.nowMs();
-      const [buffer, trackRow] = await Promise.all([
-        streamResponse.arrayBuffer().then((result) => {
-          profile.streamArrayBufferMs = this.nowMs() - bodyStartedAt;
-          return result;
-        }),
-        trackResonse.json().then((result) => {
-          profile.trackJsonMs = this.nowMs() - bodyStartedAt;
-          return result;
-        })
-      ]);
+      const payload = await openResponse.json();
       profile.responseBodyWallMs = this.nowMs() - bodyStartedAt;
-      profile.streamBytes = buffer.byteLength;
+      profile.trackJsonMs = profile.responseBodyWallMs;
+
+      const streamDecodeInputStartedAt = this.nowMs();
+      const compressedBuffer = this.base64ToArrayBuffer(payload.streamBase64);
+      profile.streamArrayBufferMs = this.nowMs() - streamDecodeInputStartedAt;
+      profile.streamBytes = compressedBuffer.byteLength;
 
       let stepStartedAt = this.nowMs();
+      const codec = String(payload?.streamEncoding || "br").trim().toLowerCase() === "gzip"
+        ? "gzip"
+        : "brotli";
+      const rawBuffer = await Workout.decompress(compressedBuffer, codec);
+      const buffer = rawBuffer instanceof ArrayBuffer
+        ? rawBuffer
+        : rawBuffer.buffer.slice(rawBuffer.byteOffset, rawBuffer.byteOffset + rawBuffer.byteLength);
       const workoutObject = Workout.fromBuffer(buffer);
       profile.streamDecodeMs = this.nowMs() - stepStartedAt;
 
       const workout = {
         id: wid,
         workoutObject,
-        validGps: !!(trackRow?.validgps ?? trackRow?.validGps ?? workoutObject.isValidGps()),
-        sampleRateGPS: trackRow?.samplerategps ?? trackRow?.sampleRateGPS ?? 1,
-        gpsSource: trackRow?.gps_source || null,
-        segmentProcessingStatus: trackRow?.segment_processing_status || trackRow?.segmentProcessingStatus || "queued",
-        segmentProcessingError: trackRow?.segment_processing_error || trackRow?.segmentProcessingError || null,
-        segmentProcessingUpdatedAt: trackRow?.segment_processing_updated_at || trackRow?.segmentProcessingUpdatedAt || null,
-        manualGpsLookupPoints: Array.isArray(trackRow?.manual_gps_lookup_points) ? trackRow.manual_gps_lookup_points : [],
-        track: this.parseGeoJsonTrack(trackRow?.track),
-        access: trackRow?.access || null
+        validGps: !!(payload?.validgps ?? payload?.validGps ?? workoutObject.isValidGps()),
+        sampleRateGPS: payload?.samplerategps ?? payload?.sampleRateGPS ?? 1,
+        gpsSource: payload?.gps_source || null,
+        segmentProcessingStatus: payload?.segment_processing_status || payload?.segmentProcessingStatus || "queued",
+        segmentProcessingError: payload?.segment_processing_error || payload?.segmentProcessingError || null,
+        segmentProcessingUpdatedAt: payload?.segment_processing_updated_at || payload?.segmentProcessingUpdatedAt || null,
+        manualGpsLookupPoints: Array.isArray(payload?.manual_gps_lookup_points) ? payload.manual_gps_lookup_points : [],
+        track: this.parseGeoJsonTrack(payload?.track),
+        access: payload?.access || null
         //...WorkoutService.parseWorkoutBuffer(buffer)
       };
       profile.trackPoints = Array.isArray(workout.track) ? workout.track.length : 0;

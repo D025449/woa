@@ -760,6 +760,37 @@ export default class WorkoutDBService {
     });
   }
 
+  static async getOpenPayload(id, uid) {
+    const result = await pool.query(
+      `SELECT
+        id,
+        validgps,
+        sampleRateGPS,
+        gps_source,
+        manual_gps_lookup_points,
+        gps_track_blob,
+        gps_track_blob_codec,
+        stream,
+        stream_codec,
+        uploaded_at,
+        octet_length(stream) AS stream_size,
+        segment_processing_status,
+        segment_processing_error,
+        segment_processing_updated_at
+       FROM workouts
+       WHERE id = $1`,
+      [id]
+    );
+
+    if (result.rowCount === 0) {
+      throw new Error("no workouts found");
+    }
+
+    return hydrateTrackRow(result.rows[0], {
+      includeGeoJson: true
+    });
+  }
+
   static async getManualGpsContext(id, uid) {
     const accessInfo = await WorkoutSharingService.getAccessibleWorkout(uid, id);
     if (!accessInfo?.is_owner) {

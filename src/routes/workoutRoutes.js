@@ -218,6 +218,61 @@ router.put("/:id/sharing", authMiddleware, requireActiveAccountWrite, async (req
   }
 });
 
+router.get("/:id/open", authMiddleware, async (req, res) => {
+  try {
+    const startedAt = Date.now();
+    const id = req.params.id;
+    const uid = req.user.id;
+
+    if (!id) {
+      return res.status(400).json({ error: "Missing workout id" });
+    }
+
+    const accessInfo = await WorkoutSharingService.getAccessibleWorkout(uid, id);
+    const row = await WorkoutDBService.getOpenPayload(id, uid);
+
+    const streamBuffer = Buffer.isBuffer(row.stream)
+      ? row.stream
+      : Buffer.from(row.stream || []);
+
+    if (WORKOUT_OPEN_PROFILE_LOG) {
+      const trackPoints = Array.isArray(row?.track?.coordinates) ? row.track.coordinates.length : 0;
+      console.info("[workout-open] open.profile", {
+        workoutId: id,
+        uid,
+        streamCodec: String(row.stream_codec || "brotli"),
+        streamBytes: Number(row.stream_size || streamBuffer.byteLength || 0),
+        validGps: !!(row?.validgps ?? row?.validGps),
+        sampleRateGps: Number(row?.samplerategps ?? row?.sampleRateGPS ?? 0) || null,
+        trackPoints,
+        totalMs: Date.now() - startedAt
+      });
+    }
+
+    return res.json({
+      workoutId: Number(id),
+      streamBase64: streamBuffer.toString("base64"),
+      streamEncoding: String(row.stream_codec || "brotli") === "gzip" ? "gzip" : "br",
+      validgps: row.validgps,
+      samplerategps: row.samplerategps,
+      gps_source: row.gps_source,
+      manual_gps_lookup_points: Array.isArray(row.manual_gps_lookup_points) ? row.manual_gps_lookup_points : [],
+      track: row.track,
+      segment_processing_status: row.segment_processing_status || "queued",
+      segment_processing_error: row.segment_processing_error || null,
+      segment_processing_updated_at: row.segment_processing_updated_at || null,
+      access: {
+        isOwner: !!accessInfo.is_owner,
+        ownerDisplayName: accessInfo.owner_display_name || null,
+        ownerEmail: accessInfo.owner_email || null
+      }
+    });
+  } catch (err) {
+    console.error("Workout open payload load error:", err);
+    return res.status(err.statusCode || 500).json({ error: err.message || "Internal server error" });
+  }
+});
+
 // GET /api/workouts/:id/stream
 router.get("/:id/stream", authMiddleware, async (req, res) => {
   try {
