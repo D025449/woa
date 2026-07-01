@@ -12,6 +12,7 @@ import { enqueueSegmentBestEfforts } from "../services/segment-best-efforts-serv
 import FitExportService from "../services/fitExportService.js";
 import WorkoutThumbnailService from "../services/workoutThumbnailService.js";
 import WorkoutSimilarityService from "../services/workoutSimilarityService.js";
+import WorkoutOpenV2 from "../shared/WorkoutOpenV2.js";
 import {
   enqueueWorkoutSimilarityRebuild,
   getWorkoutSimilarityRebuildJob
@@ -301,6 +302,88 @@ router.get("/:id/open", authMiddleware, async (req, res) => {
     return res.json(responsePayload);
   } catch (err) {
     console.error("Workout open payload load error:", err);
+    return res.status(err.statusCode || 500).json({ error: err.message || "Internal server error" });
+  }
+});
+
+router.get("/:id/open-v2", authMiddleware, async (req, res) => {
+  try {
+    const startedAt = Date.now();
+    const id = req.params.id;
+    const uid = req.user.id;
+
+    if (!id) {
+      return res.status(400).json({ error: "Missing workout id" });
+    }
+
+    const accessStartedAt = Date.now();
+    const accessInfo = await WorkoutSharingService.getAccessibleWorkout(uid, id);
+    const accessMs = Date.now() - accessStartedAt;
+
+    const payloadStartedAt = Date.now();
+    const openPayload = await WorkoutDBService.getOpenPayloadRaw(id, uid);
+    const payloadMs = Date.now() - payloadStartedAt;
+    const row = openPayload?.row || null;
+    const dbProfile = openPayload?.profile || {};
+
+    const segmentsStartedAt = Date.now();
+    const [segmentResult, gpsSegmentResult] = await Promise.all([
+      FileDBService.getSegmentsByWorkout(uid, id),
+      SegmentDBService.getGPSSegmentByWorkout(uid, id)
+    ]);
+    const segmentsMs = Date.now() - segmentsStartedAt;
+
+    const responseBuildStartedAt = Date.now();
+    const payload = WorkoutOpenV2.buildPayload({
+      meta: {
+        workoutId: Number(id),
+        streamCodec: String(row.stream_codec || "brotli"),
+        gpsTrackCodec: String(row.gps_track_blob_codec || "brotli"),
+        validGps: !!(row?.validgps ?? row?.validGps),
+        sampleRateGps: Number(row?.samplerategps ?? row?.sampleRateGPS ?? 0) || null,
+        gpsSource: row.gps_source || null,
+        manualGpsLookupPoints: Array.isArray(row.manual_gps_lookup_points) ? row.manual_gps_lookup_points : [],
+        segmentProcessingStatus: row.segment_processing_status || "queued",
+        segmentProcessingError: row.segment_processing_error || null,
+        segmentProcessingUpdatedAt: row.segment_processing_updated_at || null,
+        access: {
+          isOwner: !!accessInfo.is_owner,
+          ownerDisplayName: accessInfo.owner_display_name || null,
+          ownerEmail: accessInfo.owner_email || null
+        }
+      },
+      workoutStream: row?.stream || Buffer.alloc(0),
+      gpsTrackBlob: row?.gps_track_blob || Buffer.alloc(0),
+      segments: Array.isArray(segmentResult?.rows) ? segmentResult.rows : [],
+      gpsSegments: Array.isArray(gpsSegmentResult?.rows) ? gpsSegmentResult.rows : []
+    });
+    const responseBuildMs = Date.now() - responseBuildStartedAt;
+
+    if (WORKOUT_OPEN_PROFILE_LOG) {
+      console.info("[workout-open] open-v2.profile", {
+        workoutId: id,
+        uid,
+        accessMs,
+        payloadMs,
+        segmentsMs,
+        queryMs: Number(dbProfile.queryMs || 0),
+        responseBuildMs,
+        streamCodec: String(row.stream_codec || "brotli"),
+        gpsTrackCodec: String(row.gps_track_blob_codec || "brotli"),
+        streamBytes: Number(row.stream_size || row?.stream?.length || 0),
+        gpsTrackBlobBytes: Number(row.gps_track_blob_size || row?.gps_track_blob?.length || 0),
+        segmentCount: Array.isArray(segmentResult?.rows) ? segmentResult.rows.length : 0,
+        gpsSegmentCount: Array.isArray(gpsSegmentResult?.rows) ? gpsSegmentResult.rows.length : 0,
+        payloadBytes: payload.byteLength,
+        totalMs: Date.now() - startedAt
+      });
+    }
+
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
+    return res.send(Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength));
+  } catch (err) {
+    console.error("Workout open v2 payload load error:", err);
     return res.status(err.statusCode || 500).json({ error: err.message || "Internal server error" });
   }
 });

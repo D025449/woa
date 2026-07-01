@@ -2,6 +2,8 @@
 import TypedArrayHelpers from "/shared/TypedArrayHelpers.js";
 import SegmentService from "../../shared/SegmentService.js";
 import Workout from "../../shared/Workout.js";
+import WorkoutOpenV2 from "../../shared/WorkoutOpenV2.js";
+import GpsTrackBlobCodec from "../../shared/GpsTrackBlobCodec.js";
 import confirmModal from "./confirm-modal.js";
 
 export default class WorkoutService {
@@ -27,6 +29,23 @@ export default class WorkoutService {
     return typeof performance !== "undefined" && typeof performance.now === "function"
       ? performance.now()
       : Date.now();
+  }
+
+  static isOpenV2Enabled() {
+    try {
+      if (window.localStorage?.getItem("workoutOpenV2") === "1") {
+        return true;
+      }
+    } catch {
+      // ignore localStorage access failures
+    }
+
+    try {
+      const params = new URLSearchParams(window.location.search || "");
+      return params.get("workoutOpenV2") === "1";
+    } catch {
+      return false;
+    }
   }
 
   static base64ToArrayBuffer(base64) {
@@ -118,6 +137,17 @@ export default class WorkoutService {
   }
 
   static async loadWorkoutByRow(wid) {
+    if (this.isOpenV2Enabled()) {
+      try {
+        return await this.loadWorkoutByRowV2(wid);
+      } catch (error) {
+        console.warn("[workout-open] v2 fallback", {
+          workoutId: wid,
+          error: error?.message || String(error)
+        });
+      }
+    }
+
     const profilingEnabled = this.isOpenProfilingEnabled();
     const profile = {
       workoutId: wid,
@@ -219,6 +249,113 @@ export default class WorkoutService {
       console.error("Parsing failed:", err.message);
     }
 
+  }
+
+  static async loadWorkoutByRowV2(wid) {
+    const profilingEnabled = this.isOpenProfilingEnabled();
+    const profile = {
+      workoutId: wid,
+      initialFetchWallMs: 0,
+      responseBodyWallMs: 0,
+      streamArrayBufferMs: 0,
+      streamDecodeMs: 0,
+      trackJsonMs: 0,
+      segmentFetchMs: 0,
+      totalMs: 0,
+      streamBytes: 0,
+      trackPoints: 0,
+      validGps: false,
+      openVariant: "v2"
+    };
+    const totalStartedAt = this.nowMs();
+
+    try {
+      const fetchStartedAt = this.nowMs();
+      const openResponse = await fetch(`/workouts/${wid}/open-v2`);
+      profile.initialFetchWallMs = this.nowMs() - fetchStartedAt;
+
+      if (openResponse.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
+      if (!openResponse.ok) {
+        throw new Error(`Workout open v2 fetch failed (${openResponse.status})`);
+      }
+
+      const bodyStartedAt = this.nowMs();
+      const payloadBytes = await openResponse.arrayBuffer();
+      profile.responseBodyWallMs = this.nowMs() - bodyStartedAt;
+
+      const payload = WorkoutOpenV2.parsePayload(payloadBytes);
+      const meta = payload?.meta || {};
+
+      const streamDecodeInputStartedAt = this.nowMs();
+      const compressedBuffer = payload.workoutStream instanceof Uint8Array
+        ? payload.workoutStream
+        : new Uint8Array(0);
+      profile.streamArrayBufferMs = this.nowMs() - streamDecodeInputStartedAt;
+      profile.streamBytes = compressedBuffer.byteLength;
+
+      let stepStartedAt = this.nowMs();
+      const rawBuffer = await Workout.decompress(compressedBuffer, meta?.streamCodec || "brotli");
+      const buffer = rawBuffer instanceof ArrayBuffer
+        ? rawBuffer
+        : rawBuffer.buffer.slice(rawBuffer.byteOffset, rawBuffer.byteOffset + rawBuffer.byteLength);
+      const workoutObject = Workout.fromBuffer(buffer);
+      profile.streamDecodeMs = this.nowMs() - stepStartedAt;
+
+      stepStartedAt = this.nowMs();
+      const decodedTrack = await GpsTrackBlobCodec.decodeCompressed(payload.gpsTrackBlob, {
+        includeGeoJson: false,
+        codec: meta?.gpsTrackCodec || "brotli"
+      });
+      profile.trackJsonMs = this.nowMs() - stepStartedAt;
+
+      const workout = {
+        id: wid,
+        workoutObject,
+        validGps: !!(meta?.validGps ?? workoutObject.isValidGps()),
+        sampleRateGPS: meta?.sampleRateGps ?? 1,
+        gpsSource: meta?.gpsSource || null,
+        segmentProcessingStatus: meta?.segmentProcessingStatus || "queued",
+        segmentProcessingError: meta?.segmentProcessingError || null,
+        segmentProcessingUpdatedAt: meta?.segmentProcessingUpdatedAt || null,
+        manualGpsLookupPoints: Array.isArray(meta?.manualGpsLookupPoints) ? meta.manualGpsLookupPoints : [],
+        track: Array.isArray(decodedTrack?.track) ? decodedTrack.track : [],
+        segments: [],
+        access: meta?.access || null
+      };
+      profile.trackPoints = Array.isArray(workout.track) ? workout.track.length : 0;
+      profile.validGps = !!workout.validGps;
+
+      stepStartedAt = this.nowMs();
+      SegmentService.applySegmentsPayload(workout, {
+        meta: {
+          segmentProcessingStatus: meta?.segmentProcessingStatus || "queued",
+          segmentProcessingError: meta?.segmentProcessingError || null,
+          segmentProcessingUpdatedAt: meta?.segmentProcessingUpdatedAt || null
+        },
+        segments: payload?.segments,
+        gpsSegments: payload?.gpsSegments
+      });
+      profile.segmentFetchMs = this.nowMs() - stepStartedAt;
+      profile.totalMs = this.nowMs() - totalStartedAt;
+
+      if (profilingEnabled) {
+        console.info("[workout-open] profile", { ...profile });
+      }
+
+      return workout;
+    } catch (err) {
+      profile.totalMs = this.nowMs() - totalStartedAt;
+      if (profilingEnabled) {
+        console.info("[workout-open] profile.failed", {
+          ...profile,
+          error: err?.message || String(err)
+        });
+      }
+      throw err;
+    }
   }
 
   static async getWorkoutSharing(workoutId) {
