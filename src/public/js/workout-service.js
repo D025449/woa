@@ -193,7 +193,7 @@ export default class WorkoutService {
       profile.totalMs = this.nowMs() - totalStartedAt;
 
       if (profilingEnabled) {
-        console.info("[workout-open] profile", profile);
+        console.info("[workout-open] profile", { ...profile });
       }
 
       return workout;

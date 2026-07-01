@@ -446,7 +446,7 @@ export default class Controller {
       profile.totalOpenMs = performance.now() - totalStartedAt;
 
       if (profilingEnabled) {
-        console.info("[workout-open] render.profile", profile);
+        console.info("[workout-open] render.profile", { ...profile });
       }
 
       void (async () => {
