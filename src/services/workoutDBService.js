@@ -214,6 +214,12 @@ async function hydrateTrackRow(row, options = {}) {
   return row;
 }
 
+function nowMs() {
+  return typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+}
+
 function buildDistanceAxisIndex(values = []) {
   const axis = [];
   let lastValue = 0;
@@ -761,6 +767,7 @@ export default class WorkoutDBService {
   }
 
   static async getOpenPayload(id, uid) {
+    const queryStartedAt = nowMs();
     const result = await pool.query(
       `SELECT
         id,
@@ -781,14 +788,25 @@ export default class WorkoutDBService {
        WHERE id = $1`,
       [id]
     );
+    const queryMs = nowMs() - queryStartedAt;
 
     if (result.rowCount === 0) {
       throw new Error("no workouts found");
     }
 
-    return hydrateTrackRow(result.rows[0], {
+    const hydrateStartedAt = nowMs();
+    const hydratedRow = await hydrateTrackRow(result.rows[0], {
       includeGeoJson: true
     });
+    const hydrateMs = nowMs() - hydrateStartedAt;
+
+    return {
+      row: hydratedRow,
+      profile: {
+        queryMs,
+        hydrateTrackMs: hydrateMs
+      }
+    };
   }
 
   static async getManualGpsContext(id, uid) {

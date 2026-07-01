@@ -228,28 +228,21 @@ router.get("/:id/open", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Missing workout id" });
     }
 
+    const accessStartedAt = Date.now();
     const accessInfo = await WorkoutSharingService.getAccessibleWorkout(uid, id);
-    const row = await WorkoutDBService.getOpenPayload(id, uid);
+    const accessMs = Date.now() - accessStartedAt;
+
+    const payloadStartedAt = Date.now();
+    const openPayload = await WorkoutDBService.getOpenPayload(id, uid);
+    const payloadMs = Date.now() - payloadStartedAt;
+    const row = openPayload?.row || null;
+    const dbProfile = openPayload?.profile || {};
 
     const streamBuffer = Buffer.isBuffer(row.stream)
       ? row.stream
       : Buffer.from(row.stream || []);
-
-    if (WORKOUT_OPEN_PROFILE_LOG) {
-      const trackPoints = Array.isArray(row?.track?.coordinates) ? row.track.coordinates.length : 0;
-      console.info("[workout-open] open.profile", {
-        workoutId: id,
-        uid,
-        streamCodec: String(row.stream_codec || "brotli"),
-        streamBytes: Number(row.stream_size || streamBuffer.byteLength || 0),
-        validGps: !!(row?.validgps ?? row?.validGps),
-        sampleRateGps: Number(row?.samplerategps ?? row?.sampleRateGPS ?? 0) || null,
-        trackPoints,
-        totalMs: Date.now() - startedAt
-      });
-    }
-
-    return res.json({
+    const responseBuildStartedAt = Date.now();
+    const responsePayload = {
       workoutId: Number(id),
       streamBase64: streamBuffer.toString("base64"),
       streamEncoding: String(row.stream_codec || "brotli") === "gzip" ? "gzip" : "br",
@@ -266,7 +259,29 @@ router.get("/:id/open", authMiddleware, async (req, res) => {
         ownerDisplayName: accessInfo.owner_display_name || null,
         ownerEmail: accessInfo.owner_email || null
       }
-    });
+    };
+    const responseBuildMs = Date.now() - responseBuildStartedAt;
+
+    if (WORKOUT_OPEN_PROFILE_LOG) {
+      const trackPoints = Array.isArray(row?.track?.coordinates) ? row.track.coordinates.length : 0;
+      console.info("[workout-open] open.profile", {
+        workoutId: id,
+        uid,
+        accessMs,
+        payloadMs,
+        queryMs: Number(dbProfile.queryMs || 0),
+        hydrateTrackMs: Number(dbProfile.hydrateTrackMs || 0),
+        responseBuildMs,
+        streamCodec: String(row.stream_codec || "brotli"),
+        streamBytes: Number(row.stream_size || streamBuffer.byteLength || 0),
+        validGps: !!(row?.validgps ?? row?.validGps),
+        sampleRateGps: Number(row?.samplerategps ?? row?.sampleRateGPS ?? 0) || null,
+        trackPoints,
+        totalMs: Date.now() - startedAt
+      });
+    }
+
+    return res.json(responsePayload);
   } catch (err) {
     console.error("Workout open payload load error:", err);
     return res.status(err.statusCode || 500).json({ error: err.message || "Internal server error" });
