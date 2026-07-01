@@ -86,6 +86,7 @@ export default class Controller {
     this.detailSplitterPointerId = null;
     this.layoutMeasureRaf = null;
     this.layoutObserver = null;
+    this.similarWorkoutsRequestToken = 0;
     this.toast = this.toastElement && globalThis.bootstrap
       ? new globalThis.bootstrap.Toast(this.toastElement, {
           delay: 2800
@@ -432,10 +433,6 @@ export default class Controller {
       this.updateWorkoutMeta(workout);
 
       stepStartedAt = performance.now();
-      await this.loadSimilarWorkouts(workout);
-      profile.similarLoadMs = performance.now() - stepStartedAt;
-
-      stepStartedAt = performance.now();
       this.scheduleDesktopLayoutMeasure(true);
       this.closeMobileLibrary();
       this.scrollDetailIntoViewOnMobile();
@@ -451,6 +448,24 @@ export default class Controller {
       if (profilingEnabled) {
         console.info("[workout-open] render.profile", profile);
       }
+
+      void (async () => {
+        const similarStartedAt = performance.now();
+        try {
+          await this.loadSimilarWorkouts(workout);
+          profile.similarLoadMs = performance.now() - similarStartedAt;
+        } catch (err) {
+          profile.similarLoadMs = performance.now() - similarStartedAt;
+          console.error(err);
+        } finally {
+          if (profilingEnabled) {
+            console.info("[workout-open] render.profile.similar", {
+              workoutId: String(workout.id),
+              similarLoadMs: profile.similarLoadMs
+            });
+          }
+        }
+      })();
     } catch (err) {
       profile.totalOpenMs = performance.now() - totalStartedAt;
       if (profilingEnabled) {
@@ -919,10 +934,12 @@ export default class Controller {
 
   async loadSimilarWorkouts(workout) {
     if (!workout?.id) {
+      this.similarWorkoutsRequestToken += 1;
       this.resetSimilarWorkouts();
       return;
     }
 
+    const requestToken = ++this.similarWorkoutsRequestToken;
     const isOwned = workout?.access?.isOwner !== false && workout?.is_owned !== false;
     if (!isOwned || !workout?.validGps) {
       this.resetSimilarWorkouts();
@@ -933,8 +950,14 @@ export default class Controller {
 
     try {
       const result = await WorkoutService.getSimilarWorkouts(workout.id);
+      if (requestToken !== this.similarWorkoutsRequestToken || String(workout.id) !== String(this.currentWorkoutId)) {
+        return;
+      }
       this.renderSimilarWorkouts(result?.edges || [], workout);
     } catch (err) {
+      if (requestToken !== this.similarWorkoutsRequestToken || String(workout.id) !== String(this.currentWorkoutId)) {
+        return;
+      }
       console.error(err);
       this.renderSimilarWorkoutsError();
     }
