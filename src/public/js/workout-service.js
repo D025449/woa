@@ -6,6 +6,29 @@ import confirmModal from "./confirm-modal.js";
 
 export default class WorkoutService {
 
+  static isOpenProfilingEnabled() {
+    try {
+      if (window.localStorage?.getItem("workoutOpenProfile") === "1") {
+        return true;
+      }
+    } catch {
+      // ignore localStorage access failures
+    }
+
+    try {
+      const params = new URLSearchParams(window.location.search || "");
+      return params.get("workoutProfile") === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  static nowMs() {
+    return typeof performance !== "undefined" && typeof performance.now === "function"
+      ? performance.now()
+      : Date.now();
+  }
+
   // -----------------------------
   // PUBLIC API
   // -----------------------------
@@ -85,55 +108,58 @@ export default class WorkoutService {
   }
 
   static async loadWorkoutByRow(wid) {
-    //console.log(row);
+    const profilingEnabled = this.isOpenProfilingEnabled();
+    const profile = {
+      workoutId: wid,
+      initialFetchWallMs: 0,
+      streamArrayBufferMs: 0,
+      streamDecodeMs: 0,
+      trackJsonMs: 0,
+      responseBodyWallMs: 0,
+      segmentFetchMs: 0,
+      totalMs: 0,
+      streamBytes: 0,
+      trackPoints: 0,
+      validGps: false
+    };
+    const totalStartedAt = this.nowMs();
 
-    //const wid = this.getWorkoutId(row);
-    //console.time("fetchWO");
     try {
-      const streamResponse = await fetch(`/workouts/${wid}/stream`);
-      if (streamResponse.status === 401) {
+      const fetchStartedAt = this.nowMs();
+      const [streamResponse, trackResonse] = await Promise.all([
+        fetch(`/workouts/${wid}/stream`),
+        fetch(`/workouts/${wid}/track`)
+      ]);
+      profile.initialFetchWallMs = this.nowMs() - fetchStartedAt;
+
+      if (streamResponse.status === 401 || trackResonse.status === 401) {
         window.location.href = '/login';
         return;
       }
       if (!streamResponse.ok) {
         throw new Error(`Workout stream fetch failed (${streamResponse.status})`);
       }
-      const buffer = await streamResponse.arrayBuffer();
-      const workoutObject = Workout.fromBuffer(buffer);
-
-
-      const trackResonse = await fetch(`/workouts/${wid}/track`);
-      if (trackResonse.status === 401) {
-        window.location.href = '/login';
-        return;
-      }
-
       if (!trackResonse.ok) {
         throw new Error(`Track fetch failed (${trackResonse.status})`);
       }
 
-      const trackRow = await trackResonse.json();
+      const bodyStartedAt = this.nowMs();
+      const [buffer, trackRow] = await Promise.all([
+        streamResponse.arrayBuffer().then((result) => {
+          profile.streamArrayBufferMs = this.nowMs() - bodyStartedAt;
+          return result;
+        }),
+        trackResonse.json().then((result) => {
+          profile.trackJsonMs = this.nowMs() - bodyStartedAt;
+          return result;
+        })
+      ]);
+      profile.responseBodyWallMs = this.nowMs() - bodyStartedAt;
+      profile.streamBytes = buffer.byteLength;
 
-
-  
-
-      //console.timeEnd("fetchWO");
-
-
-
-
-      /*const metaResponse = await fetch(`/files/workouts/${wid}/data`);
-
-      if (metaResponse.status === 401) {
-        window.location.href = '/login';
-        return;
-      }
-      else {
-        console.time("fetchOld");
-
-        const { url } = await metaResponse.json();
-        const response = await fetch(url);
-        const buffer = await response.arrayBuffer();*/
+      let stepStartedAt = this.nowMs();
+      const workoutObject = Workout.fromBuffer(buffer);
+      profile.streamDecodeMs = this.nowMs() - stepStartedAt;
 
       const workout = {
         id: wid,
@@ -149,18 +175,31 @@ export default class WorkoutService {
         access: trackRow?.access || null
         //...WorkoutService.parseWorkoutBuffer(buffer)
       };
+      profile.trackPoints = Array.isArray(workout.track) ? workout.track.length : 0;
+      profile.validGps = !!workout.validGps;
 
       //console.timeEnd("fetchOld");
 
-
-
-
+      stepStartedAt = this.nowMs();
       await SegmentService.fetchSegments(workout);
+      profile.segmentFetchMs = this.nowMs() - stepStartedAt;
+      profile.totalMs = this.nowMs() - totalStartedAt;
+
+      if (profilingEnabled) {
+        console.info("[workout-open] profile", profile);
+      }
 
       return workout;
       //}
     }
     catch (err) {
+      profile.totalMs = this.nowMs() - totalStartedAt;
+      if (profilingEnabled) {
+        console.info("[workout-open] profile.failed", {
+          ...profile,
+          error: err?.message || String(err)
+        });
+      }
       console.error("Parsing failed:", err.message);
     }
 

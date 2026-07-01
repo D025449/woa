@@ -19,6 +19,7 @@ import {
 
 const router = express.Router();
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
+const WORKOUT_OPEN_PROFILE_LOG = String(process.env.WORKOUT_OPEN_PROFILE_LOG || "0").trim() === "1";
 
 function haversineMeters(a, b) {
   const toRad = (value) => (value * Math.PI) / 180;
@@ -220,6 +221,7 @@ router.put("/:id/sharing", authMiddleware, requireActiveAccountWrite, async (req
 // GET /api/workouts/:id/stream
 router.get("/:id/stream", authMiddleware, async (req, res) => {
   try {
+    const startedAt = Date.now();
     const id = req.params.id;
     const uid = req.user.id;
 
@@ -244,11 +246,31 @@ router.get("/:id/stream", authMiddleware, async (req, res) => {
     res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
 
     if (clientEtags.includes(etag) || clientEtags.includes("*")) {
+      if (WORKOUT_OPEN_PROFILE_LOG) {
+        console.info("[workout-open] stream.profile", {
+          workoutId: id,
+          uid,
+          streamCodec: String(streamRow.stream_codec || "brotli"),
+          streamBytes: streamSize,
+          cacheHit304: true,
+          totalMs: Date.now() - startedAt
+        });
+      }
       return res.status(304).end();
     }
 
     res.setHeader("Content-Type", "application/octet-stream");
     res.setHeader("Content-Encoding", String(streamRow.stream_codec || "brotli") === "gzip" ? "gzip" : "br");
+    if (WORKOUT_OPEN_PROFILE_LOG) {
+      console.info("[workout-open] stream.profile", {
+        workoutId: id,
+        uid,
+        streamCodec: String(streamRow.stream_codec || "brotli"),
+        streamBytes: streamSize,
+        cacheHit304: false,
+        totalMs: Date.now() - startedAt
+      });
+    }
     return res.send(stream);
 
   } catch (err) {
@@ -259,6 +281,7 @@ router.get("/:id/stream", authMiddleware, async (req, res) => {
 
 router.get("/:id/track", authMiddleware, async (req, res) => {
   try {
+    const startedAt = Date.now();
     const id = req.params.id;
     const uid = req.user.id;
 
@@ -276,6 +299,17 @@ router.get("/:id/track", authMiddleware, async (req, res) => {
     // optional extra safety
     //res.setHeader("Pragma", "no-cache");
     //res.setHeader("Expires", "0");
+    if (WORKOUT_OPEN_PROFILE_LOG) {
+      const trackPoints = Array.isArray(row?.track?.coordinates) ? row.track.coordinates.length : 0;
+      console.info("[workout-open] track.profile", {
+        workoutId: id,
+        uid,
+        validGps: !!(row?.validgps ?? row?.validGps),
+        sampleRateGps: Number(row?.samplerategps ?? row?.sampleRateGPS ?? 0) || null,
+        trackPoints,
+        totalMs: Date.now() - startedAt
+      });
+    }
     return res.json({
       ...row,
       access: {

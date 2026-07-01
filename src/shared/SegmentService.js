@@ -136,15 +136,29 @@ export default class SegmentService {
 
     static async fetchSegments(workout) {
         workout.segments ??= [];
-        const res = await fetch(`/files/workouts/${workout.id}/segments`, {
-            cache: "no-store"
-        });
+        const [res, beResponse] = await Promise.all([
+            fetch(`/files/workouts/${workout.id}/segments`, {
+                cache: "no-store"
+            }),
+            fetch(`/segments/workout-gps-seg-best-effort/${workout.id}/data`)
+        ]);
 
         if (!res.ok) {
             throw new Error("Failed to load segments");
         }
+        if (beResponse.status === 401) {
+            window.location.href = '/login';
+            return;
+        }
+        if (!beResponse.ok) {
+            throw new Error("Failed to load GPS segment best efforts");
+        }
 
-        const json = await res.json();
+        const [json, beRows] = await Promise.all([
+            res.json(),
+            beResponse.json()
+        ]);
+
         workout.segmentProcessingStatus = json?.meta?.segmentProcessingStatus || "completed";
         workout.segmentProcessingError = json?.meta?.segmentProcessingError || null;
         workout.segmentProcessingUpdatedAt = json?.meta?.segmentProcessingUpdatedAt || null;
@@ -159,13 +173,6 @@ export default class SegmentService {
             .filter(s => !existingIds.has(s.id));
 
         workout.segments.push(...mapped);
-
-        const beResponse = await fetch(`/segments/workout-gps-seg-best-effort/${workout.id}/data`);
-        if (beResponse.status === 401) {
-            window.location.href = '/login';
-            return;
-        }
-        const beRows = await beResponse.json();
         const backendSegments2 = beRows.map(s => ({
             rowstate: 'DB', isGPSSegment: true,  ...s
         })); // <- wichtig
