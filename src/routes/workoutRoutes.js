@@ -237,6 +237,12 @@ router.get("/:id/open", authMiddleware, async (req, res) => {
     const payloadMs = Date.now() - payloadStartedAt;
     const row = openPayload?.row || null;
     const dbProfile = openPayload?.profile || {};
+    const segmentsStartedAt = Date.now();
+    const [segmentResult, gpsSegmentResult] = await Promise.all([
+      FileDBService.getSegmentsByWorkout(uid, id),
+      SegmentDBService.getGPSSegmentByWorkout(uid, id)
+    ]);
+    const segmentsMs = Date.now() - segmentsStartedAt;
 
     const streamBuffer = Buffer.isBuffer(row.stream)
       ? row.stream
@@ -251,6 +257,14 @@ router.get("/:id/open", authMiddleware, async (req, res) => {
       gps_source: row.gps_source,
       manual_gps_lookup_points: Array.isArray(row.manual_gps_lookup_points) ? row.manual_gps_lookup_points : [],
       track: row.track,
+      segments: Array.isArray(segmentResult?.rows) ? segmentResult.rows : [],
+      gpsSegments: Array.isArray(gpsSegmentResult?.rows) ? gpsSegmentResult.rows : [],
+      segmentsMeta: segmentResult?.status || {
+        workoutId: Number(id),
+        segmentProcessingStatus: row.segment_processing_status || "queued",
+        segmentProcessingError: row.segment_processing_error || null,
+        segmentProcessingUpdatedAt: row.segment_processing_updated_at || null
+      },
       segment_processing_status: row.segment_processing_status || "queued",
       segment_processing_error: row.segment_processing_error || null,
       segment_processing_updated_at: row.segment_processing_updated_at || null,
@@ -269,6 +283,7 @@ router.get("/:id/open", authMiddleware, async (req, res) => {
         uid,
         accessMs,
         payloadMs,
+        segmentsMs,
         queryMs: Number(dbProfile.queryMs || 0),
         hydrateTrackMs: Number(dbProfile.hydrateTrackMs || 0),
         responseBuildMs,
@@ -277,6 +292,8 @@ router.get("/:id/open", authMiddleware, async (req, res) => {
         validGps: !!(row?.validgps ?? row?.validGps),
         sampleRateGps: Number(row?.samplerategps ?? row?.sampleRateGPS ?? 0) || null,
         trackPoints,
+        segmentCount: Array.isArray(segmentResult?.rows) ? segmentResult.rows.length : 0,
+        gpsSegmentCount: Array.isArray(gpsSegmentResult?.rows) ? gpsSegmentResult.rows.length : 0,
         totalMs: Date.now() - startedAt
       });
     }

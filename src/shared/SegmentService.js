@@ -3,6 +3,41 @@ import Utils from "./Utils.js";
 
 export default class SegmentService {
 
+    static applySegmentsPayload(workout, payload = {}) {
+        workout.segments ??= [];
+
+        workout.segmentProcessingStatus = payload?.meta?.segmentProcessingStatus || "completed";
+        workout.segmentProcessingError = payload?.meta?.segmentProcessingError || null;
+        workout.segmentProcessingUpdatedAt = payload?.meta?.segmentProcessingUpdatedAt || null;
+
+        const backendSegments = Array.isArray(payload?.segments)
+            ? payload.segments.map((segment) => ({
+                rowstate: 'DB', isGPSSegment: false, ...segment
+            }))
+            : [];
+
+        const gpsSegments = Array.isArray(payload?.gpsSegments)
+            ? payload.gpsSegments.map((segment) => ({
+                rowstate: 'DB', isGPSSegment: true, ...segment
+            }))
+            : [];
+
+        const existingIds = new Set(workout.segments.map((segment) => segment.id));
+        const mappedSegments = backendSegments.filter((segment) => !existingIds.has(segment.id));
+        workout.segments.push(...mappedSegments);
+
+        const existingGpsKeys = new Set(
+            workout.segments
+                .filter((segment) => segment?.isGPSSegment)
+                .map((segment) => segment.id ?? `${segment.segment_id ?? ""}:${segment.workout_id ?? ""}:${segment.start_offset ?? ""}:${segment.end_offset ?? ""}`)
+        );
+        const mappedGpsSegments = gpsSegments.filter((segment) => {
+            const key = segment.id ?? `${segment.segment_id ?? ""}:${segment.workout_id ?? ""}:${segment.start_offset ?? ""}:${segment.end_offset ?? ""}`;
+            return !existingGpsKeys.has(key);
+        });
+        workout.segments.push(...mappedGpsSegments);
+    }
+
 
 
     static async deleteSegment(workout, seg) {
@@ -158,31 +193,11 @@ export default class SegmentService {
             res.json(),
             beResponse.json()
         ]);
-
-        workout.segmentProcessingStatus = json?.meta?.segmentProcessingStatus || "completed";
-        workout.segmentProcessingError = json?.meta?.segmentProcessingError || null;
-        workout.segmentProcessingUpdatedAt = json?.meta?.segmentProcessingUpdatedAt || null;
-        const backendSegments = json.data.map(s => ({
-            rowstate: 'DB', isGPSSegment: false, ...s
-        })); // <- wichtig
-
-
-        const existingIds = new Set(workout.segments.map(s => s.id));
-
-        const mapped = backendSegments
-            .filter(s => !existingIds.has(s.id));
-
-        workout.segments.push(...mapped);
-        const backendSegments2 = beRows.map(s => ({
-            rowstate: 'DB', isGPSSegment: true,  ...s
-        })); // <- wichtig
-
-
-        workout.segments.push(...backendSegments2);
-
-
-
-
+        SegmentService.applySegmentsPayload(workout, {
+            meta: json?.meta,
+            segments: json?.data,
+            gpsSegments: beRows
+        });
     }
 
     static reduced_track(workout, seg, options = {}) {

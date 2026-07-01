@@ -179,6 +179,7 @@ export default class WorkoutService {
         segmentProcessingUpdatedAt: payload?.segment_processing_updated_at || payload?.segmentProcessingUpdatedAt || null,
         manualGpsLookupPoints: Array.isArray(payload?.manual_gps_lookup_points) ? payload.manual_gps_lookup_points : [],
         track: this.parseGeoJsonTrack(payload?.track),
+        segments: [],
         access: payload?.access || null
         //...WorkoutService.parseWorkoutBuffer(buffer)
       };
@@ -188,7 +189,15 @@ export default class WorkoutService {
       //console.timeEnd("fetchOld");
 
       stepStartedAt = this.nowMs();
-      await SegmentService.fetchSegments(workout);
+      if (Array.isArray(payload?.segments) || Array.isArray(payload?.gpsSegments)) {
+        SegmentService.applySegmentsPayload(workout, {
+          meta: payload?.segmentsMeta,
+          segments: payload?.segments,
+          gpsSegments: payload?.gpsSegments
+        });
+      } else {
+        await SegmentService.fetchSegments(workout);
+      }
       profile.segmentFetchMs = this.nowMs() - stepStartedAt;
       profile.totalMs = this.nowMs() - totalStartedAt;
 
