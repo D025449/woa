@@ -267,9 +267,10 @@ function getUploadTransportMode() {
 
 function isParallelFitPoolEnabled() {
     try {
-        return localStorage.getItem("woaParallelFitPool") === "1";
+        const value = localStorage.getItem("woaParallelFitPool");
+        return value !== "0";
     } catch {
-        return false;
+        return true;
     }
 }
 
