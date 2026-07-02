@@ -249,6 +249,34 @@ function buildWorkoutStreamStatLines(stats = {}) {
     ].join("<br>");
 }
 
+function buildStartupTimingLines(timings = {}) {
+    if (!timings || typeof timings !== "object") {
+        return "";
+    }
+
+    const orderedKeys = [
+        "readSourceMs",
+        "fetchExistingStartTimesMs",
+        "workerBootstrapMs",
+        "zipOpenMs",
+        "firstFitDispatchMs",
+        "firstFitResultMs"
+    ];
+    const labels = {
+        readSourceMs: "Quelldateien lesen",
+        fetchExistingStartTimesMs: "Vorhandene Workouts laden",
+        workerBootstrapMs: "Worker-Start bis erster Kontakt",
+        zipOpenMs: "ZIP oeffnen",
+        firstFitDispatchMs: "Bis erster FIT-Dispatch",
+        firstFitResultMs: "Bis erstes FIT-Ergebnis"
+    };
+
+    return orderedKeys
+        .filter((key) => Number.isFinite(Number(timings[key])))
+        .map((key) => `${labels[key]}: ${escapeHtml(formatMs(timings[key]))}`)
+        .join("<br>");
+}
+
 function getEncodingOptions() {
     return {
         gentleQuantization: true,
@@ -653,11 +681,14 @@ async function handleConvertSubmit(event) {
     setProcessingProgress(0, "");
 
     try {
+        const startupTimings = {};
+        const submitStartedAt = performance.now();
         const encodingOptions = getEncodingOptions();
         let arrayBuffer = null;
         let workerFiles = [];
         let totalLoadedBytes = 0;
         const totalSourceBytes = selectedFiles.reduce((sum, file) => sum + Number(file.size || 0), 0);
+        const readStartedAt = performance.now();
 
         if (isZipMode) {
             arrayBuffer = await readFileWithProgress(selectedFile, (loaded, total) => {
@@ -680,16 +711,21 @@ async function handleConvertSubmit(event) {
                 });
             }
         }
+        startupTimings.readSourceMs = performance.now() - readStartedAt;
 
         setReadProgress(100, `${formatBytes(totalLoadedBytes)} loaded`);
         setPhase(tr("uploadPage.woaPhaseLoadingExisting", "Loading existing workouts"));
         setProcessingProgress(3, tr("uploadPage.woaFetchingExisting", "Fetching existing workout timestamps for duplicate detection"));
+        const fetchExistingStartedAt = performance.now();
         const existingStartTimes = await fetchExistingWorkoutStartTimes();
+        startupTimings.fetchExistingStartTimesMs = performance.now() - fetchExistingStartedAt;
         setPhase(tr("uploadPage.woaPhaseStartingWorker", "Starting worker"));
         setProcessingProgress(5, tr("uploadPage.woaWorkerBootstrapped", "Worker bootstrapped"));
 
         const worker = getUploadWorker();
+        const workerBootstrapStartedAt = performance.now();
         let finished = false;
+        let workerBootstrapped = false;
 
         const handleWorkerError = (workerError) => {
             if (finished) {
@@ -727,6 +763,18 @@ async function handleConvertSubmit(event) {
             const data = workerEvent.data || {};
 
             if (data.type === "prewarm-complete") {
+                return;
+            }
+
+            if (!workerBootstrapped) {
+                workerBootstrapped = true;
+                startupTimings.workerBootstrapMs = performance.now() - workerBootstrapStartedAt;
+            }
+
+            if (data.type === "startup-metric") {
+                if (typeof data.name === "string" && Number.isFinite(Number(data.valueMs))) {
+                    startupTimings[data.name] = Number(data.valueMs);
+                }
                 return;
             }
 
@@ -829,6 +877,11 @@ async function handleConvertSubmit(event) {
 
                 const gzipRatio = woaBlob.size > 0 ? ((gzipBlob.size / woaBlob.size) * 100).toFixed(1) : "0.0";
                 const timings = data.timings || {};
+                console.info("[upload-open] startup.profile", {
+                    fileName: data.fileName || "",
+                    submitToWorkerDoneMs: performance.now() - submitStartedAt,
+                    ...startupTimings
+                });
 
                 setResponseMarkup(`
                     <div class="alert alert-success">
@@ -847,6 +900,7 @@ async function handleConvertSubmit(event) {
                             Benchmark repeats: ${escapeHtml(String(timings.repeatCount || 1))}<br>
                             Parse FIT: ${escapeHtml(formatMs(timings.parseMs))}<br>
                             Build WOA1: ${escapeHtml(formatMs(timings.buildWoaMs))}<br>
+                            ${buildStartupTimingLines(startupTimings) ? `${buildStartupTimingLines(startupTimings)}<br>` : ""}
                             ${buildTimingLines(timings.buildWoaStepsMs) ? `${buildTimingLines(timings.buildWoaStepsMs)}<br>` : ""}
                             Compress GZip: ${escapeHtml(formatMs(timings.gzipMs))}<br>
                             Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
@@ -889,6 +943,11 @@ async function handleConvertSubmit(event) {
                 const skippedExisting = Array.isArray(data.skippedExisting) ? data.skippedExisting : [];
                 const skippedTooShort = Array.isArray(data.skippedTooShort) ? data.skippedTooShort : [];
                 const timings = data.timings || {};
+                console.info("[upload-open] startup.profile", {
+                    fileName: data.fileName || "",
+                    submitToWorkerDoneMs: performance.now() - submitStartedAt,
+                    ...startupTimings
+                });
                 const outerZipLevel = Number.isFinite(Number(stats.outerZipLevel))
                     ? Number(stats.outerZipLevel)
                     : 0;
@@ -945,6 +1004,7 @@ async function handleConvertSubmit(event) {
                         <div class="small mb-3">
                             Average parse FIT: ${escapeHtml(formatMs(timings.parseMs))}<br>
                             Average build WOA1: ${escapeHtml(formatMs(timings.buildWoaMs))}<br>
+                            ${buildStartupTimingLines(startupTimings) ? `${buildStartupTimingLines(startupTimings)}<br>` : ""}
                             ${buildWorkoutStreamStatLines(timings.workoutStreamStats) ? `${buildWorkoutStreamStatLines(timings.workoutStreamStats)}<br>` : ""}
                             ${buildTimingLines(timings.buildWoaStepsMs) ? `${buildTimingLines(timings.buildWoaStepsMs)}<br>` : ""}
                             Build output ZIP: ${escapeHtml(formatMs(timings.zipBuildMs))}<br>
@@ -996,6 +1056,11 @@ async function handleConvertSubmit(event) {
                 const skippedExisting = Array.isArray(data.skippedExisting) ? data.skippedExisting : [];
                 const skippedTooShort = Array.isArray(data.skippedTooShort) ? data.skippedTooShort : [];
                 const timings = data.timings || {};
+                console.info("[upload-open] startup.profile", {
+                    fileName: data.fileName || "",
+                    submitToWorkerDoneMs: performance.now() - submitStartedAt,
+                    ...startupTimings
+                });
                 const compressionRatio = Number(stats.sourceZipBytes || 0) > 0
                     ? ((Number(stats.outputContainerBytes || 0) / Number(stats.sourceZipBytes || 1)) * 100).toFixed(1)
                     : "0.0";
@@ -1046,6 +1111,7 @@ async function handleConvertSubmit(event) {
                         <div class="small mb-3">
                             Average parse FIT: ${escapeHtml(formatMs(timings.parseMs))}<br>
                             Average build WOA1: ${escapeHtml(formatMs(timings.buildWoaMs))}<br>
+                            ${buildStartupTimingLines(startupTimings) ? `${buildStartupTimingLines(startupTimings)}<br>` : ""}
                             ${buildWorkoutStreamStatLines(timings.workoutStreamStats) ? `${buildWorkoutStreamStatLines(timings.workoutStreamStats)}<br>` : ""}
                             ${buildTimingLines(timings.buildWoaStepsMs) ? `${buildTimingLines(timings.buildWoaStepsMs)}<br>` : ""}
                             Build output container: ${escapeHtml(formatMs(timings.containerBuildMs))}<br>

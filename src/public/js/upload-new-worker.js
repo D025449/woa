@@ -201,6 +201,15 @@ function releaseFitWorkers(workers = []) {
   }
 }
 
+function postStartupMetric(name, valueMs, extra = {}) {
+  self.postMessage({
+    type: "startup-metric",
+    name,
+    valueMs: Number(valueMs || 0),
+    ...extra
+  });
+}
+
 async function convertFitEntriesParallel({
   fitEntries = [],
   existingStartTimes = [],
@@ -243,9 +252,18 @@ async function convertFitEntriesParallel({
   const seenAcceptedStartTimes = new Set(normalizeExistingStartTimeSet(existingStartTimes));
   let nextTaskIndex = 0;
   let resolvedCount = 0;
+  const startedAt = nowMs();
+  let firstDispatchAt = null;
+  let firstResultAt = null;
 
   const dispatchTask = (worker, taskIndex) => {
     const entry = fitEntries[taskIndex];
+    if (firstDispatchAt === null) {
+      firstDispatchAt = nowMs();
+      postStartupMetric("firstFitDispatchMs", firstDispatchAt - startedAt, {
+        entryName: entry.name
+      });
+    }
     worker.postMessage({
       taskId: taskIndex,
       entryName: entry.name,
@@ -284,6 +302,13 @@ async function convertFitEntriesParallel({
         const data = event.data || {};
         if (data.type !== "fit-entry-result") {
           return;
+        }
+
+        if (firstResultAt === null) {
+          firstResultAt = nowMs();
+          postStartupMetric("firstFitResultMs", firstResultAt - startedAt, {
+            entryName: data.entryName
+          });
         }
 
         resolvedCount += 1;
@@ -650,6 +675,8 @@ async function convertMixedEntriesToWoaZip({
   const totalEntries = sortedFitEntries.length + sortedWoaEntries.length;
   let processedEntries = 0;
   const dynamicExistingStartTimes = new Set(existingStartTimeSet);
+  let firstSerialFitDispatchAt = null;
+  let firstSerialFitResultAt = null;
 
   if (parallelFitPoolEnabled && sortedFitEntries.length > 1) {
     const parallelResult = await convertFitEntriesParallel({
@@ -692,6 +719,12 @@ async function convertMixedEntriesToWoaZip({
     processedEntries = sortedFitEntries.length;
   } else {
     for (const fitEntry of sortedFitEntries) {
+      if (firstSerialFitDispatchAt === null) {
+        firstSerialFitDispatchAt = nowMs();
+        postStartupMetric("firstFitDispatchMs", firstSerialFitDispatchAt - startedAt, {
+          entryName: fitEntry.name
+        });
+      }
       self.postMessage({
         type: "phase",
         phase: "zip-entry",
@@ -743,6 +776,12 @@ async function convertMixedEntriesToWoaZip({
           name: createUniqueEntryName(fitEntry.name.replace(/\.fit$/i, ".woa1"), usedOutputNames),
           bytes: result.bytes
         };
+        if (firstSerialFitResultAt === null) {
+          firstSerialFitResultAt = nowMs();
+          postStartupMetric("firstFitResultMs", firstSerialFitResultAt - startedAt, {
+            entryName: fitEntry.name
+          });
+        }
         outputEntries.push(outputEntry);
         {
           const acceptedStartTimeKey = buildParsedStartTimeKey(parsed);
@@ -961,7 +1000,11 @@ async function handleZipConversion({
   });
 
   const zipBytes = new Uint8Array(arrayBuffer);
+  const zipOpenStartedAt = nowMs();
   const archive = unzipSync(zipBytes);
+  postStartupMetric("zipOpenMs", nowMs() - zipOpenStartedAt, {
+    sourceBytes: zipBytes.byteLength
+  });
   const entryNames = Object.keys(archive);
   const fitEntries = entryNames
     .filter(isRealFitZipEntry)
@@ -1003,6 +1046,8 @@ async function handleFitFilesConversion({
   const fitEntries = [];
   const woaEntries = [];
   let sourceBytes = 0;
+  let nestedZipCount = 0;
+  let nestedZipOpenMs = 0;
 
   for (const file of files) {
     if (!file?.name || !file?.arrayBuffer) {
@@ -1022,7 +1067,10 @@ async function handleFitFilesConversion({
     }
 
     if (lowerName.endsWith(".zip")) {
+      nestedZipCount += 1;
+      const zipOpenStartedAt = nowMs();
       const archive = unzipSync(bytes);
+      nestedZipOpenMs += nowMs() - zipOpenStartedAt;
       const entryNames = Object.keys(archive);
 
       for (const entryName of entryNames.filter(isRealFitZipEntry)) {
@@ -1039,6 +1087,12 @@ async function handleFitFilesConversion({
         });
       }
     }
+  }
+
+  if (nestedZipCount > 0) {
+    postStartupMetric("zipOpenMs", nestedZipOpenMs, {
+      nestedZipCount
+    });
   }
 
   await convertMixedEntriesToWoaZip({
