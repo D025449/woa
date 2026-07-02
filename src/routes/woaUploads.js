@@ -53,6 +53,8 @@ function createImportProfile() {
     prepareInsertEncodeGpsTrackBlobMs: 0,
     prepareInsertGpsTrackBlobCompressedBytes: 0,
     insertWorkoutMs: 0,
+    insertWorkoutRowsMs: 0,
+    insertWorkoutLoadExistingRowsMs: 0,
     schedulePostprocessMs: 0,
     scheduleAppendTargetsMs: 0,
     scheduleSegmentPersistenceMs: 0,
@@ -185,6 +187,14 @@ async function importWoaEntryReaders({
         chunk.map((item) => item.preparedInsert)
       );
       profile.insertWorkoutMs += Date.now() - insertStartedAt;
+      for (const step of Array.isArray(bulkResult?.timingSteps) ? bulkResult.timingSteps : []) {
+        if (step?.label === "insert-workout-rows") {
+          profile.insertWorkoutRowsMs += Number(step.stepMs || 0);
+        }
+        if (step?.label === "load-existing-rows") {
+          profile.insertWorkoutLoadExistingRowsMs += Number(step.stepMs || 0);
+        }
+      }
 
       const existingByKey = bulkResult?.existingRowsByKey instanceof Map
         ? bulkResult.existingRowsByKey
@@ -348,6 +358,10 @@ async function importWoaEntryReaders({
           gpsTrackBlobCompressedBytes: profile.prepareInsertGpsTrackBlobCompressedBytes
         },
         insertWorkoutMs: profile.insertWorkoutMs,
+        insertWorkoutStepsMs: {
+          insertWorkoutRowsMs: profile.insertWorkoutRowsMs,
+          loadExistingRowsMs: profile.insertWorkoutLoadExistingRowsMs
+        },
         schedulePostprocessMs: profile.schedulePostprocessMs,
         schedulePostprocessStepsMs: {
           appendImportJobTargetsMs: profile.scheduleAppendTargetsMs,
