@@ -1551,6 +1551,10 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     const trackEndGeom = validGps
       ? `POINT(${Number(trackEnd.lng)} ${Number(trackEnd.lat)})`
       : null;
+    const workoutStreamStoredBytes = FileDBService.toBufferView(options.workoutStreamStoredBytes);
+    const gpsTrackStoredBytes = FileDBService.toBufferView(options.gpsTrackStoredBytes);
+    const workoutStreamStoredLength = workoutStreamStoredBytes?.length || 0;
+    const gpsTrackStoredLength = gpsTrackStoredBytes?.length || 0;
 
     return {
       fileRow,
@@ -1566,8 +1570,8 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
         } : null
       },
       workoutObject: null,
-      compressedBuffer: Buffer.from(options.workoutStreamStoredBytes || []),
-      compressedGpsTrackBlob: Buffer.from(options.gpsTrackStoredBytes || []),
+      compressedBuffer: workoutStreamStoredBytes,
+      compressedGpsTrackBlob: gpsTrackStoredBytes,
       streamCodec: String(persistedRow.stream_codec || "gzip"),
       gpsTrackBlobCodec: String(persistedRow.gps_track_blob_codec || "gzip"),
       trackStartGeom,
@@ -1586,13 +1590,13 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
           label: "compress-workout-buffer",
           stepMs: 0,
           rawBytes: 0,
-          compressedBytes: Buffer.from(options.workoutStreamStoredBytes || []).length
+          compressedBytes: workoutStreamStoredLength
         },
         {
           label: "to-compressed-buffer",
           stepMs: 0,
           rawBytes: Number(meta?.blockBytes?.workout_stream_raw || 0),
-          compressedBytes: Buffer.from(options.workoutStreamStoredBytes || []).length
+          compressedBytes: workoutStreamStoredLength
         },
         {
           label: "build-geometry-wkt",
@@ -1604,10 +1608,23 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
           label: "encode-gps-track-blob",
           stepMs: 0,
           rawBytes: 0,
-          compressedBytes: Buffer.from(options.gpsTrackStoredBytes || []).length
+          compressedBytes: gpsTrackStoredLength
         }
       ]
     };
+  }
+
+  static toBufferView(value) {
+    if (Buffer.isBuffer(value)) {
+      return value;
+    }
+    if (value instanceof Uint8Array) {
+      return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+    }
+    if (value instanceof ArrayBuffer) {
+      return Buffer.from(value);
+    }
+    return Buffer.alloc(0);
   }
 
   static buildPreparedInsertParams(prepared) {
