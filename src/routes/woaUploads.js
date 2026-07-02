@@ -78,6 +78,7 @@ async function importWoaEntryReaders({
   });
   const importJobId = String(importJob.id);
   const profile = createImportProfile();
+  const allPostprocessTargets = [];
 
   await updateImportJob(importJobId, {
     status: "processing",
@@ -224,9 +225,7 @@ async function importWoaEntryReaders({
         hasSegments: false,
         segmentPayloadPath: null
       }));
-      const appendTargetsStartedAt = Date.now();
-      await appendImportJobPostprocessTargets(importJobId, chunkTargets);
-      profile.scheduleAppendTargetsMs += Date.now() - appendTargetsStartedAt;
+      allPostprocessTargets.push(...chunkTargets);
 
       const scheduleErrorsByEntry = new Map();
       const addScheduleError = (entryName, label, error) => {
@@ -295,6 +294,9 @@ async function importWoaEntryReaders({
   }
 
   const elapsedMs = Date.now() - startedAt;
+  const appendTargetsStartedAt = Date.now();
+  await appendImportJobPostprocessTargets(importJobId, allPostprocessTargets);
+  profile.scheduleAppendTargetsMs += Date.now() - appendTargetsStartedAt;
   await updateImportJob(importJobId, {
     status: "completed",
     stage: "completed",
