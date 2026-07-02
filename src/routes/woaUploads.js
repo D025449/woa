@@ -22,6 +22,7 @@ import { enqueueWorkoutSimilarityClassificationBulk } from "../services/workout-
 const router = Router();
 const IMPORT_SYNC_PROFILE_LOG = String(process.env.IMPORT_SYNC_PROFILE_LOG || "1").trim() !== "0";
 const IMPORT_DB_BULK_INSERT_SIZE = Math.max(1, Number(process.env.IMPORT_DB_BULK_INSERT_SIZE) || 20);
+const IMPORT_POSTPROCESS_ENQUEUE_BULK_SIZE = Math.max(50, Number(process.env.IMPORT_POSTPROCESS_ENQUEUE_BULK_SIZE) || 500);
 
 function formatLogPayload(payload = {}) {
   return util.inspect(payload, {
@@ -79,6 +80,16 @@ async function importWoaEntryReaders({
   const importJobId = String(importJob.id);
   const profile = createImportProfile();
   const allPostprocessTargets = [];
+  const allSegmentPersistItems = [];
+  const allSimilarityItems = [];
+  const allSegmentBestEffortsItems = [];
+
+  const enqueueInLargeBulks = async (items, bulkSize, enqueueFn) => {
+    for (let index = 0; index < items.length; index += bulkSize) {
+      const chunk = items.slice(index, index + bulkSize);
+      await enqueueFn(chunk);
+    }
+  };
 
   await updateImportJob(importJobId, {
     status: "processing",
@@ -201,7 +212,6 @@ async function importWoaEntryReaders({
         });
       }
 
-      const scheduleStartedAt = Date.now();
       const segmentPersistItems = resolvedChunkItems.map((item) => ({
         uid: item.preparedInsert.fileRow.uid,
         workoutId: item.workoutId,
@@ -226,63 +236,9 @@ async function importWoaEntryReaders({
         segmentPayloadPath: null
       }));
       allPostprocessTargets.push(...chunkTargets);
-
-      const scheduleErrorsByEntry = new Map();
-      const addScheduleError = (entryName, label, error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        const current = scheduleErrorsByEntry.get(entryName) || [];
-        current.push(`${label}: ${message}`);
-        scheduleErrorsByEntry.set(entryName, current);
-      };
-
-      const persistStartedAt = Date.now();
-      try {
-        await enqueueWorkoutSegmentPersistenceBulk(segmentPersistItems);
-      } catch (error) {
-        for (const item of resolvedChunkItems) {
-          addScheduleError(item.entryName, "segment-persist", error);
-        }
-      } finally {
-        profile.scheduleSegmentPersistenceMs += Date.now() - persistStartedAt;
-      }
-
-      const similarityStartedAt = Date.now();
-      try {
-        await enqueueWorkoutSimilarityClassificationBulk(validGpsItems);
-      } catch (error) {
-        for (const item of resolvedChunkItems) {
-          if (item.validGps) {
-            addScheduleError(item.entryName, "similarity", error);
-          }
-        }
-      } finally {
-        profile.scheduleSimilarityMs += Date.now() - similarityStartedAt;
-      }
-
-      const segmentBestEffortsStartedAt = Date.now();
-      try {
-        await enqueueWorkoutSegmentBestEffortsBulk(validGpsItems);
-      } catch (error) {
-        for (const item of resolvedChunkItems) {
-          if (item.validGps) {
-            addScheduleError(item.entryName, "segment-best-efforts", error);
-          }
-        }
-      } finally {
-        profile.scheduleSegmentBestEffortsMs += Date.now() - segmentBestEffortsStartedAt;
-      }
-
-      for (const item of resolvedChunkItems) {
-        const itemErrors = scheduleErrorsByEntry.get(item.entryName);
-        if (itemErrors?.length) {
-          skipped.push({
-            entryName: item.entryName,
-            error: `Postprocess enqueue failed: ${itemErrors.join(" | ")}`
-          });
-        }
-      }
-
-      profile.schedulePostprocessMs += Date.now() - scheduleStartedAt;
+      allSegmentPersistItems.push(...segmentPersistItems);
+      allSimilarityItems.push(...validGpsItems);
+      allSegmentBestEffortsItems.push(...validGpsItems);
     } catch (error) {
       for (const item of chunk) {
         skipped.push({
@@ -293,10 +249,68 @@ async function importWoaEntryReaders({
     }
   }
 
-  const elapsedMs = Date.now() - startedAt;
+  const scheduleStartedAt = Date.now();
   const appendTargetsStartedAt = Date.now();
   await appendImportJobPostprocessTargets(importJobId, allPostprocessTargets);
   profile.scheduleAppendTargetsMs += Date.now() - appendTargetsStartedAt;
+
+  const persistStartedAt = Date.now();
+  try {
+    await enqueueInLargeBulks(
+      allSegmentPersistItems,
+      IMPORT_POSTPROCESS_ENQUEUE_BULK_SIZE,
+      enqueueWorkoutSegmentPersistenceBulk
+    );
+  } catch (error) {
+    for (const item of allSegmentPersistItems) {
+      skipped.push({
+        entryName: item.entryName,
+        error: `Postprocess enqueue failed: segment-persist: ${error instanceof Error ? error.message : String(error)}`
+      });
+    }
+  } finally {
+    profile.scheduleSegmentPersistenceMs += Date.now() - persistStartedAt;
+  }
+
+  const similarityStartedAt = Date.now();
+  try {
+    await enqueueInLargeBulks(
+      allSimilarityItems,
+      IMPORT_POSTPROCESS_ENQUEUE_BULK_SIZE,
+      enqueueWorkoutSimilarityClassificationBulk
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    for (const item of allSimilarityItems) {
+      skipped.push({
+        entryName: `workout:${item.workoutId}`,
+        error: `Postprocess enqueue failed: similarity: ${message}`
+      });
+    }
+  } finally {
+    profile.scheduleSimilarityMs += Date.now() - similarityStartedAt;
+  }
+
+  const segmentBestEffortsStartedAt = Date.now();
+  try {
+    await enqueueInLargeBulks(
+      allSegmentBestEffortsItems,
+      IMPORT_POSTPROCESS_ENQUEUE_BULK_SIZE,
+      enqueueWorkoutSegmentBestEffortsBulk
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    for (const item of allSegmentBestEffortsItems) {
+      skipped.push({
+        entryName: `workout:${item.workoutId}`,
+        error: `Postprocess enqueue failed: segment-best-efforts: ${message}`
+      });
+    }
+  } finally {
+    profile.scheduleSegmentBestEffortsMs += Date.now() - segmentBestEffortsStartedAt;
+  }
+  profile.schedulePostprocessMs += Date.now() - scheduleStartedAt;
+  const elapsedMs = Date.now() - startedAt;
   await updateImportJob(importJobId, {
     status: "completed",
     stage: "completed",
