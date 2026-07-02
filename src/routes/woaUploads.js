@@ -53,6 +53,7 @@ function createImportProfile() {
     prepareInsertGpsTrackBlobCompressedBytes: 0,
     insertWorkoutMs: 0,
     schedulePostprocessMs: 0,
+    scheduleAppendTargetsMs: 0,
     scheduleSegmentPersistenceMs: 0,
     scheduleSimilarityMs: 0,
     scheduleSegmentBestEffortsMs: 0
@@ -223,7 +224,9 @@ async function importWoaEntryReaders({
         hasSegments: false,
         segmentPayloadPath: null
       }));
+      const appendTargetsStartedAt = Date.now();
       await appendImportJobPostprocessTargets(importJobId, chunkTargets);
+      profile.scheduleAppendTargetsMs += Date.now() - appendTargetsStartedAt;
 
       const scheduleErrorsByEntry = new Map();
       const addScheduleError = (entryName, label, error) => {
@@ -331,9 +334,18 @@ async function importWoaEntryReaders({
         insertWorkoutMs: profile.insertWorkoutMs,
         schedulePostprocessMs: profile.schedulePostprocessMs,
         schedulePostprocessStepsMs: {
+          appendImportJobTargetsMs: profile.scheduleAppendTargetsMs,
           enqueueSegmentPersistenceMs: profile.scheduleSegmentPersistenceMs,
           enqueueSimilarityMs: profile.scheduleSimilarityMs,
-          enqueueSegmentBestEffortsMs: profile.scheduleSegmentBestEffortsMs
+          enqueueSegmentBestEffortsMs: profile.scheduleSegmentBestEffortsMs,
+          residualMs: Math.max(
+            0,
+            profile.schedulePostprocessMs
+              - profile.scheduleAppendTargetsMs
+              - profile.scheduleSegmentPersistenceMs
+              - profile.scheduleSimilarityMs
+              - profile.scheduleSegmentBestEffortsMs
+          )
         }
       }
     });
