@@ -18,6 +18,7 @@ const i18nMessages = window.__I18N?.messages || {};
 const activeLocale = window.__I18N?.locale || navigator.language || "en";
 let latestGeneratedZipArtifact = null;
 let currentDeviceProfile = window.getDeviceProfile?.() || window.__DEVICE_PROFILE__ || null;
+let prewarmedUploadWorker = null;
 
 initializeClientLayout();
 form?.addEventListener("submit", handleConvertSubmit);
@@ -26,6 +27,9 @@ fileInput?.addEventListener("change", updateFilePickerLabel);
 window.addEventListener("deviceprofilechange", (event) => {
     currentDeviceProfile = event.detail || window.getDeviceProfile?.() || null;
     applyDeviceProfileToUploadShell();
+});
+queueMicrotask(() => {
+    prewarmUploadWorkers();
 });
 
 function tr(path, fallback) {
@@ -284,6 +288,22 @@ function getParallelFitWorkerCount() {
         // ignore
     }
     return null;
+}
+
+function getUploadWorker() {
+    if (!prewarmedUploadWorker) {
+        prewarmedUploadWorker = new Worker("/js/upload-new-worker.js", { type: "module" });
+    }
+    return prewarmedUploadWorker;
+}
+
+function prewarmUploadWorkers() {
+    const worker = getUploadWorker();
+    worker.postMessage({
+        type: "prewarm-fit-worker-pool",
+        enabled: isParallelFitPoolEnabled(),
+        workerCount: getParallelFitWorkerCount()
+    });
 }
 
 function buildIterationSuffix(data) {
@@ -668,10 +688,10 @@ async function handleConvertSubmit(event) {
         setPhase(tr("uploadPage.woaPhaseStartingWorker", "Starting worker"));
         setProcessingProgress(5, tr("uploadPage.woaWorkerBootstrapped", "Worker bootstrapped"));
 
-        const worker = new Worker("/js/upload-new-worker.js", { type: "module" });
+        const worker = getUploadWorker();
         let finished = false;
 
-        worker.addEventListener("error", (workerError) => {
+        const handleWorkerError = (workerError) => {
             if (finished) {
                 return;
             }
@@ -680,10 +700,14 @@ async function handleConvertSubmit(event) {
             setProcessingProgress(0, "");
             setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(tr("uploadPage.woaWorkerFailedPrefix", "Worker failed to start or crashed:"))} ${escapeHtml(workerError.message || tr("uploadPage.woaUnknownWorkerError", "Unknown worker error"))}</div>`);
             setLoading(false);
+            worker.removeEventListener("error", handleWorkerError);
+            worker.removeEventListener("messageerror", handleWorkerMessageError);
+            worker.removeEventListener("message", handleWorkerMessage);
+            prewarmedUploadWorker = null;
             worker.terminate();
-        });
+        };
 
-        worker.addEventListener("messageerror", () => {
+        const handleWorkerMessageError = () => {
             if (finished) {
                 return;
             }
@@ -692,11 +716,19 @@ async function handleConvertSubmit(event) {
             setProcessingProgress(0, "");
             setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(tr("uploadPage.woaWorkerMessageTransferFailed", "Worker message transfer failed."))}</div>`);
             setLoading(false);
+            worker.removeEventListener("error", handleWorkerError);
+            worker.removeEventListener("messageerror", handleWorkerMessageError);
+            worker.removeEventListener("message", handleWorkerMessage);
+            prewarmedUploadWorker = null;
             worker.terminate();
-        });
+        };
 
-        worker.addEventListener("message", (workerEvent) => {
+        const handleWorkerMessage = (workerEvent) => {
             const data = workerEvent.data || {};
+
+            if (data.type === "prewarm-complete") {
+                return;
+            }
 
             if (data.type === "phase") {
                 if (data.phase === "reading-zip") {
@@ -735,7 +767,9 @@ async function handleConvertSubmit(event) {
                 setProcessingProgress(0, "");
                 setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(data.error || tr("uploadPage.woaConversionFailed", "Conversion failed"))}</div>`);
                 setLoading(false);
-                worker.terminate();
+                worker.removeEventListener("error", handleWorkerError);
+                worker.removeEventListener("messageerror", handleWorkerMessageError);
+                worker.removeEventListener("message", handleWorkerMessage);
                 return;
             }
 
@@ -753,7 +787,9 @@ async function handleConvertSubmit(event) {
                     </div>
                 `);
                 setLoading(false);
-                worker.terminate();
+                worker.removeEventListener("error", handleWorkerError);
+                worker.removeEventListener("messageerror", handleWorkerMessageError);
+                worker.removeEventListener("message", handleWorkerMessage);
                 return;
             }
 
@@ -771,7 +807,9 @@ async function handleConvertSubmit(event) {
                     </div>
                 `);
                 setLoading(false);
-                worker.terminate();
+                worker.removeEventListener("error", handleWorkerError);
+                worker.removeEventListener("messageerror", handleWorkerMessageError);
+                worker.removeEventListener("message", handleWorkerMessage);
                 return;
             }
 
@@ -822,7 +860,9 @@ async function handleConvertSubmit(event) {
                 `);
 
                 setLoading(false);
-                worker.terminate();
+                worker.removeEventListener("error", handleWorkerError);
+                worker.removeEventListener("messageerror", handleWorkerMessageError);
+                worker.removeEventListener("message", handleWorkerMessage);
                 return;
             }
 
@@ -1025,11 +1065,17 @@ async function handleConvertSubmit(event) {
                 }
 
                 setLoading(false);
-                worker.terminate();
+                worker.removeEventListener("error", handleWorkerError);
+                worker.removeEventListener("messageerror", handleWorkerMessageError);
+                worker.removeEventListener("message", handleWorkerMessage);
                 return;
             }
 
-        });
+        };
+
+        worker.addEventListener("error", handleWorkerError);
+        worker.addEventListener("messageerror", handleWorkerMessageError);
+        worker.addEventListener("message", handleWorkerMessage);
 
         worker.postMessage({
             type: isZipMode

@@ -9,6 +9,7 @@ const DEFAULT_BENCH_REPEAT_COUNT = 10;
 const MIN_WORKOUT_RECORD_COUNT = 300;
 const TEXT_DECODER = new TextDecoder();
 const CUSTOM_CONTAINER_GZIP_LEVEL = 4;
+let prewarmedFitWorkers = [];
 
 async function compressGzip(bytes, level = PER_FILE_GZIP_LEVEL) {
   return gzipSync(bytes, { level });
@@ -174,6 +175,32 @@ function resolveParallelWorkerCount(requestedCount) {
   return 2;
 }
 
+function ensurePrewarmedFitWorkerPool(workerCount) {
+  const targetCount = Math.max(0, Number(workerCount || 0));
+  while (prewarmedFitWorkers.length < targetCount) {
+    prewarmedFitWorkers.push(new Worker("/js/upload-fit-entry-worker.js", { type: "module" }));
+  }
+  while (prewarmedFitWorkers.length > targetCount) {
+    const worker = prewarmedFitWorkers.pop();
+    worker?.terminate();
+  }
+}
+
+function acquireFitWorkers(workerCount) {
+  ensurePrewarmedFitWorkerPool(workerCount);
+  return prewarmedFitWorkers.splice(0, Math.min(workerCount, prewarmedFitWorkers.length));
+}
+
+function releaseFitWorkers(workers = []) {
+  for (const worker of workers) {
+    if (worker) {
+      worker.onmessage = null;
+      worker.onerror = null;
+      prewarmedFitWorkers.push(worker);
+    }
+  }
+}
+
 async function convertFitEntriesParallel({
   fitEntries = [],
   existingStartTimes = [],
@@ -198,7 +225,10 @@ async function convertFitEntriesParallel({
   }
 
   const poolSize = Math.min(Math.max(1, workerCount), fitEntries.length);
-  const workers = Array.from({ length: poolSize }, () => new Worker("/js/upload-fit-entry-worker.js", { type: "module" }));
+  const workers = acquireFitWorkers(poolSize);
+  while (workers.length < poolSize) {
+    workers.push(new Worker("/js/upload-fit-entry-worker.js", { type: "module" }));
+  }
   const completedEntries = [];
   const skippedEntries = [];
   const skippedExistingEntries = [];
@@ -233,9 +263,7 @@ async function convertFitEntriesParallel({
     let settled = false;
 
     const cleanup = () => {
-      for (const worker of workers) {
-        worker.terminate();
-      }
+      releaseFitWorkers(workers);
     };
 
     for (const worker of workers) {
@@ -417,6 +445,17 @@ self.addEventListener("message", async (event) => {
     parallelFitPoolEnabled = false,
     parallelFitWorkers = null
   } = event.data || {};
+
+  if (type === "prewarm-fit-worker-pool") {
+    const enabled = event.data?.enabled !== false;
+    const workerCount = enabled ? resolveParallelWorkerCount(event.data?.workerCount) : 0;
+    ensurePrewarmedFitWorkerPool(workerCount);
+    self.postMessage({
+      type: "prewarm-complete",
+      workerCount
+    });
+    return;
+  }
 
   if (!arrayBuffer && (!Array.isArray(files) || files.length === 0)) {
     return;
