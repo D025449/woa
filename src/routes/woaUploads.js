@@ -599,6 +599,23 @@ router.post(
       const parser = new WoaTransportStreamParser();
       const gunzip = createGunzip();
       const pendingItems = [];
+      const MAX_PENDING_ITEMS = IMPORT_DB_BULK_INSERT_SIZE * 4;
+      let flushLoopPromise = null;
+      let flushLoopError = null;
+      let readerDone = false;
+      let queueDrainWaiters = [];
+
+      const notifyQueueDrain = () => {
+        const waiters = queueDrainWaiters;
+        queueDrainWaiters = [];
+        for (const resolve of waiters) {
+          resolve();
+        }
+      };
+
+      const waitForQueueDrain = () => new Promise((resolve) => {
+        queueDrainWaiters.push(resolve);
+      });
 
       const flushChunk = async () => {
         if (pendingItems.length === 0) {
@@ -692,6 +709,34 @@ router.post(
               error: error instanceof Error ? error.message : String(error)
             });
           }
+        } finally {
+          notifyQueueDrain();
+        }
+      };
+
+      const runFlushLoop = async () => {
+        try {
+          while (pendingItems.length >= IMPORT_DB_BULK_INSERT_SIZE || (readerDone && pendingItems.length > 0)) {
+            await flushChunk();
+          }
+        } catch (error) {
+          flushLoopError = error;
+          throw error;
+        } finally {
+          flushLoopPromise = null;
+          notifyQueueDrain();
+          if ((pendingItems.length >= IMPORT_DB_BULK_INSERT_SIZE || (readerDone && pendingItems.length > 0)) && !flushLoopError) {
+            flushLoopPromise = runFlushLoop();
+          }
+        }
+      };
+
+      const ensureFlushLoop = () => {
+        if (flushLoopError) {
+          throw flushLoopError;
+        }
+        if (!flushLoopPromise) {
+          flushLoopPromise = runFlushLoop();
         }
       };
 
@@ -765,7 +810,11 @@ router.post(
             });
 
             if (pendingItems.length >= IMPORT_DB_BULK_INSERT_SIZE) {
-              await flushChunk();
+              ensureFlushLoop();
+            }
+            while (pendingItems.length >= MAX_PENDING_ITEMS) {
+              ensureFlushLoop();
+              await waitForQueueDrain();
             }
           } catch (error) {
             skipped.push({
@@ -776,8 +825,15 @@ router.post(
         }
       }
 
+      readerDone = true;
       parser.finish();
-      await flushChunk();
+      ensureFlushLoop();
+      if (flushLoopPromise) {
+        await flushLoopPromise;
+      }
+      if (flushLoopError) {
+        throw flushLoopError;
+      }
 
       const elapsedMs = Date.now() - startedAt;
       await updateImportJob(importJobId, {
