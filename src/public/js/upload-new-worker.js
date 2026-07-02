@@ -1,7 +1,7 @@
 import { parseFitBufferTypedBrowser } from "./fit-import-typed-browser.js";
 import { createWoa1File } from "./woa-format.js";
 import { encodeWoaTransportContainer } from "./woa-transport-container.js";
-import { gzipSync, unzip, unzipSync, zipSync } from "/vendor/fflate/browser.js";
+import { gzipSync, unzipSync, zipSync } from "/vendor/fflate/browser.js";
 
 const PER_FILE_GZIP_LEVEL = 4;
 const OUTER_ZIP_LEVEL = 0;
@@ -209,29 +209,6 @@ function postStartupMetric(name, valueMs, extra = {}) {
     name,
     valueMs: Number(valueMs || 0),
     ...extra
-  });
-}
-
-async function readZipEntriesAsync(zipBytes) {
-  return new Promise((resolve, reject) => {
-    const startedAt = nowMs();
-    unzip(zipBytes, (error, archive) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      const entryNames = Object.keys(archive || {});
-      if (entryNames.length > 0) {
-        postStartupMetric("firstZipEntrySeenMs", nowMs() - startedAt, {
-          entryName: entryNames[0]
-        });
-      }
-      resolve({
-        archive: archive || {},
-        entryCount: entryNames.length,
-        totalMs: nowMs() - startedAt
-      });
-    });
   });
 }
 
@@ -496,7 +473,6 @@ self.addEventListener("message", async (event) => {
     existingStartTimes = [],
     encodingOptions = {},
     outputMode = "zip",
-    asyncZipReaderEnabled = false,
     parallelFitPoolEnabled = false,
     parallelFitWorkers = null
   } = event.data || {};
@@ -525,7 +501,6 @@ self.addEventListener("message", async (event) => {
         existingStartTimes,
         encodingOptions,
         outputMode,
-        asyncZipReaderEnabled,
         parallelFitPoolEnabled,
         parallelFitWorkers
       });
@@ -539,7 +514,6 @@ self.addEventListener("message", async (event) => {
         existingStartTimes,
         encodingOptions,
         outputMode,
-        asyncZipReaderEnabled,
         parallelFitPoolEnabled,
         parallelFitWorkers
       });
@@ -1024,7 +998,6 @@ async function handleZipConversion({
   existingStartTimes = [],
   encodingOptions = {},
   outputMode = "zip",
-  asyncZipReaderEnabled = false,
   parallelFitPoolEnabled = false,
   parallelFitWorkers = null
 }) {
@@ -1034,24 +1007,12 @@ async function handleZipConversion({
   });
 
   const zipBytes = new Uint8Array(arrayBuffer);
-  let archive;
-  let unzipMs;
-  if (asyncZipReaderEnabled) {
-    const asyncArchiveResult = await readZipEntriesAsync(zipBytes);
-    archive = asyncArchiveResult.archive;
-    unzipMs = asyncArchiveResult.totalMs;
-    postStartupMetric("unzipAsyncMs", unzipMs, {
-      sourceBytes: zipBytes.byteLength,
-      entryCount: asyncArchiveResult.entryCount
-    });
-  } else {
-    const unzipStartedAt = nowMs();
-    archive = unzipSync(zipBytes);
-    unzipMs = nowMs() - unzipStartedAt;
-    postStartupMetric("unzipSyncMs", unzipMs, {
-      sourceBytes: zipBytes.byteLength
-    });
-  }
+  const unzipStartedAt = nowMs();
+  const archive = unzipSync(zipBytes);
+  const unzipMs = nowMs() - unzipStartedAt;
+  postStartupMetric("unzipSyncMs", unzipMs, {
+    sourceBytes: zipBytes.byteLength
+  });
   const entryScanStartedAt = nowMs();
   const entryNames = Object.keys(archive);
   const fitEntries = entryNames
