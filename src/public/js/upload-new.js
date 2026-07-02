@@ -256,8 +256,9 @@ function getEncodingOptions() {
 
 function getUploadTransportMode() {
     try {
-        return localStorage.getItem("woaUploadTransportMode") === "container-gzip"
-            ? "container-gzip"
+        const value = localStorage.getItem("woaUploadTransportMode");
+        return value === "container-gzip" || value === "container-gzip-stream"
+            ? value
             : "zip";
     } catch {
         return "zip";
@@ -293,20 +294,38 @@ async function uploadGeneratedZipArtifact() {
     setProcessingProgress(0, tr("uploadPage.woaPreparingRequest", "Preparing request"));
 
     try {
-        const formData = new FormData();
-        formData.append("file", latestGeneratedZipArtifact.blob, latestGeneratedZipArtifact.fileName);
-
-        const payload = await uploadGeneratedZipFormData(formData, latestGeneratedZipArtifact.uploadUrl, ({ loaded, total, percent }) => {
+        let payload;
+        const handleProgress = ({ loaded, total, percent }) => {
             const detailText = total > 0
                 ? `${formatBytes(loaded)} / ${formatBytes(total)}`
                 : `${formatBytes(loaded)} ${tr("uploadPage.woaUploadedSuffix", "uploaded")}`;
             setPhase(tr("uploadPage.woaPhaseUploadingBackend", "Uploading to backend"));
             setProcessingProgress(percent, detailText);
-        }, () => {
+        };
+        const handleUploadComplete = () => {
             setProcessingLabel(tr("uploadPage.woaServerProcessing", "Server processing"));
             setPhase(tr("uploadPage.woaPhaseBackendProcessing", "Backend processing"));
             setProcessingProgress(100, tr("uploadPage.woaBackendProcessingDetail", "Upload finished, waiting for backend response"));
-        });
+        };
+
+        if (latestGeneratedZipArtifact.uploadMode === "raw") {
+            payload = await uploadGeneratedRawBlob(
+                latestGeneratedZipArtifact.blob,
+                latestGeneratedZipArtifact.fileName,
+                latestGeneratedZipArtifact.uploadUrl,
+                handleProgress,
+                handleUploadComplete
+            );
+        } else {
+            const formData = new FormData();
+            formData.append("file", latestGeneratedZipArtifact.blob, latestGeneratedZipArtifact.fileName);
+            payload = await uploadGeneratedZipFormData(
+                formData,
+                latestGeneratedZipArtifact.uploadUrl,
+                handleProgress,
+                handleUploadComplete
+            );
+        }
 
         setProcessingLabel(tr("uploadPage.woaCompletedLabel", "Completed"));
         setPhase(tr("uploadPage.woaPhaseCompleted", "Completed"));
@@ -331,8 +350,8 @@ async function uploadGeneratedZipArtifact() {
     }
 }
 
-function setLatestGeneratedZipArtifactSingle(blob, fileName, uploadUrl = "/api/uploads/woa-zip") {
-    latestGeneratedZipArtifact = { blob, fileName, uploadUrl };
+function setLatestGeneratedZipArtifactSingle(blob, fileName, uploadUrl = "/api/uploads/woa-zip", uploadMode = "form-data") {
+    latestGeneratedZipArtifact = { blob, fileName, uploadUrl, uploadMode };
 }
 
 async function fetchExistingWorkoutStartTimes() {
@@ -418,6 +437,62 @@ function uploadGeneratedZipFormData(formData, uploadUrl, onProgress, onUploadCom
         });
 
         request.send(formData);
+    });
+}
+
+function uploadGeneratedRawBlob(blob, fileName, uploadUrl, onProgress, onUploadComplete) {
+    return new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        const startedAt = performance.now();
+        let uploadCompleted = false;
+
+        request.open("POST", uploadUrl, true);
+        request.responseType = "text";
+        request.setRequestHeader("Content-Type", "application/octet-stream");
+        request.setRequestHeader("X-Upload-Filename", fileName || "upload.woat.gz");
+
+        request.upload.addEventListener("progress", (event) => {
+            if (!onProgress) {
+                return;
+            }
+            const loaded = Number(event.loaded || 0);
+            const total = Number(event.total || 0);
+            const percent = total > 0 ? (loaded / total) * 100 : 0;
+            onProgress({ loaded, total, percent });
+        });
+
+        request.upload.addEventListener("load", () => {
+            if (uploadCompleted) {
+                return;
+            }
+            uploadCompleted = true;
+            if (onUploadComplete) {
+                onUploadComplete();
+            }
+        });
+
+        request.addEventListener("load", () => {
+            let payload = {};
+            try {
+                payload = request.responseText ? JSON.parse(request.responseText) : {};
+            } catch {
+                payload = {};
+            }
+
+            if (request.status >= 200 && request.status < 300) {
+                payload.httpElapsedMs = performance.now() - startedAt;
+                resolve(payload);
+                return;
+            }
+
+            reject(new Error(payload?.error || `Upload failed (${request.status})`));
+        });
+
+        request.addEventListener("error", () => {
+            reject(new Error(tr("uploadPage.woaNetworkUploadError", "Network error while uploading generated WOA1 ZIP")));
+        });
+
+        request.send(blob);
     });
 }
 
@@ -772,10 +847,14 @@ async function handleConvertSubmit(event) {
                 }
                 latestGeneratedZipArtifact = null;
                 if (shouldUploadGeneratedContainer) {
+                    const transportMode = getUploadTransportMode();
                     setLatestGeneratedZipArtifactSingle(
                         containerBlob,
                         data.outputFileName || "output.woat.gz",
-                        "/api/uploads/woa-container"
+                        transportMode === "container-gzip-stream"
+                            ? "/api/uploads/woa-container-stream"
+                            : "/api/uploads/woa-container",
+                        transportMode === "container-gzip-stream" ? "raw" : "form-data"
                     );
                 }
                 const skipped = Array.isArray(data.skipped) ? data.skipped : [];

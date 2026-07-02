@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import util from "node:util";
-import { gunzipSync } from "node:zlib";
+import { createGunzip, gunzipSync } from "node:zlib";
 import { Router } from "express";
 import unzipper from "unzipper";
 
@@ -57,6 +57,80 @@ function createImportProfile() {
     scheduleSimilarityMs: 0,
     scheduleSegmentBestEffortsMs: 0
   };
+}
+
+class WoaTransportStreamParser {
+  constructor() {
+    this.buffer = Buffer.alloc(0);
+    this.headerRead = false;
+    this.entryCount = 0;
+    this.version = 0;
+    this.magic = "";
+  }
+
+  push(chunk) {
+    if (!chunk || chunk.length === 0) {
+      return;
+    }
+    this.buffer = this.buffer.length === 0
+      ? Buffer.from(chunk)
+      : Buffer.concat([this.buffer, chunk]);
+  }
+
+  tryReadHeader() {
+    if (this.headerRead || this.buffer.length < 9) {
+      return this.headerRead;
+    }
+    this.magic = this.buffer.subarray(0, 4).toString("utf8");
+    if (this.magic !== "WOAT") {
+      throw new Error(`Unsupported WOA transport magic: ${this.magic}`);
+    }
+    this.version = this.buffer[4];
+    if (this.version !== 1) {
+      throw new Error(`Unsupported WOA transport version: ${this.version}`);
+    }
+    this.entryCount = this.buffer.readUInt32LE(5);
+    this.buffer = this.buffer.subarray(9);
+    this.headerRead = true;
+    return true;
+  }
+
+  takeAvailableEntries() {
+    const entries = [];
+    if (!this.tryReadHeader()) {
+      return entries;
+    }
+
+    while (this.buffer.length >= 8) {
+      const nameLength = this.buffer.readUInt32LE(0);
+      if (this.buffer.length < 4 + nameLength + 4) {
+        break;
+      }
+      const nameStart = 4;
+      const nameEnd = nameStart + nameLength;
+      const payloadLength = this.buffer.readUInt32LE(nameEnd);
+      const payloadStart = nameEnd + 4;
+      const payloadEnd = payloadStart + payloadLength;
+      if (this.buffer.length < payloadEnd) {
+        break;
+      }
+
+      entries.push({
+        name: this.buffer.subarray(nameStart, nameEnd).toString("utf8"),
+        bytes: this.buffer.subarray(payloadStart, payloadEnd)
+      });
+      this.buffer = this.buffer.subarray(payloadEnd);
+    }
+
+    return entries;
+  }
+
+  finish() {
+    this.tryReadHeader();
+    if (this.buffer.length !== 0) {
+      throw new Error("WOA transport stream ended with trailing incomplete bytes");
+    }
+  }
 }
 
 async function importWoaEntryReaders({
@@ -494,6 +568,245 @@ router.post(
       if (uploadedFile?.path) {
         await fs.rm(uploadedFile.path, { force: true }).catch(() => {});
       }
+      next(error);
+    }
+  }
+);
+
+router.post(
+  "/woa-container-stream",
+  authMiddleware,
+  requireActiveAccountWrite,
+  async (req, res, next) => {
+    try {
+      if (!req.user?.id) {
+        return res.status(401).json({ error: "Nicht angemeldet" });
+      }
+
+      const sourceName = String(req.headers["x-upload-filename"] || "upload.woat.gz");
+      const uploadedSizeBytes = Number(req.headers["content-length"] || 0);
+      const inserted = [];
+      const skipped = [];
+      const startedAt = Date.now();
+      const importJob = await createImportJob({
+        localPaths: null,
+        originalFileNames: [sourceName],
+        sizeBytes: uploadedSizeBytes,
+        uid: req.user.id
+      });
+      const importJobId = String(importJob.id);
+      const profile = createImportProfile();
+      const parser = new WoaTransportStreamParser();
+      const gunzip = createGunzip();
+      const pendingItems = [];
+
+      const flushChunk = async () => {
+        if (pendingItems.length === 0) {
+          return;
+        }
+        const chunk = pendingItems.splice(0, IMPORT_DB_BULK_INSERT_SIZE);
+        try {
+          const insertStartedAt = Date.now();
+          const bulkResult = await FileDBService.insertPreparedFilesBulk(
+            chunk.map((item) => item.preparedInsert)
+          );
+          profile.insertWorkoutMs += Date.now() - insertStartedAt;
+
+          const existingByKey = bulkResult?.existingRowsByKey instanceof Map
+            ? bulkResult.existingRowsByKey
+            : new Map();
+          const resolvedChunkItems = [];
+
+          for (const item of chunk) {
+            const key = `${item.preparedInsert.fileRow.uid}:${new Date(item.preparedInsert.fileRow.start_time).toISOString()}`;
+            const dbrow = existingByKey.get(key);
+            if (!dbrow?.id) {
+              skipped.push({
+                entryName: item.entryName,
+                error: "Workout could not be resolved after bulk insert"
+              });
+              continue;
+            }
+            inserted.push({
+              entryName: item.entryName,
+              workoutId: dbrow.id
+            });
+            resolvedChunkItems.push({
+              ...item,
+              workoutId: Number(dbrow.id)
+            });
+          }
+
+          const scheduleStartedAt = Date.now();
+          const segmentPersistItems = resolvedChunkItems.map((item) => ({
+            uid: item.preparedInsert.fileRow.uid,
+            workoutId: item.workoutId,
+            entryName: item.entryName,
+            recomputeFromDb: true,
+            importJobId
+          }));
+          const validGpsItems = resolvedChunkItems
+            .filter((item) => item.validGps)
+            .map((item) => ({
+              uid: item.preparedInsert.fileRow.uid,
+              workoutId: item.workoutId,
+              importJobId
+            }));
+          const chunkTargets = resolvedChunkItems.map((item) => ({
+            uid: item.preparedInsert.fileRow.uid,
+            workoutId: item.workoutId,
+            entryName: item.entryName,
+            validGps: !!item.validGps,
+            recomputeSegmentsFromDb: true,
+            hasSegments: false,
+            segmentPayloadPath: null
+          }));
+          await appendImportJobPostprocessTargets(importJobId, chunkTargets);
+
+          const persistStartedAt = Date.now();
+          try {
+            await enqueueWorkoutSegmentPersistenceBulk(segmentPersistItems);
+          } finally {
+            profile.scheduleSegmentPersistenceMs += Date.now() - persistStartedAt;
+          }
+
+          const similarityStartedAt = Date.now();
+          try {
+            await enqueueWorkoutSimilarityClassificationBulk(validGpsItems);
+          } finally {
+            profile.scheduleSimilarityMs += Date.now() - similarityStartedAt;
+          }
+
+          const segmentBestEffortsStartedAt = Date.now();
+          try {
+            await enqueueWorkoutSegmentBestEffortsBulk(validGpsItems);
+          } finally {
+            profile.scheduleSegmentBestEffortsMs += Date.now() - segmentBestEffortsStartedAt;
+          }
+
+          profile.schedulePostprocessMs += Date.now() - scheduleStartedAt;
+        } catch (error) {
+          for (const item of chunk) {
+            skipped.push({
+              entryName: item.entryName,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+        }
+      };
+
+      req.pipe(gunzip);
+
+      let totalEntries = 0;
+      let importJobInitialized = false;
+
+      for await (const chunk of gunzip) {
+        parser.push(chunk);
+        if (!importJobInitialized && parser.tryReadHeader()) {
+          totalEntries = parser.entryCount;
+          await updateImportJob(importJobId, {
+            status: "processing",
+            stage: "saving_results",
+            totalFiles: totalEntries,
+            processedFiles: 0,
+            failedFiles: 0,
+            fileStatuses: []
+          });
+          logImportEvent("woa-sync-import.started", {
+            importJobId,
+            uid: req.user.id,
+            sourceName,
+            totalEntries
+          });
+          importJobInitialized = true;
+        }
+
+        const availableEntries = parser.takeAvailableEntries();
+        for (const entry of availableEntries) {
+          try {
+            const readEntryStartedAt = Date.now();
+            const entryBuffer = entry.bytes;
+            profile.readEntryMs += Date.now() - readEntryStartedAt;
+
+            const decodeStartedAt = Date.now();
+            const header = inspectWoa1Header(entryBuffer);
+            const decoded = header.majorVersion >= 2
+              ? decodeWoa1BufferLight(entryBuffer)
+              : await decodeWoa1Buffer(entryBuffer);
+            profile.decodeWoaMs += Date.now() - decodeStartedAt;
+
+            const prepareStartedAt = Date.now();
+            const preparedInsert = decoded.majorVersion >= 2
+              ? FileDBService.preparePersistedWoaInsertPayload(decoded.meta, {
+                  uid: req.user.id,
+                  workoutStreamStoredBytes: decoded.workoutStreamStoredBytes,
+                  gpsTrackStoredBytes: decoded.gpsTrackStoredBytes
+                })
+              : await FileDBService.prepareInsertFilePayload(
+                  {
+                    ...decoded.fileRow,
+                    uid: req.user.id,
+                    gps_source: decoded.meta?.gpsSource === "manual_lookup" ? "manual_lookup" : null
+                  },
+                  decoded.gpsTrack,
+                  decoded.workoutObject
+                );
+            profile.prepareInsertMs += Date.now() - prepareStartedAt;
+
+            pendingItems.push({
+              entryName: entry.name,
+              preparedInsert,
+              validGps: !!(
+                preparedInsert?.gps_track?.validGps
+                ?? preparedInsert?.fileRow?.validGps
+                ?? decoded?.gpsTrack?.validGps
+                ?? decoded?.meta?.persistedRow?.validGps
+              )
+            });
+
+            if (pendingItems.length >= IMPORT_DB_BULK_INSERT_SIZE) {
+              await flushChunk();
+            }
+          } catch (error) {
+            skipped.push({
+              entryName: entry.name,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+        }
+      }
+
+      parser.finish();
+      await flushChunk();
+
+      const elapsedMs = Date.now() - startedAt;
+      await updateImportJob(importJobId, {
+        status: "completed",
+        stage: "completed",
+        processedFiles: inserted.length,
+        failedFiles: skipped.length
+      });
+
+      logImportEvent("woa-sync-import.completed", {
+        importJobId,
+        sourceName,
+        totalEntries: totalEntries || inserted.length + skipped.length,
+        importedEntries: inserted.length,
+        skippedEntries: skipped.length,
+        elapsedMs
+      });
+
+      res.status(200).json({
+        importJobId,
+        importedCount: inserted.length,
+        skippedCount: skipped.length,
+        totalEntries: totalEntries || inserted.length + skipped.length,
+        elapsedMs,
+        inserted,
+        skipped,
+        streaming: true
+      });
+    } catch (error) {
       next(error);
     }
   }
