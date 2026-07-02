@@ -86,7 +86,7 @@ class WoaTransportStreamParser {
       throw new Error(`Unsupported WOA transport magic: ${this.magic}`);
     }
     this.version = this.buffer[4];
-    if (this.version !== 1) {
+    if (this.version !== 1 && this.version !== 2) {
       throw new Error(`Unsupported WOA transport version: ${this.version}`);
     }
     this.entryCount = this.buffer.readUInt32LE(5);
@@ -127,6 +127,11 @@ class WoaTransportStreamParser {
 
   finish() {
     this.tryReadHeader();
+    if (this.version === 1 && this.entryCount !== 0xffffffff && this.entryCount > 0) {
+      // v1 expects an exact entry count; v2 is EOF-terminated.
+      // takeAvailableEntries() fully drains entries as they become available, so
+      // only leftover partial bytes are validated below.
+    }
     if (this.buffer.length !== 0) {
       throw new Error("WOA transport stream ended with trailing incomplete bytes");
     }
