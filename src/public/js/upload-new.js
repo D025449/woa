@@ -324,6 +324,14 @@ function getParallelFitWorkerCount() {
     return null;
 }
 
+function isAsyncZipReaderEnabled() {
+    try {
+        return localStorage.getItem("woaAsyncZipReader") === "1";
+    } catch {
+        return false;
+    }
+}
+
 function getUploadWorker() {
     if (!prewarmedUploadWorker) {
         prewarmedUploadWorker = new Worker("/js/upload-new-worker.js", { type: "module" });
@@ -1161,6 +1169,7 @@ async function handleConvertSubmit(event) {
             existingStartTimes,
             encodingOptions,
             outputMode: getUploadTransportMode(),
+            asyncZipReaderEnabled: isAsyncZipReaderEnabled(),
             parallelFitPoolEnabled: isParallelFitPoolEnabled(),
             parallelFitWorkers: getParallelFitWorkerCount()
         }, [

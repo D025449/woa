@@ -1,7 +1,7 @@
 import { parseFitBufferTypedBrowser } from "./fit-import-typed-browser.js";
 import { createWoa1File } from "./woa-format.js";
 import { encodeWoaTransportContainer } from "./woa-transport-container.js";
-import { gzipSync, unzipSync, zipSync } from "/vendor/fflate/browser.js";
+import { AsyncUnzipInflate, Unzip, gzipSync, unzipSync, zipSync } from "/vendor/fflate/browser.js";
 
 const PER_FILE_GZIP_LEVEL = 4;
 const OUTER_ZIP_LEVEL = 0;
@@ -209,6 +209,92 @@ function postStartupMetric(name, valueMs, extra = {}) {
     name,
     valueMs: Number(valueMs || 0),
     ...extra
+  });
+}
+
+function concatChunks(chunks = [], totalLength = 0) {
+  const output = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
+}
+
+async function readZipEntriesAsync(zipBytes) {
+  return new Promise((resolve, reject) => {
+    const startedAt = nowMs();
+    const archive = {};
+    let entryCount = 0;
+    const pending = [];
+    let settled = false;
+    let firstFileSeen = false;
+    const unzipper = new Unzip((file) => {
+      if (settled) {
+        return;
+      }
+      entryCount += 1;
+      if (!firstFileSeen) {
+        firstFileSeen = true;
+        postStartupMetric("firstZipEntrySeenMs", nowMs() - startedAt, {
+          entryName: file.name
+        });
+      }
+      const promise = new Promise((entryResolve, entryReject) => {
+        const chunks = [];
+        let totalLength = 0;
+        file.ondata = (error, chunk, final) => {
+          if (error) {
+            entryReject(error);
+            return;
+          }
+          if (chunk?.byteLength) {
+            chunks.push(chunk);
+            totalLength += chunk.byteLength;
+          }
+          if (final) {
+            archive[file.name] = concatChunks(chunks, totalLength);
+            entryResolve();
+          }
+        };
+        try {
+          file.start();
+        } catch (error) {
+          entryReject(error);
+        }
+      });
+      pending.push(promise);
+    });
+
+    try {
+      unzipper.register(AsyncUnzipInflate);
+      unzipper.push(zipBytes, true);
+    } catch (error) {
+      settled = true;
+      reject(error);
+      return;
+    }
+
+    Promise.all(pending)
+      .then(() => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve({
+          archive,
+          entryCount,
+          totalMs: nowMs() - startedAt
+        });
+      })
+      .catch((error) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        reject(error);
+      });
   });
 }
 
@@ -473,6 +559,7 @@ self.addEventListener("message", async (event) => {
     existingStartTimes = [],
     encodingOptions = {},
     outputMode = "zip",
+    asyncZipReaderEnabled = false,
     parallelFitPoolEnabled = false,
     parallelFitWorkers = null
   } = event.data || {};
@@ -501,6 +588,7 @@ self.addEventListener("message", async (event) => {
         existingStartTimes,
         encodingOptions,
         outputMode,
+        asyncZipReaderEnabled,
         parallelFitPoolEnabled,
         parallelFitWorkers
       });
@@ -514,6 +602,7 @@ self.addEventListener("message", async (event) => {
         existingStartTimes,
         encodingOptions,
         outputMode,
+        asyncZipReaderEnabled,
         parallelFitPoolEnabled,
         parallelFitWorkers
       });
@@ -998,6 +1087,7 @@ async function handleZipConversion({
   existingStartTimes = [],
   encodingOptions = {},
   outputMode = "zip",
+  asyncZipReaderEnabled = false,
   parallelFitPoolEnabled = false,
   parallelFitWorkers = null
 }) {
@@ -1007,12 +1097,24 @@ async function handleZipConversion({
   });
 
   const zipBytes = new Uint8Array(arrayBuffer);
-  const unzipStartedAt = nowMs();
-  const archive = unzipSync(zipBytes);
-  const unzipMs = nowMs() - unzipStartedAt;
-  postStartupMetric("unzipSyncMs", unzipMs, {
-    sourceBytes: zipBytes.byteLength
-  });
+  let archive;
+  let unzipMs;
+  if (asyncZipReaderEnabled) {
+    const asyncArchiveResult = await readZipEntriesAsync(zipBytes);
+    archive = asyncArchiveResult.archive;
+    unzipMs = asyncArchiveResult.totalMs;
+    postStartupMetric("unzipAsyncMs", unzipMs, {
+      sourceBytes: zipBytes.byteLength,
+      entryCount: asyncArchiveResult.entryCount
+    });
+  } else {
+    const unzipStartedAt = nowMs();
+    archive = unzipSync(zipBytes);
+    unzipMs = nowMs() - unzipStartedAt;
+    postStartupMetric("unzipSyncMs", unzipMs, {
+      sourceBytes: zipBytes.byteLength
+    });
+  }
   const entryScanStartedAt = nowMs();
   const entryNames = Object.keys(archive);
   const fitEntries = entryNames
@@ -1058,6 +1160,7 @@ async function handleFitFilesConversion({
   existingStartTimes = [],
   encodingOptions = {},
   outputMode = "zip",
+  asyncZipReaderEnabled = false,
   parallelFitPoolEnabled = false,
   parallelFitWorkers = null
 }) {
@@ -1087,9 +1190,16 @@ async function handleFitFilesConversion({
 
     if (lowerName.endsWith(".zip")) {
       nestedZipCount += 1;
-      const unzipStartedAt = nowMs();
-      const archive = unzipSync(bytes);
-      nestedUnzipMs += nowMs() - unzipStartedAt;
+      let archive;
+      if (asyncZipReaderEnabled) {
+        const asyncArchiveResult = await readZipEntriesAsync(bytes);
+        archive = asyncArchiveResult.archive;
+        nestedUnzipMs += asyncArchiveResult.totalMs;
+      } else {
+        const unzipStartedAt = nowMs();
+        archive = unzipSync(bytes);
+        nestedUnzipMs += nowMs() - unzipStartedAt;
+      }
       const entryScanStartedAt = nowMs();
       const entryNames = Object.keys(archive);
 
@@ -1111,7 +1221,7 @@ async function handleFitFilesConversion({
   }
 
   if (nestedZipCount > 0) {
-    postStartupMetric("unzipSyncMs", nestedUnzipMs, {
+    postStartupMetric(asyncZipReaderEnabled ? "unzipAsyncMs" : "unzipSyncMs", nestedUnzipMs, {
       nestedZipCount
     });
     postStartupMetric("entryScanMs", nestedEntryScanMs, {
