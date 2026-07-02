@@ -265,6 +265,26 @@ function getUploadTransportMode() {
     }
 }
 
+function isParallelFitPoolEnabled() {
+    try {
+        return localStorage.getItem("woaParallelFitPool") === "1";
+    } catch {
+        return false;
+    }
+}
+
+function getParallelFitWorkerCount() {
+    try {
+        const raw = Number.parseInt(localStorage.getItem("woaParallelFitWorkers") || "", 10);
+        if (Number.isInteger(raw) && raw >= 1 && raw <= 8) {
+            return raw;
+        }
+    } catch {
+        // ignore
+    }
+    return null;
+}
+
 function buildIterationSuffix(data) {
     const iteration = Number(data?.iteration || 0);
     const totalIterations = Number(data?.totalIterations || 0);
@@ -1021,7 +1041,9 @@ async function handleConvertSubmit(event) {
             files: workerFiles,
             existingStartTimes,
             encodingOptions,
-            outputMode: getUploadTransportMode()
+            outputMode: getUploadTransportMode(),
+            parallelFitPoolEnabled: isParallelFitPoolEnabled(),
+            parallelFitWorkers: getParallelFitWorkerCount()
         }, [
             ...(arrayBuffer ? [arrayBuffer] : []),
             ...workerFiles.map((entry) => entry.arrayBuffer)

@@ -162,6 +162,190 @@ function normalizeExistingStartTimeSet(existingStartTimes = []) {
   );
 }
 
+function resolveParallelWorkerCount(requestedCount) {
+  const parsed = Number.parseInt(String(requestedCount || ""), 10);
+  if (Number.isInteger(parsed) && parsed >= 1) {
+    return Math.min(8, parsed);
+  }
+  const hardware = Number(self.navigator?.hardwareConcurrency || 0);
+  if (Number.isFinite(hardware) && hardware > 2) {
+    return Math.min(4, Math.max(2, hardware - 1));
+  }
+  return 2;
+}
+
+async function convertFitEntriesParallel({
+  fitEntries = [],
+  existingStartTimes = [],
+  encodingOptions = {},
+  onProgress,
+  workerCount = 2
+}) {
+  if (!fitEntries.length) {
+    return {
+      completedEntries: [],
+      skippedEntries: [],
+      skippedExistingEntries: [],
+      skippedTooShortEntries: [],
+      parseSamplesMs: [],
+      buildSamplesMs: [],
+      buildTimingSamples: [],
+      speedFallbackWorkoutCount: 0,
+      speedFallbackRecordCount: 0,
+      totalRecordCount: 0,
+      totalGpsPointCount: 0
+    };
+  }
+
+  const poolSize = Math.min(Math.max(1, workerCount), fitEntries.length);
+  const workers = Array.from({ length: poolSize }, () => new Worker("/js/upload-fit-entry-worker.js", { type: "module" }));
+  const completedEntries = [];
+  const skippedEntries = [];
+  const skippedExistingEntries = [];
+  const skippedTooShortEntries = [];
+  const parseSamplesMs = [];
+  const buildSamplesMs = [];
+  const buildTimingSamples = [];
+  let speedFallbackWorkoutCount = 0;
+  let speedFallbackRecordCount = 0;
+  let totalRecordCount = 0;
+  let totalGpsPointCount = 0;
+  const seenAcceptedStartTimes = new Set(normalizeExistingStartTimeSet(existingStartTimes));
+  let nextTaskIndex = 0;
+  let resolvedCount = 0;
+
+  const dispatchTask = (worker, taskIndex) => {
+    const entry = fitEntries[taskIndex];
+    worker.postMessage({
+      taskId: taskIndex,
+      entryName: entry.name,
+      arrayBuffer: entry.bytes.buffer.slice(
+        entry.bytes.byteOffset,
+        entry.bytes.byteOffset + entry.bytes.byteLength
+      ),
+      existingStartTimes,
+      encodingOptions
+    });
+  };
+
+  await new Promise((resolve, reject) => {
+    let activeWorkers = poolSize;
+    let settled = false;
+
+    const cleanup = () => {
+      for (const worker of workers) {
+        worker.terminate();
+      }
+    };
+
+    for (const worker of workers) {
+      worker.addEventListener("error", (event) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        reject(event.error || new Error(event.message || "Parallel FIT worker failed"));
+      });
+
+      worker.addEventListener("message", (event) => {
+        if (settled) {
+          return;
+        }
+
+        const data = event.data || {};
+        if (data.type !== "fit-entry-result") {
+          return;
+        }
+
+        resolvedCount += 1;
+        if (typeof onProgress === "function") {
+          onProgress({
+            entryName: data.entryName,
+            processedEntries: resolvedCount,
+            totalEntries: fitEntries.length
+          });
+        }
+
+        if (data.status === "completed") {
+          if (data.startTime && seenAcceptedStartTimes.has(data.startTime)) {
+            skippedExistingEntries.push({
+              entryName: data.entryName,
+              startTime: data.startTime
+            });
+          } else {
+            if (data.startTime) {
+              seenAcceptedStartTimes.add(data.startTime);
+            }
+            completedEntries.push({
+              entryName: data.entryName,
+              woaBytes: new Uint8Array(data.woaBytes),
+              startTime: data.startTime
+            });
+            parseSamplesMs.push(Number(data.timings?.parseMs || 0));
+            buildSamplesMs.push(Number(data.timings?.buildWoaMs || 0));
+            buildTimingSamples.push(data.timings?.buildWoaStepsMs || {});
+            speedFallbackWorkoutCount += Number(data.workoutStreamStats?.usesSpeedFallback ? 1 : 0);
+            speedFallbackRecordCount += Number(data.workoutStreamStats?.speedFallbackRecordCount || 0);
+            totalRecordCount += Number(data.recordCount || 0);
+            totalGpsPointCount += Number(data.gpsPointCount || 0);
+          }
+        } else if (data.status === "skipped-existing") {
+          skippedExistingEntries.push({
+            entryName: data.entryName,
+            startTime: data.startTime
+          });
+        } else if (data.status === "skipped-too-short") {
+          skippedTooShortEntries.push({
+            entryName: data.entryName,
+            recordCount: Number(data.recordCount || 0)
+          });
+        } else if (data.status === "failed") {
+          skippedEntries.push({
+            entryName: data.entryName,
+            error: data.error || "Unknown worker error"
+          });
+        }
+
+        if (nextTaskIndex < fitEntries.length) {
+          dispatchTask(worker, nextTaskIndex);
+          nextTaskIndex += 1;
+          return;
+        }
+
+        activeWorkers -= 1;
+        if (activeWorkers === 0) {
+          settled = true;
+          cleanup();
+          resolve();
+        }
+      });
+    }
+
+    for (const worker of workers) {
+      if (nextTaskIndex >= fitEntries.length) {
+        break;
+      }
+      dispatchTask(worker, nextTaskIndex);
+      nextTaskIndex += 1;
+    }
+  });
+
+  return {
+    completedEntries,
+    skippedEntries,
+    skippedExistingEntries,
+    skippedTooShortEntries,
+    parseSamplesMs,
+    buildSamplesMs,
+    buildTimingSamples,
+    speedFallbackWorkoutCount,
+    speedFallbackRecordCount,
+    totalRecordCount,
+    totalGpsPointCount
+  };
+}
+
 function createUniqueEntryName(entryName, usedNames) {
   const normalized = String(entryName || "workout.woa1");
   if (!usedNames.has(normalized)) {
@@ -229,7 +413,9 @@ self.addEventListener("message", async (event) => {
     repeatCount = DEFAULT_BENCH_REPEAT_COUNT,
     existingStartTimes = [],
     encodingOptions = {},
-    outputMode = "zip"
+    outputMode = "zip",
+    parallelFitPoolEnabled = false,
+    parallelFitWorkers = null
   } = event.data || {};
 
   if (!arrayBuffer && (!Array.isArray(files) || files.length === 0)) {
@@ -238,12 +424,28 @@ self.addEventListener("message", async (event) => {
 
   try {
     if (type === "convert-zip-to-woa-zip") {
-      await handleZipConversion({ fileName, arrayBuffer, existingStartTimes, encodingOptions, outputMode });
+      await handleZipConversion({
+        fileName,
+        arrayBuffer,
+        existingStartTimes,
+        encodingOptions,
+        outputMode,
+        parallelFitPoolEnabled,
+        parallelFitWorkers
+      });
       return;
     }
 
     if (type === "convert-fit-files-to-woa-zip") {
-      await handleFitFilesConversion({ fileName, files, existingStartTimes, encodingOptions, outputMode });
+      await handleFitFilesConversion({
+        fileName,
+        files,
+        existingStartTimes,
+        encodingOptions,
+        outputMode,
+        parallelFitPoolEnabled,
+        parallelFitWorkers
+      });
       return;
     }
 
@@ -374,7 +576,9 @@ async function convertMixedEntriesToWoaZip({
   existingStartTimes = [],
   sourceBytes = 0,
   encodingOptions = {},
-  outputMode = "zip"
+  outputMode = "zip",
+  parallelFitPoolEnabled = false,
+  parallelFitWorkers = null
 }) {
   const startedAt = nowMs();
   const existingStartTimeSet = normalizeExistingStartTimeSet(existingStartTimes);
@@ -408,76 +612,117 @@ async function convertMixedEntriesToWoaZip({
   let processedEntries = 0;
   const dynamicExistingStartTimes = new Set(existingStartTimeSet);
 
-  for (const fitEntry of sortedFitEntries) {
-    self.postMessage({
-      type: "phase",
-      phase: "zip-entry",
-      entryName: fitEntry.name,
-      processedEntries,
-      totalEntries
+  if (parallelFitPoolEnabled && sortedFitEntries.length > 1) {
+    const parallelResult = await convertFitEntriesParallel({
+      fitEntries: sortedFitEntries,
+      existingStartTimes,
+      encodingOptions,
+      workerCount: resolveParallelWorkerCount(parallelFitWorkers),
+      onProgress: ({ entryName, processedEntries: workerProcessedEntries, totalEntries: workerTotalEntries }) => {
+        self.postMessage({
+          type: "phase",
+          phase: "zip-entry",
+          entryName,
+          processedEntries: workerProcessedEntries,
+          totalEntries: workerTotalEntries + sortedWoaEntries.length
+        });
+      }
     });
 
-    try {
-      const parseStartedAt = nowMs();
-      const parsed = parseFitBufferTypedBrowser(fitEntry.bytes, {
-        excludeStartTimes: dynamicExistingStartTimes
+    for (const item of parallelResult.completedEntries.sort((left, right) => String(left.entryName).localeCompare(String(right.entryName)))) {
+      outputEntries.push({
+        name: createUniqueEntryName(String(item.entryName).replace(/\.fit$/i, ".woa1"), usedOutputNames),
+        bytes: item.woaBytes
       });
-      parseSamplesMs.push(nowMs() - parseStartedAt);
-
-      if (parsed?.skippedExisting) {
-        skippedExistingEntries.push({
-          entryName: fitEntry.name,
-          startTime: parsed.skippedStartTime || buildParsedStartTimeKey(parsed)
-        });
-        processedEntries += 1;
-        continue;
+      if (item.startTime) {
+        dynamicExistingStartTimes.add(item.startTime);
       }
-
-      if (isTooShortWorkout(parsed)) {
-        skippedTooShortEntries.push({
-          entryName: fitEntry.name,
-          recordCount: Number(parsed?.recordsTyped?.recordCount || 0)
-        });
-        processedEntries += 1;
-        continue;
-      }
-
-      const adjustedParsed = applyEncodingOptions(parsed, encodingOptions);
-
-      const buildStartedAt = nowMs();
-      const result = createWoa1File(adjustedParsed, {
-        sourceName: fitEntry.name,
-        sampleRateSeconds: 5,
-        compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
-        compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
-      });
-      buildSamplesMs.push(nowMs() - buildStartedAt);
-      buildTimingSamples.push(result.timings || {});
-      speedFallbackWorkoutCount += Number(result.stats?.workoutStream?.usesSpeedFallback ? 1 : 0);
-      speedFallbackRecordCount += Number(result.stats?.workoutStream?.speedFallbackRecordCount || 0);
-
-      const outputEntry = {
-        name: createUniqueEntryName(fitEntry.name.replace(/\.fit$/i, ".woa1"), usedOutputNames),
-        bytes: result.bytes
-      };
-      outputEntries.push(outputEntry);
-      {
-        const acceptedStartTimeKey = buildParsedStartTimeKey(parsed);
-        if (acceptedStartTimeKey) {
-          dynamicExistingStartTimes.add(acceptedStartTimeKey);
-        }
-      }
-      totalRecordCount += Number(parsed.recordsTyped?.recordCount || 0);
-      totalGpsPointCount += Number(result.gpsTrack?.pointCount || 0);
       convertedFitEntries += 1;
-    } catch (error) {
-      skippedEntries.push({
-        entryName: fitEntry.name,
-        error: error instanceof Error ? error.message : String(error)
-      });
     }
 
-    processedEntries += 1;
+    skippedEntries.push(...parallelResult.skippedEntries);
+    skippedExistingEntries.push(...parallelResult.skippedExistingEntries);
+    skippedTooShortEntries.push(...parallelResult.skippedTooShortEntries);
+    parseSamplesMs.push(...parallelResult.parseSamplesMs);
+    buildSamplesMs.push(...parallelResult.buildSamplesMs);
+    buildTimingSamples.push(...parallelResult.buildTimingSamples);
+    speedFallbackWorkoutCount += Number(parallelResult.speedFallbackWorkoutCount || 0);
+    speedFallbackRecordCount += Number(parallelResult.speedFallbackRecordCount || 0);
+    totalRecordCount += Number(parallelResult.totalRecordCount || 0);
+    totalGpsPointCount += Number(parallelResult.totalGpsPointCount || 0);
+    processedEntries = sortedFitEntries.length;
+  } else {
+    for (const fitEntry of sortedFitEntries) {
+      self.postMessage({
+        type: "phase",
+        phase: "zip-entry",
+        entryName: fitEntry.name,
+        processedEntries,
+        totalEntries
+      });
+
+      try {
+        const parseStartedAt = nowMs();
+        const parsed = parseFitBufferTypedBrowser(fitEntry.bytes, {
+          excludeStartTimes: dynamicExistingStartTimes
+        });
+        parseSamplesMs.push(nowMs() - parseStartedAt);
+
+        if (parsed?.skippedExisting) {
+          skippedExistingEntries.push({
+            entryName: fitEntry.name,
+            startTime: parsed.skippedStartTime || buildParsedStartTimeKey(parsed)
+          });
+          processedEntries += 1;
+          continue;
+        }
+
+        if (isTooShortWorkout(parsed)) {
+          skippedTooShortEntries.push({
+            entryName: fitEntry.name,
+            recordCount: Number(parsed?.recordsTyped?.recordCount || 0)
+          });
+          processedEntries += 1;
+          continue;
+        }
+
+        const adjustedParsed = applyEncodingOptions(parsed, encodingOptions);
+
+        const buildStartedAt = nowMs();
+        const result = createWoa1File(adjustedParsed, {
+          sourceName: fitEntry.name,
+          sampleRateSeconds: 5,
+          compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
+          compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
+        });
+        buildSamplesMs.push(nowMs() - buildStartedAt);
+        buildTimingSamples.push(result.timings || {});
+        speedFallbackWorkoutCount += Number(result.stats?.workoutStream?.usesSpeedFallback ? 1 : 0);
+        speedFallbackRecordCount += Number(result.stats?.workoutStream?.speedFallbackRecordCount || 0);
+
+        const outputEntry = {
+          name: createUniqueEntryName(fitEntry.name.replace(/\.fit$/i, ".woa1"), usedOutputNames),
+          bytes: result.bytes
+        };
+        outputEntries.push(outputEntry);
+        {
+          const acceptedStartTimeKey = buildParsedStartTimeKey(parsed);
+          if (acceptedStartTimeKey) {
+            dynamicExistingStartTimes.add(acceptedStartTimeKey);
+          }
+        }
+        totalRecordCount += Number(parsed.recordsTyped?.recordCount || 0);
+        totalGpsPointCount += Number(result.gpsTrack?.pointCount || 0);
+        convertedFitEntries += 1;
+      } catch (error) {
+        skippedEntries.push({
+          entryName: fitEntry.name,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+
+      processedEntries += 1;
+    }
   }
 
   for (const woaEntry of sortedWoaEntries) {
@@ -662,7 +907,15 @@ async function convertMixedEntriesToWoaZip({
   }, [outputZipBytes.buffer]);
 }
 
-async function handleZipConversion({ fileName, arrayBuffer, existingStartTimes = [], encodingOptions = {}, outputMode = "zip" }) {
+async function handleZipConversion({
+  fileName,
+  arrayBuffer,
+  existingStartTimes = [],
+  encodingOptions = {},
+  outputMode = "zip",
+  parallelFitPoolEnabled = false,
+  parallelFitWorkers = null
+}) {
   self.postMessage({
     type: "phase",
     phase: "reading-zip"
@@ -693,11 +946,21 @@ async function handleZipConversion({ fileName, arrayBuffer, existingStartTimes =
     existingStartTimes,
     sourceBytes: zipBytes.byteLength,
     encodingOptions,
-    outputMode
+    outputMode,
+    parallelFitPoolEnabled,
+    parallelFitWorkers
   });
 }
 
-async function handleFitFilesConversion({ fileName, files = [], existingStartTimes = [], encodingOptions = {}, outputMode = "zip" }) {
+async function handleFitFilesConversion({
+  fileName,
+  files = [],
+  existingStartTimes = [],
+  encodingOptions = {},
+  outputMode = "zip",
+  parallelFitPoolEnabled = false,
+  parallelFitWorkers = null
+}) {
   const fitEntries = [];
   const woaEntries = [];
   let sourceBytes = 0;
@@ -746,6 +1009,8 @@ async function handleFitFilesConversion({ fileName, files = [], existingStartTim
     existingStartTimes,
     sourceBytes,
     encodingOptions,
-    outputMode
+    outputMode,
+    parallelFitPoolEnabled,
+    parallelFitWorkers
   });
 }
