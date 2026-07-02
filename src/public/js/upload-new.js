@@ -254,6 +254,16 @@ function getEncodingOptions() {
     };
 }
 
+function getUploadTransportMode() {
+    try {
+        return localStorage.getItem("woaUploadTransportMode") === "container-gzip"
+            ? "container-gzip"
+            : "zip";
+    } catch {
+        return "zip";
+    }
+}
+
 function buildIterationSuffix(data) {
     const iteration = Number(data?.iteration || 0);
     const totalIterations = Number(data?.totalIterations || 0);
@@ -286,7 +296,7 @@ async function uploadGeneratedZipArtifact() {
         const formData = new FormData();
         formData.append("file", latestGeneratedZipArtifact.blob, latestGeneratedZipArtifact.fileName);
 
-        const payload = await uploadGeneratedZipFormData(formData, ({ loaded, total, percent }) => {
+        const payload = await uploadGeneratedZipFormData(formData, latestGeneratedZipArtifact.uploadUrl, ({ loaded, total, percent }) => {
             const detailText = total > 0
                 ? `${formatBytes(loaded)} / ${formatBytes(total)}`
                 : `${formatBytes(loaded)} ${tr("uploadPage.woaUploadedSuffix", "uploaded")}`;
@@ -321,8 +331,8 @@ async function uploadGeneratedZipArtifact() {
     }
 }
 
-function setLatestGeneratedZipArtifactSingle(blob, fileName) {
-    latestGeneratedZipArtifact = { blob, fileName };
+function setLatestGeneratedZipArtifactSingle(blob, fileName, uploadUrl = "/api/uploads/woa-zip") {
+    latestGeneratedZipArtifact = { blob, fileName, uploadUrl };
 }
 
 async function fetchExistingWorkoutStartTimes() {
@@ -349,13 +359,13 @@ async function fetchExistingWorkoutStartTimes() {
         : [];
 }
 
-function uploadGeneratedZipFormData(formData, onProgress, onUploadComplete) {
+function uploadGeneratedZipFormData(formData, uploadUrl, onProgress, onUploadComplete) {
     return new Promise((resolve, reject) => {
         const request = new XMLHttpRequest();
         const startedAt = performance.now();
         let uploadCompleted = false;
 
-        request.open("POST", "/api/uploads/woa-zip", true);
+        request.open("POST", uploadUrl || "/api/uploads/woa-zip", true);
         request.responseType = "text";
 
         request.upload.addEventListener("progress", (event) => {
@@ -745,6 +755,106 @@ async function handleConvertSubmit(event) {
                 return;
             }
 
+            if (data.type === "completed-container") {
+                finished = true;
+                const stats = data.stats || {};
+                const containerBytes = data.bytes instanceof ArrayBuffer ? data.bytes : new ArrayBuffer(0);
+                const containerBlob = new Blob([containerBytes], { type: "application/octet-stream" });
+                const shouldUploadGeneratedContainer = Number(stats.convertedEntries || 0) > 0 && containerBlob.size > 0;
+                if (shouldUploadGeneratedContainer) {
+                    setProcessingLabel(tr("uploadPage.woaUploadAndStore", "Upload and store"));
+                    setPhase(tr("uploadPage.woaPhaseUploadingBackend", "Uploading and storing on server"));
+                    setProcessingProgress(0, tr("uploadPage.woaPreparingRequest", "Preparing request"));
+                } else {
+                    setProcessingLabel(tr("uploadPage.woaCompletedLabel", "Completed"));
+                    setPhase(tr("uploadPage.woaPhaseCompleted", "Completed"));
+                    setProcessingProgress(100, tr("uploadPage.woaZipReady", "WOA1 ZIP ready"));
+                }
+                latestGeneratedZipArtifact = null;
+                if (shouldUploadGeneratedContainer) {
+                    setLatestGeneratedZipArtifactSingle(
+                        containerBlob,
+                        data.outputFileName || "output.woat.gz",
+                        "/api/uploads/woa-container"
+                    );
+                }
+                const skipped = Array.isArray(data.skipped) ? data.skipped : [];
+                const skippedExisting = Array.isArray(data.skippedExisting) ? data.skippedExisting : [];
+                const skippedTooShort = Array.isArray(data.skippedTooShort) ? data.skippedTooShort : [];
+                const timings = data.timings || {};
+                const compressionRatio = Number(stats.sourceZipBytes || 0) > 0
+                    ? ((Number(stats.outputContainerBytes || 0) / Number(stats.sourceZipBytes || 1)) * 100).toFixed(1)
+                    : "0.0";
+                const skippedMarkup = skipped.length > 0
+                    ? `
+                        <div class="small mb-3 text-warning">
+                            Skipped FIT entries: ${escapeHtml(String(stats.skippedEntries || skipped.length))}<br>
+                            ${skipped.slice(0, 10).map((item) => `${escapeHtml(item.entryName)}: ${escapeHtml(item.error)}`).join("<br>")}
+                            ${skipped.length > 10 ? "<br>..." : ""}
+                        </div>
+                    `
+                    : "";
+                const skippedExistingMarkup = skippedExisting.length > 0
+                    ? `
+                        <div class="small mb-3 text-info">
+                            Already existing workouts skipped before WOA build: ${escapeHtml(String(stats.skippedExistingEntries || skippedExisting.length))}<br>
+                            ${skippedExisting.slice(0, 10).map((item) => `${escapeHtml(item.entryName)}: ${escapeHtml(formatLocalDateTime(item.startTime || ""))}`).join("<br>")}
+                            ${skippedExisting.length > 10 ? "<br>..." : ""}
+                        </div>
+                    `
+                    : "";
+                const skippedTooShortMarkup = skippedTooShort.length > 0
+                    ? `
+                        <div class="small mb-3 text-info">
+                            Too-short workouts skipped before WOA build: ${escapeHtml(String(stats.skippedTooShortEntries || skippedTooShort.length))}<br>
+                            ${skippedTooShort.slice(0, 10).map((item) => `${escapeHtml(item.entryName)}: ${escapeHtml(String(item.recordCount || 0))} records`).join("<br>")}
+                            ${skippedTooShort.length > 10 ? "<br>..." : ""}
+                        </div>
+                    `
+                    : "";
+
+                setResponseMarkup(`
+                    <div class="alert alert-success">
+                        <div class="fw-semibold mb-2">ZIP wurde lokal in einen WOA-Testcontainer konvertiert.</div>
+                        <div class="small mb-3">
+                            Source ZIP: ${escapeHtml(data.fileName || "")}<br>
+                            FIT entries seen: ${escapeHtml(String(stats.fitEntries || 0))}<br>
+                            WOA entries passed through: ${escapeHtml(String(stats.passedThroughEntries || 0))}<br>
+                            Successfully converted: ${escapeHtml(String(stats.convertedEntries || 0))}<br>
+                            Total records: ${escapeHtml(String(stats.totalRecordCount || 0))}<br>
+                            Reduced GPS points: ${escapeHtml(String(stats.totalGpsPointCount || 0))}<br>
+                            Source ZIP size: ${escapeHtml(formatBytes(Number(stats.sourceZipBytes || 0)))}<br>
+                            Output container size: ${escapeHtml(formatBytes(Number(stats.outputContainerBytes || 0)))} (${escapeHtml(compressionRatio)}% of source ZIP, gzip level ${escapeHtml(String(stats.containerGzipLevel || 0))})
+                        </div>
+                        ${skippedExistingMarkup}
+                        ${skippedTooShortMarkup}
+                        ${skippedMarkup}
+                        <div class="small mb-3">
+                            Average parse FIT: ${escapeHtml(formatMs(timings.parseMs))}<br>
+                            Average build WOA1: ${escapeHtml(formatMs(timings.buildWoaMs))}<br>
+                            ${buildWorkoutStreamStatLines(timings.workoutStreamStats) ? `${buildWorkoutStreamStatLines(timings.workoutStreamStats)}<br>` : ""}
+                            ${buildTimingLines(timings.buildWoaStepsMs) ? `${buildTimingLines(timings.buildWoaStepsMs)}<br>` : ""}
+                            Build output container: ${escapeHtml(formatMs(timings.containerBuildMs))}<br>
+                            Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
+                        </div>
+                        <div class="small mb-3 text-muted">Sanfte Kompression aktiv: 2 W / 2 rpm / 2 bpm</div>
+                        ${shouldUploadGeneratedContainer
+                            ? `<div id="backendUploadResult">${buildBackendUploadPendingMarkup()}</div>`
+                            : `<div class="small mb-2 text-muted">${escapeHtml(tr("uploadPage.woaNoBackendUploadNeeded", "No new workouts remained after duplicate filtering, so no backend upload was needed."))}</div><div id="backendUploadResult"></div>`}
+                    </div>
+                `);
+
+                if (shouldUploadGeneratedContainer) {
+                    queueMicrotask(() => {
+                        uploadGeneratedZipArtifact();
+                    });
+                }
+
+                setLoading(false);
+                worker.terminate();
+                return;
+            }
+
         });
 
         worker.postMessage({
@@ -757,7 +867,8 @@ async function handleConvertSubmit(event) {
             arrayBuffer,
             files: workerFiles,
             existingStartTimes,
-            encodingOptions
+            encodingOptions,
+            outputMode: getUploadTransportMode()
         }, [
             ...(arrayBuffer ? [arrayBuffer] : []),
             ...workerFiles.map((entry) => entry.arrayBuffer)

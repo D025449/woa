@@ -1,5 +1,6 @@
 import { parseFitBufferTypedBrowser } from "./fit-import-typed-browser.js";
 import { createWoa1File } from "./woa-format.js";
+import { encodeWoaTransportContainer } from "./woa-transport-container.js";
 import { gzipSync, unzipSync, zipSync } from "/vendor/fflate/browser.js";
 
 const PER_FILE_GZIP_LEVEL = 4;
@@ -7,6 +8,7 @@ const OUTER_ZIP_LEVEL = 0;
 const DEFAULT_BENCH_REPEAT_COUNT = 10;
 const MIN_WORKOUT_RECORD_COUNT = 300;
 const TEXT_DECODER = new TextDecoder();
+const CUSTOM_CONTAINER_GZIP_LEVEL = 4;
 
 async function compressGzip(bytes, level = PER_FILE_GZIP_LEVEL) {
   return gzipSync(bytes, { level });
@@ -226,7 +228,8 @@ self.addEventListener("message", async (event) => {
     files = [],
     repeatCount = DEFAULT_BENCH_REPEAT_COUNT,
     existingStartTimes = [],
-    encodingOptions = {}
+    encodingOptions = {},
+    outputMode = "zip"
   } = event.data || {};
 
   if (!arrayBuffer && (!Array.isArray(files) || files.length === 0)) {
@@ -235,12 +238,12 @@ self.addEventListener("message", async (event) => {
 
   try {
     if (type === "convert-zip-to-woa-zip") {
-      await handleZipConversion({ fileName, arrayBuffer, existingStartTimes, encodingOptions });
+      await handleZipConversion({ fileName, arrayBuffer, existingStartTimes, encodingOptions, outputMode });
       return;
     }
 
     if (type === "convert-fit-files-to-woa-zip") {
-      await handleFitFilesConversion({ fileName, files, existingStartTimes, encodingOptions });
+      await handleFitFilesConversion({ fileName, files, existingStartTimes, encodingOptions, outputMode });
       return;
     }
 
@@ -370,7 +373,8 @@ async function convertMixedEntriesToWoaZip({
   woaEntries = [],
   existingStartTimes = [],
   sourceBytes = 0,
-  encodingOptions = {}
+  encodingOptions = {},
+  outputMode = "zip"
 }) {
   const startedAt = nowMs();
   const existingStartTimeSet = normalizeExistingStartTimeSet(existingStartTimes);
@@ -551,6 +555,59 @@ async function convertMixedEntriesToWoaZip({
     throw new Error("No supported entries could be converted or passed through");
   }
 
+  if (outputMode === "container-gzip") {
+    self.postMessage({
+      type: "phase",
+      phase: "building-container",
+      totalEntries
+    });
+
+    const containerBuildStartedAt = nowMs();
+    const rawContainerBytes = encodeWoaTransportContainer(outputEntries);
+    const gzipContainerBytes = gzipSync(rawContainerBytes, { level: CUSTOM_CONTAINER_GZIP_LEVEL });
+    const containerBuildMs = nowMs() - containerBuildStartedAt;
+    const totalElapsedMs = nowMs() - startedAt;
+
+    self.postMessage({
+      type: "completed-container",
+      fileName,
+      outputFileName: fileName.replace(/\.zip$/i, ".woat.gz"),
+      bytes: gzipContainerBytes.buffer,
+      stats: {
+        fitEntries: sortedFitEntries.length,
+        woaEntries: sortedWoaEntries.length,
+        convertedEntries: convertedFitEntries,
+        passedThroughEntries: passedThroughWoaEntries,
+        skippedEntries: skippedEntries.length,
+        skippedExistingEntries: skippedExistingEntries.length,
+        skippedTooShortEntries: skippedTooShortEntries.length,
+        totalRecordCount,
+        totalGpsPointCount,
+        sourceZipBytes: sourceBytes,
+        outputContainerBytes: gzipContainerBytes.byteLength,
+        rawContainerBytes: rawContainerBytes.byteLength,
+        containerGzipLevel: CUSTOM_CONTAINER_GZIP_LEVEL
+      },
+      skipped: skippedEntries,
+      skippedExisting: skippedExistingEntries,
+      skippedTooShort: skippedTooShortEntries,
+      timings: {
+        parseMs: average(parseSamplesMs),
+        buildWoaMs: average(buildSamplesMs),
+        buildWoaStepsMs: averageTimingMaps(buildTimingSamples),
+        workoutStreamStats: {
+          fallbackWorkoutCount: speedFallbackWorkoutCount,
+          fallbackRecordCount: speedFallbackRecordCount
+        },
+        gzipMs: average(gzipSamplesMs),
+        zipBuildMs: 0,
+        containerBuildMs,
+        totalMs: totalElapsedMs
+      }
+    }, [gzipContainerBytes.buffer]);
+    return;
+  }
+
   self.postMessage({
     type: "phase",
     phase: "building-zip",
@@ -603,7 +660,7 @@ async function convertMixedEntriesToWoaZip({
   }, [outputZipBytes.buffer]);
 }
 
-async function handleZipConversion({ fileName, arrayBuffer, existingStartTimes = [], encodingOptions = {} }) {
+async function handleZipConversion({ fileName, arrayBuffer, existingStartTimes = [], encodingOptions = {}, outputMode = "zip" }) {
   self.postMessage({
     type: "phase",
     phase: "reading-zip"
@@ -633,11 +690,12 @@ async function handleZipConversion({ fileName, arrayBuffer, existingStartTimes =
     woaEntries,
     existingStartTimes,
     sourceBytes: zipBytes.byteLength,
-    encodingOptions
+    encodingOptions,
+    outputMode
   });
 }
 
-async function handleFitFilesConversion({ fileName, files = [], existingStartTimes = [], encodingOptions = {} }) {
+async function handleFitFilesConversion({ fileName, files = [], existingStartTimes = [], encodingOptions = {}, outputMode = "zip" }) {
   const fitEntries = [];
   const woaEntries = [];
   let sourceBytes = 0;
@@ -685,6 +743,7 @@ async function handleFitFilesConversion({ fileName, files = [], existingStartTim
     woaEntries,
     existingStartTimes,
     sourceBytes,
-    encodingOptions
+    encodingOptions,
+    outputMode
   });
 }
