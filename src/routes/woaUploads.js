@@ -604,6 +604,26 @@ router.post(
       let flushLoopError = null;
       let readerDone = false;
       let queueDrainWaiters = [];
+      let requestUploadCompletedAt = 0;
+      let gunzipCompletedAt = 0;
+      let parserFinishedAt = 0;
+      let flushWaitCompletedAt = 0;
+      let importJobCompletedAt = 0;
+      let maxPendingItems = 0;
+      let flushCount = 0;
+      let flushItemsTotal = 0;
+      let flushInsertMsTotal = 0;
+      let flushScheduleMsTotal = 0;
+      let queueBackpressureWaitMs = 0;
+      let queueBackpressureWaitCount = 0;
+      let requestBytesObserved = 0;
+
+      req.on("data", (chunk) => {
+        requestBytesObserved += Number(chunk?.length || 0);
+      });
+      req.on("end", () => {
+        requestUploadCompletedAt = Date.now();
+      });
 
       const notifyQueueDrain = () => {
         const waiters = queueDrainWaiters;
@@ -622,12 +642,16 @@ router.post(
           return;
         }
         const chunk = pendingItems.splice(0, IMPORT_DB_BULK_INSERT_SIZE);
+        flushCount += 1;
+        flushItemsTotal += chunk.length;
         try {
           const insertStartedAt = Date.now();
           const bulkResult = await FileDBService.insertPreparedFilesBulk(
             chunk.map((item) => item.preparedInsert)
           );
-          profile.insertWorkoutMs += Date.now() - insertStartedAt;
+          const insertElapsedMs = Date.now() - insertStartedAt;
+          profile.insertWorkoutMs += insertElapsedMs;
+          flushInsertMsTotal += insertElapsedMs;
 
           const existingByKey = bulkResult?.existingRowsByKey instanceof Map
             ? bulkResult.existingRowsByKey
@@ -701,7 +725,9 @@ router.post(
             profile.scheduleSegmentBestEffortsMs += Date.now() - segmentBestEffortsStartedAt;
           }
 
-          profile.schedulePostprocessMs += Date.now() - scheduleStartedAt;
+          const scheduleElapsedMs = Date.now() - scheduleStartedAt;
+          profile.schedulePostprocessMs += scheduleElapsedMs;
+          flushScheduleMsTotal += scheduleElapsedMs;
         } catch (error) {
           for (const item of chunk) {
             skipped.push({
@@ -808,13 +834,19 @@ router.post(
                 ?? decoded?.meta?.persistedRow?.validGps
               )
             });
+            if (pendingItems.length > maxPendingItems) {
+              maxPendingItems = pendingItems.length;
+            }
 
             if (pendingItems.length >= IMPORT_DB_BULK_INSERT_SIZE) {
               ensureFlushLoop();
             }
             while (pendingItems.length >= MAX_PENDING_ITEMS) {
               ensureFlushLoop();
+              const queueWaitStartedAt = Date.now();
               await waitForQueueDrain();
+              queueBackpressureWaitMs += Date.now() - queueWaitStartedAt;
+              queueBackpressureWaitCount += 1;
             }
           } catch (error) {
             skipped.push({
@@ -826,11 +858,14 @@ router.post(
       }
 
       readerDone = true;
+      gunzipCompletedAt = Date.now();
       parser.finish();
+      parserFinishedAt = Date.now();
       ensureFlushLoop();
       if (flushLoopPromise) {
         await flushLoopPromise;
       }
+      flushWaitCompletedAt = Date.now();
       if (flushLoopError) {
         throw flushLoopError;
       }
@@ -841,6 +876,66 @@ router.post(
         stage: "completed",
         processedFiles: inserted.length,
         failedFiles: skipped.length
+      });
+      importJobCompletedAt = Date.now();
+
+      logImportEvent("woa-stream-import.profile", {
+        importJobId,
+        sourceName,
+        uploadedSizeBytes,
+        requestBytesObserved,
+        totalEntries: totalEntries || inserted.length + skipped.length,
+        importedEntries: inserted.length,
+        skippedEntries: skipped.length,
+        queue: {
+          bulkInsertSize: IMPORT_DB_BULK_INSERT_SIZE,
+          maxPendingItems,
+          flushCount,
+          flushItemsTotal,
+          avgItemsPerFlush: flushCount > 0
+            ? Number((flushItemsTotal / flushCount).toFixed(2))
+            : 0,
+          queueBackpressureWaitCount,
+          queueBackpressureWaitMs
+        },
+        flush: {
+          totalInsertMs: flushInsertMsTotal,
+          totalScheduleMs: flushScheduleMsTotal,
+          avgInsertMsPerFlush: flushCount > 0
+            ? Number((flushInsertMsTotal / flushCount).toFixed(2))
+            : 0,
+          avgScheduleMsPerFlush: flushCount > 0
+            ? Number((flushScheduleMsTotal / flushCount).toFixed(2))
+            : 0
+        },
+        timelineMs: {
+          totalElapsedMs: elapsedMs,
+          untilRequestUploadEndMs: requestUploadCompletedAt
+            ? requestUploadCompletedAt - startedAt
+            : null,
+          untilGunzipEndMs: gunzipCompletedAt
+            ? gunzipCompletedAt - startedAt
+            : null,
+          untilParserFinishMs: parserFinishedAt
+            ? parserFinishedAt - startedAt
+            : null,
+          untilFlushWaitDoneMs: flushWaitCompletedAt
+            ? flushWaitCompletedAt - startedAt
+            : null,
+          untilImportJobUpdateDoneMs: importJobCompletedAt
+            ? importJobCompletedAt - startedAt
+            : null,
+          afterUploadEndMs: requestUploadCompletedAt
+            ? elapsedMs - (requestUploadCompletedAt - startedAt)
+            : null,
+          afterUploadBreakdownMs: requestUploadCompletedAt ? {
+            gunzipTailMs: Math.max(0, (gunzipCompletedAt || requestUploadCompletedAt) - requestUploadCompletedAt),
+            parserFinalizeTailMs: Math.max(0, (parserFinishedAt || gunzipCompletedAt || requestUploadCompletedAt) - (gunzipCompletedAt || requestUploadCompletedAt)),
+            flushTailMs: Math.max(0, (flushWaitCompletedAt || parserFinishedAt || requestUploadCompletedAt) - (parserFinishedAt || requestUploadCompletedAt)),
+            importJobTailMs: Math.max(0, (importJobCompletedAt || flushWaitCompletedAt || requestUploadCompletedAt) - (flushWaitCompletedAt || requestUploadCompletedAt)),
+            responseTailMs: Math.max(0, elapsedMs - ((importJobCompletedAt || flushWaitCompletedAt || requestUploadCompletedAt) - startedAt))
+          } : null
+        }
       });
 
       logImportEvent("woa-sync-import.completed", {
