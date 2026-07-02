@@ -555,7 +555,7 @@ async function convertMixedEntriesToWoaZip({
     throw new Error("No supported entries could be converted or passed through");
   }
 
-  if (outputMode === "container-gzip") {
+  if (outputMode === "container-gzip" || outputMode === "container-gzip-stream") {
     self.postMessage({
       type: "phase",
       phase: "building-container",
