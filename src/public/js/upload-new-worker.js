@@ -1,7 +1,7 @@
 import { parseFitBufferTypedBrowser } from "./fit-import-typed-browser.js";
 import { createWoa1File } from "./woa-format.js";
 import { encodeWoaTransportContainer } from "./woa-transport-container.js";
-import { AsyncUnzipInflate, Unzip, gzipSync, unzipSync, zipSync } from "/vendor/fflate/browser.js";
+import { gzipSync, unzip, unzipSync, zipSync } from "/vendor/fflate/browser.js";
 
 const PER_FILE_GZIP_LEVEL = 4;
 const OUTER_ZIP_LEVEL = 0;
@@ -212,89 +212,26 @@ function postStartupMetric(name, valueMs, extra = {}) {
   });
 }
 
-function concatChunks(chunks = [], totalLength = 0) {
-  const output = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return output;
-}
-
 async function readZipEntriesAsync(zipBytes) {
   return new Promise((resolve, reject) => {
     const startedAt = nowMs();
-    const archive = {};
-    let entryCount = 0;
-    const pending = [];
-    let settled = false;
-    let firstFileSeen = false;
-    const unzipper = new Unzip((file) => {
-      if (settled) {
+    unzip(zipBytes, (error, archive) => {
+      if (error) {
+        reject(error);
         return;
       }
-      entryCount += 1;
-      if (!firstFileSeen) {
-        firstFileSeen = true;
+      const entryNames = Object.keys(archive || {});
+      if (entryNames.length > 0) {
         postStartupMetric("firstZipEntrySeenMs", nowMs() - startedAt, {
-          entryName: file.name
+          entryName: entryNames[0]
         });
       }
-      const promise = new Promise((entryResolve, entryReject) => {
-        const chunks = [];
-        let totalLength = 0;
-        file.ondata = (error, chunk, final) => {
-          if (error) {
-            entryReject(error);
-            return;
-          }
-          if (chunk?.byteLength) {
-            chunks.push(chunk);
-            totalLength += chunk.byteLength;
-          }
-          if (final) {
-            archive[file.name] = concatChunks(chunks, totalLength);
-            entryResolve();
-          }
-        };
-        try {
-          file.start();
-        } catch (error) {
-          entryReject(error);
-        }
+      resolve({
+        archive: archive || {},
+        entryCount: entryNames.length,
+        totalMs: nowMs() - startedAt
       });
-      pending.push(promise);
     });
-
-    try {
-      unzipper.register(AsyncUnzipInflate);
-      unzipper.push(zipBytes, true);
-    } catch (error) {
-      settled = true;
-      reject(error);
-      return;
-    }
-
-    Promise.all(pending)
-      .then(() => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        resolve({
-          archive,
-          entryCount,
-          totalMs: nowMs() - startedAt
-        });
-      })
-      .catch((error) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        reject(error);
-      });
   });
 }
 
