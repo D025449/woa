@@ -257,119 +257,12 @@ function getEncodingOptions() {
 function getUploadTransportMode() {
     try {
         const value = localStorage.getItem("woaUploadTransportMode");
-        return value === "container-gzip" || value === "container-gzip-stream"
+        return value === "zip" || value === "container-gzip"
             ? value
-            : "zip";
+            : "container-gzip";
     } catch {
-        return "zip";
-    }
-}
-
-function supportsFetchStreamingUpload() {
-    return typeof fetch === "function"
-        && typeof ReadableStream === "function"
-        && typeof CompressionStream === "function";
-}
-
-function resolveEffectiveUploadTransportMode() {
-    const requestedMode = getUploadTransportMode();
-    if (requestedMode === "container-gzip-stream" && !supportsFetchStreamingUpload()) {
         return "container-gzip";
     }
-    return requestedMode;
-}
-
-function createStreamingContainerUploadSession({ uploadUrl, fileName, onProgress }) {
-    let controller = null;
-    let closed = false;
-    let rawQueuedBytes = 0;
-    let streamedEntries = 0;
-    let lastProcessedEntries = 0;
-    let lastTotalEntries = 0;
-    const startedAt = performance.now();
-
-    const sourceStream = new ReadableStream({
-        start(streamController) {
-            controller = streamController;
-        }
-    });
-
-    const requestStream = sourceStream.pipeThrough(new CompressionStream("gzip"));
-
-    const responsePromise = (async () => {
-        const response = await fetch(uploadUrl, {
-            method: "POST",
-            credentials: "same-origin",
-            headers: {
-                "Content-Type": "application/octet-stream",
-                "X-Upload-Filename": fileName || "upload.woat.gz"
-            },
-            body: requestStream,
-            duplex: "half"
-        });
-
-        const responseText = await response.text();
-        let payload = {};
-        try {
-            payload = responseText ? JSON.parse(responseText) : {};
-        } catch {
-            payload = {};
-        }
-
-        if (!response.ok) {
-            throw new Error(payload?.error || `Upload failed (${response.status})`);
-        }
-
-        return {
-            ...payload,
-            httpElapsedMs: performance.now() - startedAt
-        };
-    })();
-
-    const emitProgress = () => {
-        if (!onProgress) {
-            return;
-        }
-        const percent = lastTotalEntries > 0
-            ? Math.min(100, (lastProcessedEntries / lastTotalEntries) * 100)
-            : 0;
-        onProgress({
-            percent,
-            rawQueuedBytes,
-            streamedEntries,
-            processedEntries: lastProcessedEntries,
-            totalEntries: lastTotalEntries
-        });
-    };
-
-    return {
-        enqueueChunk(chunk, meta = {}) {
-            if (!controller || closed) {
-                throw new Error("Streaming upload session is not writable");
-            }
-            const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk || []);
-            controller.enqueue(bytes);
-            rawQueuedBytes += bytes.byteLength;
-            streamedEntries = Number(meta.streamedEntries || streamedEntries);
-            lastProcessedEntries = Number(meta.processedEntries || lastProcessedEntries);
-            lastTotalEntries = Number(meta.totalEntries || lastTotalEntries);
-            emitProgress();
-        },
-        async closeAndWait() {
-            if (!closed) {
-                closed = true;
-                controller?.close();
-            }
-            return responsePromise;
-        },
-        fail(error) {
-            if (closed) {
-                return;
-            }
-            closed = true;
-            controller?.error(error instanceof Error ? error : new Error(String(error)));
-        }
-    };
 }
 
 function buildIterationSuffix(data) {
@@ -756,15 +649,12 @@ async function handleConvertSubmit(event) {
 
         const worker = new Worker("/js/upload-new-worker.js", { type: "module" });
         let finished = false;
-        let streamingUploadSession = null;
-        let streamingUploadPromise = null;
 
         worker.addEventListener("error", (workerError) => {
             if (finished) {
                 return;
             }
             finished = true;
-            streamingUploadSession?.fail(workerError);
             setPhase(tr("uploadPage.woaPhaseFailed", "Failed"));
             setProcessingProgress(0, "");
             setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(tr("uploadPage.woaWorkerFailedPrefix", "Worker failed to start or crashed:"))} ${escapeHtml(workerError.message || tr("uploadPage.woaUnknownWorkerError", "Unknown worker error"))}</div>`);
@@ -777,7 +667,6 @@ async function handleConvertSubmit(event) {
                 return;
             }
             finished = true;
-            streamingUploadSession?.fail(new Error("Worker message transfer failed"));
             setPhase(tr("uploadPage.woaPhaseFailed", "Failed"));
             setProcessingProgress(0, "");
             setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(tr("uploadPage.woaWorkerMessageTransferFailed", "Worker message transfer failed."))}</div>`);
@@ -821,75 +710,11 @@ async function handleConvertSubmit(event) {
 
             if (data.type === "failed") {
                 finished = true;
-                streamingUploadSession?.fail(new Error(data.error || "Worker failed"));
                 setPhase(tr("uploadPage.woaPhaseFailed", "Failed"));
                 setProcessingProgress(0, "");
                 setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(data.error || tr("uploadPage.woaConversionFailed", "Conversion failed"))}</div>`);
                 setLoading(false);
                 worker.terminate();
-                return;
-            }
-
-            if (data.type === "stream-container-start") {
-                if (!supportsFetchStreamingUpload()) {
-                    finished = true;
-                    setPhase(tr("uploadPage.woaPhaseFailed", "Failed"));
-                    setProcessingProgress(0, "");
-                    setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml("Streaming upload is not supported in this browser.")}</div>`);
-                    setLoading(false);
-                    worker.terminate();
-                    return;
-                }
-
-                setProcessingLabel(tr("uploadPage.woaUploadAndStore", "Upload and store"));
-                setPhase(tr("uploadPage.woaPhaseUploadingBackend", "Uploading and storing on server"));
-                setProcessingProgress(5, tr("uploadPage.woaPreparingRequest", "Preparing request"));
-                setResponseMarkup(renderCompletedContainerMarkup({
-                    title: "ZIP wird lokal in einen gestreamten WOA-Testcontainer konvertiert.",
-                    fileName: data.fileName,
-                    stats: {
-                        fitEntries: data.fitEntries,
-                        woaEntries: data.woaEntries,
-                        sourceZipBytes: data.sourceZipBytes
-                    },
-                    timings: {},
-                    backendMarkup: buildBackendUploadPendingMarkup()
-                }));
-
-                streamingUploadSession = createStreamingContainerUploadSession({
-                    uploadUrl: "/api/uploads/woa-container-stream",
-                    fileName: data.outputFileName || "output.woat.gz",
-                    onProgress: ({ percent, rawQueuedBytes, streamedEntries, processedEntries, totalEntries }) => {
-                        setPhase(tr("uploadPage.woaPhaseUploadingBackend", "Uploading to backend"));
-                        setProcessingProgress(
-                            Math.max(5, Math.min(95, 5 + (percent * 0.9))),
-                            `${streamedEntries}/${totalEntries || "?"} entries, ${formatBytes(rawQueuedBytes)} streamed`
-                        );
-                    }
-                });
-                streamingUploadSession.enqueueChunk(data.headerBytes, {
-                    streamedEntries: 0,
-                    processedEntries: 0,
-                    totalEntries: Number(data.totalEntries || 0)
-                });
-                return;
-            }
-
-            if (data.type === "stream-container-entry") {
-                try {
-                    streamingUploadSession?.enqueueChunk(data.bytes, {
-                        streamedEntries: Number(data.streamedEntries || 0),
-                        processedEntries: Number(data.processedEntries || 0),
-                        totalEntries: Number(data.totalEntries || 0)
-                    });
-                } catch (error) {
-                    finished = true;
-                    setPhase(tr("uploadPage.woaPhaseFailed", "Failed"));
-                    setProcessingProgress(0, "");
-                    setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(error?.message || String(error))}</div>`);
-                    setLoading(false);
-                    worker.terminate();
-                }
                 return;
             }
 
@@ -1099,14 +924,11 @@ async function handleConvertSubmit(event) {
                 }
                 latestGeneratedZipArtifact = null;
                 if (shouldUploadGeneratedContainer) {
-                    const transportMode = getUploadTransportMode();
                     setLatestGeneratedZipArtifactSingle(
                         containerBlob,
                         data.outputFileName || "output.woat.gz",
-                        transportMode === "container-gzip-stream"
-                            ? "/api/uploads/woa-container-stream"
-                            : "/api/uploads/woa-container",
-                        transportMode === "container-gzip-stream" ? "raw" : "form-data"
+                        "/api/uploads/woa-container",
+                        "raw"
                     );
                 }
                 const skipped = Array.isArray(data.skipped) ? data.skipped : [];
@@ -1186,61 +1008,6 @@ async function handleConvertSubmit(event) {
                 return;
             }
 
-            if (data.type === "completed-container-stream") {
-                finished = true;
-                const stats = data.stats || {};
-                const skipped = Array.isArray(data.skipped) ? data.skipped : [];
-                const skippedExisting = Array.isArray(data.skippedExisting) ? data.skippedExisting : [];
-                const skippedTooShort = Array.isArray(data.skippedTooShort) ? data.skippedTooShort : [];
-                const timings = data.timings || {};
-
-                setProcessingLabel(tr("uploadPage.woaServerProcessing", "Server processing"));
-                setPhase(tr("uploadPage.woaPhaseBackendProcessing", "Backend processing"));
-                setProcessingProgress(100, tr("uploadPage.woaBackendProcessingDetail", "Upload finished, waiting for backend response"));
-                setResponseMarkup(renderCompletedContainerMarkup({
-                    title: "ZIP wurde lokal in einen gestreamten WOA-Testcontainer konvertiert.",
-                    fileName: data.fileName,
-                    stats,
-                    skipped,
-                    skippedExisting,
-                    skippedTooShort,
-                    timings,
-                    backendMarkup: buildBackendUploadPendingMarkup()
-                }));
-
-                streamingUploadPromise = streamingUploadSession
-                    ? streamingUploadSession.closeAndWait()
-                    : Promise.reject(new Error("Streaming upload session missing"));
-
-                streamingUploadPromise.then((payload) => {
-                    setProcessingLabel(tr("uploadPage.woaCompletedLabel", "Completed"));
-                    setPhase(tr("uploadPage.woaPhaseCompleted", "Completed"));
-                    setProcessingProgress(100, tr("uploadPage.woaBackendUploadCompleted", "Backend upload completed."));
-                    renderBackendUploadState(`
-                        <div class="alert alert-info mb-0 mt-2">
-                            <div class="fw-semibold mb-2">${escapeHtml(tr("uploadPage.woaBackendUploadCompleted", "Backend upload completed."))}</div>
-                            <div class="small">
-                                Imported workouts: ${escapeHtml(String(payload.importedCount || 0))}<br>
-                                Skipped workouts: ${escapeHtml(String(payload.skippedCount || 0))}<br>
-                                ZIP entries seen: ${escapeHtml(String(payload.totalEntries || 0))}<br>
-                                Backend elapsed: ${escapeHtml(formatMs(payload.elapsedMs))}<br>
-                                HTTP roundtrip: ${escapeHtml(formatMs(payload.httpElapsedMs))}
-                            </div>
-                        </div>
-                    `);
-                }).catch((error) => {
-                    setProcessingLabel(tr("uploadPage.woaUploadAndStore", "Upload and store"));
-                    setPhase(tr("uploadPage.woaPhaseFailed", "Failed"));
-                    setProcessingProgress(0, tr("uploadPage.woaBackendUploadFailed", "Backend upload failed"));
-                    renderBackendUploadState(`<div class="alert alert-danger mb-0 mt-2">${escapeHtml(error?.message || String(error))}</div>`);
-                }).finally(() => {
-                    setLoading(false);
-                    worker.terminate();
-                });
-
-                return;
-            }
-
         });
 
         worker.postMessage({
@@ -1254,7 +1021,7 @@ async function handleConvertSubmit(event) {
             files: workerFiles,
             existingStartTimes,
             encodingOptions,
-            outputMode: resolveEffectiveUploadTransportMode()
+            outputMode: getUploadTransportMode()
         }, [
             ...(arrayBuffer ? [arrayBuffer] : []),
             ...workerFiles.map((entry) => entry.arrayBuffer)

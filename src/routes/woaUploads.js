@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import util from "node:util";
-import { createGunzip, gunzipSync } from "node:zlib";
+import { gunzipSync } from "node:zlib";
 import { Router } from "express";
 import unzipper from "unzipper";
 
@@ -57,85 +57,6 @@ function createImportProfile() {
     scheduleSimilarityMs: 0,
     scheduleSegmentBestEffortsMs: 0
   };
-}
-
-class WoaTransportStreamParser {
-  constructor() {
-    this.buffer = Buffer.alloc(0);
-    this.headerRead = false;
-    this.entryCount = 0;
-    this.version = 0;
-    this.magic = "";
-  }
-
-  push(chunk) {
-    if (!chunk || chunk.length === 0) {
-      return;
-    }
-    this.buffer = this.buffer.length === 0
-      ? Buffer.from(chunk)
-      : Buffer.concat([this.buffer, chunk]);
-  }
-
-  tryReadHeader() {
-    if (this.headerRead || this.buffer.length < 9) {
-      return this.headerRead;
-    }
-    this.magic = this.buffer.subarray(0, 4).toString("utf8");
-    if (this.magic !== "WOAT") {
-      throw new Error(`Unsupported WOA transport magic: ${this.magic}`);
-    }
-    this.version = this.buffer[4];
-    if (this.version !== 1 && this.version !== 2) {
-      throw new Error(`Unsupported WOA transport version: ${this.version}`);
-    }
-    this.entryCount = this.buffer.readUInt32LE(5);
-    this.buffer = this.buffer.subarray(9);
-    this.headerRead = true;
-    return true;
-  }
-
-  takeAvailableEntries() {
-    const entries = [];
-    if (!this.tryReadHeader()) {
-      return entries;
-    }
-
-    while (this.buffer.length >= 8) {
-      const nameLength = this.buffer.readUInt32LE(0);
-      if (this.buffer.length < 4 + nameLength + 4) {
-        break;
-      }
-      const nameStart = 4;
-      const nameEnd = nameStart + nameLength;
-      const payloadLength = this.buffer.readUInt32LE(nameEnd);
-      const payloadStart = nameEnd + 4;
-      const payloadEnd = payloadStart + payloadLength;
-      if (this.buffer.length < payloadEnd) {
-        break;
-      }
-
-      entries.push({
-        name: this.buffer.subarray(nameStart, nameEnd).toString("utf8"),
-        bytes: this.buffer.subarray(payloadStart, payloadEnd)
-      });
-      this.buffer = this.buffer.subarray(payloadEnd);
-    }
-
-    return entries;
-  }
-
-  finish() {
-    this.tryReadHeader();
-    if (this.version === 1 && this.entryCount !== 0xffffffff && this.entryCount > 0) {
-      // v1 expects an exact entry count; v2 is EOF-terminated.
-      // takeAvailableEntries() fully drains entries as they become available, so
-      // only leftover partial bytes are validated below.
-    }
-    if (this.buffer.length !== 0) {
-      throw new Error("WOA transport stream ended with trailing incomplete bytes");
-    }
-  }
 }
 
 async function importWoaEntryReaders({
@@ -529,23 +450,22 @@ router.post(
   "/woa-container",
   authMiddleware,
   requireActiveAccountWrite,
-  uploadMiddleware.single("file"),
   async (req, res, next) => {
-    const uploadedFile = req.file;
-
     try {
       if (!req.user?.id) {
-        if (uploadedFile?.path) {
-          await fs.rm(uploadedFile.path, { force: true }).catch(() => {});
-        }
         return res.status(401).json({ error: "Nicht angemeldet" });
       }
 
-      if (!uploadedFile) {
+      const chunks = [];
+      for await (const chunk of req) {
+        chunks.push(chunk);
+      }
+
+      const compressedBytes = Buffer.concat(chunks);
+      if (compressedBytes.length === 0) {
         return res.status(400).json({ error: "Keine Datei hochgeladen" });
       }
 
-      const compressedBytes = await fs.readFile(uploadedFile.path);
       const inflatedBytes = gunzipSync(compressedBytes);
       const decoded = decodeWoaTransportContainer(inflatedBytes);
       const woaEntries = decoded.entries.filter((entry) =>
@@ -553,418 +473,20 @@ router.post(
       );
 
       if (woaEntries.length === 0) {
-        await fs.rm(uploadedFile.path, { force: true }).catch(() => {});
         return res.status(400).json({ error: "Container enthält keine .woa1 Dateien" });
       }
 
       const result = await importWoaEntryReaders({
         userId: req.user.id,
-        sourceName: uploadedFile.originalname,
-        uploadedSizeBytes: uploadedFile.size,
+        sourceName: String(req.headers["x-upload-filename"] || "upload.woat.gz"),
+        uploadedSizeBytes: compressedBytes.length,
         entryReaders: woaEntries.map((entry) => ({
           path: entry.name,
           buffer: async () => entry.bytes
         }))
       });
 
-      await fs.rm(uploadedFile.path, { force: true }).catch(() => {});
       res.status(200).json(result);
-    } catch (error) {
-      if (uploadedFile?.path) {
-        await fs.rm(uploadedFile.path, { force: true }).catch(() => {});
-      }
-      next(error);
-    }
-  }
-);
-
-router.post(
-  "/woa-container-stream",
-  authMiddleware,
-  requireActiveAccountWrite,
-  async (req, res, next) => {
-    try {
-      if (!req.user?.id) {
-        return res.status(401).json({ error: "Nicht angemeldet" });
-      }
-
-      const sourceName = String(req.headers["x-upload-filename"] || "upload.woat.gz");
-      const uploadedSizeBytes = Number(req.headers["content-length"] || 0);
-      const inserted = [];
-      const skipped = [];
-      const startedAt = Date.now();
-      const importJob = await createImportJob({
-        localPaths: null,
-        originalFileNames: [sourceName],
-        sizeBytes: uploadedSizeBytes,
-        uid: req.user.id
-      });
-      const importJobId = String(importJob.id);
-      const profile = createImportProfile();
-      const parser = new WoaTransportStreamParser();
-      const gunzip = createGunzip();
-      const pendingItems = [];
-      const MAX_PENDING_ITEMS = IMPORT_DB_BULK_INSERT_SIZE * 4;
-      let flushLoopPromise = null;
-      let flushLoopError = null;
-      let readerDone = false;
-      let queueDrainWaiters = [];
-      let requestUploadCompletedAt = 0;
-      let gunzipCompletedAt = 0;
-      let parserFinishedAt = 0;
-      let flushWaitCompletedAt = 0;
-      let importJobCompletedAt = 0;
-      let maxPendingItems = 0;
-      let flushCount = 0;
-      let flushItemsTotal = 0;
-      let flushInsertMsTotal = 0;
-      let flushScheduleMsTotal = 0;
-      let queueBackpressureWaitMs = 0;
-      let queueBackpressureWaitCount = 0;
-      let requestBytesObserved = 0;
-
-      req.on("data", (chunk) => {
-        requestBytesObserved += Number(chunk?.length || 0);
-      });
-      req.on("end", () => {
-        requestUploadCompletedAt = Date.now();
-      });
-
-      const notifyQueueDrain = () => {
-        const waiters = queueDrainWaiters;
-        queueDrainWaiters = [];
-        for (const resolve of waiters) {
-          resolve();
-        }
-      };
-
-      const waitForQueueDrain = () => new Promise((resolve) => {
-        queueDrainWaiters.push(resolve);
-      });
-
-      const flushChunk = async () => {
-        if (pendingItems.length === 0) {
-          return;
-        }
-        const chunk = pendingItems.splice(0, IMPORT_DB_BULK_INSERT_SIZE);
-        flushCount += 1;
-        flushItemsTotal += chunk.length;
-        try {
-          const insertStartedAt = Date.now();
-          const bulkResult = await FileDBService.insertPreparedFilesBulk(
-            chunk.map((item) => item.preparedInsert)
-          );
-          const insertElapsedMs = Date.now() - insertStartedAt;
-          profile.insertWorkoutMs += insertElapsedMs;
-          flushInsertMsTotal += insertElapsedMs;
-
-          const existingByKey = bulkResult?.existingRowsByKey instanceof Map
-            ? bulkResult.existingRowsByKey
-            : new Map();
-          const resolvedChunkItems = [];
-
-          for (const item of chunk) {
-            const key = `${item.preparedInsert.fileRow.uid}:${new Date(item.preparedInsert.fileRow.start_time).toISOString()}`;
-            const dbrow = existingByKey.get(key);
-            if (!dbrow?.id) {
-              skipped.push({
-                entryName: item.entryName,
-                error: "Workout could not be resolved after bulk insert"
-              });
-              continue;
-            }
-            inserted.push({
-              entryName: item.entryName,
-              workoutId: dbrow.id
-            });
-            resolvedChunkItems.push({
-              ...item,
-              workoutId: Number(dbrow.id)
-            });
-          }
-
-          const scheduleStartedAt = Date.now();
-          const segmentPersistItems = resolvedChunkItems.map((item) => ({
-            uid: item.preparedInsert.fileRow.uid,
-            workoutId: item.workoutId,
-            entryName: item.entryName,
-            recomputeFromDb: true,
-            importJobId
-          }));
-          const validGpsItems = resolvedChunkItems
-            .filter((item) => item.validGps)
-            .map((item) => ({
-              uid: item.preparedInsert.fileRow.uid,
-              workoutId: item.workoutId,
-              importJobId
-            }));
-          const chunkTargets = resolvedChunkItems.map((item) => ({
-            uid: item.preparedInsert.fileRow.uid,
-            workoutId: item.workoutId,
-            entryName: item.entryName,
-            validGps: !!item.validGps,
-            recomputeSegmentsFromDb: true,
-            hasSegments: false,
-            segmentPayloadPath: null
-          }));
-          await appendImportJobPostprocessTargets(importJobId, chunkTargets);
-
-          const persistStartedAt = Date.now();
-          try {
-            await enqueueWorkoutSegmentPersistenceBulk(segmentPersistItems);
-          } finally {
-            profile.scheduleSegmentPersistenceMs += Date.now() - persistStartedAt;
-          }
-
-          const similarityStartedAt = Date.now();
-          try {
-            await enqueueWorkoutSimilarityClassificationBulk(validGpsItems);
-          } finally {
-            profile.scheduleSimilarityMs += Date.now() - similarityStartedAt;
-          }
-
-          const segmentBestEffortsStartedAt = Date.now();
-          try {
-            await enqueueWorkoutSegmentBestEffortsBulk(validGpsItems);
-          } finally {
-            profile.scheduleSegmentBestEffortsMs += Date.now() - segmentBestEffortsStartedAt;
-          }
-
-          const scheduleElapsedMs = Date.now() - scheduleStartedAt;
-          profile.schedulePostprocessMs += scheduleElapsedMs;
-          flushScheduleMsTotal += scheduleElapsedMs;
-        } catch (error) {
-          for (const item of chunk) {
-            skipped.push({
-              entryName: item.entryName,
-              error: error instanceof Error ? error.message : String(error)
-            });
-          }
-        } finally {
-          notifyQueueDrain();
-        }
-      };
-
-      const runFlushLoop = async () => {
-        try {
-          while (pendingItems.length >= IMPORT_DB_BULK_INSERT_SIZE || (readerDone && pendingItems.length > 0)) {
-            await flushChunk();
-          }
-        } catch (error) {
-          flushLoopError = error;
-          throw error;
-        } finally {
-          flushLoopPromise = null;
-          notifyQueueDrain();
-          if ((pendingItems.length >= IMPORT_DB_BULK_INSERT_SIZE || (readerDone && pendingItems.length > 0)) && !flushLoopError) {
-            flushLoopPromise = runFlushLoop();
-          }
-        }
-      };
-
-      const ensureFlushLoop = () => {
-        if (flushLoopError) {
-          throw flushLoopError;
-        }
-        if (!flushLoopPromise) {
-          flushLoopPromise = runFlushLoop();
-        }
-      };
-
-      req.pipe(gunzip);
-
-      let totalEntries = 0;
-      let importJobInitialized = false;
-
-      for await (const chunk of gunzip) {
-        parser.push(chunk);
-        if (!importJobInitialized && parser.tryReadHeader()) {
-          const headerEntryCount = Number(parser.entryCount || 0);
-          totalEntries = parser.version >= 2 || headerEntryCount === 0xffffffff
-            ? 0
-            : headerEntryCount;
-          await updateImportJob(importJobId, {
-            status: "processing",
-            stage: "saving_results",
-            totalFiles: totalEntries,
-            processedFiles: 0,
-            failedFiles: 0,
-            fileStatuses: []
-          });
-          logImportEvent("woa-sync-import.started", {
-            importJobId,
-            uid: req.user.id,
-            sourceName,
-            totalEntries: totalEntries || "streaming-unknown"
-          });
-          importJobInitialized = true;
-        }
-
-        const availableEntries = parser.takeAvailableEntries();
-        for (const entry of availableEntries) {
-          try {
-            const readEntryStartedAt = Date.now();
-            const entryBuffer = entry.bytes;
-            profile.readEntryMs += Date.now() - readEntryStartedAt;
-
-            const decodeStartedAt = Date.now();
-            const header = inspectWoa1Header(entryBuffer);
-            const decoded = header.majorVersion >= 2
-              ? decodeWoa1BufferLight(entryBuffer)
-              : await decodeWoa1Buffer(entryBuffer);
-            profile.decodeWoaMs += Date.now() - decodeStartedAt;
-
-            const prepareStartedAt = Date.now();
-            const preparedInsert = decoded.majorVersion >= 2
-              ? FileDBService.preparePersistedWoaInsertPayload(decoded.meta, {
-                  uid: req.user.id,
-                  workoutStreamStoredBytes: decoded.workoutStreamStoredBytes,
-                  gpsTrackStoredBytes: decoded.gpsTrackStoredBytes
-                })
-              : await FileDBService.prepareInsertFilePayload(
-                  {
-                    ...decoded.fileRow,
-                    uid: req.user.id,
-                    gps_source: decoded.meta?.gpsSource === "manual_lookup" ? "manual_lookup" : null
-                  },
-                  decoded.gpsTrack,
-                  decoded.workoutObject
-                );
-            profile.prepareInsertMs += Date.now() - prepareStartedAt;
-
-            pendingItems.push({
-              entryName: entry.name,
-              preparedInsert,
-              validGps: !!(
-                preparedInsert?.gps_track?.validGps
-                ?? preparedInsert?.fileRow?.validGps
-                ?? decoded?.gpsTrack?.validGps
-                ?? decoded?.meta?.persistedRow?.validGps
-              )
-            });
-            if (pendingItems.length > maxPendingItems) {
-              maxPendingItems = pendingItems.length;
-            }
-
-            if (pendingItems.length >= IMPORT_DB_BULK_INSERT_SIZE) {
-              ensureFlushLoop();
-            }
-            while (pendingItems.length >= MAX_PENDING_ITEMS) {
-              ensureFlushLoop();
-              const queueWaitStartedAt = Date.now();
-              await waitForQueueDrain();
-              queueBackpressureWaitMs += Date.now() - queueWaitStartedAt;
-              queueBackpressureWaitCount += 1;
-            }
-          } catch (error) {
-            skipped.push({
-              entryName: entry.name,
-              error: error instanceof Error ? error.message : String(error)
-            });
-          }
-        }
-      }
-
-      readerDone = true;
-      gunzipCompletedAt = Date.now();
-      parser.finish();
-      parserFinishedAt = Date.now();
-      ensureFlushLoop();
-      if (flushLoopPromise) {
-        await flushLoopPromise;
-      }
-      flushWaitCompletedAt = Date.now();
-      if (flushLoopError) {
-        throw flushLoopError;
-      }
-
-      const elapsedMs = Date.now() - startedAt;
-      await updateImportJob(importJobId, {
-        status: "completed",
-        stage: "completed",
-        processedFiles: inserted.length,
-        failedFiles: skipped.length
-      });
-      importJobCompletedAt = Date.now();
-
-      logImportEvent("woa-stream-import.profile", {
-        importJobId,
-        sourceName,
-        uploadedSizeBytes,
-        requestBytesObserved,
-        totalEntries: totalEntries || inserted.length + skipped.length,
-        importedEntries: inserted.length,
-        skippedEntries: skipped.length,
-        queue: {
-          bulkInsertSize: IMPORT_DB_BULK_INSERT_SIZE,
-          maxPendingItems,
-          flushCount,
-          flushItemsTotal,
-          avgItemsPerFlush: flushCount > 0
-            ? Number((flushItemsTotal / flushCount).toFixed(2))
-            : 0,
-          queueBackpressureWaitCount,
-          queueBackpressureWaitMs
-        },
-        flush: {
-          totalInsertMs: flushInsertMsTotal,
-          totalScheduleMs: flushScheduleMsTotal,
-          avgInsertMsPerFlush: flushCount > 0
-            ? Number((flushInsertMsTotal / flushCount).toFixed(2))
-            : 0,
-          avgScheduleMsPerFlush: flushCount > 0
-            ? Number((flushScheduleMsTotal / flushCount).toFixed(2))
-            : 0
-        },
-        timelineMs: {
-          totalElapsedMs: elapsedMs,
-          untilRequestUploadEndMs: requestUploadCompletedAt
-            ? requestUploadCompletedAt - startedAt
-            : null,
-          untilGunzipEndMs: gunzipCompletedAt
-            ? gunzipCompletedAt - startedAt
-            : null,
-          untilParserFinishMs: parserFinishedAt
-            ? parserFinishedAt - startedAt
-            : null,
-          untilFlushWaitDoneMs: flushWaitCompletedAt
-            ? flushWaitCompletedAt - startedAt
-            : null,
-          untilImportJobUpdateDoneMs: importJobCompletedAt
-            ? importJobCompletedAt - startedAt
-            : null,
-          afterUploadEndMs: requestUploadCompletedAt
-            ? elapsedMs - (requestUploadCompletedAt - startedAt)
-            : null,
-          afterUploadBreakdownMs: requestUploadCompletedAt ? {
-            gunzipTailMs: Math.max(0, (gunzipCompletedAt || requestUploadCompletedAt) - requestUploadCompletedAt),
-            parserFinalizeTailMs: Math.max(0, (parserFinishedAt || gunzipCompletedAt || requestUploadCompletedAt) - (gunzipCompletedAt || requestUploadCompletedAt)),
-            flushTailMs: Math.max(0, (flushWaitCompletedAt || parserFinishedAt || requestUploadCompletedAt) - (parserFinishedAt || requestUploadCompletedAt)),
-            importJobTailMs: Math.max(0, (importJobCompletedAt || flushWaitCompletedAt || requestUploadCompletedAt) - (flushWaitCompletedAt || requestUploadCompletedAt)),
-            responseTailMs: Math.max(0, elapsedMs - ((importJobCompletedAt || flushWaitCompletedAt || requestUploadCompletedAt) - startedAt))
-          } : null
-        }
-      });
-
-      logImportEvent("woa-sync-import.completed", {
-        importJobId,
-        sourceName,
-        totalEntries: totalEntries || inserted.length + skipped.length,
-        importedEntries: inserted.length,
-        skippedEntries: skipped.length,
-        elapsedMs
-      });
-
-      res.status(200).json({
-        importJobId,
-        importedCount: inserted.length,
-        skippedCount: skipped.length,
-        totalEntries: totalEntries || inserted.length + skipped.length,
-        elapsedMs,
-        inserted,
-        skipped,
-        streaming: true
-      });
     } catch (error) {
       next(error);
     }

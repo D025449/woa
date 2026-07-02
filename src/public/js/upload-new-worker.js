@@ -1,10 +1,6 @@
 import { parseFitBufferTypedBrowser } from "./fit-import-typed-browser.js";
 import { createWoa1File } from "./woa-format.js";
-import {
-  encodeWoaTransportContainer,
-  encodeWoaTransportContainerEntry,
-  encodeWoaTransportContainerHeader
-} from "./woa-transport-container.js";
+import { encodeWoaTransportContainer } from "./woa-transport-container.js";
 import { gzipSync, unzipSync, zipSync } from "/vendor/fflate/browser.js";
 
 const PER_FILE_GZIP_LEVEL = 4;
@@ -408,24 +404,9 @@ async function convertMixedEntriesToWoaZip({
   let totalGpsPointCount = 0;
   let convertedFitEntries = 0;
   let passedThroughWoaEntries = 0;
-  let streamedOutputEntries = 0;
   const totalEntries = sortedFitEntries.length + sortedWoaEntries.length;
   let processedEntries = 0;
   const dynamicExistingStartTimes = new Set(existingStartTimeSet);
-  const useStreamingContainerUpload = outputMode === "container-gzip-stream";
-
-  if (useStreamingContainerUpload) {
-    self.postMessage({
-      type: "stream-container-start",
-      fileName,
-      sourceZipBytes: sourceBytes,
-      totalEntries,
-      fitEntries: sortedFitEntries.length,
-      woaEntries: sortedWoaEntries.length,
-      outputFileName: fileName.replace(/\.zip$/i, ".woat.gz"),
-      headerBytes: encodeWoaTransportContainerHeader({ streaming: true }).buffer
-    }, [encodeWoaTransportContainerHeader({ streaming: true }).buffer]);
-  }
 
   for (const fitEntry of sortedFitEntries) {
     self.postMessage({
@@ -479,20 +460,7 @@ async function convertMixedEntriesToWoaZip({
         name: createUniqueEntryName(fitEntry.name.replace(/\.fit$/i, ".woa1"), usedOutputNames),
         bytes: result.bytes
       };
-      if (useStreamingContainerUpload) {
-        const entryBytes = encodeWoaTransportContainerEntry(outputEntry);
-        streamedOutputEntries += 1;
-        self.postMessage({
-          type: "stream-container-entry",
-          entryName: outputEntry.name,
-          processedEntries: processedEntries + 1,
-          totalEntries,
-          streamedEntries: streamedOutputEntries,
-          bytes: entryBytes.buffer
-        }, [entryBytes.buffer]);
-      } else {
-        outputEntries.push(outputEntry);
-      }
+      outputEntries.push(outputEntry);
       {
         const acceptedStartTimeKey = buildParsedStartTimeKey(parsed);
         if (acceptedStartTimeKey) {
@@ -535,20 +503,7 @@ async function convertMixedEntriesToWoaZip({
       name: createUniqueEntryName(woaEntry.name, usedOutputNames),
       bytes: woaEntry.bytes
     };
-    if (useStreamingContainerUpload) {
-      const entryBytes = encodeWoaTransportContainerEntry(outputEntry);
-      streamedOutputEntries += 1;
-      self.postMessage({
-        type: "stream-container-entry",
-        entryName: outputEntry.name,
-        processedEntries: processedEntries + 1,
-        totalEntries,
-        streamedEntries: streamedOutputEntries,
-        bytes: entryBytes.buffer
-      }, [entryBytes.buffer]);
-    } else {
-      outputEntries.push(outputEntry);
-    }
+    outputEntries.push(outputEntry);
     if (startTimeKey) {
       dynamicExistingStartTimes.add(startTimeKey);
     }
@@ -602,48 +557,7 @@ async function convertMixedEntriesToWoaZip({
     throw new Error("No supported entries could be converted or passed through");
   }
 
-  if (useStreamingContainerUpload) {
-    const totalElapsedMs = nowMs() - startedAt;
-    self.postMessage({
-      type: "completed-container-stream",
-      fileName,
-      outputFileName: fileName.replace(/\.zip$/i, ".woat.gz"),
-      stats: {
-        fitEntries: sortedFitEntries.length,
-        woaEntries: sortedWoaEntries.length,
-        convertedEntries: convertedFitEntries,
-        passedThroughEntries: passedThroughWoaEntries,
-        skippedEntries: skippedEntries.length,
-        skippedExistingEntries: skippedExistingEntries.length,
-        skippedTooShortEntries: skippedTooShortEntries.length,
-        totalRecordCount,
-        totalGpsPointCount,
-        sourceZipBytes: sourceBytes,
-        outputContainerBytes: 0,
-        rawContainerBytes: 0,
-        containerGzipLevel: CUSTOM_CONTAINER_GZIP_LEVEL
-      },
-      skipped: skippedEntries,
-      skippedExisting: skippedExistingEntries,
-      skippedTooShort: skippedTooShortEntries,
-      timings: {
-        parseMs: average(parseSamplesMs),
-        buildWoaMs: average(buildSamplesMs),
-        buildWoaStepsMs: averageTimingMaps(buildTimingSamples),
-        workoutStreamStats: {
-          fallbackWorkoutCount: speedFallbackWorkoutCount,
-          fallbackRecordCount: speedFallbackRecordCount
-        },
-        gzipMs: 0,
-        zipBuildMs: 0,
-        containerBuildMs: 0,
-        totalMs: totalElapsedMs
-      }
-    });
-    return;
-  }
-
-  if (outputMode === "container-gzip" || outputMode === "container-gzip-stream") {
+  if (outputMode === "container-gzip") {
     self.postMessage({
       type: "phase",
       phase: "building-container",
