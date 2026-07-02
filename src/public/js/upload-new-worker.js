@@ -177,6 +177,7 @@ function resolveParallelWorkerCount(requestedCount) {
 
 function ensurePrewarmedFitWorkerPool(workerCount) {
   const targetCount = Math.max(0, Number(workerCount || 0));
+  const startedAt = nowMs();
   while (prewarmedFitWorkers.length < targetCount) {
     prewarmedFitWorkers.push(new Worker("/js/upload-fit-entry-worker.js", { type: "module" }));
   }
@@ -184,6 +185,7 @@ function ensurePrewarmedFitWorkerPool(workerCount) {
     const worker = prewarmedFitWorkers.pop();
     worker?.terminate();
   }
+  return nowMs() - startedAt;
 }
 
 function acquireFitWorkers(workerCount) {
@@ -234,7 +236,11 @@ async function convertFitEntriesParallel({
   }
 
   const poolSize = Math.min(Math.max(1, workerCount), fitEntries.length);
+  const fitWorkerPoolWarmStartedAt = nowMs();
   const workers = acquireFitWorkers(poolSize);
+  postStartupMetric("fitWorkerPoolWarmMs", nowMs() - fitWorkerPoolWarmStartedAt, {
+    workerCount: poolSize
+  });
   while (workers.length < poolSize) {
     workers.push(new Worker("/js/upload-fit-entry-worker.js", { type: "module" }));
   }
@@ -474,10 +480,11 @@ self.addEventListener("message", async (event) => {
   if (type === "prewarm-fit-worker-pool") {
     const enabled = event.data?.enabled !== false;
     const workerCount = enabled ? resolveParallelWorkerCount(event.data?.workerCount) : 0;
-    ensurePrewarmedFitWorkerPool(workerCount);
+    const warmMs = ensurePrewarmedFitWorkerPool(workerCount);
     self.postMessage({
       type: "prewarm-complete",
-      workerCount
+      workerCount,
+      warmMs
     });
     return;
   }
@@ -1000,11 +1007,13 @@ async function handleZipConversion({
   });
 
   const zipBytes = new Uint8Array(arrayBuffer);
-  const zipOpenStartedAt = nowMs();
+  const unzipStartedAt = nowMs();
   const archive = unzipSync(zipBytes);
-  postStartupMetric("zipOpenMs", nowMs() - zipOpenStartedAt, {
+  const unzipMs = nowMs() - unzipStartedAt;
+  postStartupMetric("unzipSyncMs", unzipMs, {
     sourceBytes: zipBytes.byteLength
   });
+  const entryScanStartedAt = nowMs();
   const entryNames = Object.keys(archive);
   const fitEntries = entryNames
     .filter(isRealFitZipEntry)
@@ -1013,6 +1022,15 @@ async function handleZipConversion({
       name: entryName,
       bytes: archive[entryName]
     }));
+  const entryScanMs = nowMs() - entryScanStartedAt;
+  postStartupMetric("entryScanMs", entryScanMs, {
+    entryCount: entryNames.length,
+    fitEntryCount: fitEntries.length,
+    woaEntryCount: woaEntries.length
+  });
+  postStartupMetric("zipOpenMs", unzipMs + entryScanMs, {
+    sourceBytes: zipBytes.byteLength
+  });
   const woaEntries = entryNames
     .filter(isRealWoaZipEntry)
     .sort((left, right) => left.localeCompare(right))
@@ -1047,7 +1065,8 @@ async function handleFitFilesConversion({
   const woaEntries = [];
   let sourceBytes = 0;
   let nestedZipCount = 0;
-  let nestedZipOpenMs = 0;
+  let nestedUnzipMs = 0;
+  let nestedEntryScanMs = 0;
 
   for (const file of files) {
     if (!file?.name || !file?.arrayBuffer) {
@@ -1068,9 +1087,10 @@ async function handleFitFilesConversion({
 
     if (lowerName.endsWith(".zip")) {
       nestedZipCount += 1;
-      const zipOpenStartedAt = nowMs();
+      const unzipStartedAt = nowMs();
       const archive = unzipSync(bytes);
-      nestedZipOpenMs += nowMs() - zipOpenStartedAt;
+      nestedUnzipMs += nowMs() - unzipStartedAt;
+      const entryScanStartedAt = nowMs();
       const entryNames = Object.keys(archive);
 
       for (const entryName of entryNames.filter(isRealFitZipEntry)) {
@@ -1086,11 +1106,18 @@ async function handleFitFilesConversion({
           bytes: archive[entryName]
         });
       }
+      nestedEntryScanMs += nowMs() - entryScanStartedAt;
     }
   }
 
   if (nestedZipCount > 0) {
-    postStartupMetric("zipOpenMs", nestedZipOpenMs, {
+    postStartupMetric("unzipSyncMs", nestedUnzipMs, {
+      nestedZipCount
+    });
+    postStartupMetric("entryScanMs", nestedEntryScanMs, {
+      nestedZipCount
+    });
+    postStartupMetric("zipOpenMs", nestedUnzipMs + nestedEntryScanMs, {
       nestedZipCount
     });
   }

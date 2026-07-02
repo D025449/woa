@@ -258,6 +258,9 @@ function buildStartupTimingLines(timings = {}) {
         "readSourceMs",
         "fetchExistingStartTimesMs",
         "workerBootstrapMs",
+        "fitWorkerPoolWarmMs",
+        "unzipSyncMs",
+        "entryScanMs",
         "zipOpenMs",
         "firstFitDispatchMs",
         "firstFitResultMs"
@@ -266,6 +269,9 @@ function buildStartupTimingLines(timings = {}) {
         readSourceMs: "Quelldateien lesen",
         fetchExistingStartTimesMs: "Vorhandene Workouts laden",
         workerBootstrapMs: "Worker-Start bis erster Kontakt",
+        fitWorkerPoolWarmMs: "FIT-Worker-Pool warmziehen",
+        unzipSyncMs: "ZIP entpacken",
+        entryScanMs: "ZIP-Entries einsammeln",
         zipOpenMs: "ZIP oeffnen",
         firstFitDispatchMs: "Bis erster FIT-Dispatch",
         firstFitResultMs: "Bis erstes FIT-Ergebnis"
