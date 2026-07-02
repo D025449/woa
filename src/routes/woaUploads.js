@@ -22,7 +22,7 @@ import { enqueueWorkoutSimilarityClassificationBulk } from "../services/workout-
 const router = Router();
 const IMPORT_SYNC_PROFILE_LOG = String(process.env.IMPORT_SYNC_PROFILE_LOG || "1").trim() !== "0";
 const IMPORT_DB_BULK_INSERT_SIZE = Math.max(1, Number(process.env.IMPORT_DB_BULK_INSERT_SIZE) || 20);
-const IMPORT_POSTPROCESS_ENQUEUE_BULK_SIZE = Math.max(50, Number(process.env.IMPORT_POSTPROCESS_ENQUEUE_BULK_SIZE) || 500);
+const IMPORT_POSTPROCESS_ENQUEUE_BULK_SIZE = 500;
 
 function formatLogPayload(payload = {}) {
   return util.inspect(payload, {
