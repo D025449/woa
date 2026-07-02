@@ -779,7 +779,10 @@ router.post(
       for await (const chunk of gunzip) {
         parser.push(chunk);
         if (!importJobInitialized && parser.tryReadHeader()) {
-          totalEntries = parser.entryCount;
+          const headerEntryCount = Number(parser.entryCount || 0);
+          totalEntries = parser.version >= 2 || headerEntryCount === 0xffffffff
+            ? 0
+            : headerEntryCount;
           await updateImportJob(importJobId, {
             status: "processing",
             stage: "saving_results",
@@ -792,7 +795,7 @@ router.post(
             importJobId,
             uid: req.user.id,
             sourceName,
-            totalEntries
+            totalEntries: totalEntries || "streaming-unknown"
           });
           importJobInitialized = true;
         }
