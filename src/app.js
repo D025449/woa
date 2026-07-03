@@ -42,6 +42,7 @@ export async function createApp() {
     app.use(express.static(path.join(__dirname, "public")));
     app.use("/vendor", express.static(path.join(__dirname, "..", "vendor")));
     app.use("/vendor/fflate", express.static(path.join(__dirname, "..", "node_modules", "fflate", "esm")));
+    app.use("/vendor/zipjs", express.static(path.join(__dirname, "..", "node_modules", "@zip.js", "zip.js")));
     app.use("/shared", express.static("src/shared"));
     const sessionMiddleware = await createSessionMiddleware();
     app.use(sessionMiddleware);

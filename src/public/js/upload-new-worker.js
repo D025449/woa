@@ -10,6 +10,7 @@ const MIN_WORKOUT_RECORD_COUNT = 300;
 const TEXT_DECODER = new TextDecoder();
 const CUSTOM_CONTAINER_GZIP_LEVEL = 4;
 let prewarmedFitWorkers = [];
+const preparedZipSources = new Map();
 
 async function compressGzip(bytes, level = PER_FILE_GZIP_LEVEL) {
   return gzipSync(bytes, { level });
@@ -210,6 +211,52 @@ function postStartupMetric(name, valueMs, extra = {}) {
     valueMs: Number(valueMs || 0),
     ...extra
   });
+}
+
+function prepareZipSource({ token, fileName, arrayBuffer }) {
+  const zipBytes = new Uint8Array(arrayBuffer);
+  const startedAt = nowMs();
+  const unzipStartedAt = nowMs();
+  const archive = unzipSync(zipBytes);
+  const unzipMs = nowMs() - unzipStartedAt;
+  const entryScanStartedAt = nowMs();
+  const entryNames = Object.keys(archive);
+  const fitEntries = entryNames
+    .filter(isRealFitZipEntry)
+    .sort((left, right) => left.localeCompare(right))
+    .map((entryName) => ({
+      name: entryName,
+      bytes: archive[entryName]
+    }));
+  const woaEntries = entryNames
+    .filter(isRealWoaZipEntry)
+    .sort((left, right) => left.localeCompare(right))
+    .map((entryName) => ({
+      name: entryName,
+      bytes: archive[entryName]
+    }));
+  const entryScanMs = nowMs() - entryScanStartedAt;
+
+  preparedZipSources.set(token, {
+    fileName,
+    sourceBytes: zipBytes.byteLength,
+    fitEntries,
+    woaEntries,
+    unzipMs,
+    entryScanMs,
+    preparedAt: Date.now()
+  });
+
+  return {
+    token,
+    fileName,
+    sourceBytes: zipBytes.byteLength,
+    fitEntryCount: fitEntries.length,
+    woaEntryCount: woaEntries.length,
+    unzipMs,
+    entryScanMs,
+    prepareMs: nowMs() - startedAt
+  };
 }
 
 async function convertFitEntriesParallel({
@@ -470,6 +517,9 @@ self.addEventListener("message", async (event) => {
     arrayBuffer,
     files = [],
     repeatCount = DEFAULT_BENCH_REPEAT_COUNT,
+    prewarmedZipToken = null,
+    prewarmedZipTokens = [],
+    prewarmedZipFiles = [],
     existingStartTimes = [],
     encodingOptions = {},
     outputMode = "zip",
@@ -489,7 +539,39 @@ self.addEventListener("message", async (event) => {
     return;
   }
 
-  if (!arrayBuffer && (!Array.isArray(files) || files.length === 0)) {
+  if (type === "prepare-zip-source") {
+    try {
+      const result = prepareZipSource({
+        token: event.data?.token,
+        fileName,
+        arrayBuffer
+      });
+      self.postMessage({
+        type: "zip-prepare-complete",
+        ...result
+      });
+    } catch (error) {
+      self.postMessage({
+        type: "zip-prepare-complete",
+        token: event.data?.token,
+        fileName,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+    return;
+  }
+
+  const canUsePreparedZipSource = type === "convert-zip-to-woa-zip" && !!prewarmedZipToken;
+  const canUsePreparedZipSources = type === "convert-fit-files-to-woa-zip"
+    && Array.isArray(prewarmedZipFiles)
+    && prewarmedZipFiles.length > 0;
+
+  if (
+    !arrayBuffer
+    && !canUsePreparedZipSource
+    && !canUsePreparedZipSources
+    && (!Array.isArray(files) || files.length === 0)
+  ) {
     return;
   }
 
@@ -498,6 +580,7 @@ self.addEventListener("message", async (event) => {
       await handleZipConversion({
         fileName,
         arrayBuffer,
+        prewarmedZipToken,
         existingStartTimes,
         encodingOptions,
         outputMode,
@@ -511,6 +594,8 @@ self.addEventListener("message", async (event) => {
       await handleFitFilesConversion({
         fileName,
         files,
+        prewarmedZipTokens,
+        prewarmedZipFiles,
         existingStartTimes,
         encodingOptions,
         outputMode,
@@ -995,6 +1080,7 @@ async function convertMixedEntriesToWoaZip({
 async function handleZipConversion({
   fileName,
   arrayBuffer,
+  prewarmedZipToken = null,
   existingStartTimes = [],
   encodingOptions = {},
   outputMode = "zip",
@@ -1006,45 +1092,80 @@ async function handleZipConversion({
     phase: "reading-zip"
   });
 
-  const zipBytes = new Uint8Array(arrayBuffer);
-  const unzipStartedAt = nowMs();
-  const archive = unzipSync(zipBytes);
-  const unzipMs = nowMs() - unzipStartedAt;
-  postStartupMetric("unzipSyncMs", unzipMs, {
-    sourceBytes: zipBytes.byteLength
-  });
-  const entryScanStartedAt = nowMs();
-  const entryNames = Object.keys(archive);
-  const fitEntries = entryNames
-    .filter(isRealFitZipEntry)
-    .sort((left, right) => left.localeCompare(right))
-    .map((entryName) => ({
-      name: entryName,
-      bytes: archive[entryName]
-    }));
-  const entryScanMs = nowMs() - entryScanStartedAt;
-  postStartupMetric("entryScanMs", entryScanMs, {
-    entryCount: entryNames.length,
-    fitEntryCount: fitEntries.length,
-    woaEntryCount: woaEntries.length
-  });
-  postStartupMetric("zipOpenMs", unzipMs + entryScanMs, {
-    sourceBytes: zipBytes.byteLength
-  });
-  const woaEntries = entryNames
-    .filter(isRealWoaZipEntry)
-    .sort((left, right) => left.localeCompare(right))
-    .map((entryName) => ({
-      name: entryName,
-      bytes: archive[entryName]
-    }));
+  let prepared = null;
+  if (prewarmedZipToken && preparedZipSources.has(prewarmedZipToken)) {
+    prepared = preparedZipSources.get(prewarmedZipToken);
+    preparedZipSources.delete(prewarmedZipToken);
+  }
+
+  let fitEntries;
+  let woaEntries;
+  let sourceBytes;
+  let unzipMs;
+  let entryScanMs;
+
+  if (prepared) {
+    fitEntries = prepared.fitEntries;
+    woaEntries = prepared.woaEntries;
+    sourceBytes = prepared.sourceBytes;
+    unzipMs = 0;
+    entryScanMs = 0;
+    postStartupMetric("unzipSyncMs", 0, {
+      sourceBytes,
+      reusedPreparedZip: true
+    });
+    postStartupMetric("entryScanMs", 0, {
+      entryCount: fitEntries.length + woaEntries.length,
+      fitEntryCount: fitEntries.length,
+      woaEntryCount: woaEntries.length,
+      reusedPreparedZip: true
+    });
+    postStartupMetric("zipOpenMs", 0, {
+      sourceBytes,
+      reusedPreparedZip: true
+    });
+  } else {
+    const zipBytes = new Uint8Array(arrayBuffer);
+    sourceBytes = zipBytes.byteLength;
+    const unzipStartedAt = nowMs();
+    const archive = unzipSync(zipBytes);
+    unzipMs = nowMs() - unzipStartedAt;
+    postStartupMetric("unzipSyncMs", unzipMs, {
+      sourceBytes
+    });
+    const entryScanStartedAt = nowMs();
+    const entryNames = Object.keys(archive);
+    fitEntries = entryNames
+      .filter(isRealFitZipEntry)
+      .sort((left, right) => left.localeCompare(right))
+      .map((entryName) => ({
+        name: entryName,
+        bytes: archive[entryName]
+      }));
+    woaEntries = entryNames
+      .filter(isRealWoaZipEntry)
+      .sort((left, right) => left.localeCompare(right))
+      .map((entryName) => ({
+        name: entryName,
+        bytes: archive[entryName]
+      }));
+    entryScanMs = nowMs() - entryScanStartedAt;
+    postStartupMetric("entryScanMs", entryScanMs, {
+      entryCount: entryNames.length,
+      fitEntryCount: fitEntries.length,
+      woaEntryCount: woaEntries.length
+    });
+    postStartupMetric("zipOpenMs", unzipMs + entryScanMs, {
+      sourceBytes
+    });
+  }
 
   await convertMixedEntriesToWoaZip({
     fileName,
     fitEntries,
     woaEntries,
     existingStartTimes,
-    sourceBytes: zipBytes.byteLength,
+    sourceBytes,
     encodingOptions,
     outputMode,
     parallelFitPoolEnabled,
@@ -1055,10 +1176,11 @@ async function handleZipConversion({
 async function handleFitFilesConversion({
   fileName,
   files = [],
+  prewarmedZipTokens = [],
+  prewarmedZipFiles = [],
   existingStartTimes = [],
   encodingOptions = {},
   outputMode = "zip",
-  asyncZipReaderEnabled = false,
   parallelFitPoolEnabled = false,
   parallelFitWorkers = null
 }) {
@@ -1068,6 +1190,8 @@ async function handleFitFilesConversion({
   let nestedZipCount = 0;
   let nestedUnzipMs = 0;
   let nestedEntryScanMs = 0;
+  const preparedTokenQueue = Array.isArray(prewarmedZipTokens) ? [...prewarmedZipTokens] : [];
+  const preparedZipFileQueue = Array.isArray(prewarmedZipFiles) ? [...prewarmedZipFiles] : [];
 
   for (const file of files) {
     if (!file?.name || !file?.arrayBuffer) {
@@ -1087,17 +1211,19 @@ async function handleFitFilesConversion({
     }
 
     if (lowerName.endsWith(".zip")) {
-      nestedZipCount += 1;
-      let archive;
-      if (asyncZipReaderEnabled) {
-        const asyncArchiveResult = await readZipEntriesAsync(bytes);
-        archive = asyncArchiveResult.archive;
-        nestedUnzipMs += asyncArchiveResult.totalMs;
-      } else {
-        const unzipStartedAt = nowMs();
-        archive = unzipSync(bytes);
-        nestedUnzipMs += nowMs() - unzipStartedAt;
+      const preparedToken = preparedTokenQueue.shift() || null;
+      if (preparedToken && preparedZipSources.has(preparedToken)) {
+        const prepared = preparedZipSources.get(preparedToken);
+        preparedZipSources.delete(preparedToken);
+        sourceBytes += Number(prepared?.sourceBytes || 0) - Number(bytes.byteLength || 0);
+        fitEntries.push(...prepared.fitEntries);
+        woaEntries.push(...prepared.woaEntries);
+        continue;
       }
+      nestedZipCount += 1;
+      const unzipStartedAt = nowMs();
+      const archive = unzipSync(bytes);
+      nestedUnzipMs += nowMs() - unzipStartedAt;
       const entryScanStartedAt = nowMs();
       const entryNames = Object.keys(archive);
 
@@ -1118,8 +1244,19 @@ async function handleFitFilesConversion({
     }
   }
 
+  for (const zipFile of preparedZipFileQueue) {
+    const preparedToken = preparedTokenQueue.shift() || null;
+    if (preparedToken && preparedZipSources.has(preparedToken)) {
+      const prepared = preparedZipSources.get(preparedToken);
+      preparedZipSources.delete(preparedToken);
+      sourceBytes += Number(prepared?.sourceBytes || zipFile?.size || 0);
+      fitEntries.push(...prepared.fitEntries);
+      woaEntries.push(...prepared.woaEntries);
+    }
+  }
+
   if (nestedZipCount > 0) {
-    postStartupMetric(asyncZipReaderEnabled ? "unzipAsyncMs" : "unzipSyncMs", nestedUnzipMs, {
+    postStartupMetric("unzipSyncMs", nestedUnzipMs, {
       nestedZipCount
     });
     postStartupMetric("entryScanMs", nestedEntryScanMs, {

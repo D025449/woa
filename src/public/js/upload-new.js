@@ -19,11 +19,12 @@ const activeLocale = window.__I18N?.locale || navigator.language || "en";
 let latestGeneratedZipArtifact = null;
 let currentDeviceProfile = window.getDeviceProfile?.() || window.__DEVICE_PROFILE__ || null;
 let prewarmedUploadWorker = null;
+let pendingZipPreparations = new Map();
 
 initializeClientLayout();
 form?.addEventListener("submit", handleConvertSubmit);
 filePickerButton?.addEventListener("click", () => fileInput?.click());
-fileInput?.addEventListener("change", updateFilePickerLabel);
+fileInput?.addEventListener("change", handleFileSelectionChange);
 window.addEventListener("deviceprofilechange", (event) => {
     currentDeviceProfile = event.detail || window.getDeviceProfile?.() || null;
     applyDeviceProfileToUploadShell();
@@ -115,6 +116,115 @@ function updateFilePickerLabel() {
         return;
     }
     filePickerLabel.textContent = `${files.length} ${tr("uploadPage.woaFilesSelectedSuffix", "files selected")}`;
+}
+
+function resetPendingZipPreparation() {
+    pendingZipPreparations = new Map();
+}
+
+function buildZipPreparationToken(file) {
+    return [
+        String(file?.name || ""),
+        Number(file?.size || 0),
+        Number(file?.lastModified || 0)
+    ].join("::");
+}
+
+function scheduleZipPreparationForSelection() {
+    resetPendingZipPreparation();
+    const files = Array.from(fileInput?.files || []);
+    const zipFiles = files.filter((file) => String(file?.name || "").toLowerCase().endsWith(".zip"));
+    if (zipFiles.length === 0) {
+        return;
+    }
+
+    for (const selectedZip of zipFiles) {
+        const token = buildZipPreparationToken(selectedZip);
+        const pendingPreparation = {
+            token,
+            fileName: selectedZip.name,
+            fileSize: Number(selectedZip.size || 0),
+            status: "pending",
+            promise: null
+        };
+        pendingZipPreparations.set(token, pendingPreparation);
+
+        pendingPreparation.promise = (async () => {
+        try {
+            const startedAt = performance.now();
+            const arrayBuffer = await selectedZip.arrayBuffer();
+            const activePreparation = pendingZipPreparations.get(token);
+            if (!activePreparation) {
+                return;
+            }
+            const worker = getUploadWorker();
+            const result = await new Promise((resolve, reject) => {
+                const handleMessage = (workerEvent) => {
+                    const data = workerEvent.data || {};
+                    if (data.type !== "zip-prepare-complete" || data.token !== token) {
+                        return;
+                    }
+                    worker.removeEventListener("message", handleMessage);
+                    worker.removeEventListener("error", handleError);
+                    resolve(data);
+                };
+                const handleError = (errorEvent) => {
+                    worker.removeEventListener("message", handleMessage);
+                    worker.removeEventListener("error", handleError);
+                    reject(errorEvent.error || new Error(errorEvent.message || "ZIP prewarm failed"));
+                };
+                worker.addEventListener("message", handleMessage);
+                worker.addEventListener("error", handleError, { once: true });
+                worker.postMessage({
+                    type: "prepare-zip-source",
+                    token,
+                    fileName: selectedZip.name,
+                    arrayBuffer
+                }, [arrayBuffer]);
+            });
+            const currentPreparation = pendingZipPreparations.get(token);
+            if (currentPreparation) {
+                if (result?.error) {
+                    currentPreparation.status = "failed";
+                    currentPreparation.error = result.error;
+                } else {
+                    currentPreparation.status = "ready";
+                    currentPreparation.stats = result;
+                }
+            }
+        } catch (error) {
+            const currentPreparation = pendingZipPreparations.get(token);
+            if (currentPreparation) {
+                currentPreparation.status = "failed";
+                currentPreparation.error = error instanceof Error ? error.message : String(error);
+            }
+        }
+        })();
+    }
+}
+
+function handleFileSelectionChange() {
+    updateFilePickerLabel();
+    scheduleZipPreparationForSelection();
+}
+
+async function awaitPreparedZipForFile(file) {
+    if (!file) {
+        return null;
+    }
+    const token = buildZipPreparationToken(file);
+    const pendingZipPreparation = pendingZipPreparations.get(token);
+    if (!pendingZipPreparation) {
+        return null;
+    }
+    if (pendingZipPreparation.status === "pending" && pendingZipPreparation.promise) {
+        await pendingZipPreparation.promise;
+    }
+    const currentPreparation = pendingZipPreparations.get(token);
+    if (!currentPreparation) {
+        return null;
+    }
+    return currentPreparation;
 }
 
 function setResponseMarkup(markup) {
@@ -691,12 +801,33 @@ async function handleConvertSubmit(event) {
         const submitStartedAt = performance.now();
         const encodingOptions = getEncodingOptions();
         let arrayBuffer = null;
+        let prewarmedZipToken = null;
+        let prewarmedZipTokens = [];
+        let prewarmedZipFiles = [];
         let workerFiles = [];
         let totalLoadedBytes = 0;
         const totalSourceBytes = selectedFiles.reduce((sum, file) => sum + Number(file.size || 0), 0);
         const readStartedAt = performance.now();
+        let preparedZip = null;
 
         if (isZipMode) {
+            setPhase(tr("uploadPage.woaPhaseReadingZip", "Reading ZIP file"));
+            setReadProgress(1, tr("uploadPage.woaPreparingZipInBackground", "Checking prepared ZIP cache"));
+            preparedZip = await awaitPreparedZipForFile(selectedFile);
+        }
+
+        const canReusePreparedZip = isZipMode
+            && preparedZip
+            && preparedZip.status === "ready";
+
+        if (isZipMode && canReusePreparedZip) {
+            prewarmedZipToken = preparedZip.token;
+            startupTimings.readSourceMs = 0;
+            startupTimings.prewarmedZipReuseMs = Number(preparedZip?.stats?.prepareMs || 0);
+            totalLoadedBytes = selectedFile.size;
+            setReadProgress(100, `${formatBytes(totalLoadedBytes)} cached`);
+            setPhase(tr("uploadPage.woaPhaseLoadingExisting", "Loading existing workouts"));
+        } else if (isZipMode) {
             arrayBuffer = await readFileWithProgress(selectedFile, (loaded, total) => {
                 const percent = total > 0 ? (loaded / total) * 100 : 0;
                 setReadProgress(percent, `${formatBytes(loaded)} / ${formatBytes(total)}`);
@@ -705,6 +836,23 @@ async function handleConvertSubmit(event) {
         } else {
             for (let index = 0; index < selectedFiles.length; index += 1) {
                 const currentFile = selectedFiles[index];
+                const currentIsZip = String(currentFile?.name || "").toLowerCase().endsWith(".zip");
+                let currentPreparedZip = null;
+                if (currentIsZip) {
+                    currentPreparedZip = await awaitPreparedZipForFile(currentFile);
+                }
+                const canReuseCurrentZip = currentIsZip && currentPreparedZip?.status === "ready";
+                if (canReuseCurrentZip) {
+                    prewarmedZipTokens.push(currentPreparedZip.token);
+                    prewarmedZipFiles.push({
+                        name: currentFile.name,
+                        size: Number(currentFile.size || 0)
+                    });
+                    totalLoadedBytes += currentFile.size;
+                    const percent = totalSourceBytes > 0 ? (totalLoadedBytes / totalSourceBytes) * 100 : 100;
+                    setReadProgress(percent, `${formatBytes(totalLoadedBytes)} / ${formatBytes(totalSourceBytes)}`);
+                    continue;
+                }
                 const currentArrayBuffer = await readFileWithProgress(currentFile, (loaded) => {
                     const aggregateLoaded = totalLoadedBytes + Number(loaded || 0);
                     const percent = totalSourceBytes > 0 ? (aggregateLoaded / totalSourceBytes) * 100 : 0;
@@ -717,7 +865,9 @@ async function handleConvertSubmit(event) {
                 });
             }
         }
-        startupTimings.readSourceMs = performance.now() - readStartedAt;
+        if (!Number.isFinite(Number(startupTimings.readSourceMs))) {
+            startupTimings.readSourceMs = performance.now() - readStartedAt;
+        }
 
         setReadProgress(100, `${formatBytes(totalLoadedBytes)} loaded`);
         setPhase(tr("uploadPage.woaPhaseLoadingExisting", "Loading existing workouts"));
@@ -1158,6 +1308,9 @@ async function handleConvertSubmit(event) {
                 : (selectedFiles.length > 1 ? "fit-files.woa1.zip" : selectedFile.name),
             arrayBuffer,
             files: workerFiles,
+            prewarmedZipToken,
+            prewarmedZipTokens,
+            prewarmedZipFiles,
             existingStartTimes,
             encodingOptions,
             outputMode: getUploadTransportMode(),

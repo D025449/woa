@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZIP Browser Benchmark</title>
+    <style>
+        body {
+            font-family: Georgia, "Times New Roman", serif;
+            margin: 0;
+            background: #f3efe6;
+            color: #1d1d1b;
+        }
+
+        .page {
+            max-width: 980px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .hero,
+        .panel {
+            background: #fffaf0;
+            border: 1px solid #d5c8aa;
+            border-radius: 18px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(70, 55, 24, 0.08);
+        }
+
+        .hero {
+            margin-bottom: 20px;
+        }
+
+        h1, h2 {
+            margin: 0 0 10px;
+        }
+
+        p {
+            line-height: 1.45;
+        }
+
+        .controls {
+            display: grid;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        label {
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
+
+        input[type="number"] {
+            width: 96px;
+            padding: 8px 10px;
+            border-radius: 10px;
+            border: 1px solid #b8aa8a;
+            background: #fff;
+        }
+
+        button {
+            padding: 10px 16px;
+            border-radius: 999px;
+            border: 0;
+            background: #164a41;
+            color: #fff;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: default;
+        }
+
+        .status {
+            margin-top: 12px;
+            min-height: 24px;
+            color: #5c513c;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+            background: #fff;
+        }
+
+        th, td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #e1d6be;
+            text-align: left;
+            vertical-align: top;
+            font-size: 0.95rem;
+        }
+
+        th {
+            background: #f7f0de;
+        }
+
+        pre {
+            background: #201d18;
+            color: #f7f0de;
+            padding: 16px;
+            border-radius: 14px;
+            overflow: auto;
+            font-size: 0.9rem;
+        }
+
+        .muted {
+            color: #6c6250;
+            font-size: 0.92rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <section class="hero">
+            <h1>Browser ZIP Benchmark</h1>
+            <p>
+                Dieser Test vergleicht seriell <code>fflate</code> gegen <code>zip.js</code> fuer denselben ZIP-Input.
+                Gemessen wird bewusst nur der Browser-Lesepfad: ZIP oeffnen, Entries auflisten und alle relevanten
+                FIT-/WOA-Entries nacheinander in Memory materialisieren.
+            </p>
+            <p class="muted">
+                Kein Parallelismus, keine Worker-Tricks in zip.js. So bekommen wir einen fairen ersten Bibliotheksvergleich.
+            </p>
+        </section>
+
+        <section class="panel">
+            <div class="controls">
+                <div class="row">
+                    <label for="zipFile">ZIP-Datei</label>
+                    <input id="zipFile" type="file" accept=".zip">
+                </div>
+                <div class="row">
+                    <label for="repeats">Repeats</label>
+                    <input id="repeats" type="number" min="1" max="10" value="3">
+                </div>
+                <div class="row">
+                    <label><input id="includeAsync" type="checkbox"> Async-Pfade mitmessen</label>
+                    <label><input id="zipJsUseWorkers" type="checkbox" checked> zip.js Web Worker nutzen</label>
+                    <label for="zipJsWorkers">zip.js Worker</label>
+                    <input id="zipJsWorkers" type="number" min="1" max="8" value="4">
+                </div>
+                <div class="row">
+                    <label><input id="includePipeline" type="checkbox" checked> Upload-Semantik ohne Backend mitmessen</label>
+                    <label for="pipelineWorkers">FIT-Worker</label>
+                    <input id="pipelineWorkers" type="number" min="1" max="8" value="4">
+                </div>
+                <div class="row">
+                    <label><input id="includeStreamingSim" type="checkbox" checked> Streaming-Simulation mitmessen</label>
+                    <label for="chunkSize">Chunkgroesse</label>
+                    <input id="chunkSize" type="number" min="1" max="500" value="50">
+                </div>
+                <div class="row">
+                    <button id="runButton" type="button">Benchmark starten</button>
+                </div>
+            </div>
+
+            <div id="status" class="status">Bereit.</div>
+            <div id="summary"></div>
+            <div id="results"></div>
+            <div id="streamingResults"></div>
+            <div id="rawOutput"></div>
+        </section>
+    </div>
+
+    <script type="module" src="/js/zip-benchmark.js"></script>
+</body>
+</html>
