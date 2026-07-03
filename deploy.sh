@@ -138,13 +138,6 @@ run_pull_and_install() {
 
   log "Installing dependencies"
   npm ci --omit=dev
-
-  if npm help approve-scripts >/dev/null 2>&1; then
-    log "Approving optional install script for msgpackr-extract"
-    npm approve-scripts msgpackr-extract
-  else
-    log "npm approve-scripts not available in this npm version; skipping script approval"
-  fi
 }
 
 run_migrate() {
