@@ -20,6 +20,7 @@ let latestGeneratedZipArtifact = null;
 let currentDeviceProfile = window.getDeviceProfile?.() || window.__DEVICE_PROFILE__ || null;
 let prewarmedUploadWorker = null;
 let pendingZipPreparations = new Map();
+let isUploadSubmitting = false;
 
 initializeClientLayout();
 form?.addEventListener("submit", handleConvertSubmit);
@@ -120,6 +121,18 @@ function updateFilePickerLabel() {
 
 function resetPendingZipPreparation() {
     pendingZipPreparations = new Map();
+    refreshSubmitAvailability();
+}
+
+function hasPendingZipPreparation() {
+    return Array.from(pendingZipPreparations.values())
+        .some((preparation) => preparation.status === "pending");
+}
+
+function refreshSubmitAvailability() {
+    if (submitButton) {
+        submitButton.disabled = isUploadSubmitting || hasPendingZipPreparation();
+    }
 }
 
 function buildZipPreparationToken(file) {
@@ -198,9 +211,13 @@ function scheduleZipPreparationForSelection() {
                 currentPreparation.status = "failed";
                 currentPreparation.error = error instanceof Error ? error.message : String(error);
             }
+        } finally {
+            refreshSubmitAvailability();
         }
         })();
     }
+
+    refreshSubmitAvailability();
 }
 
 function handleFileSelectionChange() {
@@ -242,9 +259,8 @@ function setResponseMarkup(markup) {
 }
 
 function setLoading(isLoading) {
-    if (submitButton) {
-        submitButton.disabled = isLoading;
-    }
+    isUploadSubmitting = isLoading;
+    refreshSubmitAvailability();
 }
 
 function renderBackendUploadState(markup) {
@@ -768,6 +784,12 @@ function uploadGeneratedRawBlob(blob, fileName, uploadUrl, onProgress, onUploadC
 
 async function handleConvertSubmit(event) {
     event.preventDefault();
+
+    if (hasPendingZipPreparation()) {
+        setResponseMarkup(`<div class="alert alert-info mb-0">${escapeHtml(tr("uploadPage.woaPreparingZipInBackground", "Preparing selected ZIP files. Please wait a moment."))}</div>`);
+        return;
+    }
+
     latestGeneratedZipArtifact = null;
 
     const files = Array.from(fileInput?.files || []);
