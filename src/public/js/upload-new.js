@@ -227,6 +227,14 @@ async function awaitPreparedZipForFile(file) {
     return currentPreparation;
 }
 
+function consumePreparedZipForFile(file) {
+    if (!file) {
+        return;
+    }
+    const token = buildZipPreparationToken(file);
+    pendingZipPreparations.delete(token);
+}
+
 function setResponseMarkup(markup) {
     if (response) {
         response.innerHTML = markup;
@@ -822,6 +830,7 @@ async function handleConvertSubmit(event) {
 
         if (isZipMode && canReusePreparedZip) {
             prewarmedZipToken = preparedZip.token;
+            consumePreparedZipForFile(selectedFile);
             startupTimings.readSourceMs = 0;
             startupTimings.prewarmedZipReuseMs = Number(preparedZip?.stats?.prepareMs || 0);
             totalLoadedBytes = selectedFile.size;
@@ -844,6 +853,7 @@ async function handleConvertSubmit(event) {
                 const canReuseCurrentZip = currentIsZip && currentPreparedZip?.status === "ready";
                 if (canReuseCurrentZip) {
                     prewarmedZipTokens.push(currentPreparedZip.token);
+                    consumePreparedZipForFile(currentFile);
                     prewarmedZipFiles.push({
                         name: currentFile.name,
                         size: Number(currentFile.size || 0)
