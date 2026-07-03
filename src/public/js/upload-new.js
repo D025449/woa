@@ -252,6 +252,11 @@ function consumePreparedZipForFile(file) {
     pendingZipPreparations.delete(token);
 }
 
+function prepareCurrentSelectionForNextSubmit() {
+    scheduleZipPreparationForSelection();
+    setLoading(false);
+}
+
 function setResponseMarkup(markup) {
     if (response) {
         response.innerHTML = markup;
@@ -1206,12 +1211,15 @@ async function handleConvertSubmit(event) {
                 `);
 
                 if (shouldUploadGeneratedZip) {
-                    queueMicrotask(() => {
-                        uploadGeneratedZipArtifact();
+                    queueMicrotask(async () => {
+                        await uploadGeneratedZipArtifact();
+                        prepareCurrentSelectionForNextSubmit();
                     });
+                } else {
+                    prepareCurrentSelectionForNextSubmit();
                 }
 
-                setLoading(false);
+                prewarmedUploadWorker = null;
                 worker.terminate();
                 return;
             }
@@ -1313,12 +1321,14 @@ async function handleConvertSubmit(event) {
                 `);
 
                 if (shouldUploadGeneratedContainer) {
-                    queueMicrotask(() => {
-                        uploadGeneratedZipArtifact();
+                    queueMicrotask(async () => {
+                        await uploadGeneratedZipArtifact();
+                        prepareCurrentSelectionForNextSubmit();
                     });
+                } else {
+                    prepareCurrentSelectionForNextSubmit();
                 }
 
-                setLoading(false);
                 worker.removeEventListener("error", handleWorkerError);
                 worker.removeEventListener("messageerror", handleWorkerMessageError);
                 worker.removeEventListener("message", handleWorkerMessage);
