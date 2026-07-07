@@ -199,7 +199,6 @@ function renderResults({ file, repeats, summaries, rawRuns }) {
         <pre>${JSON.stringify(rawRuns, null, 2)}</pre>
     `;
     console.table(rows);
-    console.log("[zip-benchmark] raw", rawRuns);
 }
 
 function buildParsedStartTimeKey(parsed) {

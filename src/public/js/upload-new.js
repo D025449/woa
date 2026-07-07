@@ -423,11 +423,41 @@ function buildStartupTimingLines(timings = {}) {
 }
 
 function getEncodingOptions() {
+    let fitParserVariant = "compact";
+    let compactPowerEncoding = "delta16";
+    let compactDistanceEncoding = "uint8-q02";
+    try {
+        const value = localStorage.getItem("woaUploadFitParserVariant");
+        if (value === "typed") {
+            fitParserVariant = "typed";
+        }
+    } catch {
+        // ignore
+    }
+    try {
+        const value = localStorage.getItem("woaUploadCompactPowerEncoding");
+        if (value === "raw16") {
+            compactPowerEncoding = "raw16";
+        }
+    } catch {
+        // ignore
+    }
+    try {
+        const value = localStorage.getItem("woaUploadCompactDistanceEncoding");
+        if (value === "default") {
+            compactDistanceEncoding = "default";
+        }
+    } catch {
+        // ignore
+    }
     return {
         gentleQuantization: true,
         powerStep: 2,
         cadenceStep: 2,
-        hrStep: 2
+        hrStep: 2,
+        fitParserVariant,
+        compactPowerEncoding,
+        compactDistanceEncoding
     };
 }
 

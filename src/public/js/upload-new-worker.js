@@ -1,5 +1,7 @@
 import { parseFitBufferTypedBrowser } from "./fit-import-typed-browser.js";
+import { applyCompactEncodingOptions, parseFitBufferCompactBrowser } from "./fit-import-compact-browser.js";
 import { createWoa1File } from "./woa-format.js";
+import { createWoa1FileFromCompact } from "./woa-format-compact.js";
 import { encodeWoaTransportContainer } from "./woa-transport-container.js";
 import { gzipSync, unzipSync, zipSync } from "/vendor/fflate/browser.js";
 
@@ -36,8 +38,54 @@ function buildParsedStartTimeKey(parsed) {
     : null;
 }
 
+function getParsedRecordCount(parsed) {
+  return Number(
+    parsed?.recordsTyped?.recordCount
+      ?? parsed?.compactRecords?.recordCount
+      ?? 0
+  );
+}
+
+function getParsedSessionCount(parsed) {
+  return Array.isArray(parsed?.sessions) ? parsed.sessions.length : 0;
+}
+
+function adjustParsedForEncoding(parsed, parserVariant, encodingOptions) {
+  return parserVariant === "compact"
+    ? applyCompactEncodingOptions(parsed, encodingOptions)
+    : applyEncodingOptions(parsed, encodingOptions);
+}
+
+function createWoaFromParsed(parsed, parserVariant, fileName, encodingOptions) {
+  if (parserVariant === "compact") {
+    const adjustedParsed = adjustParsedForEncoding(parsed, parserVariant, encodingOptions);
+    return {
+      adjustedParsed,
+      result: createWoa1FileFromCompact(adjustedParsed, {
+        sourceName: fileName,
+        sampleRateSeconds: 5,
+        powerEncoding: encodingOptions?.compactPowerEncoding === "raw16" ? "raw16" : "delta16",
+        distanceEncoding: encodingOptions?.compactDistanceEncoding === "default" ? "default" : "uint8-q02",
+        compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
+        compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
+      })
+    };
+  }
+
+  const adjustedParsed = adjustParsedForEncoding(parsed, parserVariant, encodingOptions);
+  return {
+    adjustedParsed,
+    result: createWoa1File(adjustedParsed, {
+      sourceName: fileName,
+      sampleRateSeconds: 5,
+      compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
+      compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
+    })
+  };
+}
+
 function isTooShortWorkout(parsed) {
-  const recordCount = Number(parsed?.recordsTyped?.recordCount || 0);
+  const recordCount = getParsedRecordCount(parsed);
   return recordCount < MIN_WORKOUT_RECORD_COUNT;
 }
 
@@ -75,6 +123,11 @@ function isRealWoaZipEntry(entryName) {
   }
 
   return true;
+}
+
+function shouldExtractZipEntry(file) {
+  const entryName = String(file?.name || "");
+  return isRealFitZipEntry(entryName) || isRealWoaZipEntry(entryName);
 }
 
 function average(values) {
@@ -142,6 +195,10 @@ function applyEncodingOptions(parsed, encodingOptions = {}) {
       heartRatesBpm: quantizeSeries(source.heartRatesBpm, recordCount, hrStep)
     }
   };
+}
+
+function getFitParserVariant(encodingOptions = {}) {
+  return encodingOptions?.fitParserVariant === "compact" ? "compact" : "typed";
 }
 
 function sumNumericField(samples = [], fieldName) {
@@ -217,7 +274,9 @@ function prepareZipSource({ token, fileName, arrayBuffer }) {
   const zipBytes = new Uint8Array(arrayBuffer);
   const startedAt = nowMs();
   const unzipStartedAt = nowMs();
-  const archive = unzipSync(zipBytes);
+  const archive = unzipSync(zipBytes, {
+    filter: shouldExtractZipEntry
+  });
   const unzipMs = nowMs() - unzipStartedAt;
   const entryScanStartedAt = nowMs();
   const entryNames = Object.keys(archive);
@@ -632,12 +691,15 @@ self.addEventListener("message", async (event) => {
 
     for (let iteration = 0; iteration < normalizedRepeatCount; iteration += 1) {
       const parseStartedAt = nowMs();
-      const parsed = parseFitBufferTypedBrowser(arrayBuffer, {
-        excludeStartTimes: existingStartTimes
-      });
+      const parserVariant = getFitParserVariant(encodingOptions);
+      const parsed = parserVariant === "compact"
+        ? parseFitBufferCompactBrowser(arrayBuffer, {
+          excludeStartTimes: existingStartTimes
+        })
+        : parseFitBufferTypedBrowser(arrayBuffer, {
+          excludeStartTimes: existingStartTimes
+        });
       parseSamplesMs.push(nowMs() - parseStartedAt);
-      const adjustedParsed = applyEncodingOptions(parsed, encodingOptions);
-      finalParsed = adjustedParsed;
 
       if (parsed?.skippedExisting) {
         self.postMessage({
@@ -652,7 +714,7 @@ self.addEventListener("message", async (event) => {
         self.postMessage({
           type: "skipped-too-short",
           fileName,
-          recordCount: Number(parsed?.recordsTyped?.recordCount || 0)
+          recordCount: getParsedRecordCount(parsed)
         });
         return;
       }
@@ -665,12 +727,8 @@ self.addEventListener("message", async (event) => {
       });
 
       const woaStartedAt = nowMs();
-      const result = createWoa1File(adjustedParsed, {
-        sourceName: fileName,
-        sampleRateSeconds: 5,
-        compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
-        compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
-      });
+      const { adjustedParsed, result } = createWoaFromParsed(parsed, parserVariant, fileName, encodingOptions);
+      finalParsed = adjustedParsed;
       buildSamplesMs.push(nowMs() - woaStartedAt);
       buildTimingSamples.push(result.timings || {});
       workoutStreamStatSamples.push(result.stats?.workoutStream || {});
@@ -701,14 +759,15 @@ self.addEventListener("message", async (event) => {
       gzipFileName: fileName.replace(/\.fit$/i, ".woa2"),
       gzipBytes: finalGzipBytes.buffer,
       meta: finalMeta,
-      sessionsCount: Array.isArray(finalParsed.sessions) ? finalParsed.sessions.length : 0,
-      recordCount: Number(finalParsed.recordsTyped?.recordCount || 0),
+      sessionsCount: getParsedSessionCount(finalParsed),
+      recordCount: getParsedRecordCount(finalParsed),
       gpsPointCount: finalGpsPointCount,
       timings: {
         repeatCount: normalizedRepeatCount,
         parseMs: average(parseSamplesMs),
         buildWoaMs: average(buildSamplesMs),
         buildWoaStepsMs: averageTimingMaps(buildTimingSamples),
+        parserVariant: getFitParserVariant(encodingOptions),
         workoutStreamStats: {
           fallbackWorkoutCount: sumNumericField(workoutStreamStatSamples, "usesSpeedFallback"),
           fallbackRecordCount: sumNumericField(workoutStreamStatSamples, "speedFallbackRecordCount")
@@ -827,9 +886,14 @@ async function convertMixedEntriesToWoaZip({
 
       try {
         const parseStartedAt = nowMs();
-        const parsed = parseFitBufferTypedBrowser(fitEntry.bytes, {
-          excludeStartTimes: dynamicExistingStartTimes
-        });
+        const parserVariant = getFitParserVariant(encodingOptions);
+        const parsed = parserVariant === "compact"
+          ? parseFitBufferCompactBrowser(fitEntry.bytes, {
+            excludeStartTimes: dynamicExistingStartTimes
+          })
+          : parseFitBufferTypedBrowser(fitEntry.bytes, {
+            excludeStartTimes: dynamicExistingStartTimes
+          });
         parseSamplesMs.push(nowMs() - parseStartedAt);
 
         if (parsed?.skippedExisting) {
@@ -844,21 +908,14 @@ async function convertMixedEntriesToWoaZip({
         if (isTooShortWorkout(parsed)) {
           skippedTooShortEntries.push({
             entryName: fitEntry.name,
-            recordCount: Number(parsed?.recordsTyped?.recordCount || 0)
+            recordCount: getParsedRecordCount(parsed)
           });
           processedEntries += 1;
           continue;
         }
 
-        const adjustedParsed = applyEncodingOptions(parsed, encodingOptions);
-
         const buildStartedAt = nowMs();
-        const result = createWoa1File(adjustedParsed, {
-          sourceName: fitEntry.name,
-          sampleRateSeconds: 5,
-          compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
-          compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
-        });
+        const { result } = createWoaFromParsed(parsed, parserVariant, fitEntry.name, encodingOptions);
         buildSamplesMs.push(nowMs() - buildStartedAt);
         buildTimingSamples.push(result.timings || {});
         speedFallbackWorkoutCount += Number(result.stats?.workoutStream?.usesSpeedFallback ? 1 : 0);
@@ -881,7 +938,7 @@ async function convertMixedEntriesToWoaZip({
             dynamicExistingStartTimes.add(acceptedStartTimeKey);
           }
         }
-        totalRecordCount += Number(parsed.recordsTyped?.recordCount || 0);
+        totalRecordCount += getParsedRecordCount(parsed);
         totalGpsPointCount += Number(result.gpsTrack?.pointCount || 0);
         convertedFitEntries += 1;
       } catch (error) {
@@ -1128,7 +1185,9 @@ async function handleZipConversion({
     const zipBytes = new Uint8Array(arrayBuffer);
     sourceBytes = zipBytes.byteLength;
     const unzipStartedAt = nowMs();
-    const archive = unzipSync(zipBytes);
+    const archive = unzipSync(zipBytes, {
+      filter: shouldExtractZipEntry
+    });
     unzipMs = nowMs() - unzipStartedAt;
     postStartupMetric("unzipSyncMs", unzipMs, {
       sourceBytes
@@ -1222,7 +1281,9 @@ async function handleFitFilesConversion({
       }
       nestedZipCount += 1;
       const unzipStartedAt = nowMs();
-      const archive = unzipSync(bytes);
+      const archive = unzipSync(bytes, {
+        filter: shouldExtractZipEntry
+      });
       nestedUnzipMs += nowMs() - unzipStartedAt;
       const entryScanStartedAt = nowMs();
       const entryNames = Object.keys(archive);

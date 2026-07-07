@@ -177,6 +177,22 @@ function decodeDistancePayload(bytes, recordCount) {
       continue;
     }
 
+    if (mode === 2) {
+      let current = view.getUint32(offset, true);
+      offset += 4;
+      values[writeIndex] = current === UINT32_NAN ? Number.NaN : current / 5;
+      writeIndex += 1;
+
+      for (let i = 1; i < count && writeIndex < recordCount; i += 1) {
+        const delta = view.getUint8(offset);
+        offset += 1;
+        current += delta;
+        values[writeIndex] = current === UINT32_NAN ? Number.NaN : current / 5;
+        writeIndex += 1;
+      }
+      continue;
+    }
+
     for (let i = 0; i < count && writeIndex < recordCount; i += 1) {
       const raw = view.getUint32(offset, true);
       offset += 4;
@@ -276,17 +292,19 @@ function decodeGpsCoordinatePayload(bytes, pointCount, layoutVersion = 1) {
 function decodeWorkoutStreamBlock(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
-  if (magic !== "WST2" && magic !== "WST3") {
+  if (magic !== "WST2" && magic !== "WST3" && magic !== "WST4" && magic !== "WST5" && magic !== "WST6") {
     throw new Error(`Unsupported workout stream block: ${magic}`);
   }
   const isWst3 = magic === "WST3";
+  const isWst4 = magic === "WST4" || magic === "WST6";
+  const compactHeader = isWst3 || isWst4 || magic === "WST5";
 
   const recordCount = view.getUint32(4, true);
   const baseTimestampMs = view.getFloat64(8, true);
   const sampleIntervalMs = view.getUint32(16, true);
   const lengths = [];
   let headerOffset = 20;
-  for (let i = 0; i < (isWst3 ? 6 : 8); i += 1) {
+  for (let i = 0; i < (compactHeader ? 6 : 8); i += 1) {
     lengths.push(view.getUint32(headerOffset, true));
     headerOffset += 4;
   }
@@ -298,9 +316,38 @@ function decodeWorkoutStreamBlock(bytes) {
   const distancesM = decodeDistancePayload(distancePayload, recordCount);
 
   const powersW = new Float64Array(recordCount);
-  for (let i = 0; i < recordCount; i += 1) {
-    const raw = view.getUint16(offset + (i * 2), true);
-    powersW[i] = raw === UINT16_NAN ? Number.NaN : raw;
+  if (isWst4) {
+    const powerBlockEnd = offset + lengths[1];
+    let deltaOffset = offset;
+    let absoluteOffset = offset + 2 + Math.max(0, recordCount - 1) * 2;
+    if (recordCount > 0) {
+      const firstRaw = view.getUint16(deltaOffset, true);
+      powersW[0] = firstRaw === UINT16_NAN ? Number.NaN : firstRaw;
+      deltaOffset += 2;
+    }
+    let prev = powersW[0];
+    for (let i = 1; i < recordCount; i += 1) {
+      const delta = view.getInt16(deltaOffset, true);
+      deltaOffset += 2;
+      if (delta === INT16_NAN) {
+        if (absoluteOffset + 2 > powerBlockEnd) {
+          throw new Error("Corrupt WST4 power block: missing absolute fallback value");
+        }
+        const absoluteRaw = view.getUint16(absoluteOffset, true);
+        absoluteOffset += 2;
+        powersW[i] = absoluteRaw === UINT16_NAN ? Number.NaN : absoluteRaw;
+      } else if (Number.isFinite(prev)) {
+        powersW[i] = prev + delta;
+      } else {
+        powersW[i] = Number.NaN;
+      }
+      prev = powersW[i];
+    }
+  } else {
+    for (let i = 0; i < recordCount; i += 1) {
+      const raw = view.getUint16(offset + (i * 2), true);
+      powersW[i] = raw === UINT16_NAN ? Number.NaN : raw;
+    }
   }
   offset += lengths[1];
 

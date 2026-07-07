@@ -1,5 +1,7 @@
 import { parseFitBufferTypedBrowser } from "./fit-import-typed-browser.js";
+import { applyCompactEncodingOptions, parseFitBufferCompactBrowser } from "./fit-import-compact-browser.js";
 import { createWoa1File } from "./woa-format.js";
+import { createWoa1FileFromCompact } from "./woa-format-compact.js";
 import { gzipSync } from "/vendor/fflate/browser.js";
 
 const MIN_WORKOUT_RECORD_COUNT = 300;
@@ -24,8 +26,48 @@ function buildParsedStartTimeKey(parsed) {
     : null;
 }
 
+function getParsedRecordCount(parsed) {
+  return Number(
+    parsed?.recordsTyped?.recordCount
+      ?? parsed?.compactRecords?.recordCount
+      ?? 0
+  );
+}
+
+function getParsedSessionCount(parsed) {
+  return Array.isArray(parsed?.sessions) ? parsed.sessions.length : 0;
+}
+
+function createWoaFromParsed(parsed, parserVariant, entryName, encodingOptions) {
+  if (parserVariant === "compact") {
+    const adjustedParsed = applyCompactEncodingOptions(parsed, encodingOptions);
+    return {
+      adjustedParsed,
+      result: createWoa1FileFromCompact(adjustedParsed, {
+        sourceName: entryName,
+        sampleRateSeconds: 5,
+        powerEncoding: encodingOptions?.compactPowerEncoding === "raw16" ? "raw16" : "delta16",
+        distanceEncoding: encodingOptions?.compactDistanceEncoding === "default" ? "default" : "uint8-q02",
+        compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
+        compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
+      })
+    };
+  }
+
+  const adjustedParsed = applyEncodingOptions(parsed, encodingOptions);
+  return {
+    adjustedParsed,
+    result: createWoa1File(adjustedParsed, {
+      sourceName: entryName,
+      sampleRateSeconds: 5,
+      compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
+      compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
+    })
+  };
+}
+
 function isTooShortWorkout(parsed) {
-  const recordCount = Number(parsed?.recordsTyped?.recordCount || 0);
+  const recordCount = getParsedRecordCount(parsed);
   return recordCount < MIN_WORKOUT_RECORD_COUNT;
 }
 
@@ -67,6 +109,10 @@ function applyEncodingOptions(parsed, encodingOptions = {}) {
   };
 }
 
+function getFitParserVariant(encodingOptions = {}) {
+  return encodingOptions?.fitParserVariant === "compact" ? "compact" : "typed";
+}
+
 self.addEventListener("message", async (event) => {
   const {
     taskId,
@@ -78,9 +124,10 @@ self.addEventListener("message", async (event) => {
 
   try {
     const parseStartedAt = nowMs();
-    const parsed = parseFitBufferTypedBrowser(arrayBuffer, {
-      excludeStartTimes: existingStartTimes
-    });
+    const parserVariant = getFitParserVariant(encodingOptions);
+    const parsed = parserVariant === "compact"
+      ? parseFitBufferCompactBrowser(arrayBuffer, { excludeStartTimes: existingStartTimes })
+      : parseFitBufferTypedBrowser(arrayBuffer, { excludeStartTimes: existingStartTimes });
     const parseMs = nowMs() - parseStartedAt;
     const startTimeKey = parsed?.skippedStartTime || buildParsedStartTimeKey(parsed);
 
@@ -104,19 +151,13 @@ self.addEventListener("message", async (event) => {
         status: "skipped-too-short",
         startTime: startTimeKey,
         parseMs,
-        recordCount: Number(parsed?.recordsTyped?.recordCount || 0)
+        recordCount: getParsedRecordCount(parsed)
       });
       return;
     }
 
-    const adjustedParsed = applyEncodingOptions(parsed, encodingOptions);
     const buildStartedAt = nowMs();
-    const result = createWoa1File(adjustedParsed, {
-      sourceName: entryName,
-      sampleRateSeconds: 5,
-      compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
-      compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
-    });
+    const { adjustedParsed, result } = createWoaFromParsed(parsed, parserVariant, entryName, encodingOptions);
     const buildWoaMs = nowMs() - buildStartedAt;
 
     self.postMessage({
@@ -125,15 +166,17 @@ self.addEventListener("message", async (event) => {
       entryName,
       status: "completed",
       startTime: startTimeKey,
-      recordCount: Number(parsed?.recordsTyped?.recordCount || 0),
+      recordCount: getParsedRecordCount(parsed),
       gpsPointCount: Number(result.gpsTrack?.pointCount || 0),
       woaBytes: result.bytes.buffer,
       timings: {
         parseMs,
         buildWoaMs,
-        buildWoaStepsMs: result.timings || {}
+        buildWoaStepsMs: result.timings || {},
+        parserVariant
       },
-      workoutStreamStats: result.stats?.workoutStream || {}
+      workoutStreamStats: result.stats?.workoutStream || {},
+      sessionsCount: getParsedSessionCount(adjustedParsed)
     }, [result.bytes.buffer]);
   } catch (error) {
     self.postMessage({

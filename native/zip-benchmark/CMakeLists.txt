@@ -1,0 +1,30 @@
+cmake_minimum_required(VERSION 3.20)
+project(woa_zip_benchmark LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+  pkg_check_modules(LIBDEFLATE IMPORTED_TARGET libdeflate)
+endif()
+
+if(NOT TARGET PkgConfig::LIBDEFLATE)
+  find_path(LIBDEFLATE_INCLUDE_DIR libdeflate.h REQUIRED)
+  find_library(LIBDEFLATE_LIBRARY NAMES deflate libdeflate REQUIRED)
+endif()
+
+add_executable(woa-zip-benchmark src/main.cpp)
+if(TARGET PkgConfig::LIBDEFLATE)
+  target_link_libraries(woa-zip-benchmark PRIVATE PkgConfig::LIBDEFLATE)
+else()
+  target_include_directories(woa-zip-benchmark PRIVATE ${LIBDEFLATE_INCLUDE_DIR})
+  target_link_libraries(woa-zip-benchmark PRIVATE ${LIBDEFLATE_LIBRARY})
+endif()
+
+if(MSVC)
+  target_compile_options(woa-zip-benchmark PRIVATE /W4 /O2)
+else()
+  target_compile_options(woa-zip-benchmark PRIVATE -Wall -Wextra -Wpedantic -O3)
+endif()
