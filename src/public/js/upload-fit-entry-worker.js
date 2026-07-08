@@ -46,7 +46,7 @@ function createWoaFromParsed(parsed, parserVariant, entryName, encodingOptions) 
       result: createWoa1FileFromCompact(adjustedParsed, {
         sourceName: entryName,
         sampleRateSeconds: 5,
-        powerEncoding: encodingOptions?.compactPowerEncoding === "raw16" ? "raw16" : "delta16",
+        powerEncoding: encodingOptions?.compactPowerEncoding === "raw16" ? "raw16" : "delta8-q4w",
         distanceEncoding: encodingOptions?.compactDistanceEncoding === "default" ? "default" : "uint8-q02",
         compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
         compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
@@ -95,7 +95,7 @@ function applyEncodingOptions(parsed, encodingOptions = {}) {
   }
 
   const recordCount = Number(source.recordCount);
-  const powerStep = Math.max(1, Number.parseInt(String(encodingOptions.powerStep ?? 2), 10) || 2);
+  const powerStep = Math.max(1, Number.parseInt(String(encodingOptions.powerStep ?? 4), 10) || 4);
   const cadenceStep = Math.max(1, Number.parseInt(String(encodingOptions.cadenceStep ?? 2), 10) || 2);
   const hrStep = Math.max(1, Number.parseInt(String(encodingOptions.hrStep ?? 2), 10) || 2);
   return {

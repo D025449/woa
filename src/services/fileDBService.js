@@ -1775,7 +1775,39 @@ END,
     ]));
   }
 
-  static async insertPreparedFilesBulk(preparedItems = []) {
+  static async deleteExistingWorkoutsByStartTimes(uid, startTimes = []) {
+    const normalizedStartTimes = [...new Set(
+      (Array.isArray(startTimes) ? startTimes : [])
+        .filter((value) => value != null)
+        .map((value) => new Date(value))
+        .filter((value) => !Number.isNaN(value.getTime()))
+        .map((value) => value.toISOString())
+    )];
+
+    if (!uid || !normalizedStartTimes.length) {
+      return {
+        rowCount: 0,
+        deletedIds: []
+      };
+    }
+
+    const result = await pool.query(
+      `
+      DELETE FROM workouts
+      WHERE uid = $1
+        AND start_time = ANY($2::timestamptz[])
+      RETURNING id
+      `,
+      [uid, normalizedStartTimes]
+    );
+
+    return {
+      rowCount: result.rowCount,
+      deletedIds: result.rows.map((row) => Number(row.id))
+    };
+  }
+
+  static async insertPreparedFilesBulk(preparedItems = [], options = {}) {
     if (!Array.isArray(preparedItems) || preparedItems.length === 0) {
       return {
         insertedRows: [],
@@ -1793,6 +1825,16 @@ END,
     for (let index = 0; index < preparedItems.length; index += 1) {
       valuesClauses.push(FileDBService.buildWorkoutInsertValuesClause(index));
       params.push(...FileDBService.buildPreparedInsertParams(preparedItems[index]));
+    }
+
+    if (options?.overwriteExisting) {
+      const deleteResult = await FileDBService.deleteExistingWorkoutsByStartTimes(
+        preparedItems[0]?.fileRow?.uid,
+        preparedItems.map((item) => item?.fileRow?.start_time)
+      );
+      timing.mark("delete-existing-workout-rows", {
+        deletedCount: deleteResult.rowCount
+      });
     }
 
     const result = await pool.query(

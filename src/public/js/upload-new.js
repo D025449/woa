@@ -2,6 +2,7 @@ const form = document.getElementById("uploadForm");
 const fileInput = document.getElementById("file");
 const filePickerButton = document.getElementById("filePickerButton");
 const filePickerLabel = document.getElementById("filePickerLabel");
+const overwriteExistingWorkoutsCheckbox = document.getElementById("overwriteExistingWorkouts");
 const submitButton = document.getElementById("submitButton");
 const response = document.getElementById("response");
 const statusArea = document.getElementById("statusArea");
@@ -424,7 +425,7 @@ function buildStartupTimingLines(timings = {}) {
 
 function getEncodingOptions() {
     let fitParserVariant = "compact";
-    let compactPowerEncoding = "delta16";
+    let compactPowerEncoding = "delta8-q4w";
     let compactDistanceEncoding = "uint8-q02";
     try {
         const value = localStorage.getItem("woaUploadFitParserVariant");
@@ -452,13 +453,17 @@ function getEncodingOptions() {
     }
     return {
         gentleQuantization: true,
-        powerStep: 2,
+        powerStep: 4,
         cadenceStep: 2,
         hrStep: 2,
         fitParserVariant,
         compactPowerEncoding,
         compactDistanceEncoding
     };
+}
+
+function isOverwriteExistingWorkoutsEnabled() {
+    return !!overwriteExistingWorkoutsCheckbox?.checked;
 }
 
 function getUploadTransportMode() {
@@ -532,6 +537,8 @@ async function uploadGeneratedZipArtifact() {
         return;
     }
 
+    const overwriteExisting = isOverwriteExistingWorkoutsEnabled();
+
     renderBackendUploadState(buildBackendUploadPendingMarkup());
     setProcessingLabel(tr("uploadPage.woaUploadAndStore", "Upload and store"));
     setPhase(tr("uploadPage.woaPhaseUploadingBackend", "Uploading to backend"));
@@ -557,12 +564,14 @@ async function uploadGeneratedZipArtifact() {
                 latestGeneratedZipArtifact.blob,
                 latestGeneratedZipArtifact.fileName,
                 latestGeneratedZipArtifact.uploadUrl,
+                overwriteExisting,
                 handleProgress,
                 handleUploadComplete
             );
         } else {
             const formData = new FormData();
             formData.append("file", latestGeneratedZipArtifact.blob, latestGeneratedZipArtifact.fileName);
+            formData.append("overwriteExisting", overwriteExisting ? "1" : "0");
             payload = await uploadGeneratedZipFormData(
                 formData,
                 latestGeneratedZipArtifact.uploadUrl,
@@ -665,7 +674,7 @@ function renderCompletedContainerMarkup({
                 }
                 Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
             </div>
-            <div class="small mb-3 text-muted">Sanfte Kompression aktiv: 2 W / 2 rpm / 2 bpm</div>
+            <div class="small mb-3 text-muted">Sanfte Kompression aktiv: 4 W / 2 rpm / 2 bpm</div>
             <div id="backendUploadResult">${backendMarkup || ""}</div>
         </div>
     `;
@@ -761,7 +770,7 @@ function uploadGeneratedZipFormData(formData, uploadUrl, onProgress, onUploadCom
     });
 }
 
-function uploadGeneratedRawBlob(blob, fileName, uploadUrl, onProgress, onUploadComplete) {
+function uploadGeneratedRawBlob(blob, fileName, uploadUrl, overwriteExisting, onProgress, onUploadComplete) {
     return new Promise((resolve, reject) => {
         const request = new XMLHttpRequest();
         const startedAt = performance.now();
@@ -771,6 +780,9 @@ function uploadGeneratedRawBlob(blob, fileName, uploadUrl, onProgress, onUploadC
         request.responseType = "text";
         request.setRequestHeader("Content-Type", "application/octet-stream");
         request.setRequestHeader("X-Upload-Filename", fileName || "upload.woat.gz");
+        if (overwriteExisting) {
+            request.setRequestHeader("X-Overwrite-Existing", "1");
+        }
 
         request.upload.addEventListener("progress", (event) => {
             if (!onProgress) {
@@ -865,6 +877,7 @@ async function handleConvertSubmit(event) {
         const startupTimings = {};
         const submitStartedAt = performance.now();
         const encodingOptions = getEncodingOptions();
+        const overwriteExisting = isOverwriteExistingWorkoutsEnabled();
         let arrayBuffer = null;
         let prewarmedZipToken = null;
         let prewarmedZipTokens = [];
@@ -937,11 +950,17 @@ async function handleConvertSubmit(event) {
         }
 
         setReadProgress(100, `${formatBytes(totalLoadedBytes)} loaded`);
-        setPhase(tr("uploadPage.woaPhaseLoadingExisting", "Loading existing workouts"));
-        setProcessingProgress(3, tr("uploadPage.woaFetchingExisting", "Fetching existing workout timestamps for duplicate detection"));
-        const fetchExistingStartedAt = performance.now();
-        const existingStartTimes = await fetchExistingWorkoutStartTimes();
-        startupTimings.fetchExistingStartTimesMs = performance.now() - fetchExistingStartedAt;
+        let existingStartTimes = [];
+        if (overwriteExisting) {
+            setPhase(tr("uploadPage.woaPhaseOverwriteEnabled", "Overwrite mode enabled"));
+            setProcessingProgress(3, tr("uploadPage.woaOverwriteSkippingExistingFetch", "Overwrite enabled, skipping duplicate pre-check"));
+        } else {
+            setPhase(tr("uploadPage.woaPhaseLoadingExisting", "Loading existing workouts"));
+            setProcessingProgress(3, tr("uploadPage.woaFetchingExisting", "Fetching existing workout timestamps for duplicate detection"));
+            const fetchExistingStartedAt = performance.now();
+            existingStartTimes = await fetchExistingWorkoutStartTimes();
+            startupTimings.fetchExistingStartTimesMs = performance.now() - fetchExistingStartedAt;
+        }
         setPhase(tr("uploadPage.woaPhaseStartingWorker", "Starting worker"));
         setProcessingProgress(5, tr("uploadPage.woaWorkerBootstrapped", "Worker bootstrapped"));
 
@@ -1128,7 +1147,7 @@ async function handleConvertSubmit(event) {
                             Compress GZip: ${escapeHtml(formatMs(timings.gzipMs))}<br>
                             Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
                         </div>
-                        <div class="small mb-3 text-muted">Sanfte Kompression aktiv: 2 W / 2 rpm / 2 bpm</div>
+                        <div class="small mb-3 text-muted">Sanfte Kompression aktiv: 4 W / 2 rpm / 2 bpm</div>
                         <div class="d-flex flex-wrap gap-2">
                             <a class="btn btn-sm btn-outline-primary" href="${woaDownloadUrl}" download="${escapeHtml(data.outputFileName || "output.woa1")}">${escapeHtml(tr("uploadPage.woaDownloadRaw", "Download WOA1 Raw"))}</a>
                             <a class="btn btn-sm btn-primary" href="${gzipDownloadUrl}" download="${escapeHtml(data.gzipFileName || "output.woa2")}">${escapeHtml(tr("uploadPage.woaDownloadGzip", "Download WOA2 GZip"))}</a>
@@ -1233,7 +1252,7 @@ async function handleConvertSubmit(event) {
                             Build output ZIP: ${escapeHtml(formatMs(timings.zipBuildMs))}<br>
                             Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
                         </div>
-                        <div class="small mb-3 text-muted">Sanfte Kompression aktiv: 2 W / 2 rpm / 2 bpm</div>
+                        <div class="small mb-3 text-muted">Sanfte Kompression aktiv: 4 W / 2 rpm / 2 bpm</div>
                         ${shouldUploadGeneratedZip
                             ? `<div id="backendUploadResult">${buildBackendUploadPendingMarkup()}</div>`
                             : `<div class="small mb-2 text-muted">${escapeHtml(tr("uploadPage.woaNoBackendUploadNeeded", "No new workouts remained after duplicate filtering, so no backend upload was needed."))}</div><div id="backendUploadResult"></div>`}
@@ -1343,7 +1362,7 @@ async function handleConvertSubmit(event) {
                             Build output container: ${escapeHtml(formatMs(timings.containerBuildMs))}<br>
                             Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
                         </div>
-                        <div class="small mb-3 text-muted">Sanfte Kompression aktiv: 2 W / 2 rpm / 2 bpm</div>
+                        <div class="small mb-3 text-muted">Sanfte Kompression aktiv: 4 W / 2 rpm / 2 bpm</div>
                         ${shouldUploadGeneratedContainer
                             ? `<div id="backendUploadResult">${buildBackendUploadPendingMarkup()}</div>`
                             : `<div class="small mb-2 text-muted">${escapeHtml(tr("uploadPage.woaNoBackendUploadNeeded", "No new workouts remained after duplicate filtering, so no backend upload was needed."))}</div><div id="backendUploadResult"></div>`}
@@ -1384,6 +1403,7 @@ async function handleConvertSubmit(event) {
             prewarmedZipTokens,
             prewarmedZipFiles,
             existingStartTimes,
+            overwriteExisting,
             encodingOptions,
             outputMode: getUploadTransportMode(),
             parallelFitPoolEnabled: isParallelFitPoolEnabled(),

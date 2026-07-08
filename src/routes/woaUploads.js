@@ -52,6 +52,7 @@ function createImportProfile() {
     prepareInsertBuildGeometryWktMs: 0,
     prepareInsertEncodeGpsTrackBlobMs: 0,
     prepareInsertGpsTrackBlobCompressedBytes: 0,
+    deleteExistingRowsMs: 0,
     insertWorkoutMs: 0,
     insertWorkoutRowsMs: 0,
     insertWorkoutLoadExistingRowsMs: 0,
@@ -67,7 +68,8 @@ async function importWoaEntryReaders({
   userId,
   sourceName,
   uploadedSizeBytes,
-  entryReaders
+  entryReaders,
+  overwriteExisting = false
 }) {
   const inserted = [];
   const skipped = [];
@@ -184,10 +186,14 @@ async function importWoaEntryReaders({
     try {
       const insertStartedAt = Date.now();
       const bulkResult = await FileDBService.insertPreparedFilesBulk(
-        chunk.map((item) => item.preparedInsert)
+        chunk.map((item) => item.preparedInsert),
+        { overwriteExisting }
       );
       profile.insertWorkoutMs += Date.now() - insertStartedAt;
       for (const step of Array.isArray(bulkResult?.timingSteps) ? bulkResult.timingSteps : []) {
+        if (step?.label === "delete-existing-workout-rows") {
+          profile.deleteExistingRowsMs += Number(step.stepMs || 0);
+        }
         if (step?.label === "insert-workout-rows") {
           profile.insertWorkoutRowsMs += Number(step.stepMs || 0);
         }
@@ -359,6 +365,7 @@ async function importWoaEntryReaders({
         },
         insertWorkoutMs: profile.insertWorkoutMs,
         insertWorkoutStepsMs: {
+          deleteExistingRowsMs: profile.deleteExistingRowsMs,
           insertWorkoutRowsMs: profile.insertWorkoutRowsMs,
           loadExistingRowsMs: profile.insertWorkoutLoadExistingRowsMs
         },
@@ -471,6 +478,7 @@ router.post(
         userId: req.user.id,
         sourceName: uploadedFile.originalname,
         uploadedSizeBytes: uploadedFile.size,
+        overwriteExisting: String(req.body?.overwriteExisting || "0") === "1",
         entryReaders: woaEntries.map((entry) => ({
           path: entry.path,
           buffer: () => entry.buffer()
@@ -522,6 +530,7 @@ router.post(
         userId: req.user.id,
         sourceName: String(req.headers["x-upload-filename"] || "upload.woat.gz"),
         uploadedSizeBytes: compressedBytes.length,
+        overwriteExisting: String(req.headers["x-overwrite-existing"] || "0") === "1",
         entryReaders: woaEntries.map((entry) => ({
           path: entry.name,
           buffer: async () => entry.bytes

@@ -473,7 +473,7 @@ export function applyCompactEncodingOptions(parsedCompact, encodingOptions = {})
     return parsedCompact;
   }
 
-  const powerStep = Math.max(1, Number.parseInt(String(encodingOptions.powerStep ?? 2), 10) || 2);
+  const powerStep = Math.max(1, Number.parseInt(String(encodingOptions.powerStep ?? 4), 10) || 4);
   const cadenceStep = Math.max(1, Number.parseInt(String(encodingOptions.cadenceStep ?? 2), 10) || 2);
   const hrStep = Math.max(1, Number.parseInt(String(encodingOptions.hrStep ?? 2), 10) || 2);
 

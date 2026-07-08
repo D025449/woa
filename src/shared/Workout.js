@@ -382,6 +382,7 @@ export default class Workout {
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         let offset = 0;
         let writeIndex = 0;
+        const DISTANCE_ESCAPE = 255;
 
         while (offset < bytes.byteLength && writeIndex < recordCount) {
             const mode = view.getUint8(offset);
@@ -420,6 +421,33 @@ export default class Workout {
                 continue;
             }
 
+            if (mode === 3) {
+                let current = view.getUint32(offset, true);
+                offset += 4;
+                values[writeIndex] = current === WOA_UINT32_NAN ? Number.NaN : current / 5;
+                writeIndex += 1;
+
+                const tokenStart = offset;
+                const tokenCount = Math.max(0, count - 1);
+                const absoluteTailStart = tokenStart + tokenCount;
+                let absoluteTailOffset = absoluteTailStart;
+
+                for (let i = 1; i < count && writeIndex < recordCount; i += 1) {
+                    const token = view.getUint8(tokenStart + i - 1);
+                    if (token === DISTANCE_ESCAPE) {
+                        current = view.getUint32(absoluteTailOffset, true);
+                        absoluteTailOffset += 4;
+                    } else {
+                        current += token;
+                    }
+                    values[writeIndex] = current === WOA_UINT32_NAN ? Number.NaN : current / 5;
+                    writeIndex += 1;
+                }
+
+                offset = absoluteTailOffset;
+                continue;
+            }
+
             for (let i = 0; i < count && writeIndex < recordCount; i += 1) {
                 const raw = view.getUint32(offset, true);
                 offset += 4;
@@ -435,11 +463,13 @@ export default class Workout {
         const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
-        if (magic !== "WST2" && magic !== "WST3" && magic !== "WST4" && magic !== "WST5" && magic !== "WST6") {
+        if (magic !== "WST2" && magic !== "WST3" && magic !== "WST4" && magic !== "WST5" && magic !== "WST6" && magic !== "WST7" && magic !== "WST8") {
             throw new Error(`Unsupported workout stream block: ${magic}`);
         }
         const isWst3 = magic === "WST3";
-        const isWst4 = magic === "WST4" || magic === "WST6";
+        const isWst4 = magic === "WST4" || magic === "WST6" || magic === "WST7" || magic === "WST8";
+        const isWst7 = magic === "WST7" || magic === "WST8";
+        const isWst8 = magic === "WST8";
         const compactHeader = isWst3 || isWst4 || magic === "WST5";
         const recordCount = view.getUint32(4, true);
         const baseTimestampMs = view.getFloat64(8, true);
@@ -460,7 +490,7 @@ export default class Workout {
         if (isWst4) {
             const powerBlockEnd = offset + lengths[1];
             let deltaOffset = offset;
-            let absoluteOffset = offset + 2 + Math.max(0, recordCount - 1) * 2;
+            let absoluteOffset = offset + 2 + Math.max(0, recordCount - 1) * (isWst8 ? 1 : 2);
             if (recordCount > 0) {
                 const firstRaw = view.getUint16(deltaOffset, true);
                 powersW[0] = firstRaw === WOA_UINT16_NAN ? Number.NaN : firstRaw;
@@ -468,17 +498,17 @@ export default class Workout {
             }
             let prev = powersW[0];
             for (let i = 1; i < recordCount; i += 1) {
-                const delta = view.getInt16(deltaOffset, true);
-                deltaOffset += 2;
-                if (delta === WOA_INT16_NAN) {
+                const delta = isWst8 ? view.getInt8(deltaOffset) : view.getInt16(deltaOffset, true);
+                deltaOffset += isWst8 ? 1 : 2;
+                if ((isWst8 && delta === 127) || (!isWst8 && delta === WOA_INT16_NAN)) {
                     if (absoluteOffset + 2 > powerBlockEnd) {
-                        throw new Error("Corrupt WST4 power block: missing absolute fallback value");
+                        throw new Error(`Corrupt ${isWst8 ? "WST8" : "WST4"} power block: missing absolute fallback value`);
                     }
                     const absoluteRaw = view.getUint16(absoluteOffset, true);
                     absoluteOffset += 2;
                     powersW[i] = absoluteRaw === WOA_UINT16_NAN ? Number.NaN : absoluteRaw;
                 } else if (Number.isFinite(prev)) {
-                    powersW[i] = prev + delta;
+                    powersW[i] = prev + (isWst8 ? delta * 4 : delta);
                 } else {
                     powersW[i] = Number.NaN;
                 }
@@ -517,9 +547,38 @@ export default class Workout {
         offset += lengths[4];
 
         const altitudesM = new Float64Array(recordCount);
-        for (let i = 0; i < recordCount; i += 1) {
-            const raw = view.getInt16(offset + (i * 2), true);
-            altitudesM[i] = raw === WOA_INT16_NAN ? Number.NaN : raw / 10;
+        if (isWst7) {
+            const altitudeBlockEnd = offset + lengths[5];
+            let deltaOffset = offset;
+            let absoluteOffset = offset + 2 + Math.max(0, recordCount - 1);
+            if (recordCount > 0) {
+                const firstRaw = view.getInt16(deltaOffset, true);
+                altitudesM[0] = firstRaw === WOA_INT16_NAN ? Number.NaN : firstRaw;
+                deltaOffset += 2;
+            }
+            let prev = altitudesM[0];
+            for (let i = 1; i < recordCount; i += 1) {
+                const token = view.getInt8(deltaOffset);
+                deltaOffset += 1;
+                if (token === 127) {
+                    if (absoluteOffset + 2 > altitudeBlockEnd) {
+                        throw new Error("Corrupt WST7 altitude block: missing absolute fallback value");
+                    }
+                    const absoluteRaw = view.getInt16(absoluteOffset, true);
+                    absoluteOffset += 2;
+                    altitudesM[i] = absoluteRaw === WOA_INT16_NAN ? Number.NaN : absoluteRaw;
+                } else if (Number.isFinite(prev)) {
+                    altitudesM[i] = prev + token;
+                } else {
+                    altitudesM[i] = Number.NaN;
+                }
+                prev = altitudesM[i];
+            }
+        } else {
+            for (let i = 0; i < recordCount; i += 1) {
+                const raw = view.getInt16(offset + (i * 2), true);
+                altitudesM[i] = raw === WOA_INT16_NAN ? Number.NaN : raw / 10;
+            }
         }
 
         const timestampsMs = new Float64Array(recordCount);
@@ -650,7 +709,7 @@ export default class Workout {
     static fromBuffer(buffer) {
         const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
         const magic = bytes.byteLength >= 4 ? TEXT_DECODER.decode(bytes.subarray(0, 4)) : "";
-        if (magic === "WST2" || magic === "WST3" || magic === "WST4" || magic === "WST5" || magic === "WST6") {
+        if (magic === "WST2" || magic === "WST3" || magic === "WST4" || magic === "WST5" || magic === "WST6" || magic === "WST7" || magic === "WST8") {
             const decoded = this.decodeWst3Buffer(bytes);
             return this.fromTypedArrays(decoded, {
                 startTimeMs: Number.isFinite(Number(decoded.timestampsMs?.[0])) ? Number(decoded.timestampsMs[0]) : Date.now(),

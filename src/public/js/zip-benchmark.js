@@ -29,7 +29,7 @@ const RELEVANT_EXTENSIONS = [".fit", ".woa1"];
 const MIN_WORKOUT_RECORD_COUNT = 300;
 const PIPELINE_ENCODING_OPTIONS = {
     gentleQuantization: true,
-    powerStep: 2,
+    powerStep: 4,
     cadenceStep: 2,
     hrStep: 2
 };
@@ -242,7 +242,7 @@ function applyEncodingOptions(parsed, encodingOptions = {}) {
         ...parsed,
         recordsTyped: {
             ...source,
-            powersW: quantizeSeries(source.powersW, recordCount, encodingOptions.powerStep ?? 2),
+            powersW: quantizeSeries(source.powersW, recordCount, encodingOptions.powerStep ?? 4),
             cadencesRpm: quantizeSeries(source.cadencesRpm, recordCount, encodingOptions.cadenceStep ?? 2),
             heartRatesBpm: quantizeSeries(source.heartRatesBpm, recordCount, encodingOptions.hrStep ?? 2)
         }
