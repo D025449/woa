@@ -506,6 +506,185 @@ function buildAltitudeDeltaPayloadFromCompact(compactRecords, recordCount) {
   };
 }
 
+function buildUint8RunLengthPayloadColumnDelta(values, sentinel, encoding = "rle-col-delta8") {
+  if (!values || values.length <= 0) {
+    return {
+      bytes: new Uint8Array(0),
+      stats: {
+        encoding,
+        runCount: 0,
+        escapeCount: 0,
+        absoluteCount: 0
+      }
+    };
+  }
+
+  const runLengths = [];
+  const runValues = [];
+  let runCount = 0;
+  let escapeCount = 0;
+  let previous = values[0];
+  let runLength = 1;
+
+  const flushRun = (value, count) => {
+    let remaining = count;
+    while (remaining > 0) {
+      const chunkLength = Math.min(255, remaining);
+      runLengths.push(chunkLength);
+      runValues.push(value);
+      runCount += 1;
+      remaining -= chunkLength;
+    }
+  };
+
+  for (let index = 1; index < values.length; index += 1) {
+    const current = values[index];
+    if (current === previous) {
+      runLength += 1;
+      continue;
+    }
+    flushRun(previous, runLength);
+    previous = current;
+    runLength = 1;
+  }
+  flushRun(previous, runLength);
+
+  const valueTokens = new Int8Array(Math.max(0, runCount - 1));
+  const absoluteTailValues = [];
+  let prevValue = runValues[0];
+  for (let index = 1; index < runCount; index += 1) {
+    const current = runValues[index];
+    const delta = current - prevValue;
+    if (delta < -128 || delta >= 127) {
+      valueTokens[index - 1] = 127;
+      absoluteTailValues.push(current);
+      escapeCount += 1;
+    } else {
+      valueTokens[index - 1] = delta;
+    }
+    prevValue = current;
+  }
+
+  const bytes = new Uint8Array(4 + runCount + 1 + valueTokens.byteLength + absoluteTailValues.length);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, runCount, true);
+  let offset = 4;
+  for (let index = 0; index < runCount; index += 1) {
+    bytes[offset] = runLengths[index];
+    offset += 1;
+  }
+  bytes[offset] = runValues[0];
+  offset += 1;
+  bytes.set(new Uint8Array(valueTokens.buffer, valueTokens.byteOffset, valueTokens.byteLength), offset);
+  offset += valueTokens.byteLength;
+  for (let index = 0; index < absoluteTailValues.length; index += 1) {
+    bytes[offset] = absoluteTailValues[index];
+    offset += 1;
+  }
+
+  return {
+    bytes,
+    stats: {
+      encoding,
+      runCount,
+      escapeCount,
+      absoluteCount: 1 + escapeCount
+    }
+  };
+}
+
+function buildAltitudeRunLengthPayloadFromCompact(compactRecords, recordCount) {
+  const ALTITUDE_DIVISOR = 4;
+  if (recordCount <= 0) {
+    return {
+      bytes: new Uint8Array(0),
+      stats: {
+        altitudeEncoding: "rle-col-delta8-q1m",
+        altitudeRunCount: 0,
+        altitudeEscapeCount: 0,
+        altitudeAbsoluteCount: 0
+      }
+    };
+  }
+
+  const altitudes = compactRecords.altitudesQ;
+  const runLengths = [];
+  const runValues = [];
+  let runCount = 0;
+  let escapeCount = 0;
+  let previous = altitudes[0] === INT16_NAN ? INT16_NAN : Math.round(altitudes[0] / ALTITUDE_DIVISOR);
+  let runLength = 1;
+
+  const flushRun = (value, count) => {
+    let remaining = count;
+    while (remaining > 0) {
+      const chunkLength = Math.min(255, remaining);
+      runLengths.push(chunkLength);
+      runValues.push(value);
+      runCount += 1;
+      remaining -= chunkLength;
+    }
+  };
+
+  for (let index = 1; index < recordCount; index += 1) {
+    const currentRaw = altitudes[index];
+    const current = currentRaw === INT16_NAN ? INT16_NAN : Math.round(currentRaw / ALTITUDE_DIVISOR);
+    if (current === previous) {
+      runLength += 1;
+      continue;
+    }
+    flushRun(previous, runLength);
+    previous = current;
+    runLength = 1;
+  }
+  flushRun(previous, runLength);
+
+  const valueTokens = new Int8Array(Math.max(0, runCount - 1));
+  const absoluteTailValues = [];
+  let prevValue = runValues[0];
+  for (let index = 1; index < runCount; index += 1) {
+    const current = runValues[index];
+    const prevValid = prevValue !== INT16_NAN;
+    const currentValid = current !== INT16_NAN;
+    const delta = currentValid && prevValid ? current - prevValue : Number.NaN;
+    if (!Number.isFinite(delta) || delta < -128 || delta >= 127) {
+      valueTokens[index - 1] = 127;
+      absoluteTailValues.push(current);
+      escapeCount += 1;
+    } else {
+      valueTokens[index - 1] = delta;
+    }
+    prevValue = current;
+  }
+
+  const bytes = new Uint8Array(4 + runCount + 2 + valueTokens.byteLength + absoluteTailValues.length * 2);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, runCount, true);
+  let offset = 4;
+  for (let index = 0; index < runCount; index += 1) {
+    bytes[offset] = runLengths[index];
+    offset += 1;
+  }
+  view.setInt16(offset, runValues[0], true);
+  offset += 2;
+  bytes.set(new Uint8Array(valueTokens.buffer, valueTokens.byteOffset, valueTokens.byteLength), offset);
+  offset += valueTokens.byteLength;
+  for (let index = 0; index < absoluteTailValues.length; index += 1) {
+    view.setInt16(offset, absoluteTailValues[index], true);
+    offset += 2;
+  }
+
+  return {
+    bytes,
+    stats: {
+      altitudeEncoding: "rle-col-delta8-q1m",
+      altitudeRunCount: runCount,
+      altitudeEscapeCount: escapeCount,
+      altitudeAbsoluteCount: 1 + escapeCount
+    }
+  };
+}
+
 function buildWorkoutStreamBlockFromCompactDelta16Power(compactRecords) {
   const recordCount = Number(compactRecords.recordCount || 0);
   let hasCompleteDistanceSeries = recordCount > 0;
@@ -968,6 +1147,99 @@ function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02AltitudeDelt
   };
 }
 
+function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(compactRecords) {
+  const recordCount = Number(compactRecords.recordCount || 0);
+  let hasCompleteDistanceSeries = recordCount > 0;
+  for (let index = 0; index < recordCount; index += 1) {
+    if (compactRecords.distancesQ[index] === UINT32_NAN) {
+      hasCompleteDistanceSeries = false;
+      break;
+    }
+  }
+  const usesSpeedFallback = !hasCompleteDistanceSeries;
+  const headerBytes = 4 + 4 + 8 + 4 + 6 * 4;
+  const distancePayload = buildDistancePayloadCompactUint8Q02(compactRecords, recordCount);
+  const powerPayload = buildPowerDeltaInt8Q4PayloadFromCompact(compactRecords, recordCount);
+  const heartRatePayload = buildUint8RunLengthPayloadColumnDelta(compactRecords.heartRatesBpm, UINT8_NAN, "hr-rle-col-delta8");
+  const cadencePayload = buildUint8RunLengthPayloadColumnDelta(compactRecords.cadencesRpm, UINT8_NAN, "cad-rle-col-delta8");
+  const altitudePayload = buildAltitudeRunLengthPayloadFromCompact(compactRecords, recordCount);
+  const distancesBytes = distancePayload.byteLength;
+  const powersBytes = powerPayload.bytes.byteLength;
+  const heartRatesBytes = heartRatePayload.bytes.byteLength;
+  const cadencesBytes = cadencePayload.bytes.byteLength;
+  const speedsBytes = hasCompleteDistanceSeries ? 0 : recordCount * 2;
+  const altitudesBytes = altitudePayload.bytes.byteLength;
+  const payloadBytes = distancesBytes + powersBytes + heartRatesBytes + cadencesBytes + speedsBytes + altitudesBytes;
+  const buffer = new ArrayBuffer(headerBytes + payloadBytes);
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+  bytes.set(textEncoder.encode("WST9"), 0);
+  view.setUint32(4, recordCount, true);
+  const baseTimestampMs = recordCount > 0 && Number.isFinite(Number(compactRecords.timestampsMs[0]))
+    ? Math.round(Number(compactRecords.timestampsMs[0]))
+    : 0;
+  view.setFloat64(8, baseTimestampMs, true);
+  view.setUint32(16, 1000, true);
+
+  let headerOffset = 20;
+  for (const length of [distancesBytes, powersBytes, heartRatesBytes, cadencesBytes, speedsBytes, altitudesBytes]) {
+    view.setUint32(headerOffset, length, true);
+    headerOffset += 4;
+  }
+
+  let payloadOffset = headerBytes;
+  bytes.set(distancePayload, payloadOffset);
+  payloadOffset += distancesBytes;
+  bytes.set(powerPayload.bytes, payloadOffset);
+  payloadOffset += powersBytes;
+  bytes.set(heartRatePayload.bytes, payloadOffset);
+  payloadOffset += heartRatesBytes;
+  bytes.set(cadencePayload.bytes, payloadOffset);
+  payloadOffset += cadencesBytes;
+  if (speedsBytes > 0) {
+    bytes.set(new Uint8Array(compactRecords.speedsCmS.buffer, compactRecords.speedsCmS.byteOffset, speedsBytes), payloadOffset);
+    payloadOffset += speedsBytes;
+  }
+  bytes.set(altitudePayload.bytes, payloadOffset);
+
+  return {
+    bytes,
+    distancePayloadBytes: distancePayload,
+    powerPayloadBytes: powerPayload.bytes,
+    heartRatePayloadBytes: heartRatePayload.bytes,
+    cadencePayloadBytes: cadencePayload.bytes,
+    speedPayloadBytes: speedsBytes > 0
+      ? new Uint8Array(compactRecords.speedsCmS.buffer, compactRecords.speedsCmS.byteOffset, speedsBytes)
+      : new Uint8Array(0),
+    altitudePayloadBytes: altitudePayload.bytes,
+    stats: {
+      recordCount,
+      usesSpeedFallback,
+      speedFallbackRecordCount: usesSpeedFallback ? recordCount : 0,
+      powerEncoding: powerPayload.stats.powerEncoding,
+      powerEscapeCount: powerPayload.stats.powerEscapeCount,
+      powerAbsoluteCount: powerPayload.stats.powerAbsoluteCount,
+      distanceEncoding: "uint8-q02",
+      heartRateEncoding: heartRatePayload.stats.encoding,
+      heartRateRunCount: heartRatePayload.stats.runCount,
+      cadenceEncoding: cadencePayload.stats.encoding,
+      cadenceRunCount: cadencePayload.stats.runCount,
+      altitudeEncoding: altitudePayload.stats.altitudeEncoding,
+      altitudeRunCount: altitudePayload.stats.altitudeRunCount,
+      altitudeEscapeCount: altitudePayload.stats.altitudeEscapeCount,
+      altitudeAbsoluteCount: altitudePayload.stats.altitudeAbsoluteCount,
+      blockBytes: {
+        distances: distancesBytes,
+        powers: powersBytes,
+        heartRates: heartRatesBytes,
+        cadences: cadencesBytes,
+        speeds: speedsBytes,
+        altitudes: altitudesBytes
+      }
+    }
+  };
+}
+
 function buildGpsCoordinatePayload(points) {
   const quantized = points.map((point) => ({
     lat: Number.isFinite(Number(point.lat)) ? Math.round(Number(point.lat) * MICRO_DEGREES) : INT32_NAN,
@@ -1397,7 +1669,7 @@ export function createWoa1FileFromCompact(parsedCompact, {
   compressGpsTrack = null,
   powerEncoding = "delta8-q4w",
   distanceEncoding = "uint8-q02",
-  altitudeEncoding = "delta8-q1m"
+  altitudeEncoding = "rle-delta-q1m"
 } = {}) {
   const timings = {
     buildReducedGpsTrackMs: 0,
@@ -1420,8 +1692,11 @@ export function createWoa1FileFromCompact(parsedCompact, {
   const useDeltaPowerQ4 = powerEncoding === "delta8-q4w";
   const useDistanceUint8Q02 = distanceEncoding === "uint8-q02";
   const useAltitudeDeltaQ1m = altitudeEncoding === "delta8-q1m";
+  const useRleDeltaQ1m = altitudeEncoding === "rle-delta-q1m";
   let workoutStreamBlock;
-  if (useDeltaPowerQ4 && useDistanceUint8Q02 && useAltitudeDeltaQ1m) {
+  if (useDeltaPowerQ4 && useDistanceUint8Q02 && useRleDeltaQ1m) {
+    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(parsedCompact?.compactRecords || {});
+  } else if (useDeltaPowerQ4 && useDistanceUint8Q02 && useAltitudeDeltaQ1m) {
     workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02AltitudeDeltaQ1m(parsedCompact?.compactRecords || {});
   } else if (useDeltaPower && useDistanceUint8Q02 && useAltitudeDeltaQ1m) {
     workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeDeltaQ1m(parsedCompact?.compactRecords || {});

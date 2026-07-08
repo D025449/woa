@@ -136,6 +136,8 @@ function createRunLengthAnalysis() {
     runsGe8: 0,
     encodedBytesValueCount: 0,
     encodedBytesRunCount: 0,
+    runsGt255: 0,
+    extraUint8Chunks: 0,
   };
 }
 
@@ -395,6 +397,10 @@ function mergeRunLengthAnalysis(target, values, sentinel) {
       target.encodedBytesRunCount += 1;
       remaining -= chunkLength;
     }
+    if (currentRunLength > 255) {
+      target.runsGt255 += 1;
+      target.extraUint8Chunks += Math.ceil(currentRunLength / 255) - 1;
+    }
   }
 
   for (let index = 0; index < values.length; index += 1) {
@@ -439,6 +445,7 @@ function formatRunLengthAnalysis(name, stats) {
     `${name}Rle(n:${totalCount},runs:${stats.runCount},avg:${avgRun.toFixed(2)},` +
     `repVals:${repeatedPct.toFixed(1)}%,r2:${pctRuns(stats.runsGe2)}%,r3:${pctRuns(stats.runsGe3)}%,` +
     `r4:${pctRuns(stats.runsGe4)}%,r8:${pctRuns(stats.runsGe8)}%,max:${stats.maxRunLength},` +
+    `gt255:${pctRuns(stats.runsGt255)}%,u8extra:${stats.extraUint8Chunks},` +
     `bytes:${(encodedBytes / 1024 / 1024).toFixed(2)}MiB,save:${savePct.toFixed(1)}%)`
   );
 }
@@ -501,6 +508,92 @@ function buildUint8RunLengthPayload(values, sentinel) {
     offset += chunk.byteLength;
   }
   return payload;
+}
+
+function buildUint8RunLengthPayloadColumnDelta(values, sentinel, encoding = "rle-col-delta8") {
+  if (!values || values.length <= 0) {
+    return {
+      bytes: new Uint8Array(0),
+      stats: {
+        encoding,
+        runCount: 0,
+        escapeCount: 0,
+        absoluteCount: 0,
+      },
+    };
+  }
+
+  const runLengths = [];
+  const runValues = [];
+  let runCount = 0;
+  let escapeCount = 0;
+  let previous = values[0];
+  let runLength = 1;
+
+  const flushRun = (value, count) => {
+    let remaining = count;
+    while (remaining > 0) {
+      const chunkLength = Math.min(255, remaining);
+      runLengths.push(chunkLength);
+      runValues.push(value);
+      runCount += 1;
+      remaining -= chunkLength;
+    }
+  };
+
+  for (let index = 1; index < values.length; index += 1) {
+    const current = values[index];
+    if (current === previous) {
+      runLength += 1;
+      continue;
+    }
+    flushRun(previous, runLength);
+    previous = current;
+    runLength = 1;
+  }
+  flushRun(previous, runLength);
+
+  const valueTokens = new Int8Array(Math.max(0, runCount - 1));
+  const absoluteTailValues = [];
+  let prevValue = runValues[0];
+  for (let index = 1; index < runCount; index += 1) {
+    const current = runValues[index];
+    const delta = current - prevValue;
+    if (delta < -128 || delta >= 127) {
+      valueTokens[index - 1] = 127;
+      absoluteTailValues.push(current);
+      escapeCount += 1;
+    } else {
+      valueTokens[index - 1] = delta;
+    }
+    prevValue = current;
+  }
+
+  const bytes = new Uint8Array(4 + runCount + 1 + valueTokens.byteLength + absoluteTailValues.length);
+  writeUint32LE(bytes, 0, runCount);
+  let offset = 4;
+  for (let index = 0; index < runCount; index += 1) {
+    bytes[offset] = runLengths[index];
+    offset += 1;
+  }
+  bytes[offset] = runValues[0];
+  offset += 1;
+  bytes.set(new Uint8Array(valueTokens.buffer, valueTokens.byteOffset, valueTokens.byteLength), offset);
+  offset += valueTokens.byteLength;
+  for (let index = 0; index < absoluteTailValues.length; index += 1) {
+    bytes[offset] = absoluteTailValues[index];
+    offset += 1;
+  }
+
+  return {
+    bytes,
+    stats: {
+      encoding,
+      runCount,
+      escapeCount,
+      absoluteCount: 1 + escapeCount,
+    },
+  };
 }
 
 function analyzeDistanceDeltasForScale(values, sentinel, divisor, int8Escape = -128) {
@@ -852,6 +945,21 @@ function compactAltitude(value) {
   return Number.isFinite(value) ? Math.max(-32767, Math.min(32767, Math.round(value * 4))) : COMPACT_SENTINELS.int16;
 }
 
+function dropAllZeroAltitudeColumn(altitudesQ) {
+  if (!altitudesQ || altitudesQ.length <= 0) return altitudesQ;
+  let validCount = 0;
+  for (let index = 0; index < altitudesQ.length; index += 1) {
+    const value = altitudesQ[index];
+    if (value === COMPACT_SENTINELS.int16) continue;
+    validCount += 1;
+    if (value !== 0) return altitudesQ;
+  }
+  if (validCount <= 0) return altitudesQ;
+  const dropped = new Int16Array(altitudesQ.length);
+  dropped.fill(COMPACT_SENTINELS.int16);
+  return dropped;
+}
+
 function compactDistance(value) {
   return Number.isFinite(value) && value >= 0
     ? Math.max(0, Math.min(0xfffffffe, Math.round(value * 4)))
@@ -1138,7 +1246,7 @@ function parseFitBufferCompactRaw(buffer) {
     heartRatesBpm: heartRatesBpm.toTypedArray(),
     cadencesRpm: cadencesRpm.toTypedArray(),
     speedsCmS: speedsCmS.toTypedArray(),
-    altitudesQ: altitudesQ.toTypedArray(),
+    altitudesQ: dropAllZeroAltitudeColumn(altitudesQ.toTypedArray()),
     positionLatsE6: positionLatsE6.toTypedArray(),
     positionLongsE6: positionLongsE6.toTypedArray(),
   };
@@ -2221,15 +2329,18 @@ function buildAltitudeRunLengthPayloadCompact(altitudesQ) {
     return {
       bytes: new Uint8Array(0),
       stats: {
-        encoding: "rle-q1m",
+        encoding: "rle-col-delta8-q1m",
         runCount: 0,
+        escapeCount: 0,
+        absoluteCount: 0,
       },
     };
   }
 
-  const chunks = [];
-  let totalBytes = 0;
+  const runLengths = [];
+  const runValues = [];
   let runCount = 0;
+  let escapeCount = 0;
   let previous = altitudesQ[0] === COMPACT_SENTINELS.int16
     ? COMPACT_SENTINELS.int16
     : Math.round(altitudesQ[0] / ALTITUDE_DIVISOR);
@@ -2239,11 +2350,8 @@ function buildAltitudeRunLengthPayloadCompact(altitudesQ) {
     let remaining = count;
     while (remaining > 0) {
       const chunkLength = Math.min(255, remaining);
-      const chunk = new Uint8Array(3);
-      chunk[0] = chunkLength;
-      writeInt16LE(chunk, 1, value);
-      chunks.push(chunk);
-      totalBytes += chunk.byteLength;
+      runLengths.push(chunkLength);
+      runValues.push(value);
       runCount += 1;
       remaining -= chunkLength;
     }
@@ -2264,17 +2372,46 @@ function buildAltitudeRunLengthPayloadCompact(altitudesQ) {
   }
   flushRun(previous, runLength);
 
-  const bytes = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
+  const valueTokens = new Int8Array(Math.max(0, runCount - 1));
+  const absoluteTailValues = [];
+  let prevValue = runValues[0];
+  for (let index = 1; index < runCount; index += 1) {
+    const current = runValues[index];
+    const prevValid = prevValue !== COMPACT_SENTINELS.int16;
+    const currentValid = current !== COMPACT_SENTINELS.int16;
+    const delta = currentValid && prevValid ? current - prevValue : Number.NaN;
+    if (!Number.isFinite(delta) || delta < -128 || delta >= 127) {
+      valueTokens[index - 1] = 127;
+      absoluteTailValues.push(current);
+      escapeCount += 1;
+    } else {
+      valueTokens[index - 1] = delta;
+    }
+    prevValue = current;
+  }
+
+  const bytes = new Uint8Array(4 + runCount + 2 + valueTokens.byteLength + absoluteTailValues.length * 2);
+  writeUint32LE(bytes, 0, runCount);
+  let offset = 4;
+  for (let index = 0; index < runCount; index += 1) {
+    bytes[offset] = runLengths[index];
+    offset += 1;
+  }
+  writeInt16LE(bytes, offset, runValues[0]);
+  offset += 2;
+  bytes.set(new Uint8Array(valueTokens.buffer, valueTokens.byteOffset, valueTokens.byteLength), offset);
+  offset += valueTokens.byteLength;
+  for (let index = 0; index < absoluteTailValues.length; index += 1) {
+    writeInt16LE(bytes, offset, absoluteTailValues[index]);
+    offset += 2;
   }
   return {
     bytes,
     stats: {
-      encoding: "rle-q1m",
+      encoding: "rle-col-delta8-q1m",
       runCount,
+      escapeCount,
+      absoluteCount: 1 + escapeCount,
     },
   };
 }
@@ -2440,11 +2577,21 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeRle(c
   }
   const distancePayload = buildDistancePayloadCompactUint8Q02(columns.distancesQ);
   const powerPayload = buildPowerDeltaPayloadCompact(columns.powersW);
+  const heartRatePayload = buildUint8RunLengthPayloadColumnDelta(
+    columns.heartRatesBpm,
+    COMPACT_SENTINELS.uint8,
+    "hr-rle-col-delta8",
+  );
+  const cadencePayload = buildUint8RunLengthPayloadColumnDelta(
+    columns.cadencesRpm,
+    COMPACT_SENTINELS.uint8,
+    "cad-rle-col-delta8",
+  );
   const altitudePayload = buildAltitudeRunLengthPayloadCompact(columns.altitudesQ);
   const distancesBytes = distancePayload.byteLength;
   const powersBytes = powerPayload.bytes.byteLength;
-  const heartRatesBytes = recordCount;
-  const cadencesBytes = recordCount;
+  const heartRatesBytes = heartRatePayload.bytes.byteLength;
+  const cadencesBytes = cadencePayload.bytes.byteLength;
   const speedsBytes = hasCompleteDistanceSeries ? 0 : recordCount * 2;
   const altitudesBytes = altitudePayload.bytes.byteLength;
   const headerBytes = 4 + 4 + 8 + 4 + 6 * 4;
@@ -2463,9 +2610,9 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeRle(c
   payloadOffset += distancesBytes;
   bytes.set(powerPayload.bytes, payloadOffset);
   payloadOffset += powersBytes;
-  bytes.set(columns.heartRatesBpm, payloadOffset);
+  bytes.set(heartRatePayload.bytes, payloadOffset);
   payloadOffset += heartRatesBytes;
-  bytes.set(columns.cadencesRpm, payloadOffset);
+  bytes.set(cadencePayload.bytes, payloadOffset);
   payloadOffset += cadencesBytes;
   if (speedsBytes > 0) {
     bytes.set(new Uint8Array(columns.speedsCmS.buffer, columns.speedsCmS.byteOffset, speedsBytes), payloadOffset);
@@ -2476,8 +2623,8 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeRle(c
     bytes,
     distancePayloadBytes: distancePayload,
     powerPayloadBytes: powerPayload.bytes,
-    heartRatePayloadBytes: columns.heartRatesBpm,
-    cadencePayloadBytes: columns.cadencesRpm,
+    heartRatePayloadBytes: heartRatePayload.bytes,
+    cadencePayloadBytes: cadencePayload.bytes,
     speedPayloadBytes: speedsBytes > 0
       ? new Uint8Array(columns.speedsCmS.buffer, columns.speedsCmS.byteOffset, speedsBytes)
       : new Uint8Array(0),
@@ -2490,9 +2637,12 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeRle(c
       powerEscapeCount: powerPayload.stats.escapeCount,
       powerAbsoluteCount: powerPayload.stats.absoluteCount,
       distanceEncoding: "uint8-q02",
+      heartRateEncoding: heartRatePayload.stats.encoding,
+      heartRateRunCount: heartRatePayload.stats.runCount || 0,
+      cadenceEncoding: cadencePayload.stats.encoding,
+      cadenceRunCount: cadencePayload.stats.runCount || 0,
       altitudeEncoding: altitudePayload.stats.encoding,
       altitudeRunCount: altitudePayload.stats.runCount || 0,
-      cadenceEncoding: "raw8",
       blockBytes: {
         distances: distancesBytes,
         powers: powersBytes,

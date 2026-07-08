@@ -451,6 +451,15 @@ function getEncodingOptions() {
     } catch {
         // ignore
     }
+    let compactAltitudeEncoding = "rle-delta-q1m";
+    try {
+        const value = localStorage.getItem("woaUploadCompactAltitudeEncoding");
+        if (value === "delta8-q1m") {
+            compactAltitudeEncoding = "delta8-q1m";
+        }
+    } catch {
+        // ignore
+    }
     return {
         gentleQuantization: true,
         powerStep: 4,
@@ -458,7 +467,8 @@ function getEncodingOptions() {
         hrStep: 2,
         fitParserVariant,
         compactPowerEncoding,
-        compactDistanceEncoding
+        compactDistanceEncoding,
+        compactAltitudeEncoding
     };
 }
 

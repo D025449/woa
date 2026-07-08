@@ -66,6 +66,7 @@ function createWoaFromParsed(parsed, parserVariant, fileName, encodingOptions) {
         sampleRateSeconds: 5,
         powerEncoding: encodingOptions?.compactPowerEncoding === "raw16" ? "raw16" : "delta8-q4w",
         distanceEncoding: encodingOptions?.compactDistanceEncoding === "default" ? "default" : "uint8-q02",
+        altitudeEncoding: encodingOptions?.compactAltitudeEncoding === "delta8-q1m" ? "delta8-q1m" : "rle-delta-q1m",
         compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
         compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
       })

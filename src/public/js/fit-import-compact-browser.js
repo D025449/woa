@@ -130,6 +130,21 @@ function compactAltitude(value) {
     : COMPACT_SENTINELS.int16;
 }
 
+function dropAllZeroAltitudeColumn(altitudesQ) {
+  if (!altitudesQ || altitudesQ.length <= 0) return altitudesQ;
+  let validCount = 0;
+  for (let index = 0; index < altitudesQ.length; index += 1) {
+    const value = altitudesQ[index];
+    if (value === COMPACT_SENTINELS.int16) continue;
+    validCount += 1;
+    if (value !== 0) return altitudesQ;
+  }
+  if (validCount <= 0) return altitudesQ;
+  const dropped = new Int16Array(altitudesQ.length);
+  dropped.fill(COMPACT_SENTINELS.int16);
+  return dropped;
+}
+
 function compactCoordFromSemicircles(raw) {
   return Math.max(-0x7fffffff, Math.min(0x7fffffff, Math.round(raw * 180000000 / 0x80000000)));
 }
@@ -382,7 +397,7 @@ export function parseFitBufferCompactBrowser(buffer, { excludeStartTimes = null 
       heartRatesBpm: Uint8Array.from(heartRatesBpm),
       cadencesRpm: Uint8Array.from(cadencesRpm),
       speedsCmS: Uint16Array.from(speedsCmS),
-      altitudesQ: Int16Array.from(altitudesQ),
+      altitudesQ: dropAllZeroAltitudeColumn(Int16Array.from(altitudesQ)),
       positionLatsE6: Int32Array.from(positionLatsE6),
       positionLongsE6: Int32Array.from(positionLongsE6),
     },

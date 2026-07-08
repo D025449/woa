@@ -11,6 +11,7 @@ const STREAM_FORMAT_ABSOLUTE_COMPACT = 5; // compact absolute samples + optional
 const SPEED_SCALE_INTERNAL = 100; // store speed as m/s * 100
 const ALTITUDE_SCALE_INTERNAL = 1000; // store altitude as m * 1000
 const ALTITUDE_ABS_COMPACT_SCALE = 10; // compact absolute altitude storage in 0.1m
+const WOA_RLE_DELTA_ESCAPE = 127;
 const MPS_TO_KMH = 3.6;
 const FLAG_HAS_DISTANCE_DELTAS_CM = 1;
 const DEFAULT_STREAM_CODEC = "brotli";
@@ -463,13 +464,15 @@ export default class Workout {
         const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
-        if (magic !== "WST2" && magic !== "WST3" && magic !== "WST4" && magic !== "WST5" && magic !== "WST6" && magic !== "WST7" && magic !== "WST8") {
+        if (magic !== "WST2" && magic !== "WST3" && magic !== "WST4" && magic !== "WST5" && magic !== "WST6" && magic !== "WST7" && magic !== "WST8" && magic !== "WST9") {
             throw new Error(`Unsupported workout stream block: ${magic}`);
         }
         const isWst3 = magic === "WST3";
-        const isWst4 = magic === "WST4" || magic === "WST6" || magic === "WST7" || magic === "WST8";
-        const isWst7 = magic === "WST7" || magic === "WST8";
+        const isWst4 = magic === "WST4" || magic === "WST6" || magic === "WST7" || magic === "WST8" || magic === "WST9";
+        const isWst7 = magic === "WST7" || magic === "WST8" || magic === "WST9";
         const isWst8 = magic === "WST8";
+        const isWst9 = magic === "WST9";
+        const usesInt8PowerDelta = isWst8 || isWst9;
         const compactHeader = isWst3 || isWst4 || magic === "WST5";
         const recordCount = view.getUint32(4, true);
         const baseTimestampMs = view.getFloat64(8, true);
@@ -490,7 +493,7 @@ export default class Workout {
         if (isWst4) {
             const powerBlockEnd = offset + lengths[1];
             let deltaOffset = offset;
-            let absoluteOffset = offset + 2 + Math.max(0, recordCount - 1) * (isWst8 ? 1 : 2);
+            let absoluteOffset = offset + 2 + Math.max(0, recordCount - 1) * (usesInt8PowerDelta ? 1 : 2);
             if (recordCount > 0) {
                 const firstRaw = view.getUint16(deltaOffset, true);
                 powersW[0] = firstRaw === WOA_UINT16_NAN ? Number.NaN : firstRaw;
@@ -498,17 +501,17 @@ export default class Workout {
             }
             let prev = powersW[0];
             for (let i = 1; i < recordCount; i += 1) {
-                const delta = isWst8 ? view.getInt8(deltaOffset) : view.getInt16(deltaOffset, true);
-                deltaOffset += isWst8 ? 1 : 2;
-                if ((isWst8 && delta === 127) || (!isWst8 && delta === WOA_INT16_NAN)) {
+                const delta = usesInt8PowerDelta ? view.getInt8(deltaOffset) : view.getInt16(deltaOffset, true);
+                deltaOffset += usesInt8PowerDelta ? 1 : 2;
+                if ((usesInt8PowerDelta && delta === 127) || (!usesInt8PowerDelta && delta === WOA_INT16_NAN)) {
                     if (absoluteOffset + 2 > powerBlockEnd) {
-                        throw new Error(`Corrupt ${isWst8 ? "WST8" : "WST4"} power block: missing absolute fallback value`);
+                        throw new Error(`Corrupt ${usesInt8PowerDelta ? magic : "WST4"} power block: missing absolute fallback value`);
                     }
                     const absoluteRaw = view.getUint16(absoluteOffset, true);
                     absoluteOffset += 2;
                     powersW[i] = absoluteRaw === WOA_UINT16_NAN ? Number.NaN : absoluteRaw;
                 } else if (Number.isFinite(prev)) {
-                    powersW[i] = prev + (isWst8 ? delta * 4 : delta);
+                    powersW[i] = prev + (usesInt8PowerDelta ? delta * 4 : delta);
                 } else {
                     powersW[i] = Number.NaN;
                 }
@@ -523,18 +526,26 @@ export default class Workout {
         offset += lengths[1];
 
         const heartRatesBpm = new Float64Array(recordCount);
-        for (let i = 0; i < recordCount; i += 1) {
-            const raw = view.getUint8(offset + i);
-            heartRatesBpm[i] = raw === WOA_UINT8_NAN ? Number.NaN : raw;
+        if (isWst9) {
+            offset = this.#decodeUint8RunLengthDeltaBlock(view, offset, lengths[2], recordCount, heartRatesBpm);
+        } else {
+            for (let i = 0; i < recordCount; i += 1) {
+                const raw = view.getUint8(offset + i);
+                heartRatesBpm[i] = raw === WOA_UINT8_NAN ? Number.NaN : raw;
+            }
+            offset += lengths[2];
         }
-        offset += lengths[2];
 
         const cadencesRpm = new Float64Array(recordCount);
-        for (let i = 0; i < recordCount; i += 1) {
-            const raw = view.getUint8(offset + i);
-            cadencesRpm[i] = raw === WOA_UINT8_NAN ? Number.NaN : raw;
+        if (isWst9) {
+            offset = this.#decodeUint8RunLengthDeltaBlock(view, offset, lengths[3], recordCount, cadencesRpm);
+        } else {
+            for (let i = 0; i < recordCount; i += 1) {
+                const raw = view.getUint8(offset + i);
+                cadencesRpm[i] = raw === WOA_UINT8_NAN ? Number.NaN : raw;
+            }
+            offset += lengths[3];
         }
-        offset += lengths[3];
 
         const hasSpeeds = lengths[4] > 0;
         const speedsMps = new Float64Array(recordCount);
@@ -547,7 +558,9 @@ export default class Workout {
         offset += lengths[4];
 
         const altitudesM = new Float64Array(recordCount);
-        if (isWst7) {
+        if (isWst9) {
+            offset = this.#decodeInt16RunLengthDeltaBlock(view, offset, lengths[5], recordCount, altitudesM);
+        } else if (isWst7) {
             const altitudeBlockEnd = offset + lengths[5];
             let deltaOffset = offset;
             let absoluteOffset = offset + 2 + Math.max(0, recordCount - 1);
@@ -607,6 +620,74 @@ export default class Workout {
             speedsMps,
             altitudesM
         };
+    }
+
+    static #decodeUint8RunLengthDeltaBlock(view, offset, blockLength, recordCount, output) {
+        const blockEnd = offset + blockLength;
+        const runCount = view.getUint32(offset, true);
+        offset += 4;
+        const lengthsOffset = offset;
+        const valuesOffset = lengthsOffset + runCount;
+        const tokenOffset = valuesOffset + 1;
+        let absoluteOffset = tokenOffset + Math.max(0, runCount - 1);
+        let currentValue = runCount > 0 ? view.getUint8(valuesOffset) : WOA_UINT8_NAN;
+        let writeIndex = 0;
+        for (let runIndex = 0; runIndex < runCount && writeIndex < recordCount; runIndex += 1) {
+            if (runIndex > 0) {
+                const token = view.getInt8(tokenOffset + runIndex - 1);
+                if (token === WOA_RLE_DELTA_ESCAPE) {
+                    if (absoluteOffset + 1 > blockEnd) {
+                        throw new Error("Corrupt WST9 uint8 RLE block: missing absolute fallback value");
+                    }
+                    currentValue = view.getUint8(absoluteOffset);
+                    absoluteOffset += 1;
+                } else if (currentValue !== WOA_UINT8_NAN) {
+                    currentValue = currentValue + token;
+                } else {
+                    currentValue = WOA_UINT8_NAN;
+                }
+            }
+            const runLength = view.getUint8(lengthsOffset + runIndex);
+            for (let i = 0; i < runLength && writeIndex < recordCount; i += 1) {
+                output[writeIndex] = currentValue === WOA_UINT8_NAN ? Number.NaN : currentValue;
+                writeIndex += 1;
+            }
+        }
+        return blockEnd;
+    }
+
+    static #decodeInt16RunLengthDeltaBlock(view, offset, blockLength, recordCount, output) {
+        const blockEnd = offset + blockLength;
+        const runCount = view.getUint32(offset, true);
+        offset += 4;
+        const lengthsOffset = offset;
+        const valuesOffset = lengthsOffset + runCount;
+        const tokenOffset = valuesOffset + 2;
+        let absoluteOffset = tokenOffset + Math.max(0, runCount - 1);
+        let currentValue = runCount > 0 ? view.getInt16(valuesOffset, true) : WOA_INT16_NAN;
+        let writeIndex = 0;
+        for (let runIndex = 0; runIndex < runCount && writeIndex < recordCount; runIndex += 1) {
+            if (runIndex > 0) {
+                const token = view.getInt8(tokenOffset + runIndex - 1);
+                if (token === WOA_RLE_DELTA_ESCAPE) {
+                    if (absoluteOffset + 2 > blockEnd) {
+                        throw new Error("Corrupt WST9 altitude block: missing absolute fallback value");
+                    }
+                    currentValue = view.getInt16(absoluteOffset, true);
+                    absoluteOffset += 2;
+                } else if (currentValue !== WOA_INT16_NAN) {
+                    currentValue = currentValue + token;
+                } else {
+                    currentValue = WOA_INT16_NAN;
+                }
+            }
+            const runLength = view.getUint8(lengthsOffset + runIndex);
+            for (let i = 0; i < runLength && writeIndex < recordCount; i += 1) {
+                output[writeIndex] = currentValue === WOA_INT16_NAN ? Number.NaN : currentValue;
+                writeIndex += 1;
+            }
+        }
+        return blockEnd;
     }
 
     static encodeWst3FromWorkout(workoutObject) {
@@ -709,7 +790,16 @@ export default class Workout {
     static fromBuffer(buffer) {
         const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
         const magic = bytes.byteLength >= 4 ? TEXT_DECODER.decode(bytes.subarray(0, 4)) : "";
-        if (magic === "WST2" || magic === "WST3" || magic === "WST4" || magic === "WST5" || magic === "WST6" || magic === "WST7" || magic === "WST8") {
+        if (
+            magic === "WST2" ||
+            magic === "WST3" ||
+            magic === "WST4" ||
+            magic === "WST5" ||
+            magic === "WST6" ||
+            magic === "WST7" ||
+            magic === "WST8" ||
+            magic === "WST9"
+        ) {
             const decoded = this.decodeWst3Buffer(bytes);
             return this.fromTypedArrays(decoded, {
                 startTimeMs: Number.isFinite(Number(decoded.timestampsMs?.[0])) ? Number(decoded.timestampsMs[0]) : Date.now(),
