@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import util from "node:util";
-import { gunzipSync } from "node:zlib";
+import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import { Router } from "express";
 import unzipper from "unzipper";
 
@@ -23,6 +23,26 @@ const router = Router();
 const IMPORT_SYNC_PROFILE_LOG = String(process.env.IMPORT_SYNC_PROFILE_LOG || "1").trim() !== "0";
 const IMPORT_DB_BULK_INSERT_SIZE = Math.max(1, Number(process.env.IMPORT_DB_BULK_INSERT_SIZE) || 20);
 const IMPORT_POSTPROCESS_ENQUEUE_BULK_SIZE = 500;
+
+function resolveUploadContainerCompression(req) {
+  const explicit = String(
+    req.headers["x-upload-compression"]
+      || req.headers["content-encoding"]
+      || ""
+  ).trim().toLowerCase();
+  if (explicit === "br" || explicit === "brotli") return "brotli";
+  if (explicit === "gzip" || explicit === "x-gzip") return "gzip";
+
+  const fileName = String(req.headers["x-upload-filename"] || "").trim().toLowerCase();
+  if (fileName.endsWith(".br")) return "brotli";
+  return "gzip";
+}
+
+function decompressUploadContainer(bytes, compression) {
+  return compression === "brotli"
+    ? brotliDecompressSync(bytes)
+    : gunzipSync(bytes);
+}
 
 function formatLogPayload(payload = {}) {
   return util.inspect(payload, {
@@ -516,7 +536,8 @@ router.post(
         return res.status(400).json({ error: "Keine Datei hochgeladen" });
       }
 
-      const inflatedBytes = gunzipSync(compressedBytes);
+      const containerCompression = resolveUploadContainerCompression(req);
+      const inflatedBytes = decompressUploadContainer(compressedBytes, containerCompression);
       const decoded = decodeWoaTransportContainer(inflatedBytes);
       const woaEntries = decoded.entries.filter((entry) =>
         String(entry?.name || "").toLowerCase().endsWith(".woa1")
@@ -528,7 +549,7 @@ router.post(
 
       const result = await importWoaEntryReaders({
         userId: req.user.id,
-        sourceName: String(req.headers["x-upload-filename"] || "upload.woat.gz"),
+        sourceName: String(req.headers["x-upload-filename"] || (containerCompression === "brotli" ? "upload.woat.br" : "upload.woat.gz")),
         uploadedSizeBytes: compressedBytes.length,
         overwriteExisting: String(req.headers["x-overwrite-existing"] || "0") === "1",
         entryReaders: woaEntries.map((entry) => ({

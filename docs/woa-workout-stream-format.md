@@ -8,7 +8,7 @@ Diese Datei beschreibt nur den Workout-Stream-Block, nicht den aeusseren WOA1-Co
 
 `WST6` ist ein kompakter 1-Hz-Stream mit:
 
-- `distance`: delta-codiert in einem Blockformat, bevorzugt `uint8` bei Quantisierung auf `0.2 m`
+- `distance`: delta-codiert in einem Blockformat, bevorzugt `uint8` bei effektiv `0.5 m` Encodierungsauflosung
 - `power`: bevorzugt delta-codiert als `int16` mit Escape-Fallback auf absoluten `uint16`-Wert
 - `heart rate`: absolut als `uint8`
 - `cadence`: absolut als `uint8`
@@ -58,18 +58,44 @@ Danach folgen die sechs Payload-Bloecke genau in dieser Reihenfolge.
 
 ### Interne Quantisierung
 
-Vor der Stream-Erzeugung wird Distanz in `0.2 m`-Schritte quantisiert.
+Vor der eigentlichen Stream-Erzeugung wird Distanz im Compact-Pfad zuerst in `0.25 m`-Schritte quantisiert.
 
 Im Stream wird intern der quantisierte Integerwert gespeichert:
 
-- `storedDistance = round(distanceMeters * 5)`
+- `compactDistanceQ = round(distanceMeters * 4)`
 - Rueckrechnung:
-  - `distanceMeters = storedDistance / 5`
+  - `distanceMeters = compactDistanceQ / 4`
 
 Beispiel:
 
-- `1234.6 m` -> `6173`
-- Decoding: `6173 / 5 = 1234.6 m`
+- `1234.5 m` -> `4938`
+- Decoding: `4938 / 4 = 1234.5 m`
+
+### Produktive Distanz-Encodierung
+
+Der aktuelle produktive Distanzpfad heisst im Code jetzt:
+
+- `uint8-q05m`
+
+Historischer Legacy-Alias:
+
+- `uint8-q02`
+
+Wichtig:
+
+- `uint8-q02` ist nur noch ein Kompatibilitaetsname
+- semantisch meint der aktuelle Produktpfad **nicht** `0.2 m`
+- er arbeitet auf den bereits quantisierten `0.25 m`-Werten und skaliert diese fuer den Delta-Pfad noch einmal herunter
+
+Konkret:
+
+- Encoder-Ausgangspunkt: `compactDistanceQ` in `0.25 m`
+- fuer den `uint8-q05m`-Pfad wird gespeichert:
+  - `encodedDistanceQ = round(compactDistanceQ / 2)`
+- damit ergibt sich effektiv:
+  - `distanceMeters = encodedDistanceQ * 0.5`
+
+Das ist die heute produktive Distanzauflosung im Workout-Stream.
 
 ### Blockformat
 
@@ -84,26 +110,29 @@ Jeder Block beginnt mit:
 
 Danach haengt der Payload vom `mode` ab.
 
-### Mode `2`: `uint8`-Delta, bevorzugter Fall
+### Mode `3`: `uint8`-Delta mit Escape-Resync, bevorzugter Fall
 
-Verwendet, wenn alle Deltas im Block im Bereich `0..255` liegen.
+Verwendet, wenn alle Samples des Blocks auf dem kompakten Distanzpfad darstellbar sind.
 
 Payload:
 
 | Feld | Typ | Bedeutung |
 |---|---:|---|
-| `firstScaled` | `uint32 LE` | erster quantisierter Distanzwert des Blocks |
-| `delta[1..n-1]` | `uint8[]` | positive Deltas zum Vorgaenger |
+| `firstScaled` | `uint32 LE` | erster encodierter Distanzwert des Blocks |
+| `token[1..n-1]` | `uint8[]` | Delta oder Escape |
+| `absoluteTail[...]` | `uint32 LE[]` | absolute Resync-Werte fuer Escape-Faelle |
 
 Formel:
 
 - `value[0] = firstScaled`
-- `value[i] = value[i-1] + delta[i]`
+- `token < 255` -> `value[i] = value[i-1] + token`
+- `token == 255` -> `value[i] = nextAbsoluteFromTail`
 
 Wichtig:
 
 - Deltas duerfen nicht negativ sein
-- Deltas duerfen nicht groesser als `255` sein
+- `255` ist als Escape reserviert
+- normale Inline-Deltas duerfen daher nur `0..254` sein
 
 ### Mode `0`: absoluter Fallback
 
@@ -117,17 +146,16 @@ Payload:
 
 ### Overflow-/Fallback-Fall bei Distanz
 
-Es gibt keinen Escape-Marker pro Sample.
+Der aktuelle Distanzpfad hat zwei Ebenen:
 
-Stattdessen gilt:
+1. bevorzugt `mode = 3`
+   - bei Delta `0..254` wird inline gespeichert
+   - bei groesseren oder problematischen Spruengen wird `255` geschrieben und der absolute Wert im Tail abgelegt
+2. kompletter Block-Fallback auf `mode = 0`
+   - wenn der Block wegen ungueltiger Ausgangsdaten nicht auf dem kompakten Pfad darstellbar ist
+   - zum Beispiel bei `NaN`/Sentinel an einer Stelle, an der der kompakte Pfad einen gueltigen Startwert braucht
 
-- wenn **ein** Sample-Delta im Block ungueltig ist
-  - negativ
-  - groesser als `255`
-  - `NaN`/ungueltig
-- dann faellt **der gesamte Block** auf `mode = 0` zurueck
-
-Das ist der aktuelle Overflow-/Fallback-Mechanismus fuer Distanz.
+Damit ist der heutige Distanzpfad robuster als ein reiner Ganzblock-Fallback, aber nicht vollstaendig escape-only.
 
 ## Power-Kodierung
 
@@ -267,13 +295,23 @@ Im produktiven Compact-Pfad ist derzeit:
 
 - Workout-Streamformat: `WST6`
 - Power-Encoding: `delta16`
-- Distance-Encoding: `uint8-q02`
+- Distance-Encoding: `uint8-q05m`
+
+Legacy-Alias, der weiterhin akzeptiert wird:
+
+- `uint8-q02`
 
 Das ist im Code aktuell in [woa-format-compact.js](/Users/D025449/woa/src/public/js/woa-format-compact.js), [Workout.js](/Users/D025449/woa/src/shared/Workout.js) und [woa1Service.js](/Users/D025449/woa/src/services/woa1Service.js) implementiert.
 
-## Alternative Distanzkodierung: `uint8` mit Escape und Resync
+## Historische Notiz: Escape-Resync bei Distanz
 
-Dieser Abschnitt beschreibt eine moegliche Nachfolgevariante fuer Distanz. Sie ist aktuell nur Design, nicht produktiver Standard.
+Dieser Abschnitt war frueher als Designskizze fuer eine moegliche Nachfolgevariante gedacht.
+
+Wichtig:
+
+- die hier beschriebene Idee ist inzwischen **kein Zukunftskonzept mehr**
+- sie entspricht heute im Kern bereits dem produktiven Distanzpfad mit `mode = 3`
+- der Abschnitt bleibt nur als Hintergrundnotiz stehen
 
 Ziel:
 
@@ -282,25 +320,17 @@ Ziel:
 
 ### Motivation
 
-Das heutige Modell hat diesen Nachteil:
+Die Motivation war damals:
 
-- ein einzelner Ausreisser in einem 128er-Block
-- oder ein einzelnes inkonsistentes Delta
-- fuehrt dazu, dass der komplette Block auf `mode = 0` mit absoluten `uint32`-Werten kippt
-
-Die Alternative waere:
-
-- ein Block startet weiter mit einem absoluten Startwert
-- danach kommen vorzugsweise kleine `uint8`-Deltas
-- nur bei Overflow oder Inkonsistenz wird ein Escape-Marker gesetzt
-- direkt danach wird ein neuer absoluter Resync-Wert gespeichert
+- nicht jeden problematischen Distanzfall sofort auf einen kompletten Absolut-Block kippen zu lassen
+- stattdessen innerhalb eines Blocks lokal mit Escape und absolutem Resync weiterzumachen
 
 ### Vorgeschlagene Kodierung
 
-Quantisierung bleibt:
+Quantisierung waere aus heutiger Sicht:
 
-- `storedDistance = round(distanceMeters * 5)`
-- also `0.2 m` Aufloesung
+- Compact-Basis: `compactDistanceQ = round(distanceMeters * 4)`
+- Produktpfad: effektive `0.5 m` Encodierung ueber `encodedDistanceQ = round(compactDistanceQ / 2)`
 
 Ein Block wuerde weiter mit `mode` und `count` beginnen:
 
@@ -410,14 +440,14 @@ size = 3 + 4 + (N - 1) + 4E
 
 Zum Vergleich:
 
-- aktueller perfekter `mode = 2`-Block:
-  - `N + 6`
-- aktueller absoluter `mode = 0`-Block:
+- aktueller kompakter Distanzblock `mode = 3`:
+  - `N + 6 + 4E`
+- absoluter Fallback `mode = 0`:
   - `3 + 4N`
 
 Das heisst:
 
-- bei wenigen Escapes ist `mode = 3` fast so gut wie `mode = 2`
+- bei wenigen Escapes ist `mode = 3` fast so gut wie ein reiner Inline-Delta-Block
 - und deutlich besser als kompletter Absolut-Fallback
 
 ### Beispiel

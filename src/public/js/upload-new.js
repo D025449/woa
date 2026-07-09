@@ -426,7 +426,9 @@ function buildStartupTimingLines(timings = {}) {
 function getEncodingOptions() {
     let fitParserVariant = "compact";
     let compactPowerEncoding = "delta8-q4w";
-    let compactDistanceEncoding = "uint8-q02";
+    let compactDistanceEncoding = "uint8-q05m";
+    let uploadCompression = "auto";
+    let uploadGzipEngine = "compression-stream";
     try {
         const value = localStorage.getItem("woaUploadFitParserVariant");
         if (value === "typed") {
@@ -460,6 +462,22 @@ function getEncodingOptions() {
     } catch {
         // ignore
     }
+    try {
+        const value = String(localStorage.getItem("woaUploadCompression") || "").trim().toLowerCase();
+        if (value === "gzip" || value === "brotli" || value === "br") {
+            uploadCompression = value === "br" ? "brotli" : value;
+        }
+    } catch {
+        // ignore
+    }
+    try {
+        const value = String(localStorage.getItem("woaUploadGzipEngine") || "").trim().toLowerCase();
+        if (value === "fflate" || value === "compression-stream" || value === "native") {
+            uploadGzipEngine = value === "native" ? "compression-stream" : value;
+        }
+    } catch {
+        // ignore
+    }
     return {
         gentleQuantization: true,
         powerStep: 4,
@@ -468,7 +486,9 @@ function getEncodingOptions() {
         fitParserVariant,
         compactPowerEncoding,
         compactDistanceEncoding,
-        compactAltitudeEncoding
+        compactAltitudeEncoding,
+        uploadCompression,
+        uploadGzipEngine
     };
 }
 
@@ -626,6 +646,12 @@ function renderCompletedContainerMarkup({
     const compressionRatio = Number(stats.sourceZipBytes || 0) > 0 && Number(stats.outputContainerBytes || 0) > 0
         ? ((Number(stats.outputContainerBytes || 0) / Number(stats.sourceZipBytes || 1)) * 100).toFixed(1)
         : "0.0";
+    const containerCompression = String(stats.containerCompression || "gzip").toLowerCase() === "brotli"
+        ? "brotli"
+        : "gzip";
+    const containerCompressionDetail = containerCompression === "gzip"
+        ? `${containerCompression}${stats.containerCompressionEngine ? `/${escapeHtml(String(stats.containerCompressionEngine))}` : ` level ${escapeHtml(String(stats.containerGzipLevel || 0))}`}`
+        : containerCompression;
     const skippedMarkup = skipped.length > 0
         ? `
             <div class="small mb-3 text-warning">
@@ -666,7 +692,7 @@ function renderCompletedContainerMarkup({
                 Reduced GPS points: ${escapeHtml(String(stats.totalGpsPointCount || 0))}<br>
                 Source ZIP size: ${escapeHtml(formatBytes(Number(stats.sourceZipBytes || 0)))}<br>
                 ${Number(stats.outputContainerBytes || 0) > 0
-                    ? `Output container size: ${escapeHtml(formatBytes(Number(stats.outputContainerBytes || 0)))} (${escapeHtml(compressionRatio)}% of source ZIP, gzip level ${escapeHtml(String(stats.containerGzipLevel || 0))})`
+                    ? `Output container size: ${escapeHtml(formatBytes(Number(stats.outputContainerBytes || 0)))} (${escapeHtml(compressionRatio)}% of source ZIP, ${containerCompressionDetail})`
                     : `Output container is streamed directly to the backend.`
                 }
             </div>
@@ -790,6 +816,10 @@ function uploadGeneratedRawBlob(blob, fileName, uploadUrl, overwriteExisting, on
         request.responseType = "text";
         request.setRequestHeader("Content-Type", "application/octet-stream");
         request.setRequestHeader("X-Upload-Filename", fileName || "upload.woat.gz");
+        request.setRequestHeader(
+            "X-Upload-Compression",
+            String(fileName || "").toLowerCase().endsWith(".br") ? "br" : "gzip"
+        );
         if (overwriteExisting) {
             request.setRequestHeader("X-Overwrite-Existing", "1");
         }
@@ -1319,6 +1349,12 @@ async function handleConvertSubmit(event) {
                 const compressionRatio = Number(stats.sourceZipBytes || 0) > 0
                     ? ((Number(stats.outputContainerBytes || 0) / Number(stats.sourceZipBytes || 1)) * 100).toFixed(1)
                     : "0.0";
+                const containerCompression = String(stats.containerCompression || "gzip").toLowerCase() === "brotli"
+                    ? "brotli"
+                    : "gzip";
+                const containerCompressionDetail = containerCompression === "gzip"
+                    ? `${containerCompression}${stats.containerCompressionEngine ? `/${escapeHtml(String(stats.containerCompressionEngine))}` : ` level ${escapeHtml(String(stats.containerGzipLevel || 0))}`}`
+                    : containerCompression;
                 const skippedMarkup = skipped.length > 0
                     ? `
                         <div class="small mb-3 text-warning">
@@ -1358,7 +1394,7 @@ async function handleConvertSubmit(event) {
                             Total records: ${escapeHtml(String(stats.totalRecordCount || 0))}<br>
                             Reduced GPS points: ${escapeHtml(String(stats.totalGpsPointCount || 0))}<br>
                             Source ZIP size: ${escapeHtml(formatBytes(Number(stats.sourceZipBytes || 0)))}<br>
-                            Output container size: ${escapeHtml(formatBytes(Number(stats.outputContainerBytes || 0)))} (${escapeHtml(compressionRatio)}% of source ZIP, gzip level ${escapeHtml(String(stats.containerGzipLevel || 0))})
+                            Output container size: ${escapeHtml(formatBytes(Number(stats.outputContainerBytes || 0)))} (${escapeHtml(compressionRatio)}% of source ZIP, ${containerCompressionDetail})
                         </div>
                         ${skippedExistingMarkup}
                         ${skippedTooShortMarkup}

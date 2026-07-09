@@ -1,10 +1,53 @@
 import { parseFitBufferTypedBrowser } from "./fit-import-typed-browser.js";
 import { applyCompactEncodingOptions, parseFitBufferCompactBrowser } from "./fit-import-compact-browser.js";
 import { createWoa1File } from "./woa-format.js";
-import { createWoa1FileFromCompact } from "./woa-format-compact.js";
+import { createWoa1FileFromCompactAsync } from "./woa-format-compact.js";
 import { gzipSync } from "/vendor/fflate/browser.js";
 
 const MIN_WORKOUT_RECORD_COUNT = 300;
+const PER_FILE_GZIP_LEVEL = 4;
+
+function canUseCompressionStream(format) {
+  if (typeof CompressionStream === "undefined") {
+    return false;
+  }
+  try {
+    new CompressionStream(format);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveUploadCompressionCodec(encodingOptions = {}) {
+  const requested = String(encodingOptions.uploadCompression || "auto").trim().toLowerCase();
+  if (requested === "gzip") return "gzip";
+  if (requested === "brotli" || requested === "br") {
+    return canUseCompressionStream("brotli") ? "brotli" : "gzip";
+  }
+  return canUseCompressionStream("brotli") ? "brotli" : "gzip";
+}
+
+function resolveGzipEngine(encodingOptions = {}) {
+  const requested = String(encodingOptions.uploadGzipEngine || "compression-stream").trim().toLowerCase();
+  if (requested === "fflate") return "fflate";
+  return canUseCompressionStream("gzip") ? "compression-stream" : "fflate";
+}
+
+async function compressWithCompressionStream(bytes, format) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream(format));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function compressWithCodec(bytes, codec, options = {}, encodingOptions = {}) {
+  if (codec === "brotli") {
+    return compressWithCompressionStream(bytes, "brotli");
+  }
+  if (codec === "gzip" && resolveGzipEngine(encodingOptions) === "compression-stream") {
+    return compressWithCompressionStream(bytes, "gzip");
+  }
+  return gzipSync(bytes, { level: Number(options.level || PER_FILE_GZIP_LEVEL) });
+}
 
 function nowMs() {
   return performance.now();
@@ -38,18 +81,21 @@ function getParsedSessionCount(parsed) {
   return Array.isArray(parsed?.sessions) ? parsed.sessions.length : 0;
 }
 
-function createWoaFromParsed(parsed, parserVariant, entryName, encodingOptions) {
+async function createWoaFromParsed(parsed, parserVariant, entryName, encodingOptions) {
   if (parserVariant === "compact") {
     const adjustedParsed = applyCompactEncodingOptions(parsed, encodingOptions);
+    const streamCodec = resolveUploadCompressionCodec(encodingOptions);
     return {
       adjustedParsed,
-      result: createWoa1FileFromCompact(adjustedParsed, {
+      result: await createWoa1FileFromCompactAsync(adjustedParsed, {
         sourceName: entryName,
         sampleRateSeconds: 5,
         powerEncoding: encodingOptions?.compactPowerEncoding === "raw16" ? "raw16" : "delta8-q4w",
-        distanceEncoding: encodingOptions?.compactDistanceEncoding === "default" ? "default" : "uint8-q02",
-        compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
-        compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
+        distanceEncoding: encodingOptions?.compactDistanceEncoding === "default" ? "default" : "uint8-q05m",
+        streamCodec,
+        gpsTrackBlobCodec: streamCodec,
+        compressWorkoutStream: (bytes, options = {}) => compressWithCodec(bytes, streamCodec, options, encodingOptions),
+        compressGpsTrack: (bytes, options = {}) => compressWithCodec(bytes, streamCodec, options, encodingOptions)
       })
     };
   }
@@ -157,7 +203,7 @@ self.addEventListener("message", async (event) => {
     }
 
     const buildStartedAt = nowMs();
-    const { adjustedParsed, result } = createWoaFromParsed(parsed, parserVariant, entryName, encodingOptions);
+    const { adjustedParsed, result } = await createWoaFromParsed(parsed, parserVariant, entryName, encodingOptions);
     const buildWoaMs = nowMs() - buildStartedAt;
 
     self.postMessage({

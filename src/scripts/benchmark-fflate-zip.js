@@ -1,12 +1,14 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
+import { brotliCompressSync, constants as zlibConstants } from "node:zlib";
 import { gzipSync, unzipSync } from "fflate";
 
 import { FIT } from "../../vendor/fit-file-parser-fast/dist/fit.js";
 import { parseFitBufferTyped } from "../services/fit-import-typed-service.js";
 import { createWoa1File } from "../public/js/woa-format.js";
 import { encodeWoaTransportContainer } from "../public/js/woa-transport-container.js";
+import { createWoa1FileFromCompact as createWoa1FileFromCompactProd } from "../public/js/woa-format-compact.js";
 
 const GARMIN_TIME_OFFSET_MS = 631065600000;
 const SEMICIRCLES_TO_DEGREES = 180 / 0x80000000;
@@ -20,6 +22,11 @@ const SESSION_SPEED_SCALE = 100;
 const SESSION_COORD_SCALE = 1e7;
 const DEFAULT_STREAM_CODEC = "gzip";
 const DEFAULT_GPS_TRACK_CODEC = "gzip";
+const COMPRESSION_FORMATS = new Set(["gzip", "brotli", "identity", "none"]);
+const DISTANCE_ENCODING_DEFAULT = "default";
+const DISTANCE_ENCODING_UINT8_Q05M = "uint8-q05m";
+const DISTANCE_ENCODING_UINT8_Q02_LEGACY = "uint8-q02";
+const DISTANCE_ENCODING_UINT8_Q125M = "uint8-q125m";
 const COMPACT_SENTINELS = {
   uint8: 0xff,
   uint16: 0xffff,
@@ -54,6 +61,54 @@ const SESSION_SPEC = [
   { key: "woa_manual_gps", type: "bool" },
 ];
 
+function normalizeDistanceEncoding(distanceEncoding) {
+  if (distanceEncoding === DISTANCE_ENCODING_DEFAULT) {
+    return DISTANCE_ENCODING_DEFAULT;
+  }
+  if (
+    distanceEncoding === DISTANCE_ENCODING_UINT8_Q05M
+    || distanceEncoding === DISTANCE_ENCODING_UINT8_Q02_LEGACY
+  ) {
+    return DISTANCE_ENCODING_UINT8_Q05M;
+  }
+  if (distanceEncoding === "uint8-q05") {
+    return DISTANCE_ENCODING_UINT8_Q125M;
+  }
+  return distanceEncoding || DISTANCE_ENCODING_UINT8_Q05M;
+}
+
+function normalizeCompressionFormat(format, optionName) {
+  const normalized = String(format || "gzip").trim().toLowerCase();
+  if (!COMPRESSION_FORMATS.has(normalized)) {
+    throw new Error(`${optionName} must be one of: gzip, brotli, identity, none.`);
+  }
+  return normalized === "none" ? "identity" : normalized;
+}
+
+function isDistanceEncodingUint8Q05m(distanceEncoding) {
+  return normalizeDistanceEncoding(distanceEncoding) === DISTANCE_ENCODING_UINT8_Q05M;
+}
+
+function isDistanceEncodingUint8Q125m(distanceEncoding) {
+  return normalizeDistanceEncoding(distanceEncoding) === DISTANCE_ENCODING_UINT8_Q125M;
+}
+
+function normalizeDistanceBlockSize(distanceBlockSize) {
+  const numeric = Number(distanceBlockSize);
+  if (!Number.isInteger(numeric) || numeric <= 0) {
+    return DELTA_BLOCK_SIZE;
+  }
+  return numeric;
+}
+
+function normalizeGpsBlockSize(gpsBlockSize) {
+  const numeric = Number(gpsBlockSize);
+  if (!Number.isInteger(numeric) || numeric <= 0) {
+    return DELTA_BLOCK_SIZE;
+  }
+  return numeric;
+}
+
 function parseArgs(argv) {
   const options = {
     file: null,
@@ -64,6 +119,11 @@ function parseArgs(argv) {
     powerStep: 2,
     cadenceStep: 2,
     hrStep: 2,
+    distanceBlockSize: DELTA_BLOCK_SIZE,
+    gpsBlockSize: DELTA_BLOCK_SIZE,
+    innerCompression: "gzip",
+    outerCompression: "gzip",
+    brotliQuality: 4,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -75,9 +135,16 @@ function parseArgs(argv) {
     else if (argument === "--power-step") options.powerStep = Number(argv[++index]);
     else if (argument === "--cadence-step") options.cadenceStep = Number(argv[++index]);
     else if (argument === "--hr-step") options.hrStep = Number(argv[++index]);
+    else if (argument === "--distance-block-size") options.distanceBlockSize = Number(argv[++index]);
+    else if (argument === "--gps-block-size") options.gpsBlockSize = Number(argv[++index]);
+    else if (argument === "--inner-compression") options.innerCompression = argv[++index];
+    else if (argument === "--outer-compression") options.outerCompression = argv[++index];
+    else if (argument === "--brotli-quality") options.brotliQuality = Number(argv[++index]);
     else if (!argument.startsWith("-") && !options.file) options.file = argument;
     else throw new Error(`Unknown argument: ${argument}`);
   }
+  options.innerCompression = normalizeCompressionFormat(options.innerCompression, "--inner-compression");
+  options.outerCompression = normalizeCompressionFormat(options.outerCompression, "--outer-compression");
   if (!options.file) throw new Error("Missing ZIP path. Use --file <archive.zip>.");
   if (!Number.isInteger(options.repeats) || options.repeats < 1) {
     throw new Error("--repeats must be a positive integer.");
@@ -96,6 +163,15 @@ function parseArgs(argv) {
   }
   if (!Number.isInteger(options.hrStep) || options.hrStep < 1) {
     throw new Error("--hr-step must be a positive integer.");
+  }
+  if (!Number.isInteger(options.distanceBlockSize) || options.distanceBlockSize < 1) {
+    throw new Error("--distance-block-size must be a positive integer.");
+  }
+  if (!Number.isInteger(options.gpsBlockSize) || options.gpsBlockSize < 1) {
+    throw new Error("--gps-block-size must be a positive integer.");
+  }
+  if (!Number.isInteger(options.brotliQuality) || options.brotliQuality < 0 || options.brotliQuality > 11) {
+    throw new Error("--brotli-quality must be an integer between 0 and 11.");
   }
   return options;
 }
@@ -165,6 +241,33 @@ function createSignedDeltaAnalysis() {
     absLe16Count: 0,
     minDelta: Infinity,
     maxDelta: -Infinity,
+  };
+}
+
+function createGpsInt16BlockAnalysis() {
+  return {
+    deltaCount: 0,
+    fitDeltaCount: 0,
+    blockCount: 0,
+    deltaBlockCount: 0,
+    rawBlockCount: 0,
+    minDelta: Infinity,
+    maxDelta: -Infinity,
+    maxAbsDelta: 0,
+  };
+}
+
+function createDynamicEncodingAnalysis() {
+  return {
+    workoutCount: 0,
+    sampleCount: 0,
+    currentBytes: 0,
+    candidateBytes: 0,
+    candidateGzipBytes: 0,
+    totalBitWidth: 0,
+    maxBitWidth: 0,
+    bitWidthCounts: new Uint32Array(33),
+    unsupportedWorkoutCount: 0,
   };
 }
 
@@ -250,6 +353,324 @@ function analyzeSignedDeltas(values, sentinel) {
   return stats;
 }
 
+function bitWidthForUnsigned(maxValue) {
+  if (!Number.isFinite(maxValue) || maxValue <= 0) return 0;
+  return Math.ceil(Math.log2(maxValue + 1));
+}
+
+function zigZagEncodeNumber(value) {
+  return value >= 0 ? value * 2 : ((-value) * 2) - 1;
+}
+
+function bitWidthForSignedRange(minValue, maxValue) {
+  if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) return 0;
+  return bitWidthForUnsigned(Math.max(zigZagEncodeNumber(minValue), zigZagEncodeNumber(maxValue)));
+}
+
+function packedByteLength(valueCount, bitWidth) {
+  if (valueCount <= 0 || bitWidth <= 0) return 0;
+  return Math.ceil((valueCount * bitWidth) / 8);
+}
+
+function packUnsignedValues(values, bitWidth) {
+  const out = new Uint8Array(packedByteLength(values.length, bitWidth));
+  if (bitWidth <= 0) return out;
+  let bitOffset = 0;
+  for (const value of values) {
+    let remaining = bitWidth;
+    let numeric = value;
+    while (remaining > 0) {
+      const byteIndex = bitOffset >> 3;
+      const inByteOffset = bitOffset & 7;
+      const writableBits = Math.min(8 - inByteOffset, remaining);
+      const mask = (1 << writableBits) - 1;
+      out[byteIndex] |= (numeric & mask) << inByteOffset;
+      numeric = Math.floor(numeric / (1 << writableBits));
+      bitOffset += writableBits;
+      remaining -= writableBits;
+    }
+  }
+  return out;
+}
+
+function mergeDynamicEncodingAnalysis(target, partial) {
+  target.workoutCount += partial.workoutCount;
+  target.sampleCount += partial.sampleCount;
+  target.currentBytes += partial.currentBytes;
+  target.candidateBytes += partial.candidateBytes;
+  target.candidateGzipBytes += partial.candidateGzipBytes || 0;
+  target.totalBitWidth += partial.totalBitWidth;
+  if (partial.maxBitWidth > target.maxBitWidth) target.maxBitWidth = partial.maxBitWidth;
+  target.unsupportedWorkoutCount += partial.unsupportedWorkoutCount;
+  for (let index = 0; index < target.bitWidthCounts.length; index += 1) {
+    target.bitWidthCounts[index] += partial.bitWidthCounts[index] || 0;
+  }
+}
+
+function noteDynamicBitWidth(stats, bitWidth) {
+  const normalized = Math.max(0, Math.min(32, Number(bitWidth) || 0));
+  stats.totalBitWidth += normalized;
+  if (normalized > stats.maxBitWidth) stats.maxBitWidth = normalized;
+  stats.bitWidthCounts[normalized] += 1;
+}
+
+function formatDynamicEncodingAnalysis(name, stats) {
+  if (!stats.workoutCount) return `${name}(n:0)`;
+  const saveBytes = stats.currentBytes - stats.candidateBytes;
+  const savePct = stats.currentBytes > 0 ? (saveBytes * 100) / stats.currentBytes : 0;
+  const avgBits = stats.workoutCount > 0 ? stats.totalBitWidth / stats.workoutCount : 0;
+  const bitWidths = [];
+  for (let index = 0; index < stats.bitWidthCounts.length; index += 1) {
+    const count = stats.bitWidthCounts[index];
+    if (count > 0) bitWidths.push(`${index}:${count}`);
+  }
+  const gzipPart = stats.candidateGzipBytes > 0
+    ? `,gz:${(stats.candidateGzipBytes / 1024 / 1024).toFixed(2)}`
+    : "";
+  return (
+    `${name}(w:${stats.workoutCount},n:${stats.sampleCount},` +
+    `cur:${(stats.currentBytes / 1024 / 1024).toFixed(2)},` +
+    `cand:${(stats.candidateBytes / 1024 / 1024).toFixed(2)}${gzipPart},` +
+    `save:${savePct.toFixed(1)}%,avgBits:${avgBits.toFixed(1)},` +
+    `maxBits:${stats.maxBitWidth},unsupported:${stats.unsupportedWorkoutCount},bw:${bitWidths.join("|")})`
+  );
+}
+
+function analyzeDistanceBitpackCandidate(values, distanceBlockSize, gzipLevel) {
+  const stats = createDynamicEncodingAnalysis();
+  stats.workoutCount = 1;
+  stats.sampleCount = values.length;
+  const currentPayload = buildDistancePayloadCompactUint8Q02(values, distanceBlockSize);
+  stats.currentBytes = currentPayload.byteLength;
+  if (!values.length || values[0] === COMPACT_SENTINELS.uint32) {
+    stats.candidateBytes = stats.currentBytes;
+    stats.unsupportedWorkoutCount = 1;
+    return stats;
+  }
+
+  const DISTANCE_DIVISOR = 2;
+  const deltas = [];
+  let previousScaled = Math.round(values[0] / DISTANCE_DIVISOR);
+  let maxDelta = 0;
+  for (let index = 1; index < values.length; index += 1) {
+    const current = values[index];
+    if (current === COMPACT_SENTINELS.uint32) {
+      stats.candidateBytes = stats.currentBytes;
+      stats.unsupportedWorkoutCount = 1;
+      return stats;
+    }
+    const currentScaled = Math.round(current / DISTANCE_DIVISOR);
+    const delta = currentScaled - previousScaled;
+    if (delta < 0) {
+      stats.candidateBytes = stats.currentBytes;
+      stats.unsupportedWorkoutCount = 1;
+      return stats;
+    }
+    deltas.push(delta);
+    if (delta > maxDelta) maxDelta = delta;
+    previousScaled = currentScaled;
+  }
+
+  const bitWidth = bitWidthForUnsigned(maxDelta);
+  noteDynamicBitWidth(stats, bitWidth);
+  const tokenBytes = packUnsignedValues(deltas, bitWidth);
+  const candidate = new Uint8Array(1 + 2 + 4 + 1 + tokenBytes.byteLength);
+  candidate[0] = 4;
+  writeUint16LE(candidate, 1, values.length);
+  writeUint32LE(candidate, 3, Math.round(values[0] / DISTANCE_DIVISOR));
+  candidate[7] = bitWidth;
+  candidate.set(tokenBytes, 8);
+  stats.candidateBytes = candidate.byteLength;
+  stats.candidateGzipBytes = gzipByteLength(candidate, gzipLevel);
+  return stats;
+}
+
+function buildPowerDeltaInt8Q4PayloadForAnalysis(values) {
+  const POWER_STEP = 4;
+  const ESCAPE_DELTA = 127;
+  if (!values.length) return new Uint8Array(0);
+  const tokenBytes = new Int8Array(Math.max(0, values.length - 1));
+  const absoluteTailBytes = new Uint8Array(Math.max(0, values.length - 1) * 2);
+  const firstValueBytes = new Uint8Array(2);
+  writeUint16LE(firstValueBytes, 0, values[0]);
+  let prev = values[0];
+  let absoluteOffset = 0;
+  for (let index = 1; index < values.length; index += 1) {
+    const current = values[index];
+    const prevValid = prev !== COMPACT_SENTINELS.uint16;
+    const currentValid = current !== COMPACT_SENTINELS.uint16;
+    const delta = currentValid && prevValid ? current - prev : Number.NaN;
+    const stepDelta = Number.isFinite(delta) ? delta / POWER_STEP : Number.NaN;
+    if (!Number.isFinite(stepDelta) || !Number.isInteger(stepDelta) || stepDelta < -128 || stepDelta >= ESCAPE_DELTA) {
+      tokenBytes[index - 1] = ESCAPE_DELTA;
+      writeUint16LE(absoluteTailBytes, absoluteOffset, current);
+      absoluteOffset += 2;
+      prev = current;
+      continue;
+    }
+    tokenBytes[index - 1] = stepDelta;
+    prev = current;
+  }
+  const bytes = new Uint8Array(2 + tokenBytes.byteLength + absoluteOffset);
+  bytes.set(firstValueBytes, 0);
+  bytes.set(new Uint8Array(tokenBytes.buffer, tokenBytes.byteOffset, tokenBytes.byteLength), 2);
+  bytes.set(absoluteTailBytes.subarray(0, absoluteOffset), 2 + tokenBytes.byteLength);
+  return bytes;
+}
+
+function analyzePowerBitpackCandidate(values, gzipLevel) {
+  const stats = createDynamicEncodingAnalysis();
+  stats.workoutCount = 1;
+  stats.sampleCount = values.length;
+  const currentPayload = buildPowerDeltaInt8Q4PayloadForAnalysis(values);
+  stats.currentBytes = currentPayload.byteLength;
+  if (!values.length || values[0] === COMPACT_SENTINELS.uint16) {
+    stats.candidateBytes = stats.currentBytes;
+    stats.unsupportedWorkoutCount = 1;
+    return stats;
+  }
+
+  const POWER_STEP = 4;
+  const tokens = [];
+  let prev = values[0];
+  let minDelta = 0;
+  let maxDelta = 0;
+  for (let index = 1; index < values.length; index += 1) {
+    const current = values[index];
+    if (current === COMPACT_SENTINELS.uint16 || prev === COMPACT_SENTINELS.uint16) {
+      stats.candidateBytes = stats.currentBytes;
+      stats.unsupportedWorkoutCount = 1;
+      return stats;
+    }
+    const delta = (current - prev) / POWER_STEP;
+    if (!Number.isInteger(delta)) {
+      stats.candidateBytes = stats.currentBytes;
+      stats.unsupportedWorkoutCount = 1;
+      return stats;
+    }
+    tokens.push(zigZagEncodeNumber(delta));
+    if (delta < minDelta) minDelta = delta;
+    if (delta > maxDelta) maxDelta = delta;
+    prev = current;
+  }
+
+  const bitWidth = bitWidthForSignedRange(minDelta, maxDelta);
+  noteDynamicBitWidth(stats, bitWidth);
+  const tokenBytes = packUnsignedValues(tokens, bitWidth);
+  const candidate = new Uint8Array(1 + 2 + 1 + tokenBytes.byteLength);
+  candidate[0] = 4;
+  writeUint16LE(candidate, 1, values[0]);
+  candidate[3] = bitWidth;
+  candidate.set(tokenBytes, 4);
+  stats.candidateBytes = candidate.byteLength;
+  stats.candidateGzipBytes = gzipByteLength(candidate, gzipLevel);
+  return stats;
+}
+
+function analyzeGpsBitpackCandidate(points, gpsBlockSize, gzipLevel) {
+  const stats = createDynamicEncodingAnalysis();
+  stats.workoutCount = 1;
+  stats.sampleCount = points.length;
+  const currentPayload = buildGpsCoordinatePayloadCompact(points, gpsBlockSize);
+  stats.currentBytes = currentPayload.byteLength;
+  if (!points.length) {
+    stats.candidateBytes = 0;
+    return stats;
+  }
+
+  const analyzeAxis = (key) => {
+    const tokens = [];
+    let minDelta = 0;
+    let maxDelta = 0;
+    let previous = points[0][key];
+    for (let index = 1; index < points.length; index += 1) {
+      const current = points[index][key];
+      const delta = current - previous;
+      tokens.push(zigZagEncodeNumber(delta));
+      if (delta < minDelta) minDelta = delta;
+      if (delta > maxDelta) maxDelta = delta;
+      previous = current;
+    }
+    return { tokens, bitWidth: bitWidthForSignedRange(minDelta, maxDelta) };
+  };
+
+  const lat = analyzeAxis("lat");
+  const lng = analyzeAxis("lng");
+  noteDynamicBitWidth(stats, Math.max(lat.bitWidth, lng.bitWidth));
+  const latBytes = packUnsignedValues(lat.tokens, lat.bitWidth);
+  const lngBytes = packUnsignedValues(lng.tokens, lng.bitWidth);
+  const candidate = new Uint8Array(1 + 2 + 4 + 1 + latBytes.byteLength + 4 + 1 + lngBytes.byteLength);
+  candidate[0] = 4;
+  writeUint16LE(candidate, 1, points.length);
+  writeInt32LE(candidate, 3, points[0].lat);
+  candidate[7] = lat.bitWidth;
+  let offset = 8;
+  candidate.set(latBytes, offset);
+  offset += latBytes.byteLength;
+  writeInt32LE(candidate, offset, points[0].lng);
+  offset += 4;
+  candidate[offset] = lng.bitWidth;
+  offset += 1;
+  candidate.set(lngBytes, offset);
+  stats.candidateBytes = candidate.byteLength;
+  stats.candidateGzipBytes = gzipByteLength(candidate, gzipLevel);
+  return stats;
+}
+
+function analyzeDictionaryCandidate(values, sentinel, currentPayloadBytes, valueBytes, gzipLevel) {
+  const stats = createDynamicEncodingAnalysis();
+  stats.workoutCount = 1;
+  stats.sampleCount = values.length;
+  stats.currentBytes = currentPayloadBytes;
+  if (!values.length) {
+    stats.candidateBytes = 0;
+    return stats;
+  }
+  const dictionary = new Map();
+  const indexes = [];
+  for (let index = 0; index < values.length; index += 1) {
+    const value = values[index];
+    const key = value === sentinel ? sentinel : value;
+    let dictIndex = dictionary.get(key);
+    if (dictIndex == null) {
+      dictIndex = dictionary.size;
+      dictionary.set(key, dictIndex);
+    }
+    indexes.push(dictIndex);
+  }
+  const bitWidth = bitWidthForUnsigned(Math.max(0, dictionary.size - 1));
+  noteDynamicBitWidth(stats, bitWidth);
+  const indexBytes = packUnsignedValues(indexes, bitWidth);
+  const dictBytes = 2 + dictionary.size * valueBytes;
+  const candidate = new Uint8Array(1 + dictBytes + indexBytes.byteLength);
+  candidate[0] = 4;
+  writeUint16LE(candidate, 1, dictionary.size);
+  let offset = 3 + dictionary.size * valueBytes;
+  candidate.set(indexBytes, offset);
+  stats.candidateBytes = candidate.byteLength;
+  stats.candidateGzipBytes = gzipByteLength(candidate, gzipLevel);
+  return stats;
+}
+
+function buildWorkoutStreamPayloadOrderCandidate(workoutStreamBlock, order) {
+  const payloadByName = {
+    dist: workoutStreamBlock.distancePayloadBytes || new Uint8Array(0),
+    pow: workoutStreamBlock.powerPayloadBytes || new Uint8Array(0),
+    hr: workoutStreamBlock.heartRatePayloadBytes || new Uint8Array(0),
+    cad: workoutStreamBlock.cadencePayloadBytes || new Uint8Array(0),
+    spd: workoutStreamBlock.speedPayloadBytes || new Uint8Array(0),
+    alt: workoutStreamBlock.altitudePayloadBytes || new Uint8Array(0),
+  };
+  const totalLength = order.reduce((sum, key) => sum + payloadByName[key].byteLength, 0);
+  const bytes = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const key of order) {
+    bytes.set(payloadByName[key], offset);
+    offset += payloadByName[key].byteLength;
+  }
+  return bytes;
+}
+
 function mergeSeriesAnalysis(target, partial) {
   target.validCount += partial.validCount;
   target.uniqueCount += partial.uniqueCount;
@@ -281,6 +702,17 @@ function mergeSignedDeltaAnalysis(target, partial) {
   target.absLe16Count += partial.absLe16Count;
   if (partial.minDelta < target.minDelta) target.minDelta = partial.minDelta;
   if (partial.maxDelta > target.maxDelta) target.maxDelta = partial.maxDelta;
+}
+
+function mergeGpsInt16BlockAnalysis(target, partial) {
+  target.deltaCount += partial.deltaCount;
+  target.fitDeltaCount += partial.fitDeltaCount;
+  target.blockCount += partial.blockCount;
+  target.deltaBlockCount += partial.deltaBlockCount;
+  target.rawBlockCount += partial.rawBlockCount;
+  if (partial.minDelta < target.minDelta) target.minDelta = partial.minDelta;
+  if (partial.maxDelta > target.maxDelta) target.maxDelta = partial.maxDelta;
+  if (partial.maxAbsDelta > target.maxAbsDelta) target.maxAbsDelta = partial.maxAbsDelta;
 }
 
 function mergeInt8DeltaFitAnalysis(target, partial) {
@@ -324,6 +756,50 @@ function formatSignedDeltaAnalysis(name, stats) {
     `a1:${pct(stats.absLe1Count)}%,a2:${pct(stats.absLe2Count)}%,` +
     `a4:${pct(stats.absLe4Count)}%,a8:${pct(stats.absLe8Count)}%,` +
     `a16:${pct(stats.absLe16Count)}%,min:${stats.minDelta},max:${stats.maxDelta})`
+  );
+}
+
+function analyzeGpsInt16Blocks(points, key, gpsBlockSize = DELTA_BLOCK_SIZE) {
+  const stats = createGpsInt16BlockAnalysis();
+  const normalizedGpsBlockSize = normalizeGpsBlockSize(gpsBlockSize);
+  for (let start = 0; start < points.length; start += normalizedGpsBlockSize) {
+    const count = Math.min(normalizedGpsBlockSize, points.length - start);
+    if (count <= 0) continue;
+    stats.blockCount += 1;
+    let canDeltaEncode = count > 0;
+    for (let offset = 1; offset < count; offset += 1) {
+      const current = points[start + offset][key];
+      const previous = points[start + offset - 1][key];
+      const delta = current - previous;
+      stats.deltaCount += 1;
+      const absDelta = Math.abs(delta);
+      if (absDelta > stats.maxAbsDelta) stats.maxAbsDelta = absDelta;
+      if (delta < stats.minDelta) stats.minDelta = delta;
+      if (delta > stats.maxDelta) stats.maxDelta = delta;
+      if (delta >= -32767 && delta <= 32767) {
+        stats.fitDeltaCount += 1;
+      } else {
+        canDeltaEncode = false;
+      }
+    }
+    if (canDeltaEncode) stats.deltaBlockCount += 1;
+    else stats.rawBlockCount += 1;
+  }
+  if (!Number.isFinite(stats.minDelta)) stats.minDelta = 0;
+  if (!Number.isFinite(stats.maxDelta)) stats.maxDelta = 0;
+  return stats;
+}
+
+function formatGpsInt16BlockAnalysis(name, stats) {
+  if (!stats.blockCount) return `${name}(blocks:0)`;
+  const fitPct = stats.deltaCount > 0 ? ((stats.fitDeltaCount * 100) / stats.deltaCount) : 0;
+  const deltaBlockPct = stats.blockCount > 0 ? ((stats.deltaBlockCount * 100) / stats.blockCount) : 0;
+  const rangeUsePct = (stats.maxAbsDelta * 100) / 32767;
+  return (
+    `${name}(blocks:${stats.blockCount},deltaBlocks:${deltaBlockPct.toFixed(1)}%,` +
+    `rawBlocks:${(100 - deltaBlockPct).toFixed(1)}%,fit:${fitPct.toFixed(3)}%,` +
+    `min:${stats.minDelta},max:${stats.maxDelta},maxAbs:${stats.maxAbsDelta},` +
+    `rangeUse:${rangeUsePct.toFixed(2)}%)`
   );
 }
 
@@ -1534,6 +2010,17 @@ function writeInt32LE(target, offset, value) {
   writeUint32LE(target, offset, value >>> 0);
 }
 
+function expandCompactTimestampsMs(baseTimestampMs, timestampOffsetsS) {
+  const length = Number(timestampOffsetsS?.length || 0);
+  const timestampsMs = new Float64Array(length);
+  const base = Number.isFinite(baseTimestampMs) ? Number(baseTimestampMs) : 0;
+  for (let index = 0; index < length; index += 1) {
+    const offsetS = timestampOffsetsS[index];
+    timestampsMs[index] = offsetS === COMPACT_SENTINELS.int32 ? Number.NaN : (base + (offsetS * 1000));
+  }
+  return timestampsMs;
+}
+
 function writeFloat64LE(target, offset, value) {
   new DataView(target.buffer, target.byteOffset + offset, 8).setFloat64(0, value, true);
 }
@@ -1709,13 +2196,14 @@ function buildDistancePayloadCompactValues(values) {
   return payload;
 }
 
-function buildDistancePayloadCompactUint8Q02(values) {
+function buildDistancePayloadCompactUint8Q02(values, distanceBlockSize = DELTA_BLOCK_SIZE) {
   const DISTANCE_DIVISOR = 2;
   const DISTANCE_ESCAPE = 255;
   const chunks = [];
   let totalBytes = 0;
-  for (let start = 0; start < values.length; start += DELTA_BLOCK_SIZE) {
-    const count = Math.min(DELTA_BLOCK_SIZE, values.length - start);
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
+  for (let start = 0; start < values.length; start += normalizedDistanceBlockSize) {
+    const count = Math.min(normalizedDistanceBlockSize, values.length - start);
     let canUint8Encode = count > 0 && values[start] !== COMPACT_SENTINELS.uint32;
 
     if (canUint8Encode) {
@@ -1777,13 +2265,14 @@ function buildDistancePayloadCompactUint8Q02(values) {
   return payload;
 }
 
-function buildDistancePayloadCompactUint8Q05(values) {
+function buildDistancePayloadCompactUint8Q05(values, distanceBlockSize = DELTA_BLOCK_SIZE) {
   const DISTANCE_DIVISOR = 5;
   const DISTANCE_ESCAPE = 255;
   const chunks = [];
   let totalBytes = 0;
-  for (let start = 0; start < values.length; start += DELTA_BLOCK_SIZE) {
-    const count = Math.min(DELTA_BLOCK_SIZE, values.length - start);
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
+  for (let start = 0; start < values.length; start += normalizedDistanceBlockSize) {
+    const count = Math.min(normalizedDistanceBlockSize, values.length - start);
     let canUint8Encode = count > 0 && values[start] !== COMPACT_SENTINELS.uint32;
 
     if (canUint8Encode) {
@@ -1917,7 +2406,40 @@ function gzipByteLength(bytes, level) {
   return gzipSync(bytes, { level }).byteLength;
 }
 
-function buildWorkoutStreamBlockCompactDistanceUint8Q02(compact) {
+function compressBytes(bytes, format, {
+  gzipLevel = 4,
+  brotliQuality = 4,
+} = {}) {
+  const normalized = normalizeCompressionFormat(format, "compression format");
+  const startedAt = performance.now();
+  let compressedBytes;
+  if (normalized === "gzip") {
+    compressedBytes = gzipSync(bytes, { level: gzipLevel });
+  } else if (normalized === "brotli") {
+    compressedBytes = brotliCompressSync(bytes, {
+      params: {
+        [zlibConstants.BROTLI_PARAM_QUALITY]: brotliQuality,
+      },
+    });
+  } else {
+    compressedBytes = bytes;
+  }
+  return {
+    bytes: compressedBytes,
+    ms: performance.now() - startedAt,
+  };
+}
+
+function createCompressionCallback(format, options) {
+  const normalized = normalizeCompressionFormat(format, "compression format");
+  if (normalized === "identity") return null;
+  return (rawBytes, compressionOptions = {}) => compressBytes(rawBytes, normalized, {
+    gzipLevel: Number.isInteger(compressionOptions.level) ? compressionOptions.level : options.gzipLevel,
+    brotliQuality: options.brotliQuality,
+  }).bytes;
+}
+
+function buildWorkoutStreamBlockCompactDistanceUint8Q02(compact, distanceBlockSize = DELTA_BLOCK_SIZE) {
   const columns = compact.columns;
   const recordCount = compact.recordCount;
   let hasCompleteDistanceSeries = recordCount > 0;
@@ -1927,7 +2449,8 @@ function buildWorkoutStreamBlockCompactDistanceUint8Q02(compact) {
       break;
     }
   }
-  const distancePayload = buildDistancePayloadCompactUint8Q02(columns.distancesQ);
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
+  const distancePayload = buildDistancePayloadCompactUint8Q02(columns.distancesQ, normalizedDistanceBlockSize);
   const distancesBytes = distancePayload.byteLength;
   const powersBytes = recordCount * 2;
   const heartRatesBytes = recordCount;
@@ -1973,7 +2496,8 @@ function buildWorkoutStreamBlockCompactDistanceUint8Q02(compact) {
       recordCount,
       usesSpeedFallback: !hasCompleteDistanceSeries,
       speedFallbackRecordCount: hasCompleteDistanceSeries ? 0 : recordCount,
-      distanceEncoding: "uint8-q02",
+      distanceEncoding: DISTANCE_ENCODING_UINT8_Q05M,
+      distanceBlockSize: normalizedDistanceBlockSize,
       blockBytes: {
         distances: distancesBytes,
         powers: powersBytes,
@@ -1986,7 +2510,7 @@ function buildWorkoutStreamBlockCompactDistanceUint8Q02(compact) {
   };
 }
 
-function buildWorkoutStreamBlockCompactDistanceUint8Q05(compact) {
+function buildWorkoutStreamBlockCompactDistanceUint8Q05(compact, distanceBlockSize = DELTA_BLOCK_SIZE) {
   const columns = compact.columns;
   const recordCount = compact.recordCount;
   let hasCompleteDistanceSeries = recordCount > 0;
@@ -1996,7 +2520,8 @@ function buildWorkoutStreamBlockCompactDistanceUint8Q05(compact) {
       break;
     }
   }
-  const distancePayload = buildDistancePayloadCompactUint8Q05(columns.distancesQ);
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
+  const distancePayload = buildDistancePayloadCompactUint8Q05(columns.distancesQ, normalizedDistanceBlockSize);
   const distancesBytes = distancePayload.byteLength;
   const powersBytes = recordCount * 2;
   const heartRatesBytes = recordCount;
@@ -2042,7 +2567,8 @@ function buildWorkoutStreamBlockCompactDistanceUint8Q05(compact) {
       recordCount,
       usesSpeedFallback: !hasCompleteDistanceSeries,
       speedFallbackRecordCount: hasCompleteDistanceSeries ? 0 : recordCount,
-      distanceEncoding: "uint8-q05",
+      distanceEncoding: DISTANCE_ENCODING_UINT8_Q125M,
+      distanceBlockSize: normalizedDistanceBlockSize,
       blockBytes: {
         distances: distancesBytes,
         powers: powersBytes,
@@ -2055,7 +2581,7 @@ function buildWorkoutStreamBlockCompactDistanceUint8Q05(compact) {
   };
 }
 
-function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(compact) {
+function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(compact, { distanceBlockSize = DELTA_BLOCK_SIZE } = {}) {
   const columns = compact.columns;
   const recordCount = compact.recordCount;
   let hasCompleteDistanceSeries = recordCount > 0;
@@ -2065,7 +2591,8 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(compact) {
       break;
     }
   }
-  const distancePayload = buildDistancePayloadCompactUint8Q02(columns.distancesQ);
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
+  const distancePayload = buildDistancePayloadCompactUint8Q02(columns.distancesQ, normalizedDistanceBlockSize);
   const powerPayload = buildPowerDeltaPayloadCompact(columns.powersW);
   const distancesBytes = distancePayload.byteLength;
   const powersBytes = powerPayload.bytes.byteLength;
@@ -2115,7 +2642,8 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(compact) {
       powerEncoding: powerPayload.stats.encoding,
       powerEscapeCount: powerPayload.stats.escapeCount,
       powerAbsoluteCount: powerPayload.stats.absoluteCount,
-      distanceEncoding: "uint8-q02",
+      distanceEncoding: DISTANCE_ENCODING_UINT8_Q05M,
+      distanceBlockSize: normalizedDistanceBlockSize,
       blockBytes: {
         distances: distancesBytes,
         powers: powersBytes,
@@ -2128,7 +2656,7 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(compact) {
   };
 }
 
-function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q05(compact) {
+function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q05(compact, distanceBlockSize = DELTA_BLOCK_SIZE) {
   const columns = compact.columns;
   const recordCount = compact.recordCount;
   let hasCompleteDistanceSeries = recordCount > 0;
@@ -2138,7 +2666,8 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q05(compact) {
       break;
     }
   }
-  const distancePayload = buildDistancePayloadCompactUint8Q05(columns.distancesQ);
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
+  const distancePayload = buildDistancePayloadCompactUint8Q05(columns.distancesQ, normalizedDistanceBlockSize);
   const powerPayload = buildPowerDeltaPayloadCompact(columns.powersW);
   const distancesBytes = distancePayload.byteLength;
   const powersBytes = powerPayload.bytes.byteLength;
@@ -2188,7 +2717,8 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q05(compact) {
       powerEncoding: powerPayload.stats.encoding,
       powerEscapeCount: powerPayload.stats.escapeCount,
       powerAbsoluteCount: powerPayload.stats.absoluteCount,
-      distanceEncoding: "uint8-q05",
+      distanceEncoding: DISTANCE_ENCODING_UINT8_Q125M,
+      distanceBlockSize: normalizedDistanceBlockSize,
       blockBytes: {
         distances: distancesBytes,
         powers: powersBytes,
@@ -2488,7 +3018,7 @@ function buildWorkoutStreamBlockCompactDelta16Power(compact) {
   };
 }
 
-function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeInt8(compact) {
+function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeInt8(compact, { distanceBlockSize = DELTA_BLOCK_SIZE } = {}) {
   const columns = compact.columns;
   const recordCount = compact.recordCount;
   let hasCompleteDistanceSeries = recordCount > 0;
@@ -2498,7 +3028,8 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeInt8(
       break;
     }
   }
-  const distancePayload = buildDistancePayloadCompactUint8Q02(columns.distancesQ);
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
+  const distancePayload = buildDistancePayloadCompactUint8Q02(columns.distancesQ, normalizedDistanceBlockSize);
   const powerPayload = buildPowerDeltaPayloadCompact(columns.powersW);
   const altitudePayload = buildAltitudeDeltaPayloadCompact(columns.altitudesQ);
   const distancesBytes = distancePayload.byteLength;
@@ -2549,7 +3080,8 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeInt8(
       powerEncoding: powerPayload.stats.encoding,
       powerEscapeCount: powerPayload.stats.escapeCount,
       powerAbsoluteCount: powerPayload.stats.absoluteCount,
-      distanceEncoding: "uint8-q02",
+      distanceEncoding: DISTANCE_ENCODING_UINT8_Q05M,
+      distanceBlockSize: normalizedDistanceBlockSize,
       altitudeEncoding: altitudePayload.stats.encoding,
       altitudeEscapeCount: altitudePayload.stats.escapeCount,
       altitudeAbsoluteCount: altitudePayload.stats.absoluteCount,
@@ -2565,7 +3097,7 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeInt8(
   };
 }
 
-function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeRle(compact) {
+function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeRle(compact, { distanceBlockSize = DELTA_BLOCK_SIZE } = {}) {
   const columns = compact.columns;
   const recordCount = compact.recordCount;
   let hasCompleteDistanceSeries = recordCount > 0;
@@ -2575,7 +3107,8 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeRle(c
       break;
     }
   }
-  const distancePayload = buildDistancePayloadCompactUint8Q02(columns.distancesQ);
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
+  const distancePayload = buildDistancePayloadCompactUint8Q02(columns.distancesQ, normalizedDistanceBlockSize);
   const powerPayload = buildPowerDeltaPayloadCompact(columns.powersW);
   const heartRatePayload = buildUint8RunLengthPayloadColumnDelta(
     columns.heartRatesBpm,
@@ -2636,7 +3169,8 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeRle(c
       powerEncoding: powerPayload.stats.encoding,
       powerEscapeCount: powerPayload.stats.escapeCount,
       powerAbsoluteCount: powerPayload.stats.absoluteCount,
-      distanceEncoding: "uint8-q02",
+      distanceEncoding: DISTANCE_ENCODING_UINT8_Q05M,
+      distanceBlockSize: normalizedDistanceBlockSize,
       heartRateEncoding: heartRatePayload.stats.encoding,
       heartRateRunCount: heartRatePayload.stats.runCount || 0,
       cadenceEncoding: cadencePayload.stats.encoding,
@@ -2655,11 +3189,12 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeRle(c
   };
 }
 
-function buildGpsCoordinatePayloadCompact(points) {
+function buildGpsCoordinatePayloadCompact(points, gpsBlockSize = DELTA_BLOCK_SIZE) {
   const chunks = [];
   let totalBytes = 0;
-  for (let start = 0; start < points.length; start += 128) {
-    const count = Math.min(128, points.length - start);
+  const normalizedGpsBlockSize = normalizeGpsBlockSize(gpsBlockSize);
+  for (let start = 0; start < points.length; start += normalizedGpsBlockSize) {
+    const count = Math.min(normalizedGpsBlockSize, points.length - start);
     let canDeltaEncode = count > 0;
     for (let offset = 1; offset < count; offset += 1) {
       const current = points[start + offset];
@@ -2715,7 +3250,81 @@ function buildGpsCoordinatePayloadCompact(points) {
   return payload;
 }
 
-function buildGpsTrackBlockCompact(compact, sampleRateSeconds = 5) {
+function buildGpsCoordinatePayloadCompactEscape(points, gpsBlockSize = DELTA_BLOCK_SIZE) {
+  const GPS_ESCAPE = -32768;
+  const chunks = [];
+  let totalBytes = 0;
+  const normalizedGpsBlockSize = normalizeGpsBlockSize(gpsBlockSize);
+  for (let start = 0; start < points.length; start += normalizedGpsBlockSize) {
+    const count = Math.min(normalizedGpsBlockSize, points.length - start);
+    if (count <= 0) {
+      continue;
+    }
+
+    const latDeltaBytes = new Uint8Array(Math.max(0, count - 1) * 2);
+    const lngDeltaBytes = new Uint8Array(Math.max(0, count - 1) * 2);
+    const latAbsoluteTail = new Uint8Array(Math.max(0, count - 1) * 4);
+    const lngAbsoluteTail = new Uint8Array(Math.max(0, count - 1) * 4);
+    let latDeltaOffset = 0;
+    let lngDeltaOffset = 0;
+    let latAbsoluteOffset = 0;
+    let lngAbsoluteOffset = 0;
+
+    for (let index = 1; index < count; index += 1) {
+      const current = points[start + index];
+      const previous = points[start + index - 1];
+
+      const deltaLat = current.lat - previous.lat;
+      if (deltaLat > GPS_ESCAPE && deltaLat <= 32767) {
+        writeInt16LE(latDeltaBytes, latDeltaOffset, deltaLat);
+      } else {
+        writeInt16LE(latDeltaBytes, latDeltaOffset, GPS_ESCAPE);
+        writeInt32LE(latAbsoluteTail, latAbsoluteOffset, current.lat);
+        latAbsoluteOffset += 4;
+      }
+      latDeltaOffset += 2;
+
+      const deltaLng = current.lng - previous.lng;
+      if (deltaLng > GPS_ESCAPE && deltaLng <= 32767) {
+        writeInt16LE(lngDeltaBytes, lngDeltaOffset, deltaLng);
+      } else {
+        writeInt16LE(lngDeltaBytes, lngDeltaOffset, GPS_ESCAPE);
+        writeInt32LE(lngAbsoluteTail, lngAbsoluteOffset, current.lng);
+        lngAbsoluteOffset += 4;
+      }
+      lngDeltaOffset += 2;
+    }
+
+    const chunk = new Uint8Array(
+      1 + 2 + 4 + latDeltaOffset + 4 + lngDeltaOffset + latAbsoluteOffset + lngAbsoluteOffset
+    );
+    chunk[0] = 2;
+    writeUint16LE(chunk, 1, count);
+    writeInt32LE(chunk, 3, points[start].lat);
+    let writeOffset = 7;
+    chunk.set(latDeltaBytes.subarray(0, latDeltaOffset), writeOffset);
+    writeOffset += latDeltaOffset;
+    writeInt32LE(chunk, writeOffset, points[start].lng);
+    writeOffset += 4;
+    chunk.set(lngDeltaBytes.subarray(0, lngDeltaOffset), writeOffset);
+    writeOffset += lngDeltaOffset;
+    chunk.set(latAbsoluteTail.subarray(0, latAbsoluteOffset), writeOffset);
+    writeOffset += latAbsoluteOffset;
+    chunk.set(lngAbsoluteTail.subarray(0, lngAbsoluteOffset), writeOffset);
+    chunks.push(chunk);
+    totalBytes += chunk.byteLength;
+  }
+
+  const payload = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    payload.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return payload;
+}
+
+function buildGpsTrackBlockCompact(compact, sampleRateSeconds = 5, gpsBlockSize = DELTA_BLOCK_SIZE) {
   const columns = compact.columns;
   const sampleRate = Math.max(1, Math.round(sampleRateSeconds));
   const precision = 5;
@@ -2744,7 +3353,7 @@ function buildGpsTrackBlockCompact(compact, sampleRateSeconds = 5) {
     if (lngDeg < minLng) minLng = lngDeg;
     if (lngDeg > maxLng) maxLng = lngDeg;
   }
-  const coordinatePayload = buildGpsCoordinatePayloadCompact(points);
+  const coordinatePayload = buildGpsCoordinatePayloadCompact(points, gpsBlockSize);
   const headerBytes = 4 + 2 + 2 + 4 + 8;
   const bytes = new Uint8Array(headerBytes + coordinatePayload.byteLength);
   bytes.set([71, 80, 83, 50], 0); // GPS2
@@ -2763,6 +3372,40 @@ function buildGpsTrackBlockCompact(compact, sampleRateSeconds = 5) {
       endPoint: points.length ? { lat: points[points.length - 1].lat / MICRO_DEGREES, lng: points[points.length - 1].lng / MICRO_DEGREES } : null,
     },
   };
+}
+
+function buildReducedGpsPointsForBenchmark(compact, sampleRateSeconds = 5) {
+  const columns = compact.columns;
+  const sampleRate = Math.max(1, Math.round(sampleRateSeconds));
+  const precision = 5;
+  const points = [];
+  for (let index = 0; index < compact.recordCount; index += sampleRate) {
+    const latRaw = columns.positionLatsE6[index];
+    const lngRaw = columns.positionLongsE6[index];
+    if (latRaw === COMPACT_SENTINELS.int32 || lngRaw === COMPACT_SENTINELS.int32 || (latRaw === 0 && lngRaw === 0)) {
+      continue;
+    }
+    const latDeg = Number((latRaw / MICRO_DEGREES).toFixed(precision));
+    const lngDeg = Number((lngRaw / MICRO_DEGREES).toFixed(precision));
+    const lat = Math.round(latDeg * MICRO_DEGREES);
+    const lng = Math.round(lngDeg * MICRO_DEGREES);
+    points.push({ lat, lng });
+  }
+  return points;
+}
+
+function buildGpsTrackBytesFromPoints(points, sampleRateSeconds = 5, coordinatePayloadBuilder) {
+  const sampleRate = Math.max(1, Math.round(sampleRateSeconds));
+  const headerBytes = 4 + 2 + 2 + 4 + 8;
+  const coordinatePayload = coordinatePayloadBuilder(points);
+  const bytes = new Uint8Array(headerBytes + coordinatePayload.byteLength);
+  bytes.set([71, 80, 83, 50], 0); // GPS2
+  writeUint16LE(bytes, 4, 2);
+  writeUint16LE(bytes, 6, sampleRate);
+  writeUint32LE(bytes, 8, points.length);
+  writeFloat64LE(bytes, 12, 0);
+  bytes.set(coordinatePayload, headerBytes);
+  return bytes;
 }
 
 function getISOWeekUTC(dateLike) {
@@ -2931,30 +3574,34 @@ function createWoa1FileFromCompact(compact, {
   gzipLevel = 4,
   powerEncoding = "raw16",
   distanceEncoding = "default",
+  distanceBlockSize = DELTA_BLOCK_SIZE,
+  gpsBlockSize = DELTA_BLOCK_SIZE,
   altitudeEncoding = "raw16",
   cadenceEncoding = "raw8",
 } = {}) {
   const rawBuildStartedAt = performance.now();
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
+  const normalizedGpsBlockSize = normalizeGpsBlockSize(gpsBlockSize);
   let workoutStreamBlock;
-  if (powerEncoding === "delta16" && distanceEncoding === "uint8-q02" && altitudeEncoding === "rle1m") {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeRle(compact);
-  } else if (powerEncoding === "delta16" && distanceEncoding === "uint8-q02" && altitudeEncoding === "delta8") {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeInt8(compact);
-  } else if (powerEncoding === "delta16" && distanceEncoding === "uint8-q05") {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q05(compact);
-  } else if (powerEncoding === "delta16" && distanceEncoding === "uint8-q02") {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(compact);
-  } else if (distanceEncoding === "uint8-q05") {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDistanceUint8Q05(compact);
+  if (powerEncoding === "delta16" && isDistanceEncodingUint8Q05m(distanceEncoding) && altitudeEncoding === "rle1m") {
+    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeRle(compact, { distanceBlockSize: normalizedDistanceBlockSize });
+  } else if (powerEncoding === "delta16" && isDistanceEncodingUint8Q05m(distanceEncoding) && altitudeEncoding === "delta8") {
+    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeInt8(compact, { distanceBlockSize: normalizedDistanceBlockSize });
+  } else if (powerEncoding === "delta16" && isDistanceEncodingUint8Q125m(distanceEncoding)) {
+    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q05(compact, normalizedDistanceBlockSize);
+  } else if (powerEncoding === "delta16" && isDistanceEncodingUint8Q05m(distanceEncoding)) {
+    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(compact, { distanceBlockSize: normalizedDistanceBlockSize });
+  } else if (isDistanceEncodingUint8Q125m(distanceEncoding)) {
+    workoutStreamBlock = buildWorkoutStreamBlockCompactDistanceUint8Q05(compact, normalizedDistanceBlockSize);
   } else if (powerEncoding === "delta16") {
     workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16Power(compact);
-  } else if (distanceEncoding === "uint8-q02") {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDistanceUint8Q02(compact);
+  } else if (isDistanceEncodingUint8Q05m(distanceEncoding)) {
+    workoutStreamBlock = buildWorkoutStreamBlockCompactDistanceUint8Q02(compact, normalizedDistanceBlockSize);
   } else {
     workoutStreamBlock = buildWorkoutStreamBlockCompact(compact);
   }
   const workoutStreamRawBytes = workoutStreamBlock.bytes;
-  const gpsResult = buildGpsTrackBlockCompact(compact, sampleRateSeconds);
+  const gpsResult = buildGpsTrackBlockCompact(compact, sampleRateSeconds, normalizedGpsBlockSize);
   const gpsTrackRawBytes = gpsResult.bytes;
   const rawBuildMs = performance.now() - rawBuildStartedAt;
   const workoutGzipStartedAt = performance.now();
@@ -3017,6 +3664,10 @@ const filePath = path.resolve(options.file);
 
 console.log(`File: ${filePath}`);
 console.log(`Repeats: ${options.repeats}\n`);
+console.log(
+  `Compression: inner=${options.innerCompression}, outer=${options.outerCompression}, ` +
+    `gzipLevel=${options.gzipLevel}, brotliQuality=${options.brotliQuality}\n`,
+);
 
 for (let run = 1; run <= options.repeats; run += 1) {
   const includeNode64 = options.variant === "node64" || options.variant === "both";
@@ -3158,6 +3809,29 @@ for (let run = 1; run <= options.repeats; run += 1) {
   let compactCombinedAltCadenceRleContainerGzipBytes = 0;
   let compactCombinedAltCadenceRleEncodedCadenceBytes = 0;
   let compactCombinedAltCadenceRleGzipCadenceBytes = 0;
+  let compactGpsEscapeRawBytes = 0;
+  let compactGpsEscapeGzipBytes = 0;
+  let prodCompactWoaBuildMs = 0;
+  let prodCompactWoaBytes = 0;
+  let prodCompactWorkoutStreamBytes = 0;
+  let prodCompactRawBuildMs = 0;
+  let prodCompactGzipMs = 0;
+  let prodCompactWorkoutGzipMs = 0;
+  let prodCompactGpsGzipMs = 0;
+  let prodCompactAssembleMs = 0;
+  let prodCompactContainerMs = 0;
+  let prodCompactOuterCompressionMs = 0;
+  let prodCompactRawContainerBytes = 0;
+  let prodCompactContainerGzipBytes = 0;
+  let prodIdentityWoaBytes = 0;
+  let prodIdentityWorkoutStreamBytes = 0;
+  let prodIdentityGpsTrackBytes = 0;
+  let prodIdentityContainerMs = 0;
+  let prodIdentityRawContainerBytes = 0;
+  let prodIdentityContainerGzipBytes = 0;
+  let prodOrderCurrentGzipBytes = 0;
+  let prodOrderQuietFirstGzipBytes = 0;
+  let prodOrderDistanceQuietPowerGzipBytes = 0;
   const compactPowerSeries = createSeriesAnalysis();
   const compactDistanceSeries = createSeriesAnalysis();
   const compactDistanceDeltaSeries = createNonNegativeDeltaAnalysis();
@@ -3176,12 +3850,20 @@ for (let run = 1; run <= options.repeats; run += 1) {
   const compactCadenceSeries = createSeriesAnalysis();
   const compactHrSeries = createSeriesAnalysis();
   const compactAltitudeSeries = createSeriesAnalysis();
+  const compactGpsLatInt16Series = createGpsInt16BlockAnalysis();
+  const compactGpsLngInt16Series = createGpsInt16BlockAnalysis();
   const compactCadenceDict = createByteDictionaryAnalysis();
   const compactHrDict = createByteDictionaryAnalysis();
   const compactAltitudeDict = createByteDictionaryAnalysis();
   const compactCadenceRle = createRunLengthAnalysis();
   const compactHrRle = createRunLengthAnalysis();
   const compactAltitudeRle = createRunLengthAnalysis();
+  const compactDistanceBitpack = createDynamicEncodingAnalysis();
+  const compactPowerBitpack = createDynamicEncodingAnalysis();
+  const compactGpsBitpack = createDynamicEncodingAnalysis();
+  const compactCadenceDictionaryDynamic = createDynamicEncodingAnalysis();
+  const compactHrDictionaryDynamic = createDynamicEncodingAnalysis();
+  const compactAltitudeDictionaryDynamic = createDynamicEncodingAnalysis();
   let quantizedPowerSamples = 0;
   let quantizedCadenceSamples = 0;
   let quantizedHrSamples = 0;
@@ -3196,6 +3878,8 @@ for (let run = 1; run <= options.repeats; run += 1) {
   const compactCombinedOutputEntries = [];
   const compactCombinedAltOutputEntries = [];
   const compactCombinedAltCadenceRleOutputEntries = [];
+  const prodCompactOutputEntries = [];
+  const prodIdentityOutputEntries = [];
   const checksumMask = (1n << 64n) - 1n;
   for (const [name, bytes] of fitEntries) {
     outputBytes += bytes.byteLength;
@@ -3265,12 +3949,70 @@ for (let run = 1; run <= options.repeats; run += 1) {
       mergeSeriesAnalysis(compactCadenceSeries, analyzeCompactSeries(compact.columns.cadencesRpm, COMPACT_SENTINELS.uint8));
       mergeSeriesAnalysis(compactHrSeries, analyzeCompactSeries(compact.columns.heartRatesBpm, COMPACT_SENTINELS.uint8));
       mergeSeriesAnalysis(compactAltitudeSeries, analyzeCompactSeries(compact.columns.altitudesQ, COMPACT_SENTINELS.int16));
+      const reducedGpsPoints = buildReducedGpsPointsForBenchmark(compact, 5);
+      mergeDynamicEncodingAnalysis(
+        compactDistanceBitpack,
+        analyzeDistanceBitpackCandidate(compact.columns.distancesQ, options.distanceBlockSize, options.gzipLevel),
+      );
+      mergeDynamicEncodingAnalysis(
+        compactPowerBitpack,
+        analyzePowerBitpackCandidate(compact.columns.powersW, options.gzipLevel),
+      );
+      mergeDynamicEncodingAnalysis(
+        compactGpsBitpack,
+        analyzeGpsBitpackCandidate(reducedGpsPoints, options.gpsBlockSize, options.gzipLevel),
+      );
+      mergeGpsInt16BlockAnalysis(
+        compactGpsLatInt16Series,
+        analyzeGpsInt16Blocks(reducedGpsPoints, "lat", options.gpsBlockSize),
+      );
+      mergeGpsInt16BlockAnalysis(
+        compactGpsLngInt16Series,
+        analyzeGpsInt16Blocks(reducedGpsPoints, "lng", options.gpsBlockSize),
+      );
+      const compactGpsEscapeBytes = buildGpsTrackBytesFromPoints(
+        reducedGpsPoints,
+        5,
+        (points) => buildGpsCoordinatePayloadCompactEscape(points, options.gpsBlockSize),
+      );
+      compactGpsEscapeRawBytes += compactGpsEscapeBytes.byteLength;
+      compactGpsEscapeGzipBytes += gzipByteLength(compactGpsEscapeBytes, options.gzipLevel);
       mergeByteDictionaryAnalysis(compactCadenceDict, compact.columns.cadencesRpm, COMPACT_SENTINELS.uint8);
       mergeByteDictionaryAnalysis(compactHrDict, compact.columns.heartRatesBpm, COMPACT_SENTINELS.uint8);
       mergeByteDictionaryAnalysis(compactAltitudeDict, compact.columns.altitudesQ, COMPACT_SENTINELS.int16);
       mergeRunLengthAnalysis(compactCadenceRle, compact.columns.cadencesRpm, COMPACT_SENTINELS.uint8);
       mergeRunLengthAnalysis(compactHrRle, compact.columns.heartRatesBpm, COMPACT_SENTINELS.uint8);
       mergeRunLengthAnalysis(compactAltitudeRle, compact.columns.altitudesQ, COMPACT_SENTINELS.int16);
+      mergeDynamicEncodingAnalysis(
+        compactCadenceDictionaryDynamic,
+        analyzeDictionaryCandidate(
+          compact.columns.cadencesRpm,
+          COMPACT_SENTINELS.uint8,
+          buildUint8RunLengthPayloadColumnDelta(compact.columns.cadencesRpm, COMPACT_SENTINELS.uint8, "cad-rle-col-delta8").bytes.byteLength,
+          1,
+          options.gzipLevel,
+        ),
+      );
+      mergeDynamicEncodingAnalysis(
+        compactHrDictionaryDynamic,
+        analyzeDictionaryCandidate(
+          compact.columns.heartRatesBpm,
+          COMPACT_SENTINELS.uint8,
+          buildUint8RunLengthPayloadColumnDelta(compact.columns.heartRatesBpm, COMPACT_SENTINELS.uint8, "hr-rle-col-delta8").bytes.byteLength,
+          1,
+          options.gzipLevel,
+        ),
+      );
+      mergeDynamicEncodingAnalysis(
+        compactAltitudeDictionaryDynamic,
+        analyzeDictionaryCandidate(
+          compact.columns.altitudesQ,
+          COMPACT_SENTINELS.int16,
+          buildAltitudeRunLengthPayloadCompact(compact.columns.altitudesQ).bytes.byteLength,
+          2,
+          options.gzipLevel,
+        ),
+      );
       mergeSignedInt8EscapeDeltaAnalysis(
         compactAltitudeSignedInt8EscapeSeries,
         analyzeSignedInt8EscapeDeltas(compact.columns.altitudesQ, COMPACT_SENTINELS.int16, 127, 4),
@@ -3282,6 +4024,8 @@ for (let run = 1; run <= options.repeats; run += 1) {
         sessions: compact.sessions || [],
         sampleRateSeconds: 5,
         gzipLevel: options.gzipLevel,
+        distanceBlockSize: options.distanceBlockSize,
+        gpsBlockSize: options.gpsBlockSize,
       });
       compactWoaBuildMs += performance.now() - compactWoaStartedAt;
       compactWoaBytes += compactWoa.bytes.byteLength;
@@ -3316,6 +4060,8 @@ for (let run = 1; run <= options.repeats; run += 1) {
         sampleRateSeconds: 5,
         gzipLevel: options.gzipLevel,
         powerEncoding: "delta16",
+        distanceBlockSize: options.distanceBlockSize,
+        gpsBlockSize: options.gpsBlockSize,
       });
       compactDeltaPowerWoaBuildMs += performance.now() - compactDeltaPowerStartedAt;
       compactDeltaPowerWoaBytes += compactDeltaPowerWoa.bytes.byteLength;
@@ -3340,7 +4086,9 @@ for (let run = 1; run <= options.repeats; run += 1) {
         sampleRateSeconds: 5,
         gzipLevel: options.gzipLevel,
         powerEncoding: "raw16",
-        distanceEncoding: "uint8-q02",
+        distanceEncoding: DISTANCE_ENCODING_UINT8_Q05M,
+        distanceBlockSize: options.distanceBlockSize,
+        gpsBlockSize: options.gpsBlockSize,
       });
       compactDeltaDistanceWoaBuildMs += performance.now() - compactDeltaDistanceStartedAt;
       compactDeltaDistanceWoaBytes += compactDeltaDistanceWoa.bytes.byteLength;
@@ -3363,7 +4111,9 @@ for (let run = 1; run <= options.repeats; run += 1) {
         sampleRateSeconds: 5,
         gzipLevel: options.gzipLevel,
         powerEncoding: "raw16",
-        distanceEncoding: "uint8-q05",
+        distanceEncoding: DISTANCE_ENCODING_UINT8_Q125M,
+        distanceBlockSize: options.distanceBlockSize,
+        gpsBlockSize: options.gpsBlockSize,
       });
       compactDeltaDistance05WoaBuildMs += performance.now() - compactDeltaDistance05StartedAt;
       compactDeltaDistance05WoaBytes += compactDeltaDistance05Woa.bytes.byteLength;
@@ -3386,7 +4136,9 @@ for (let run = 1; run <= options.repeats; run += 1) {
         sampleRateSeconds: 5,
         gzipLevel: options.gzipLevel,
         powerEncoding: "delta16",
-        distanceEncoding: "uint8-q02",
+        distanceEncoding: DISTANCE_ENCODING_UINT8_Q05M,
+        distanceBlockSize: options.distanceBlockSize,
+        gpsBlockSize: options.gpsBlockSize,
       });
       compactCombinedWoaBuildMs += performance.now() - compactCombinedStartedAt;
       compactCombinedWoaBytes += compactCombinedWoa.bytes.byteLength;
@@ -3424,7 +4176,9 @@ for (let run = 1; run <= options.repeats; run += 1) {
         sampleRateSeconds: 5,
         gzipLevel: options.gzipLevel,
         powerEncoding: "delta16",
-        distanceEncoding: "uint8-q02",
+        distanceEncoding: DISTANCE_ENCODING_UINT8_Q05M,
+        distanceBlockSize: options.distanceBlockSize,
+        gpsBlockSize: options.gpsBlockSize,
         altitudeEncoding: "delta8",
       });
       compactCombinedAltWoaBuildMs += performance.now() - compactCombinedAltStartedAt;
@@ -3451,7 +4205,9 @@ for (let run = 1; run <= options.repeats; run += 1) {
         sampleRateSeconds: 5,
         gzipLevel: options.gzipLevel,
         powerEncoding: "delta16",
-        distanceEncoding: "uint8-q02",
+        distanceEncoding: DISTANCE_ENCODING_UINT8_Q05M,
+        distanceBlockSize: options.distanceBlockSize,
+        gpsBlockSize: options.gpsBlockSize,
         altitudeEncoding: "rle1m",
       });
       compactCombinedAltCadenceRleWoaBuildMs += performance.now() - compactCombinedAltCadenceRleStartedAt;
@@ -3473,6 +4229,93 @@ for (let run = 1; run <= options.repeats; run += 1) {
         name: name.replace(/\.fit$/i, ".woa1"),
         bytes: compactCombinedAltCadenceRleWoa.bytes,
       });
+
+      const prodCompactStartedAt = performance.now();
+      const prodCompactAdjusted = applyCompactQuantization(compact, {
+        powerStep: 4,
+        cadenceStep: 2,
+        hrStep: 2,
+      });
+      const prodCompactParsed = {
+        sessions: prodCompactAdjusted.compact.sessions || [],
+        compactRecords: {
+          recordCount: prodCompactAdjusted.compact.recordCount,
+          baseTimestampMs: prodCompactAdjusted.compact.baseTimestampMs,
+          timestampsMs: expandCompactTimestampsMs(
+            prodCompactAdjusted.compact.baseTimestampMs,
+            prodCompactAdjusted.compact.columns.timestampOffsetsS,
+          ),
+          distancesQ: prodCompactAdjusted.compact.columns.distancesQ,
+          powersW: prodCompactAdjusted.compact.columns.powersW,
+          heartRatesBpm: prodCompactAdjusted.compact.columns.heartRatesBpm,
+          cadencesRpm: prodCompactAdjusted.compact.columns.cadencesRpm,
+          speedsCmS: prodCompactAdjusted.compact.columns.speedsCmS,
+          altitudesQ: prodCompactAdjusted.compact.columns.altitudesQ,
+          positionLatsE6: prodCompactAdjusted.compact.columns.positionLatsE6,
+          positionLongsE6: prodCompactAdjusted.compact.columns.positionLongsE6,
+        },
+      };
+      const prodCompactWoa = createWoa1FileFromCompactProd(prodCompactParsed, {
+        sourceName: name,
+        sampleRateSeconds: 5,
+        powerEncoding: "delta8-q4w",
+        distanceEncoding: DISTANCE_ENCODING_UINT8_Q05M,
+        distanceBlockSize: options.distanceBlockSize,
+        gpsBlockSize: options.gpsBlockSize,
+        altitudeEncoding: "rle-delta-q1m",
+        compressWorkoutStream: createCompressionCallback(options.innerCompression, options),
+        compressGpsTrack: createCompressionCallback(options.innerCompression, options),
+        streamCodec: options.innerCompression,
+        gpsTrackBlobCodec: options.innerCompression,
+      });
+      prodCompactWoaBuildMs += performance.now() - prodCompactStartedAt;
+      prodCompactWoaBytes += prodCompactWoa.bytes.byteLength;
+      prodCompactWorkoutStreamBytes += prodCompactWoa.workoutStreamBytes.byteLength;
+      prodCompactRawBuildMs +=
+        prodCompactWoa.timings.buildReducedGpsTrackMs +
+        prodCompactWoa.timings.buildWorkoutStreamBlockMs +
+        prodCompactWoa.timings.buildGpsTrackBlockMs +
+        prodCompactWoa.timings.deriveSummaryMs +
+        prodCompactWoa.timings.encodeMetaJsonMs +
+        prodCompactWoa.timings.encodeSessionsJsonMs;
+      prodCompactGzipMs += prodCompactWoa.timings.compressWorkoutStreamMs + prodCompactWoa.timings.compressGpsTrackMs;
+      prodCompactWorkoutGzipMs += prodCompactWoa.timings.compressWorkoutStreamMs;
+      prodCompactGpsGzipMs += prodCompactWoa.timings.compressGpsTrackMs;
+      prodCompactAssembleMs += prodCompactWoa.timings.assembleWoaFileMs;
+      prodCompactOutputEntries.push({
+        name: name.replace(/\.fit$/i, ".woa1"),
+        bytes: prodCompactWoa.bytes,
+      });
+
+      const prodIdentityWoa = createWoa1FileFromCompactProd(prodCompactParsed, {
+        sourceName: name,
+        sampleRateSeconds: 5,
+        powerEncoding: "delta8-q4w",
+        distanceEncoding: DISTANCE_ENCODING_UINT8_Q05M,
+        distanceBlockSize: options.distanceBlockSize,
+        gpsBlockSize: options.gpsBlockSize,
+        altitudeEncoding: "rle-delta-q1m",
+      });
+      prodIdentityWoaBytes += prodIdentityWoa.bytes.byteLength;
+      prodIdentityWorkoutStreamBytes += prodIdentityWoa.workoutStreamBytes.byteLength;
+      prodIdentityGpsTrackBytes += prodIdentityWoa.gpsTrackBytes.byteLength;
+      prodIdentityOutputEntries.push({
+        name: name.replace(/\.fit$/i, ".woa1"),
+        bytes: prodIdentityWoa.bytes,
+      });
+      prodOrderCurrentGzipBytes += gzipByteLength(
+        buildWorkoutStreamPayloadOrderCandidate(prodIdentityWoa.workoutStreamBlock, ["dist", "pow", "hr", "cad", "spd", "alt"]),
+        options.gzipLevel,
+      );
+      prodOrderQuietFirstGzipBytes += gzipByteLength(
+        buildWorkoutStreamPayloadOrderCandidate(prodIdentityWoa.workoutStreamBlock, ["hr", "cad", "alt", "dist", "pow", "spd"]),
+        options.gzipLevel,
+      );
+      prodOrderDistanceQuietPowerGzipBytes += gzipByteLength(
+        buildWorkoutStreamPayloadOrderCandidate(prodIdentityWoa.workoutStreamBlock, ["dist", "hr", "cad", "alt", "pow", "spd"]),
+        options.gzipLevel,
+      );
+
     }
 
     if (includeNode64) {
@@ -3549,6 +4392,24 @@ for (let run = 1; run <= options.repeats; run += 1) {
     compactCombinedAltCadenceRleContainerMs = performance.now() - compactCombinedAltCadenceRleContainerStartedAt;
     compactCombinedAltCadenceRleRawContainerBytes = compactCombinedAltCadenceRleRawContainer.byteLength;
     compactCombinedAltCadenceRleContainerGzipBytes = compactCombinedAltCadenceRleGzipContainer.byteLength;
+    const prodCompactContainerStartedAt = performance.now();
+    const prodCompactRawContainer = encodeWoaTransportContainer(prodCompactOutputEntries);
+    const prodCompactOuterCompressionStartedAt = performance.now();
+    const prodCompactGzipContainerResult = compressBytes(prodCompactRawContainer, options.outerCompression, {
+      gzipLevel: options.gzipLevel,
+      brotliQuality: options.brotliQuality,
+    });
+    const prodCompactGzipContainer = prodCompactGzipContainerResult.bytes;
+    prodCompactOuterCompressionMs = performance.now() - prodCompactOuterCompressionStartedAt;
+    prodCompactContainerMs = performance.now() - prodCompactContainerStartedAt;
+    prodCompactRawContainerBytes = prodCompactRawContainer.byteLength;
+    prodCompactContainerGzipBytes = prodCompactGzipContainer.byteLength;
+    const prodIdentityContainerStartedAt = performance.now();
+    const prodIdentityRawContainer = encodeWoaTransportContainer(prodIdentityOutputEntries);
+    const prodIdentityGzipContainer = gzipSync(prodIdentityRawContainer, { level: options.gzipLevel });
+    prodIdentityContainerMs = performance.now() - prodIdentityContainerStartedAt;
+    prodIdentityRawContainerBytes = prodIdentityRawContainer.byteLength;
+    prodIdentityContainerGzipBytes = prodIdentityGzipContainer.byteLength;
   }
   const enumerateDoneAt = performance.now();
 
@@ -3578,7 +4439,8 @@ for (let run = 1; run <= options.repeats; run += 1) {
     includeCompact
       ? commonInputMs + compactParseMs + compactCombinedAltCadenceRleWoaBuildMs + compactCombinedAltCadenceRleContainerMs
       : 0;
-
+  const prodCompactReadyMs =
+    includeCompact ? commonInputMs + compactParseMs + prodCompactWoaBuildMs + prodCompactContainerMs : 0;
   console.log(
     `Run ${run}: read=${formatMs(readMs)} ms, unzip=${formatMs(unzipMs)} ms, ` +
       `enumerate=${formatMs(enumerateMs)} ms, total=${formatMs(totalMs)} ms, ` +
@@ -3592,6 +4454,7 @@ for (let run = 1; run <= options.repeats; run += 1) {
       `compactCombinedReady=${includeCompact ? formatMs(compactCombinedReadyMs) : "n/a"} ms, ` +
       `compactCombinedAltReady=${includeCompact ? formatMs(compactCombinedAltReadyMs) : "n/a"} ms, ` +
       `compactCombinedAltRleReady=${includeCompact ? formatMs(compactCombinedAltCadenceRleReadyMs) : "n/a"} ms, ` +
+      `prodCompactReady=${includeCompact ? formatMs(prodCompactReadyMs) : "n/a"} ms, ` +
       `parse=${formatMs(parseMs)} ms, records=${recordCount}, sessions=${sessionCount}, ` +
       `qPower=${quantizedPowerSamples}, qCadence=${quantizedCadenceSamples}, qHr=${quantizedHrSamples}, ` +
       `compactFastParse=${formatMs(compactParseMs)} ms, compactRecords=${compactRecordCount}, ` +
@@ -3636,9 +4499,20 @@ for (let run = 1; run <= options.repeats; run += 1) {
       `${formatRunLengthAnalysis("hr", compactHrRle)}/` +
       `${formatRunLengthAnalysis("alt", compactAltitudeRle)}/` +
       `${formatSeriesAnalysis("alt", compactAltitudeSeries)}/` +
-      `${formatSignedInt8EscapeDeltaAnalysis("altDelta1mInt8Esc127", compactAltitudeSignedInt8EscapeSeries)}, ` +
+      `${formatSignedInt8EscapeDeltaAnalysis("altDelta1mInt8Esc127", compactAltitudeSignedInt8EscapeSeries)}/` +
+      `${formatGpsInt16BlockAnalysis("gpsLat16", compactGpsLatInt16Series)}/` +
+      `${formatGpsInt16BlockAnalysis("gpsLng16", compactGpsLngInt16Series)}, ` +
+      `compactDynamic=` +
+      `${formatDynamicEncodingAnalysis("distBitpack", compactDistanceBitpack)}/` +
+      `${formatDynamicEncodingAnalysis("powBitpack", compactPowerBitpack)}/` +
+      `${formatDynamicEncodingAnalysis("gpsBitpack", compactGpsBitpack)}/` +
+      `${formatDynamicEncodingAnalysis("cadDictDyn", compactCadenceDictionaryDynamic)}/` +
+      `${formatDynamicEncodingAnalysis("hrDictDyn", compactHrDictionaryDynamic)}/` +
+      `${formatDynamicEncodingAnalysis("altDictDyn", compactAltitudeDictionaryDynamic)}, ` +
       `compactWorkoutGzip=${(compactWorkoutStreamBytes / 1024 / 1024).toFixed(2)} MiB, ` +
       `compactGpsGzip=${(compactGpsTrackBytes / 1024 / 1024).toFixed(2)} MiB, ` +
+      `compactGpsEscapeRaw=${(compactGpsEscapeRawBytes / 1024 / 1024).toFixed(2)} MiB, ` +
+      `compactGpsEscapeGzip=${(compactGpsEscapeGzipBytes / 1024 / 1024).toFixed(2)} MiB, ` +
       `compactDeltaPowerWoa=${formatMs(compactDeltaPowerWoaBuildMs)} ms, ` +
       `compactDeltaPowerWoaBytes=${(compactDeltaPowerWoaBytes / 1024 / 1024).toFixed(2)} MiB, ` +
       `compactDeltaPowerRaw=${formatMs(compactDeltaPowerRawBuildMs)} ms, ` +
@@ -3713,6 +4587,16 @@ for (let run = 1; run <= options.repeats; run += 1) {
       `compactCombinedAltRleEncodedAlt=${(compactCombinedAltCadenceRleEncodedCadenceBytes / 1024 / 1024).toFixed(2)} MiB, ` +
       `compactCombinedAltRleGzipAlt=${(compactCombinedAltCadenceRleGzipCadenceBytes / 1024 / 1024).toFixed(2)} MiB, ` +
       `compactCombinedAltRleWorkoutGzip=${(compactCombinedAltCadenceRleWorkoutStreamBytes / 1024 / 1024).toFixed(2)} MiB, ` +
+      `prodCompactWoa=${formatMs(prodCompactWoaBuildMs)} ms, ` +
+      `prodCompactInnerCompression=${options.innerCompression}, ` +
+      `prodCompactOuterCompression=${options.outerCompression}, ` +
+      `prodCompactWoaBytes=${(prodCompactWoaBytes / 1024 / 1024).toFixed(2)} MiB, ` +
+      `prodCompactRaw=${formatMs(prodCompactRawBuildMs)} ms, ` +
+      `prodCompactGzip=${formatMs(prodCompactGzipMs)} ms, ` +
+      `prodCompactWorkoutGzipMs=${formatMs(prodCompactWorkoutGzipMs)} ms, ` +
+      `prodCompactGpsGzipMs=${formatMs(prodCompactGpsGzipMs)} ms, ` +
+      `prodCompactAssemble=${formatMs(prodCompactAssembleMs)} ms, ` +
+      `prodCompactWorkoutGzip=${(prodCompactWorkoutStreamBytes / 1024 / 1024).toFixed(2)} MiB, ` +
       `node64Container=${formatMs(node64ContainerMs)} ms, rawContainer=${(rawContainerBytes.byteLength / 1024 / 1024).toFixed(2)} MiB, ` +
       `containerGzip=${(gzipContainerBytes.byteLength / 1024 / 1024).toFixed(2)} MiB, ` +
       `compactContainer=${formatMs(compactContainerMs)} ms, ` +
@@ -3736,6 +4620,21 @@ for (let run = 1; run <= options.repeats; run += 1) {
       `compactCombinedAltRleContainer=${formatMs(compactCombinedAltCadenceRleContainerMs)} ms, ` +
       `compactCombinedAltRleRawContainer=${(compactCombinedAltCadenceRleRawContainerBytes / 1024 / 1024).toFixed(2)} MiB, ` +
       `compactCombinedAltRleContainerGzip=${(compactCombinedAltCadenceRleContainerGzipBytes / 1024 / 1024).toFixed(2)} MiB, ` +
+      `prodCompactContainer=${formatMs(prodCompactContainerMs)} ms, ` +
+      `prodCompactOuterCompressionMs=${formatMs(prodCompactOuterCompressionMs)} ms, ` +
+      `prodCompactRawContainer=${(prodCompactRawContainerBytes / 1024 / 1024).toFixed(2)} MiB, ` +
+      `prodCompactContainerCompressed=${(prodCompactContainerGzipBytes / 1024 / 1024).toFixed(2)} MiB, ` +
+      `prodCompactContainerGzip=${(prodCompactContainerGzipBytes / 1024 / 1024).toFixed(2)} MiB, ` +
+      `prodIdentityWoaBytes=${(prodIdentityWoaBytes / 1024 / 1024).toFixed(2)} MiB, ` +
+      `prodIdentityWorkoutRaw=${(prodIdentityWorkoutStreamBytes / 1024 / 1024).toFixed(2)} MiB, ` +
+      `prodIdentityGpsRaw=${(prodIdentityGpsTrackBytes / 1024 / 1024).toFixed(2)} MiB, ` +
+      `prodIdentityContainer=${formatMs(prodIdentityContainerMs)} ms, ` +
+      `prodIdentityRawContainer=${(prodIdentityRawContainerBytes / 1024 / 1024).toFixed(2)} MiB, ` +
+      `prodIdentityContainerGzip=${(prodIdentityContainerGzipBytes / 1024 / 1024).toFixed(2)} MiB, ` +
+      `prodOrderGzipMiB=` +
+      `current:${(prodOrderCurrentGzipBytes / 1024 / 1024).toFixed(2)}/` +
+      `quietFirst:${(prodOrderQuietFirstGzipBytes / 1024 / 1024).toFixed(2)}/` +
+      `distQuietPower:${(prodOrderDistanceQuietPowerGzipBytes / 1024 / 1024).toFixed(2)}, ` +
       `unzipThroughput=${(outputMiB * 1000 / unzipMs).toFixed(2)} MiB/s, checksum=${checksum}`,
   );
 }

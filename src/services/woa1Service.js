@@ -301,6 +301,74 @@ function decodeInt16RunLengthDeltaBlock(view, offset, blockLength, recordCount, 
   return blockEnd;
 }
 
+function decodeDistanceDeltaRlePayload(bytes, recordCount) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const values = new Float64Array(recordCount);
+  if (recordCount <= 0) {
+    return values;
+  }
+  let offset = 0;
+  const totalCount = view.getUint32(offset, true);
+  offset += 4;
+  let current = view.getUint32(offset, true);
+  offset += 4;
+  values[0] = current === UINT32_NAN ? Number.NaN : current / 5;
+  const deltaCount = Math.max(0, Math.min(totalCount, recordCount) - 1);
+  const runLengthsOffset = offset;
+  const tokenOffset = runLengthsOffset + deltaCount;
+  let absoluteOffset = tokenOffset + deltaCount;
+  let writeIndex = 1;
+  for (let runIndex = 0; runIndex < deltaCount && writeIndex < recordCount; runIndex += 1) {
+    const runLength = view.getUint8(runLengthsOffset + runIndex);
+    const token = view.getUint8(tokenOffset + runIndex);
+    const delta = token === 255 ? view.getUint32(absoluteOffset, true) : token;
+    if (token === 255) {
+      absoluteOffset += 4;
+    }
+    for (let i = 0; i < runLength && writeIndex < recordCount; i += 1) {
+      current += delta;
+      values[writeIndex] = current === UINT32_NAN ? Number.NaN : current / 5;
+      writeIndex += 1;
+    }
+  }
+  return values;
+}
+
+function decodePowerDeltaRleInt8Q4Payload(bytes, recordCount, output) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (recordCount <= 0) {
+    return;
+  }
+  let offset = 0;
+  output[0] = view.getUint16(offset, true);
+  offset += 2;
+  const runCount = view.getUint32(offset, true);
+  offset += 4;
+  const lengthsOffset = offset;
+  const tokenOffset = lengthsOffset + runCount;
+  let absoluteOffset = tokenOffset + runCount;
+  let writeIndex = 1;
+  let currentValue = output[0];
+  for (let runIndex = 0; runIndex < runCount && writeIndex < recordCount; runIndex += 1) {
+    const runLength = view.getUint8(lengthsOffset + runIndex);
+    const token = view.getInt8(tokenOffset + runIndex);
+    let nextValue;
+    if (token === WOA_RLE_DELTA_ESCAPE) {
+      nextValue = view.getUint16(absoluteOffset, true);
+      absoluteOffset += 2;
+    } else if (Number.isFinite(currentValue)) {
+      nextValue = currentValue + (token * 4);
+    } else {
+      nextValue = Number.NaN;
+    }
+    for (let i = 0; i < runLength && writeIndex < recordCount; i += 1) {
+      output[writeIndex] = nextValue;
+      writeIndex += 1;
+    }
+    currentValue = nextValue;
+  }
+}
+
 function decodeGpsCoordinatePayload(bytes, pointCount, layoutVersion = 1) {
   const latitudes = new Float64Array(pointCount);
   const longitudes = new Float64Array(pointCount);

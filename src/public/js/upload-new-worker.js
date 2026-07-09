@@ -1,7 +1,7 @@
 import { parseFitBufferTypedBrowser } from "./fit-import-typed-browser.js";
 import { applyCompactEncodingOptions, parseFitBufferCompactBrowser } from "./fit-import-compact-browser.js";
 import { createWoa1File } from "./woa-format.js";
-import { createWoa1FileFromCompact } from "./woa-format-compact.js";
+import { createWoa1FileFromCompactAsync } from "./woa-format-compact.js";
 import { encodeWoaTransportContainer } from "./woa-transport-container.js";
 import { gzipSync, unzipSync, zipSync } from "/vendor/fflate/browser.js";
 
@@ -16,6 +16,48 @@ const preparedZipSources = new Map();
 
 async function compressGzip(bytes, level = PER_FILE_GZIP_LEVEL) {
   return gzipSync(bytes, { level });
+}
+
+function canUseCompressionStream(format) {
+  if (typeof CompressionStream === "undefined") {
+    return false;
+  }
+  try {
+    new CompressionStream(format);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveUploadCompressionCodec(encodingOptions = {}) {
+  const requested = String(encodingOptions.uploadCompression || "auto").trim().toLowerCase();
+  if (requested === "gzip") return "gzip";
+  if (requested === "brotli" || requested === "br") {
+    return canUseCompressionStream("brotli") ? "brotli" : "gzip";
+  }
+  return canUseCompressionStream("brotli") ? "brotli" : "gzip";
+}
+
+function resolveGzipEngine(encodingOptions = {}) {
+  const requested = String(encodingOptions.uploadGzipEngine || "compression-stream").trim().toLowerCase();
+  if (requested === "fflate") return "fflate";
+  return canUseCompressionStream("gzip") ? "compression-stream" : "fflate";
+}
+
+async function compressWithCompressionStream(bytes, format) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream(format));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function compressWithCodec(bytes, codec, options = {}, encodingOptions = {}) {
+  if (codec === "brotli") {
+    return compressWithCompressionStream(bytes, "brotli");
+  }
+  if (codec === "gzip" && resolveGzipEngine(encodingOptions) === "compression-stream") {
+    return compressWithCompressionStream(bytes, "gzip");
+  }
+  return gzipSync(bytes, { level: Number(options.level || PER_FILE_GZIP_LEVEL) });
 }
 
 function nowMs() {
@@ -56,19 +98,22 @@ function adjustParsedForEncoding(parsed, parserVariant, encodingOptions) {
     : applyEncodingOptions(parsed, encodingOptions);
 }
 
-function createWoaFromParsed(parsed, parserVariant, fileName, encodingOptions) {
+async function createWoaFromParsed(parsed, parserVariant, fileName, encodingOptions) {
   if (parserVariant === "compact") {
     const adjustedParsed = adjustParsedForEncoding(parsed, parserVariant, encodingOptions);
+    const streamCodec = resolveUploadCompressionCodec(encodingOptions);
     return {
       adjustedParsed,
-      result: createWoa1FileFromCompact(adjustedParsed, {
+      result: await createWoa1FileFromCompactAsync(adjustedParsed, {
         sourceName: fileName,
         sampleRateSeconds: 5,
         powerEncoding: encodingOptions?.compactPowerEncoding === "raw16" ? "raw16" : "delta8-q4w",
-        distanceEncoding: encodingOptions?.compactDistanceEncoding === "default" ? "default" : "uint8-q02",
+        distanceEncoding: encodingOptions?.compactDistanceEncoding === "default" ? "default" : "uint8-q05m",
         altitudeEncoding: encodingOptions?.compactAltitudeEncoding === "delta8-q1m" ? "delta8-q1m" : "rle-delta-q1m",
-        compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
-        compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
+        streamCodec,
+        gpsTrackBlobCodec: streamCodec,
+        compressWorkoutStream: (bytes, options = {}) => compressWithCodec(bytes, streamCodec, options, encodingOptions),
+        compressGpsTrack: (bytes, options = {}) => compressWithCodec(bytes, streamCodec, options, encodingOptions)
       })
     };
   }
@@ -79,6 +124,7 @@ function createWoaFromParsed(parsed, parserVariant, fileName, encodingOptions) {
     result: createWoa1File(adjustedParsed, {
       sourceName: fileName,
       sampleRateSeconds: 5,
+      // The typed legacy path stays gzip-only; the compact path is the production upload path.
       compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
       compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
     })
@@ -728,7 +774,7 @@ self.addEventListener("message", async (event) => {
       });
 
       const woaStartedAt = nowMs();
-      const { adjustedParsed, result } = createWoaFromParsed(parsed, parserVariant, fileName, encodingOptions);
+      const { adjustedParsed, result } = await createWoaFromParsed(parsed, parserVariant, fileName, encodingOptions);
       finalParsed = adjustedParsed;
       buildSamplesMs.push(nowMs() - woaStartedAt);
       buildTimingSamples.push(result.timings || {});
@@ -916,7 +962,7 @@ async function convertMixedEntriesToWoaZip({
         }
 
         const buildStartedAt = nowMs();
-        const { result } = createWoaFromParsed(parsed, parserVariant, fitEntry.name, encodingOptions);
+        const { result } = await createWoaFromParsed(parsed, parserVariant, fitEntry.name, encodingOptions);
         buildSamplesMs.push(nowMs() - buildStartedAt);
         buildTimingSamples.push(result.timings || {});
         speedFallbackWorkoutCount += Number(result.stats?.workoutStream?.usesSpeedFallback ? 1 : 0);
@@ -1039,15 +1085,19 @@ async function convertMixedEntriesToWoaZip({
 
     const containerBuildStartedAt = nowMs();
     const rawContainerBytes = encodeWoaTransportContainer(outputEntries);
-    const gzipContainerBytes = gzipSync(rawContainerBytes, { level: CUSTOM_CONTAINER_GZIP_LEVEL });
+    const containerCodec = resolveUploadCompressionCodec(encodingOptions);
+    const compressedContainerBytes = await compressWithCodec(rawContainerBytes, containerCodec, { level: CUSTOM_CONTAINER_GZIP_LEVEL }, encodingOptions);
+    const containerCompressionEngine = containerCodec === "gzip"
+      ? resolveGzipEngine(encodingOptions)
+      : "compression-stream";
     const containerBuildMs = nowMs() - containerBuildStartedAt;
     const totalElapsedMs = nowMs() - startedAt;
 
     self.postMessage({
       type: "completed-container",
       fileName,
-      outputFileName: fileName.replace(/\.zip$/i, ".woat.gz"),
-      bytes: gzipContainerBytes.buffer,
+      outputFileName: fileName.replace(/\.zip$/i, containerCodec === "brotli" ? ".woat.br" : ".woat.gz"),
+      bytes: compressedContainerBytes.buffer,
       stats: {
         fitEntries: sortedFitEntries.length,
         woaEntries: sortedWoaEntries.length,
@@ -1059,8 +1109,10 @@ async function convertMixedEntriesToWoaZip({
         totalRecordCount,
         totalGpsPointCount,
         sourceZipBytes: sourceBytes,
-        outputContainerBytes: gzipContainerBytes.byteLength,
+        outputContainerBytes: compressedContainerBytes.byteLength,
         rawContainerBytes: rawContainerBytes.byteLength,
+        containerCompression: containerCodec,
+        containerCompressionEngine,
         containerGzipLevel: CUSTOM_CONTAINER_GZIP_LEVEL
       },
       skipped: skippedEntries,
@@ -1079,7 +1131,7 @@ async function convertMixedEntriesToWoaZip({
         containerBuildMs,
         totalMs: totalElapsedMs
       }
-    }, [gzipContainerBytes.buffer]);
+    }, [compressedContainerBytes.buffer]);
     return;
   }
 

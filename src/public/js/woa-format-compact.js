@@ -4,8 +4,13 @@ const UINT16_NAN = 0xFFFF;
 const UINT32_NAN = 0xFFFFFFFF;
 const INT16_NAN = -0x8000;
 const INT32_NAN = -0x80000000;
+const DISTANCE_ENCODING_DEFAULT = "default";
+const DISTANCE_ENCODING_UINT8_Q05M = "uint8-q05m";
+const DISTANCE_ENCODING_UINT8_Q02_LEGACY = "uint8-q02";
 const MICRO_DEGREES = 1e6;
 const DELTA_BLOCK_SIZE = 128;
+const DEFAULT_DISTANCE_BLOCK_SIZE = 999999;
+const DEFAULT_GPS_BLOCK_SIZE = 999999;
 const DEFAULT_STREAM_CODEC = "gzip";
 const DEFAULT_GPS_TRACK_CODEC = "gzip";
 const DEFAULT_STREAM_GZIP_LEVEL = 4;
@@ -685,6 +690,7 @@ function buildAltitudeRunLengthPayloadFromCompact(compactRecords, recordCount) {
   };
 }
 
+
 function buildWorkoutStreamBlockFromCompactDelta16Power(compactRecords) {
   const recordCount = Number(compactRecords.recordCount || 0);
   let hasCompleteDistanceSeries = recordCount > 0;
@@ -758,15 +764,16 @@ function buildWorkoutStreamBlockFromCompactDelta16Power(compactRecords) {
   };
 }
 
-function buildDistancePayloadCompactUint8Q02(compactRecords, recordCount) {
+function buildDistancePayloadCompactUint8Q02(compactRecords, recordCount, distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE) {
   const DISTANCE_DIVISOR = 2;
   const DISTANCE_ESCAPE = 255;
   const values = compactRecords.distancesQ;
   const chunks = [];
   let totalBytes = 0;
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
 
-  for (let start = 0; start < recordCount; start += DELTA_BLOCK_SIZE) {
-    const count = Math.min(DELTA_BLOCK_SIZE, recordCount - start);
+  for (let start = 0; start < recordCount; start += normalizedDistanceBlockSize) {
+    const count = Math.min(normalizedDistanceBlockSize, recordCount - start);
     let canUint8Encode = count > 0 && values[start] !== UINT32_NAN;
 
     if (canUint8Encode) {
@@ -831,7 +838,36 @@ function buildDistancePayloadCompactUint8Q02(compactRecords, recordCount) {
   return payload;
 }
 
-function buildWorkoutStreamBlockCompactDistanceUint8Q02(compactRecords) {
+function normalizeDistanceEncoding(distanceEncoding) {
+  if (distanceEncoding === DISTANCE_ENCODING_DEFAULT) {
+    return DISTANCE_ENCODING_DEFAULT;
+  }
+  if (
+    distanceEncoding === DISTANCE_ENCODING_UINT8_Q05M
+    || distanceEncoding === DISTANCE_ENCODING_UINT8_Q02_LEGACY
+  ) {
+    return DISTANCE_ENCODING_UINT8_Q05M;
+  }
+  return distanceEncoding || DISTANCE_ENCODING_UINT8_Q05M;
+}
+
+function normalizeDistanceBlockSize(distanceBlockSize) {
+  const numeric = Number(distanceBlockSize);
+  if (!Number.isInteger(numeric) || numeric <= 0) {
+    return DEFAULT_DISTANCE_BLOCK_SIZE;
+  }
+  return numeric;
+}
+
+function normalizeGpsBlockSize(gpsBlockSize) {
+  const numeric = Number(gpsBlockSize);
+  if (!Number.isInteger(numeric) || numeric <= 0) {
+    return DEFAULT_GPS_BLOCK_SIZE;
+  }
+  return numeric;
+}
+
+function buildWorkoutStreamBlockCompactDistanceUint8Q02(compactRecords, { distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE } = {}) {
   const recordCount = Number(compactRecords.recordCount || 0);
   let hasCompleteDistanceSeries = recordCount > 0;
   for (let index = 0; index < recordCount; index += 1) {
@@ -842,7 +878,8 @@ function buildWorkoutStreamBlockCompactDistanceUint8Q02(compactRecords) {
   }
   const usesSpeedFallback = !hasCompleteDistanceSeries;
   const headerBytes = 4 + 4 + 8 + 4 + 6 * 4;
-  const distancePayload = buildDistancePayloadCompactUint8Q02(compactRecords, recordCount);
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
+  const distancePayload = buildDistancePayloadCompactUint8Q02(compactRecords, recordCount, normalizedDistanceBlockSize);
   const distancesBytes = distancePayload.byteLength;
   const powersBytes = recordCount * 2;
   const heartRatesBytes = recordCount;
@@ -896,12 +933,13 @@ function buildWorkoutStreamBlockCompactDistanceUint8Q02(compactRecords) {
       recordCount,
       usesSpeedFallback,
       speedFallbackRecordCount: usesSpeedFallback ? recordCount : 0,
-      distanceEncoding: "uint8-q02"
+      distanceEncoding: DISTANCE_ENCODING_UINT8_Q05M,
+      distanceBlockSize: normalizedDistanceBlockSize
     }
   };
 }
 
-function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(compactRecords) {
+function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(compactRecords, { distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE } = {}) {
   const recordCount = Number(compactRecords.recordCount || 0);
   let hasCompleteDistanceSeries = recordCount > 0;
   for (let index = 0; index < recordCount; index += 1) {
@@ -912,7 +950,8 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(compactRecor
   }
   const usesSpeedFallback = !hasCompleteDistanceSeries;
   const headerBytes = 4 + 4 + 8 + 4 + 6 * 4;
-  const distancePayload = buildDistancePayloadCompactUint8Q02(compactRecords, recordCount);
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
+  const distancePayload = buildDistancePayloadCompactUint8Q02(compactRecords, recordCount, normalizedDistanceBlockSize);
   const powerPayload = buildPowerDeltaPayloadFromCompact(compactRecords, recordCount);
   const distancesBytes = distancePayload.byteLength;
   const powersBytes = powerPayload.bytes.byteLength;
@@ -970,12 +1009,13 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(compactRecor
       powerEncoding: powerPayload.stats.powerEncoding,
       powerEscapeCount: powerPayload.stats.powerEscapeCount,
       powerAbsoluteCount: powerPayload.stats.powerAbsoluteCount,
-      distanceEncoding: "uint8-q02"
+      distanceEncoding: DISTANCE_ENCODING_UINT8_Q05M,
+      distanceBlockSize: normalizedDistanceBlockSize
     }
   };
 }
 
-function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeDeltaQ1m(compactRecords) {
+function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeDeltaQ1m(compactRecords, { distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE } = {}) {
   const recordCount = Number(compactRecords.recordCount || 0);
   let hasCompleteDistanceSeries = recordCount > 0;
   for (let index = 0; index < recordCount; index += 1) {
@@ -986,7 +1026,8 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeDelta
   }
   const usesSpeedFallback = !hasCompleteDistanceSeries;
   const headerBytes = 4 + 4 + 8 + 4 + 6 * 4;
-  const distancePayload = buildDistancePayloadCompactUint8Q02(compactRecords, recordCount);
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
+  const distancePayload = buildDistancePayloadCompactUint8Q02(compactRecords, recordCount, normalizedDistanceBlockSize);
   const powerPayload = buildPowerDeltaPayloadFromCompact(compactRecords, recordCount);
   const altitudePayload = buildAltitudeDeltaPayloadFromCompact(compactRecords, recordCount);
   const distancesBytes = distancePayload.byteLength;
@@ -1045,7 +1086,8 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeDelta
       powerEncoding: powerPayload.stats.powerEncoding,
       powerEscapeCount: powerPayload.stats.powerEscapeCount,
       powerAbsoluteCount: powerPayload.stats.powerAbsoluteCount,
-      distanceEncoding: "uint8-q02",
+      distanceEncoding: DISTANCE_ENCODING_UINT8_Q05M,
+      distanceBlockSize: normalizedDistanceBlockSize,
       altitudeEncoding: altitudePayload.stats.altitudeEncoding,
       altitudeEscapeCount: altitudePayload.stats.altitudeEscapeCount,
       altitudeAbsoluteCount: altitudePayload.stats.altitudeAbsoluteCount,
@@ -1061,7 +1103,7 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeDelta
   };
 }
 
-function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02AltitudeDeltaQ1m(compactRecords) {
+function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02AltitudeDeltaQ1m(compactRecords, { distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE } = {}) {
   const recordCount = Number(compactRecords.recordCount || 0);
   let hasCompleteDistanceSeries = recordCount > 0;
   for (let index = 0; index < recordCount; index += 1) {
@@ -1072,7 +1114,8 @@ function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02AltitudeDelt
   }
   const usesSpeedFallback = !hasCompleteDistanceSeries;
   const headerBytes = 4 + 4 + 8 + 4 + 6 * 4;
-  const distancePayload = buildDistancePayloadCompactUint8Q02(compactRecords, recordCount);
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
+  const distancePayload = buildDistancePayloadCompactUint8Q02(compactRecords, recordCount, normalizedDistanceBlockSize);
   const powerPayload = buildPowerDeltaInt8Q4PayloadFromCompact(compactRecords, recordCount);
   const altitudePayload = buildAltitudeDeltaPayloadFromCompact(compactRecords, recordCount);
   const distancesBytes = distancePayload.byteLength;
@@ -1131,7 +1174,7 @@ function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02AltitudeDelt
       powerEncoding: powerPayload.stats.powerEncoding,
       powerEscapeCount: powerPayload.stats.powerEscapeCount,
       powerAbsoluteCount: powerPayload.stats.powerAbsoluteCount,
-      distanceEncoding: "uint8-q02",
+      distanceEncoding: DISTANCE_ENCODING_UINT8_Q05M,
       altitudeEncoding: altitudePayload.stats.altitudeEncoding,
       altitudeEscapeCount: altitudePayload.stats.altitudeEscapeCount,
       altitudeAbsoluteCount: altitudePayload.stats.altitudeAbsoluteCount,
@@ -1147,7 +1190,7 @@ function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02AltitudeDelt
   };
 }
 
-function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(compactRecords) {
+function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(compactRecords, { distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE } = {}) {
   const recordCount = Number(compactRecords.recordCount || 0);
   let hasCompleteDistanceSeries = recordCount > 0;
   for (let index = 0; index < recordCount; index += 1) {
@@ -1158,7 +1201,8 @@ function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(
   }
   const usesSpeedFallback = !hasCompleteDistanceSeries;
   const headerBytes = 4 + 4 + 8 + 4 + 6 * 4;
-  const distancePayload = buildDistancePayloadCompactUint8Q02(compactRecords, recordCount);
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
+  const distancePayload = buildDistancePayloadCompactUint8Q02(compactRecords, recordCount, normalizedDistanceBlockSize);
   const powerPayload = buildPowerDeltaInt8Q4PayloadFromCompact(compactRecords, recordCount);
   const heartRatePayload = buildUint8RunLengthPayloadColumnDelta(compactRecords.heartRatesBpm, UINT8_NAN, "hr-rle-col-delta8");
   const cadencePayload = buildUint8RunLengthPayloadColumnDelta(compactRecords.cadencesRpm, UINT8_NAN, "cad-rle-col-delta8");
@@ -1219,7 +1263,8 @@ function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(
       powerEncoding: powerPayload.stats.powerEncoding,
       powerEscapeCount: powerPayload.stats.powerEscapeCount,
       powerAbsoluteCount: powerPayload.stats.powerAbsoluteCount,
-      distanceEncoding: "uint8-q02",
+      distanceEncoding: DISTANCE_ENCODING_UINT8_Q05M,
+      distanceBlockSize: normalizedDistanceBlockSize,
       heartRateEncoding: heartRatePayload.stats.encoding,
       heartRateRunCount: heartRatePayload.stats.runCount,
       cadenceEncoding: cadencePayload.stats.encoding,
@@ -1240,7 +1285,7 @@ function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(
   };
 }
 
-function buildGpsCoordinatePayload(points) {
+function buildGpsCoordinatePayload(points, gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE) {
   const quantized = points.map((point) => ({
     lat: Number.isFinite(Number(point.lat)) ? Math.round(Number(point.lat) * MICRO_DEGREES) : INT32_NAN,
     lng: Number.isFinite(Number(point.lng)) ? Math.round(Number(point.lng) * MICRO_DEGREES) : INT32_NAN
@@ -1248,8 +1293,9 @@ function buildGpsCoordinatePayload(points) {
 
   const chunks = [];
   let totalBytes = 0;
-  for (let start = 0; start < quantized.length; start += DELTA_BLOCK_SIZE) {
-    const count = Math.min(DELTA_BLOCK_SIZE, quantized.length - start);
+  const normalizedGpsBlockSize = normalizeGpsBlockSize(gpsBlockSize);
+  for (let start = 0; start < quantized.length; start += normalizedGpsBlockSize) {
+    const count = Math.min(normalizedGpsBlockSize, quantized.length - start);
     let canDeltaEncode = count > 0;
     for (let offset = 0; offset < count; offset += 1) {
       const current = quantized[start + offset];
@@ -1487,13 +1533,13 @@ function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = 5) {
   };
 }
 
-function buildGpsTrackBlock(gpsTrack) {
+function buildGpsTrackBlock(gpsTrack, { gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE } = {}) {
   const pointCount = Number(gpsTrack?.pointCount || 0);
   const firstTimestampMs = pointCount > 0 && Number.isFinite(Number(gpsTrack?.points?.[0]?.timestampMs))
     ? Math.round(Number(gpsTrack.points[0].timestampMs))
     : 0;
   const headerBytes = 4 + 2 + 2 + 4 + 8;
-  const coordinatePayload = buildGpsCoordinatePayload(gpsTrack?.points || []);
+  const coordinatePayload = buildGpsCoordinatePayload(gpsTrack?.points || [], gpsBlockSize);
   const payloadBytes = coordinatePayload.byteLength;
   const buffer = new ArrayBuffer(headerBytes + payloadBytes);
   const view = new DataView(buffer);
@@ -1667,8 +1713,12 @@ export function createWoa1FileFromCompact(parsedCompact, {
   sampleRateSeconds = 5,
   compressWorkoutStream = null,
   compressGpsTrack = null,
+  streamCodec = DEFAULT_STREAM_CODEC,
+  gpsTrackBlobCodec = DEFAULT_GPS_TRACK_CODEC,
   powerEncoding = "delta8-q4w",
-  distanceEncoding = "uint8-q02",
+  distanceEncoding = DISTANCE_ENCODING_UINT8_Q05M,
+  distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE,
+  gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE,
   altitudeEncoding = "rle-delta-q1m"
 } = {}) {
   const timings = {
@@ -1690,22 +1740,24 @@ export function createWoa1FileFromCompact(parsedCompact, {
   stepStartedAt = nowMs();
   const useDeltaPower = powerEncoding === "delta16";
   const useDeltaPowerQ4 = powerEncoding === "delta8-q4w";
-  const useDistanceUint8Q02 = distanceEncoding === "uint8-q02";
+  const normalizedDistanceEncoding = normalizeDistanceEncoding(distanceEncoding);
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
+  const useDistanceUint8Q02 = normalizedDistanceEncoding === DISTANCE_ENCODING_UINT8_Q05M;
   const useAltitudeDeltaQ1m = altitudeEncoding === "delta8-q1m";
   const useRleDeltaQ1m = altitudeEncoding === "rle-delta-q1m";
   let workoutStreamBlock;
   if (useDeltaPowerQ4 && useDistanceUint8Q02 && useRleDeltaQ1m) {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(parsedCompact?.compactRecords || {});
+    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
   } else if (useDeltaPowerQ4 && useDistanceUint8Q02 && useAltitudeDeltaQ1m) {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02AltitudeDeltaQ1m(parsedCompact?.compactRecords || {});
+    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02AltitudeDeltaQ1m(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
   } else if (useDeltaPower && useDistanceUint8Q02 && useAltitudeDeltaQ1m) {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeDeltaQ1m(parsedCompact?.compactRecords || {});
+    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeDeltaQ1m(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
   } else if (useDeltaPower && useDistanceUint8Q02) {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(parsedCompact?.compactRecords || {});
+    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
   } else if (useDeltaPower) {
     workoutStreamBlock = buildWorkoutStreamBlockFromCompactDelta16Power(parsedCompact?.compactRecords || {});
   } else if (useDistanceUint8Q02) {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDistanceUint8Q02(parsedCompact?.compactRecords || {});
+    workoutStreamBlock = buildWorkoutStreamBlockCompactDistanceUint8Q02(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
   } else {
     workoutStreamBlock = buildWorkoutStreamBlockFromCompact(parsedCompact?.compactRecords || {});
   }
@@ -1713,7 +1765,8 @@ export function createWoa1FileFromCompact(parsedCompact, {
   timings.buildWorkoutStreamBlockMs = nowMs() - stepStartedAt;
 
   stepStartedAt = nowMs();
-  const gpsTrackRawBytes = buildGpsTrackBlock(gpsTrack);
+  const normalizedGpsBlockSize = normalizeGpsBlockSize(gpsBlockSize);
+  const gpsTrackRawBytes = buildGpsTrackBlock(gpsTrack, { gpsBlockSize: normalizedGpsBlockSize });
   timings.buildGpsTrackBlockMs = nowMs() - stepStartedAt;
 
   stepStartedAt = nowMs();
@@ -1728,18 +1781,165 @@ export function createWoa1FileFromCompact(parsedCompact, {
     : gpsTrackRawBytes;
   timings.compressGpsTrackMs = nowMs() - stepStartedAt;
 
+  const workoutStreamCodec = compressWorkoutStream ? streamCodec : "identity";
+  const gpsTrackCodec = compressGpsTrack ? gpsTrackBlobCodec : "identity";
   const usesCompressedBlocks = !!(compressWorkoutStream && compressGpsTrack);
 
   stepStartedAt = nowMs();
   const summary = deriveSummaryFromCompact(parsedCompact, gpsTrack, sourceName);
   timings.deriveSummaryMs = nowMs() - stepStartedAt;
   if (summary?.persistedRow) {
-    summary.persistedRow.stream_codec = usesCompressedBlocks ? DEFAULT_STREAM_CODEC : "identity";
-    summary.persistedRow.gps_track_blob_codec = usesCompressedBlocks ? DEFAULT_GPS_TRACK_CODEC : "identity";
+    summary.persistedRow.stream_codec = workoutStreamCodec;
+    summary.persistedRow.gps_track_blob_codec = gpsTrackCodec;
   }
   summary.blockCodecs = {
-    workout_stream: usesCompressedBlocks ? DEFAULT_STREAM_CODEC : "identity",
-    gps_track: usesCompressedBlocks ? DEFAULT_GPS_TRACK_CODEC : "identity"
+    workout_stream: workoutStreamCodec,
+    gps_track: gpsTrackCodec
+  };
+  summary.blockBytes = {
+    workout_stream_raw: workoutStreamRawBytes.byteLength,
+    workout_stream_compressed: workoutStreamBytes.byteLength,
+    gps_track_raw: gpsTrackRawBytes.byteLength,
+    gps_track_compressed: gpsTrackBytes.byteLength
+  };
+  summary.blockStats = {
+    workout_stream: workoutStreamBlock.stats
+  };
+
+  stepStartedAt = nowMs();
+  const metaBytes = encodeJson(summary);
+  timings.encodeMetaJsonMs = nowMs() - stepStartedAt;
+
+  stepStartedAt = nowMs();
+  const sessionBytes = encodeSessionBlock(Array.isArray(parsedCompact?.sessions) ? parsedCompact.sessions : []);
+  timings.encodeSessionsJsonMs = nowMs() - stepStartedAt;
+
+  const headerLength = 24;
+  const totalLength = headerLength + metaBytes.length + sessionBytes.length + workoutStreamBytes.length + gpsTrackBytes.length;
+
+  stepStartedAt = nowMs();
+  const buffer = new ArrayBuffer(totalLength);
+  const bytes = new Uint8Array(buffer);
+  const view = new DataView(buffer);
+  bytes.set(textEncoder.encode("WOA1"), 0);
+  view.setUint8(4, usesCompressedBlocks ? 2 : 1);
+  view.setUint8(5, 0);
+  view.setUint16(6, 0, true);
+  view.setUint32(8, metaBytes.length, true);
+  view.setUint32(12, sessionBytes.length, true);
+  view.setUint32(16, workoutStreamBytes.length, true);
+  view.setUint32(20, gpsTrackBytes.length, true);
+  let offset = headerLength;
+  bytes.set(metaBytes, offset);
+  offset += metaBytes.length;
+  bytes.set(sessionBytes, offset);
+  offset += sessionBytes.length;
+  bytes.set(workoutStreamBytes, offset);
+  offset += workoutStreamBytes.length;
+  bytes.set(gpsTrackBytes, offset);
+  timings.assembleWoaFileMs = nowMs() - stepStartedAt;
+
+  return {
+    bytes,
+    meta: JSON.parse(new TextDecoder().decode(metaBytes)),
+    gpsTrack,
+    workoutStreamBlock,
+    workoutStreamBytes,
+    gpsTrackBytes,
+    timings,
+    stats: {
+      workoutStream: workoutStreamBlock.stats
+    }
+  };
+}
+
+export async function createWoa1FileFromCompactAsync(parsedCompact, {
+  sourceName = "",
+  sampleRateSeconds = 5,
+  compressWorkoutStream = null,
+  compressGpsTrack = null,
+  streamCodec = DEFAULT_STREAM_CODEC,
+  gpsTrackBlobCodec = DEFAULT_GPS_TRACK_CODEC,
+  powerEncoding = "delta8-q4w",
+  distanceEncoding = DISTANCE_ENCODING_UINT8_Q05M,
+  distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE,
+  gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE,
+  altitudeEncoding = "rle-delta-q1m"
+} = {}) {
+  const timings = {
+    buildReducedGpsTrackMs: 0,
+    buildWorkoutStreamBlockMs: 0,
+    buildGpsTrackBlockMs: 0,
+    compressWorkoutStreamMs: 0,
+    compressGpsTrackMs: 0,
+    deriveSummaryMs: 0,
+    encodeMetaJsonMs: 0,
+    encodeSessionsJsonMs: 0,
+    assembleWoaFileMs: 0
+  };
+
+  let stepStartedAt = nowMs();
+  const gpsTrack = buildReducedGpsTrackCompact(parsedCompact?.compactRecords || {}, sampleRateSeconds);
+  timings.buildReducedGpsTrackMs = nowMs() - stepStartedAt;
+
+  stepStartedAt = nowMs();
+  const useDeltaPower = powerEncoding === "delta16";
+  const useDeltaPowerQ4 = powerEncoding === "delta8-q4w";
+  const normalizedDistanceEncoding = normalizeDistanceEncoding(distanceEncoding);
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
+  const useDistanceUint8Q02 = normalizedDistanceEncoding === DISTANCE_ENCODING_UINT8_Q05M;
+  const useAltitudeDeltaQ1m = altitudeEncoding === "delta8-q1m";
+  const useRleDeltaQ1m = altitudeEncoding === "rle-delta-q1m";
+  let workoutStreamBlock;
+  if (useDeltaPowerQ4 && useDistanceUint8Q02 && useRleDeltaQ1m) {
+    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
+  } else if (useDeltaPowerQ4 && useDistanceUint8Q02 && useAltitudeDeltaQ1m) {
+    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02AltitudeDeltaQ1m(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
+  } else if (useDeltaPower && useDistanceUint8Q02 && useAltitudeDeltaQ1m) {
+    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeDeltaQ1m(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
+  } else if (useDeltaPower && useDistanceUint8Q02) {
+    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
+  } else if (useDeltaPower) {
+    workoutStreamBlock = buildWorkoutStreamBlockFromCompactDelta16Power(parsedCompact?.compactRecords || {});
+  } else if (useDistanceUint8Q02) {
+    workoutStreamBlock = buildWorkoutStreamBlockCompactDistanceUint8Q02(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
+  } else {
+    workoutStreamBlock = buildWorkoutStreamBlockFromCompact(parsedCompact?.compactRecords || {});
+  }
+  const workoutStreamRawBytes = workoutStreamBlock.bytes;
+  timings.buildWorkoutStreamBlockMs = nowMs() - stepStartedAt;
+
+  stepStartedAt = nowMs();
+  const normalizedGpsBlockSize = normalizeGpsBlockSize(gpsBlockSize);
+  const gpsTrackRawBytes = buildGpsTrackBlock(gpsTrack, { gpsBlockSize: normalizedGpsBlockSize });
+  timings.buildGpsTrackBlockMs = nowMs() - stepStartedAt;
+
+  stepStartedAt = nowMs();
+  const workoutStreamBytes = compressWorkoutStream
+    ? await compressWorkoutStream(workoutStreamRawBytes, { level: DEFAULT_STREAM_GZIP_LEVEL })
+    : workoutStreamRawBytes;
+  timings.compressWorkoutStreamMs = nowMs() - stepStartedAt;
+
+  stepStartedAt = nowMs();
+  const gpsTrackBytes = compressGpsTrack
+    ? await compressGpsTrack(gpsTrackRawBytes, { level: DEFAULT_GPS_GZIP_LEVEL })
+    : gpsTrackRawBytes;
+  timings.compressGpsTrackMs = nowMs() - stepStartedAt;
+
+  const workoutStreamCodec = compressWorkoutStream ? streamCodec : "identity";
+  const gpsTrackCodec = compressGpsTrack ? gpsTrackBlobCodec : "identity";
+  const usesCompressedBlocks = !!(compressWorkoutStream && compressGpsTrack);
+
+  stepStartedAt = nowMs();
+  const summary = deriveSummaryFromCompact(parsedCompact, gpsTrack, sourceName);
+  timings.deriveSummaryMs = nowMs() - stepStartedAt;
+  if (summary?.persistedRow) {
+    summary.persistedRow.stream_codec = workoutStreamCodec;
+    summary.persistedRow.gps_track_blob_codec = gpsTrackCodec;
+  }
+  summary.blockCodecs = {
+    workout_stream: workoutStreamCodec,
+    gps_track: gpsTrackCodec
   };
   summary.blockBytes = {
     workout_stream_raw: workoutStreamRawBytes.byteLength,
