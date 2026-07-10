@@ -91,6 +91,26 @@ class FileDBService {
     };
   }
 
+  static inferGpsSampleRateFromStoredBytes(bufferLike) {
+    const bytes = FileDBService.toBufferView(bufferLike);
+    if (!bytes || bytes.length < 8) {
+      return null;
+    }
+
+    try {
+      const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const magic = new TextDecoder().decode(bytes.subarray(0, 4));
+      if (magic === "GPS2") {
+        const sampleRate = view.getUint16(6, true);
+        return sampleRate > 0 ? sampleRate : null;
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
+  }
+
   static allowedColumns = [
     "start_time",
     "uploaded_at",
@@ -1535,7 +1555,19 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     const trackEnd = persistedRow?.track_end || null;
     const validGps = !!persistedRow.validGps;
     const points_count = validGps ? Number(persistedRow?.points_count || 0) : 0;
-    const sampleRateGPS = validGps ? Math.max(1, Number(persistedRow?.sampleRateGPS || 1)) : 1;
+    const inferredStoredSampleRate = FileDBService.inferGpsSampleRateFromStoredBytes(options.gpsTrackStoredBytes);
+    const sampleRateGPS = validGps
+      ? Math.max(
+          1,
+          Number(
+            inferredStoredSampleRate
+            ?? persistedRow?.sampleRateGPS
+            ?? persistedRow?.sampleRateGps
+            ?? meta?.sampleRateGps
+            ?? 1
+          )
+        )
+      : 1;
 
     if (validGps && points_count < 2) {
       throw new Error("WOA persistedRow declares validGps=true but points_count < 2");

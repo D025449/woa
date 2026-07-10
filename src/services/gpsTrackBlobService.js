@@ -11,6 +11,94 @@ const TEXT_DECODER = new TextDecoder();
 const TEXT_ENCODER = new TextEncoder();
 const DEFAULT_GPS_TRACK_BLOB_CODEC = "brotli";
 
+function isFiniteCoordinate(value) {
+  return Number.isFinite(Number(value));
+}
+
+function isValidGpsSlotPoint(point) {
+  return !!point && isFiniteCoordinate(point.lat) && isFiniteCoordinate(point.lng);
+}
+
+function buildGpsSlotsAndSegments(latitudes, longitudes, sampleRateGps, firstTimestampMs = 0) {
+  const slotCount = Math.min(latitudes.length, longitudes.length);
+  const slots = new Array(slotCount);
+  const points = [];
+  const segments = [];
+  let currentSegment = null;
+
+  for (let index = 0; index < slotCount; index += 1) {
+    const lat = Number(latitudes[index]);
+    const lng = Number(longitudes[index]);
+    const valid = isFiniteCoordinate(lat) && isFiniteCoordinate(lng);
+    const slot = {
+      lat: valid ? lat : Number.NaN,
+      lng: valid ? lng : Number.NaN,
+      valid,
+      slotIndex: index,
+      timestampMs: Number.isFinite(firstTimestampMs)
+        ? firstTimestampMs + (index * Math.max(1, Number(sampleRateGps) || 1) * 1000)
+        : Number.NaN
+    };
+    slots[index] = slot;
+
+    if (!valid) {
+      if (currentSegment?.length) {
+        segments.push(currentSegment);
+      }
+      currentSegment = null;
+      continue;
+    }
+
+    const point = {
+      lat,
+      lng,
+      slotIndex: index,
+      timestampMs: slot.timestampMs
+    };
+    points.push(point);
+    if (!currentSegment) {
+      currentSegment = [];
+    }
+    currentSegment.push(point);
+  }
+
+  if (currentSegment?.length) {
+    segments.push(currentSegment);
+  }
+
+  return {
+    slots,
+    slotCount,
+    points,
+    pointCount: points.length,
+    segments
+  };
+}
+
+function toSegmentGeoJson(segments = []) {
+  const coordinates = (Array.isArray(segments) ? segments : [])
+    .map((segment) => segment
+      .filter(isValidGpsSlotPoint)
+      .map((point) => [point.lng, point.lat]))
+    .filter((segment) => segment.length >= 2);
+
+  if (coordinates.length === 0) {
+    return null;
+  }
+
+  if (coordinates.length === 1) {
+    return {
+      type: "LineString",
+      coordinates: coordinates[0]
+    };
+  }
+
+  return {
+    type: "MultiLineString",
+    coordinates
+  };
+}
+
 function inferCompressedCodec(bufferLike, fallback = DEFAULT_GPS_TRACK_BLOB_CODEC) {
   if (!bufferLike) {
     return fallback;
@@ -216,6 +304,10 @@ function decodeGpsCoordinatePayload(bytes, pointCount, layoutVersion = 1) {
 }
 
 export default class GpsTrackBlobService {
+  static isValidGpsSlot(slot) {
+    return isValidGpsSlotPoint(slot);
+  }
+
   static parseGeoJsonTrack(geoJsonTrack = null) {
     const coordinates = Array.isArray(geoJsonTrack?.coordinates)
       ? geoJsonTrack.coordinates
@@ -387,15 +479,14 @@ export default class GpsTrackBlobService {
 
     const lats = new Int32Array(arrayBuffer, latOffset, pointCount);
     const lngs = new Int32Array(arrayBuffer, lngOffset, pointCount);
-    const points = new Array(pointCount);
-    for (let index = 0; index < pointCount; index += 1) {
-      points[index] = {
-        lat: lats[index] / scale,
-        lng: lngs[index] / scale
-      };
-    }
+    const { slots, slotCount, points, pointCount: validPointCount, segments } = buildGpsSlotsAndSegments(
+      Array.from(lats, (value) => value / scale),
+      Array.from(lngs, (value) => value / scale),
+      sampleRateGps,
+      0
+    );
 
-    const bbox = pointCount >= 2
+    const bbox = validPointCount >= 2
       ? {
           minLat: view.getInt32(16) / scale,
           maxLat: view.getInt32(20) / scale,
@@ -407,11 +498,14 @@ export default class GpsTrackBlobService {
     return {
       version,
       sampleRateGps,
+      slots,
+      slotCount,
       points,
       track: points,
-      pointCount,
-      validGps: pointCount >= 2,
-      geoJson: includeGeoJson && pointCount >= 2 ? toGeoJson(points) : null,
+      pointCount: validPointCount,
+      validGps: validPointCount >= 2,
+      segments,
+      geoJson: includeGeoJson && validPointCount >= 2 ? toSegmentGeoJson(segments) : null,
       bbox
     };
   }
@@ -433,35 +527,36 @@ export default class GpsTrackBlobService {
     const firstTimestampMs = view.getFloat64(12, true);
     const payload = source.subarray(GPS2_HEADER_BYTES);
     const { latitudes, longitudes } = decodeGpsCoordinatePayload(payload, pointCount, layoutVersion);
-    const points = [];
+    const { slots, slotCount, points, pointCount: validPointCount, segments } = buildGpsSlotsAndSegments(
+      latitudes,
+      longitudes,
+      sampleRateSeconds,
+      firstTimestampMs
+    );
 
     let minLat = Infinity;
     let maxLat = -Infinity;
     let minLng = Infinity;
     let maxLng = -Infinity;
-
-    for (let index = 0; index < pointCount; index += 1) {
-      const lat = latitudes[index];
-      const lng = longitudes[index];
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        continue;
-      }
-      points.push({ lat, lng });
-      if (lat < minLat) minLat = lat;
-      if (lat > maxLat) maxLat = lat;
-      if (lng < minLng) minLng = lng;
-      if (lng > maxLng) maxLng = lng;
+    for (const point of points) {
+      if (point.lat < minLat) minLat = point.lat;
+      if (point.lat > maxLat) maxLat = point.lat;
+      if (point.lng < minLng) minLng = point.lng;
+      if (point.lng > maxLng) maxLng = point.lng;
     }
 
     return {
       version: 2,
       sampleRateGps: sampleRateSeconds,
+      slots,
+      slotCount,
       points,
       track: points,
-      pointCount: points.length,
-      validGps: points.length >= 2,
-      geoJson: includeGeoJson && points.length >= 2 ? toGeoJson(points) : null,
-      bbox: points.length > 0 ? { minLat, maxLat, minLng, maxLng } : null,
+      pointCount: validPointCount,
+      validGps: validPointCount >= 2,
+      segments,
+      geoJson: includeGeoJson && validPointCount >= 2 ? toSegmentGeoJson(segments) : null,
+      bbox: validPointCount > 0 ? { minLat, maxLat, minLng, maxLng } : null,
       firstTimestampMs
     };
   }

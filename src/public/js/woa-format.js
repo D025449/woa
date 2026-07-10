@@ -1,3 +1,5 @@
+import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../../shared/gpsSampling.js";
+
 const textEncoder = new TextEncoder();
 const UINT8_NAN = 0xFF;
 const UINT16_NAN = 0xFFFF;
@@ -452,13 +454,13 @@ function buildWorkoutStreamBlock(recordsTyped) {
   };
 }
 
-function buildReducedGpsTrack(recordsTyped, sampleRateSeconds = 5) {
+function buildReducedGpsTrack(recordsTyped, sampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS) {
   const MAX_STEP_DISTANCE_METERS = 40;
   const MIN_RELOCK_SEQUENCE = 3;
   const MAX_INTERPOLATION_GAP = 8;
   const DEG_TO_RAD = Math.PI / 180;
   const EARTH_RADIUS_METERS = 6371000;
-  const sampleRate = Math.max(1, Math.round(Number(sampleRateSeconds) || 1));
+  const sampleRate = normalizeGpsSampleRateSeconds(sampleRateSeconds, DEFAULT_GPS_SAMPLE_RATE_SECONDS);
   const precision = 5;
   const recordCount = Number(recordsTyped?.recordCount || 0);
 
@@ -611,59 +613,91 @@ function buildReducedGpsTrack(recordsTyped, sampleRateSeconds = 5) {
   let maxLat = -Infinity;
   let minLng = Infinity;
   let maxLng = -Infinity;
+  const slots = [];
   const points = [];
+  const segments = [];
+  let currentSegment = null;
 
   for (let i = 0; i < recordCount; i += 1) {
-    const latValue = latitudes[i];
-    const lngValue = longitudes[i];
-    if (!Number.isFinite(latValue) || !Number.isFinite(lngValue)) {
-      continue;
-    }
-
-    const lat = Number(latValue.toFixed(precision));
-    const lng = Number(lngValue.toFixed(precision));
-    if (lat < minLat) minLat = lat;
-    if (lat > maxLat) maxLat = lat;
-    if (lng < minLng) minLng = lng;
-    if (lng > maxLng) maxLng = lng;
-
     if (i % sampleRate === 0) {
-      points.push({
+      const latValue = latitudes[i];
+      const lngValue = longitudes[i];
+      const valid = Number.isFinite(latValue) && Number.isFinite(lngValue);
+      const timestampMs = Number.isFinite(Number(timestamps[i])) ? Number(timestamps[i]) : 0;
+
+      if (!valid) {
+        slots.push({
+          lat: Number.NaN,
+          lng: Number.NaN,
+          valid: false,
+          slotIndex: slots.length,
+          recordIndex: i,
+          timestampMs
+        });
+        currentSegment = null;
+        continue;
+      }
+
+      const lat = Number(latValue.toFixed(precision));
+      const lng = Number(lngValue.toFixed(precision));
+      const slot = {
         lat,
         lng,
-        timestampMs: Number.isFinite(Number(timestamps[i])) ? Number(timestamps[i]) : 0
-      });
+        valid: true,
+        slotIndex: slots.length,
+        recordIndex: i,
+        timestampMs
+      };
+
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+
+      slots.push(slot);
+      points.push(slot);
+      if (!currentSegment) {
+        currentSegment = [];
+        segments.push(currentSegment);
+      }
+      currentSegment.push(slot);
     }
   }
 
-  if (!points.length) {
+  if (!slots.length || !points.length) {
     return {
       sampleRateSeconds: sampleRate,
-      pointCount: 0,
+      slotCount: slots.length,
+      pointCount: points.length,
       bbox: null,
       startPoint: null,
       endPoint: null,
+      slots,
       points
     };
   }
 
   return {
     sampleRateSeconds: sampleRate,
+    slotCount: slots.length,
     pointCount: points.length,
     bbox: points.length >= 2 ? { minLat, maxLat, minLng, maxLng } : null,
     startPoint: { lat: points[0].lat, lng: points[0].lng },
     endPoint: { lat: points[points.length - 1].lat, lng: points[points.length - 1].lng },
+    slots,
+    segments,
     points
   };
 }
 
 function buildGpsTrackBlock(gpsTrack) {
-  const pointCount = Number(gpsTrack?.pointCount || 0);
-  const firstTimestampMs = pointCount > 0 && Number.isFinite(Number(gpsTrack?.points?.[0]?.timestampMs))
-    ? Math.round(Number(gpsTrack.points[0].timestampMs))
+  const slots = Array.isArray(gpsTrack?.slots) ? gpsTrack.slots : (Array.isArray(gpsTrack?.points) ? gpsTrack.points : []);
+  const pointCount = Number(gpsTrack?.slotCount || slots.length || 0);
+  const firstTimestampMs = pointCount > 0 && Number.isFinite(Number(slots?.[0]?.timestampMs))
+    ? Math.round(Number(slots[0].timestampMs))
     : 0;
   const headerBytes = 4 + 2 + 2 + 4 + 8;
-  const coordinatePayload = buildGpsCoordinatePayload(gpsTrack?.points || []);
+  const coordinatePayload = buildGpsCoordinatePayload(slots);
   const payloadBytes = coordinatePayload.byteLength;
   const buffer = new ArrayBuffer(headerBytes + payloadBytes);
   const view = new DataView(buffer);
@@ -862,7 +896,7 @@ function deriveSummary(parsed, gpsTrack, sourceName = "") {
 
 export function createWoa1File(parsed, {
   sourceName = "",
-  sampleRateSeconds = 5,
+  sampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS,
   compressWorkoutStream = null,
   compressGpsTrack = null
 } = {}) {

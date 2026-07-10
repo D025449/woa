@@ -23,6 +23,38 @@ let prewarmedUploadWorker = null;
 let pendingZipPreparations = new Map();
 let isUploadSubmitting = false;
 
+function traceMark(name, detail = null) {
+    try {
+        if (detail && typeof detail === "object") {
+            performance.mark(name, { detail });
+        } else {
+            performance.mark(name);
+        }
+    } catch (_) {
+        try {
+            performance.mark(name);
+        } catch (_) {
+            // Ignore tracing errors.
+        }
+    }
+
+    try {
+        if (typeof console.timeStamp === "function") {
+            console.timeStamp(detail ? `${name} ${JSON.stringify(detail)}` : name);
+        }
+    } catch (_) {
+        // Ignore tracing errors.
+    }
+}
+
+function traceMeasure(name, startMark, endMark) {
+    try {
+        performance.measure(name, startMark, endMark);
+    } catch (_) {
+        // Ignore tracing errors.
+    }
+}
+
 initializeClientLayout();
 form?.addEventListener("submit", handleConvertSubmit);
 filePickerButton?.addEventListener("click", () => fileInput?.click());
@@ -145,12 +177,26 @@ function buildZipPreparationToken(file) {
 }
 
 function scheduleZipPreparationForSelection() {
+    traceMark("upload.reprewarm.begin");
     resetPendingZipPreparation();
     const files = Array.from(fileInput?.files || []);
     const zipFiles = files.filter((file) => String(file?.name || "").toLowerCase().endsWith(".zip"));
     if (zipFiles.length === 0) {
+        traceMark("upload.reprewarm.end", { zipFileCount: 0 });
+        traceMeasure("upload.reprewarm", "upload.reprewarm.begin", "upload.reprewarm.end");
         return;
     }
+
+    let remainingPreparations = zipFiles.length;
+    let didMarkCompletion = false;
+    const maybeMarkReprewarmComplete = () => {
+        remainingPreparations -= 1;
+        if (!didMarkCompletion && remainingPreparations <= 0) {
+            didMarkCompletion = true;
+            traceMark("upload.reprewarm.end", { zipFileCount: zipFiles.length });
+            traceMeasure("upload.reprewarm", "upload.reprewarm.begin", "upload.reprewarm.end");
+        }
+    };
 
     for (const selectedZip of zipFiles) {
         const token = buildZipPreparationToken(selectedZip);
@@ -213,6 +259,7 @@ function scheduleZipPreparationForSelection() {
                 currentPreparation.error = error instanceof Error ? error.message : String(error);
             }
         } finally {
+            maybeMarkReprewarmComplete();
             refreshSubmitAvailability();
         }
         })();
@@ -424,44 +471,9 @@ function buildStartupTimingLines(timings = {}) {
 }
 
 function getEncodingOptions() {
-    let fitParserVariant = "compact";
-    let compactPowerEncoding = "delta8-q4w";
-    let compactDistanceEncoding = "uint8-q05m";
     let uploadCompression = "auto";
     let uploadGzipEngine = "compression-stream";
-    try {
-        const value = localStorage.getItem("woaUploadFitParserVariant");
-        if (value === "typed") {
-            fitParserVariant = "typed";
-        }
-    } catch {
-        // ignore
-    }
-    try {
-        const value = localStorage.getItem("woaUploadCompactPowerEncoding");
-        if (value === "raw16") {
-            compactPowerEncoding = "raw16";
-        }
-    } catch {
-        // ignore
-    }
-    try {
-        const value = localStorage.getItem("woaUploadCompactDistanceEncoding");
-        if (value === "default") {
-            compactDistanceEncoding = "default";
-        }
-    } catch {
-        // ignore
-    }
-    let compactAltitudeEncoding = "rle-delta-q1m";
-    try {
-        const value = localStorage.getItem("woaUploadCompactAltitudeEncoding");
-        if (value === "delta8-q1m") {
-            compactAltitudeEncoding = "delta8-q1m";
-        }
-    } catch {
-        // ignore
-    }
+    let gpsSampleRateSeconds = null;
     try {
         const value = String(localStorage.getItem("woaUploadCompression") || "").trim().toLowerCase();
         if (value === "gzip" || value === "brotli" || value === "br") {
@@ -478,15 +490,20 @@ function getEncodingOptions() {
     } catch {
         // ignore
     }
+    try {
+        const raw = Number.parseInt(localStorage.getItem("woaGpsSampleRateSeconds") || "", 10);
+        if (Number.isInteger(raw) && raw >= 1 && raw <= 60) {
+            gpsSampleRateSeconds = raw;
+        }
+    } catch {
+        // ignore
+    }
     return {
         gentleQuantization: true,
         powerStep: 4,
         cadenceStep: 2,
         hrStep: 2,
-        fitParserVariant,
-        compactPowerEncoding,
-        compactDistanceEncoding,
-        compactAltitudeEncoding,
+        gpsSampleRateSeconds,
         uploadCompression,
         uploadGzipEngine
     };
@@ -871,8 +888,11 @@ function uploadGeneratedRawBlob(blob, fileName, uploadUrl, overwriteExisting, on
 
 async function handleConvertSubmit(event) {
     event.preventDefault();
+    traceMark("upload.submit.begin");
 
     if (hasPendingZipPreparation()) {
+        traceMark("upload.submit.end", { reason: "pending-zip-preparation" });
+        traceMeasure("upload.submit", "upload.submit.begin", "upload.submit.end");
         setResponseMarkup(`<div class="alert alert-info mb-0">${escapeHtml(tr("uploadPage.woaPreparingZipInBackground", "Preparing selected ZIP files. Please wait a moment."))}</div>`);
         return;
     }
@@ -883,6 +903,8 @@ async function handleConvertSubmit(event) {
     setResponseMarkup("");
 
     if (files.length === 0) {
+        traceMark("upload.submit.end", { reason: "no-files" });
+        traceMeasure("upload.submit", "upload.submit.begin", "upload.submit.end");
         setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(tr("uploadPage.woaSelectOneOrMore", "Please select one or more FIT or ZIP files."))}</div>`);
         return;
     }
@@ -895,6 +917,8 @@ async function handleConvertSubmit(event) {
     });
 
     if (unsupportedFiles.length > 0) {
+        traceMark("upload.submit.end", { reason: "unsupported-files" });
+        traceMeasure("upload.submit", "upload.submit.begin", "upload.submit.end");
         setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(tr("uploadPage.woaUnsupportedFiles", "Only .fit or .zip files are supported in this demo."))}</div>`);
         return;
     }
@@ -1093,6 +1117,8 @@ async function handleConvertSubmit(event) {
 
             if (data.type === "failed") {
                 finished = true;
+                traceMark("upload.submit.end", { reason: "worker-failed" });
+                traceMeasure("upload.submit", "upload.submit.begin", "upload.submit.end");
                 setPhase(tr("uploadPage.woaPhaseFailed", "Failed"));
                 setProcessingProgress(0, "");
                 setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(data.error || tr("uploadPage.woaConversionFailed", "Conversion failed"))}</div>`);
@@ -1105,6 +1131,8 @@ async function handleConvertSubmit(event) {
 
             if (data.type === "skipped-existing") {
                 finished = true;
+                traceMark("upload.submit.end", { reason: "skipped-existing" });
+                traceMeasure("upload.submit", "upload.submit.begin", "upload.submit.end");
                 setPhase(tr("uploadPage.woaPhaseCompleted", "Completed"));
                 setProcessingProgress(100, tr("uploadPage.woaWorkoutAlreadyExists", "Workout already exists"));
                 setResponseMarkup(`
@@ -1125,6 +1153,8 @@ async function handleConvertSubmit(event) {
 
             if (data.type === "skipped-too-short") {
                 finished = true;
+                traceMark("upload.submit.end", { reason: "skipped-too-short" });
+                traceMeasure("upload.submit", "upload.submit.begin", "upload.submit.end");
                 setPhase(tr("uploadPage.woaPhaseCompleted", "Completed"));
                 setProcessingProgress(100, tr("uploadPage.woaWorkoutTooShort", "Workout too short"));
                 setResponseMarkup(`
@@ -1145,6 +1175,8 @@ async function handleConvertSubmit(event) {
 
             if (data.type === "completed") {
                 finished = true;
+                traceMark("upload.submit.end", { reason: "completed-single-fit" });
+                traceMeasure("upload.submit", "upload.submit.begin", "upload.submit.end");
                 setPhase(tr("uploadPage.woaPhaseCompleted", "Completed"));
                 setProcessingProgress(100, tr("uploadPage.woaFileReady", "WOA1 file ready"));
 
@@ -1208,6 +1240,10 @@ async function handleConvertSubmit(event) {
                 const zipBytes = data.bytes instanceof ArrayBuffer ? data.bytes : new ArrayBuffer(0);
                 const zipBlob = new Blob([zipBytes], { type: "application/zip" });
                 const shouldUploadGeneratedZip = Number(stats.convertedEntries || 0) > 0 && zipBlob.size > 0;
+                traceMark("upload.submit.end", {
+                    reason: shouldUploadGeneratedZip ? "completed-zip-upload" : "completed-zip-no-upload"
+                });
+                traceMeasure("upload.submit", "upload.submit.begin", "upload.submit.end");
                 if (shouldUploadGeneratedZip) {
                     setProcessingLabel(tr("uploadPage.woaUploadAndStore", "Upload and store"));
                     setPhase(tr("uploadPage.woaPhaseUploadingBackend", "Uploading and storing on server"));
@@ -1319,6 +1355,10 @@ async function handleConvertSubmit(event) {
                 const containerBytes = data.bytes instanceof ArrayBuffer ? data.bytes : new ArrayBuffer(0);
                 const containerBlob = new Blob([containerBytes], { type: "application/octet-stream" });
                 const shouldUploadGeneratedContainer = Number(stats.convertedEntries || 0) > 0 && containerBlob.size > 0;
+                traceMark("upload.submit.end", {
+                    reason: shouldUploadGeneratedContainer ? "completed-container-upload" : "completed-container-no-upload"
+                });
+                traceMeasure("upload.submit", "upload.submit.begin", "upload.submit.end");
                 if (shouldUploadGeneratedContainer) {
                     setProcessingLabel(tr("uploadPage.woaUploadAndStore", "Upload and store"));
                     setPhase(tr("uploadPage.woaPhaseUploadingBackend", "Uploading and storing on server"));
@@ -1459,6 +1499,8 @@ async function handleConvertSubmit(event) {
             ...workerFiles.map((entry) => entry.arrayBuffer)
         ]);
     } catch (error) {
+        traceMark("upload.submit.end", { reason: "exception" });
+        traceMeasure("upload.submit", "upload.submit.begin", "upload.submit.end");
         setPhase(tr("uploadPage.woaPhaseFailed", "Failed"));
         setResponseMarkup(`<div class="alert alert-danger mb-0">${escapeHtml(error?.message || String(error))}</div>`);
         setLoading(false);

@@ -1,8 +1,7 @@
-import { parseFitBufferTypedBrowser } from "./fit-import-typed-browser.js";
 import { applyCompactEncodingOptions, parseFitBufferCompactBrowser } from "./fit-import-compact-browser.js";
-import { createWoa1File } from "./woa-format.js";
 import { createWoa1FileFromCompactAsync } from "./woa-format-compact.js";
 import { encodeWoaTransportContainer } from "./woa-transport-container.js";
+import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../../shared/gpsSampling.js";
 import { gzipSync, unzipSync, zipSync } from "/vendor/fflate/browser.js";
 
 const PER_FILE_GZIP_LEVEL = 4;
@@ -92,41 +91,25 @@ function getParsedSessionCount(parsed) {
   return Array.isArray(parsed?.sessions) ? parsed.sessions.length : 0;
 }
 
-function adjustParsedForEncoding(parsed, parserVariant, encodingOptions) {
-  return parserVariant === "compact"
-    ? applyCompactEncodingOptions(parsed, encodingOptions)
-    : applyEncodingOptions(parsed, encodingOptions);
-}
-
-async function createWoaFromParsed(parsed, parserVariant, fileName, encodingOptions) {
-  if (parserVariant === "compact") {
-    const adjustedParsed = adjustParsedForEncoding(parsed, parserVariant, encodingOptions);
-    const streamCodec = resolveUploadCompressionCodec(encodingOptions);
-    return {
-      adjustedParsed,
-      result: await createWoa1FileFromCompactAsync(adjustedParsed, {
-        sourceName: fileName,
-        sampleRateSeconds: 5,
-        powerEncoding: encodingOptions?.compactPowerEncoding === "raw16" ? "raw16" : "delta8-q4w",
-        distanceEncoding: encodingOptions?.compactDistanceEncoding === "default" ? "default" : "uint8-q05m",
-        altitudeEncoding: encodingOptions?.compactAltitudeEncoding === "delta8-q1m" ? "delta8-q1m" : "rle-delta-q1m",
-        streamCodec,
-        gpsTrackBlobCodec: streamCodec,
-        compressWorkoutStream: (bytes, options = {}) => compressWithCodec(bytes, streamCodec, options, encodingOptions),
-        compressGpsTrack: (bytes, options = {}) => compressWithCodec(bytes, streamCodec, options, encodingOptions)
-      })
-    };
-  }
-
-  const adjustedParsed = adjustParsedForEncoding(parsed, parserVariant, encodingOptions);
+async function createWoaFromParsed(parsed, fileName, encodingOptions) {
+  const adjustedParsed = applyCompactEncodingOptions(parsed, encodingOptions);
+  const streamCodec = resolveUploadCompressionCodec(encodingOptions);
+  const gpsSampleRateSeconds = normalizeGpsSampleRateSeconds(
+    encodingOptions?.gpsSampleRateSeconds,
+    DEFAULT_GPS_SAMPLE_RATE_SECONDS
+  );
   return {
     adjustedParsed,
-    result: createWoa1File(adjustedParsed, {
+    result: await createWoa1FileFromCompactAsync(adjustedParsed, {
       sourceName: fileName,
-      sampleRateSeconds: 5,
-      // The typed legacy path stays gzip-only; the compact path is the production upload path.
-      compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
-      compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
+      sampleRateSeconds: gpsSampleRateSeconds,
+      powerEncoding: "delta8-q4w",
+      distanceEncoding: "uint8-q05m",
+      altitudeEncoding: "rle-delta-q1m",
+      streamCodec,
+      gpsTrackBlobCodec: streamCodec,
+      compressWorkoutStream: (bytes, options = {}) => compressWithCodec(bytes, streamCodec, options, encodingOptions),
+      compressGpsTrack: (bytes, options = {}) => compressWithCodec(bytes, streamCodec, options, encodingOptions)
     })
   };
 }
@@ -204,48 +187,6 @@ function averageTimingMaps(samples = []) {
     averages[key] = total / samples.length;
   }
   return averages;
-}
-
-function quantizeSeries(sourceArray, recordCount, step) {
-  const normalizedStep = Math.max(1, Number.parseInt(String(step ?? 1), 10) || 1);
-  if (normalizedStep <= 1 || !sourceArray || recordCount <= 0) {
-    return sourceArray;
-  }
-
-  const quantizedValues = new Float64Array(recordCount);
-  for (let index = 0; index < recordCount; index += 1) {
-    const value = Number(sourceArray[index]);
-    quantizedValues[index] = Number.isFinite(value)
-      ? Math.round(value / normalizedStep) * normalizedStep
-      : Number.NaN;
-  }
-
-  return quantizedValues;
-}
-
-function applyEncodingOptions(parsed, encodingOptions = {}) {
-  const source = parsed?.recordsTyped;
-  if (!source || !Number.isFinite(Number(source.recordCount))) {
-    return parsed;
-  }
-
-  const recordCount = Number(source.recordCount);
-  const powerStep = Math.max(1, Number.parseInt(String(encodingOptions.powerStep ?? 4), 10) || 4);
-  const cadenceStep = Math.max(1, Number.parseInt(String(encodingOptions.cadenceStep ?? 2), 10) || 2);
-  const hrStep = Math.max(1, Number.parseInt(String(encodingOptions.hrStep ?? 2), 10) || 2);
-  return {
-    ...parsed,
-    recordsTyped: {
-      ...source,
-      powersW: quantizeSeries(source.powersW, recordCount, powerStep),
-      cadencesRpm: quantizeSeries(source.cadencesRpm, recordCount, cadenceStep),
-      heartRatesBpm: quantizeSeries(source.heartRatesBpm, recordCount, hrStep)
-    }
-  };
-}
-
-function getFitParserVariant(encodingOptions = {}) {
-  return encodingOptions?.fitParserVariant === "compact" ? "compact" : "typed";
 }
 
 function sumNumericField(samples = [], fieldName) {
@@ -738,14 +679,9 @@ self.addEventListener("message", async (event) => {
 
     for (let iteration = 0; iteration < normalizedRepeatCount; iteration += 1) {
       const parseStartedAt = nowMs();
-      const parserVariant = getFitParserVariant(encodingOptions);
-      const parsed = parserVariant === "compact"
-        ? parseFitBufferCompactBrowser(arrayBuffer, {
-          excludeStartTimes: existingStartTimes
-        })
-        : parseFitBufferTypedBrowser(arrayBuffer, {
-          excludeStartTimes: existingStartTimes
-        });
+      const parsed = parseFitBufferCompactBrowser(arrayBuffer, {
+        excludeStartTimes: existingStartTimes
+      });
       parseSamplesMs.push(nowMs() - parseStartedAt);
 
       if (parsed?.skippedExisting) {
@@ -774,7 +710,7 @@ self.addEventListener("message", async (event) => {
       });
 
       const woaStartedAt = nowMs();
-      const { adjustedParsed, result } = await createWoaFromParsed(parsed, parserVariant, fileName, encodingOptions);
+      const { adjustedParsed, result } = await createWoaFromParsed(parsed, fileName, encodingOptions);
       finalParsed = adjustedParsed;
       buildSamplesMs.push(nowMs() - woaStartedAt);
       buildTimingSamples.push(result.timings || {});
@@ -814,7 +750,7 @@ self.addEventListener("message", async (event) => {
         parseMs: average(parseSamplesMs),
         buildWoaMs: average(buildSamplesMs),
         buildWoaStepsMs: averageTimingMaps(buildTimingSamples),
-        parserVariant: getFitParserVariant(encodingOptions),
+        parserVariant: "compact",
         workoutStreamStats: {
           fallbackWorkoutCount: sumNumericField(workoutStreamStatSamples, "usesSpeedFallback"),
           fallbackRecordCount: sumNumericField(workoutStreamStatSamples, "speedFallbackRecordCount")
@@ -933,14 +869,9 @@ async function convertMixedEntriesToWoaZip({
 
       try {
         const parseStartedAt = nowMs();
-        const parserVariant = getFitParserVariant(encodingOptions);
-        const parsed = parserVariant === "compact"
-          ? parseFitBufferCompactBrowser(fitEntry.bytes, {
-            excludeStartTimes: dynamicExistingStartTimes
-          })
-          : parseFitBufferTypedBrowser(fitEntry.bytes, {
-            excludeStartTimes: dynamicExistingStartTimes
-          });
+        const parsed = parseFitBufferCompactBrowser(fitEntry.bytes, {
+          excludeStartTimes: dynamicExistingStartTimes
+        });
         parseSamplesMs.push(nowMs() - parseStartedAt);
 
         if (parsed?.skippedExisting) {
@@ -962,7 +893,7 @@ async function convertMixedEntriesToWoaZip({
         }
 
         const buildStartedAt = nowMs();
-        const { result } = await createWoaFromParsed(parsed, parserVariant, fitEntry.name, encodingOptions);
+        const { result } = await createWoaFromParsed(parsed, fitEntry.name, encodingOptions);
         buildSamplesMs.push(nowMs() - buildStartedAt);
         buildTimingSamples.push(result.timings || {});
         speedFallbackWorkoutCount += Number(result.stats?.workoutStream?.usesSpeedFallback ? 1 : 0);

@@ -5,6 +5,7 @@ import pgPromise from "pg-promise";
 import WorkoutSharingService from "./workoutSharingService.js";
 import ElevationService from "./ElevationService.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
+import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../shared/gpsSampling.js";
 
 function haversineMeters(a, b) {
   const toRad = (value) => (value * Math.PI) / 180;
@@ -208,6 +209,8 @@ async function hydrateTrackRow(row, options = {}) {
   const decoded = await GpsTrackBlobService.decodeRowTrack(row, options);
   row.track = decoded.geoJson;
   row.trackPoints = decoded.points;
+  row.trackSlots = decoded.slots;
+  row.trackSegments = decoded.segments;
   if ((row.samplerategps == null && row.sampleRateGPS == null) && decoded.sampleRateGps) {
     row.sampleRateGPS = decoded.sampleRateGps;
   }
@@ -766,49 +769,6 @@ export default class WorkoutDBService {
     });
   }
 
-  static async getOpenPayload(id, uid) {
-    const queryStartedAt = nowMs();
-    const result = await pool.query(
-      `SELECT
-        id,
-        validgps,
-        sampleRateGPS,
-        gps_source,
-        manual_gps_lookup_points,
-        gps_track_blob,
-        gps_track_blob_codec,
-        stream,
-        stream_codec,
-        uploaded_at,
-        octet_length(stream) AS stream_size,
-        segment_processing_status,
-        segment_processing_error,
-        segment_processing_updated_at
-       FROM workouts
-       WHERE id = $1`,
-      [id]
-    );
-    const queryMs = nowMs() - queryStartedAt;
-
-    if (result.rowCount === 0) {
-      throw new Error("no workouts found");
-    }
-
-    const hydrateStartedAt = nowMs();
-    const hydratedRow = await hydrateTrackRow(result.rows[0], {
-      includeGeoJson: true
-    });
-    const hydrateMs = nowMs() - hydrateStartedAt;
-
-    return {
-      row: hydratedRow,
-      profile: {
-        queryMs,
-        hydrateTrackMs: hydrateMs
-      }
-    };
-  }
-
   static async getOpenPayloadRaw(id, uid) {
     await WorkoutSharingService.getAccessibleWorkout(uid, id);
 
@@ -863,6 +823,7 @@ export default class WorkoutDBService {
         total_distance,
         total_timer_time,
         total_elapsed_time,
+        samplerategps,
         validgps,
         gps_source,
         manual_gps_lookup_points,
@@ -976,7 +937,12 @@ export default class WorkoutDBService {
     return hydrateTrackRow(row);
   }
 
-  static buildManualGpsTrackFromLookup(workoutObject, lookupTrack, totalWorkoutDistanceMeters) {
+  static buildManualGpsTrackFromLookup(
+    workoutObject,
+    lookupTrack,
+    totalWorkoutDistanceMeters,
+    sampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS
+  ) {
     if (!workoutObject?.hasDistanceSeries?.()) {
       throw new Error("Workout has no distance series for manual GPS mapping.");
     }
@@ -994,6 +960,8 @@ export default class WorkoutDBService {
     if (!Number.isFinite(effectiveWorkoutDistanceMeters) || effectiveWorkoutDistanceMeters <= 0) {
       throw new Error("Workout distance is invalid for manual GPS mapping.");
     }
+
+    const sampleRate = normalizeGpsSampleRateSeconds(sampleRateSeconds, DEFAULT_GPS_SAMPLE_RATE_SECONDS);
 
     const sampledTrack = [];
     const seenKeys = new Set();
@@ -1017,7 +985,7 @@ export default class WorkoutDBService {
       sampledTrack.push({ lat, lng });
     };
 
-    for (let index = 0; index < workoutObject.length; index += 5) {
+    for (let index = 0; index < workoutObject.length; index += sampleRate) {
       const distanceMeters = workoutObject.getDistanceAt(index);
       if (!Number.isFinite(distanceMeters)) {
         continue;
@@ -1043,13 +1011,21 @@ export default class WorkoutDBService {
 
     return {
       track: sampledTrack,
-      sampleRateSeconds: 5,
+      sampleRateSeconds: sampleRate,
       mappedDistanceMeters: computeTrackDistanceMeters(sampledTrack),
       lookupDistanceMeters: trackIndex.totalMeters
     };
   }
 
-  static buildGpsTrackFromSourceWorkout(targetWorkoutObject, targetTotalDistanceMeters, sourceWorkoutObject, sourceTrackPoints, sourceSampleRateSeconds = 5, sourceTotalDistanceMeters = null) {
+  static buildGpsTrackFromSourceWorkout(
+    targetWorkoutObject,
+    targetTotalDistanceMeters,
+    sourceWorkoutObject,
+    sourceTrackPoints,
+    sourceSampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS,
+    sourceTotalDistanceMeters = null,
+    targetSampleRateSeconds = null
+  ) {
     if (!targetWorkoutObject?.hasDistanceSeries?.()) {
       throw new Error("Target workout has no distance series for GPS copy.");
     }
@@ -1072,11 +1048,14 @@ export default class WorkoutDBService {
       throw new Error("Source workout distance is invalid for GPS copy.");
     }
 
+    const sourceSampleRate = normalizeGpsSampleRateSeconds(sourceSampleRateSeconds, DEFAULT_GPS_SAMPLE_RATE_SECONDS);
+    const targetSampleRate = normalizeGpsSampleRateSeconds(targetSampleRateSeconds, sourceSampleRate);
+
     const sourceDistanceAxis = buildDistanceAxisIndex(
       sourceTrackPoints.map((_, trackIndex) => {
         const sourceSampleIndex = Math.min(
           sourceWorkoutObject.length - 1,
-          Math.round(trackIndex * Math.max(1, Number(sourceSampleRateSeconds) || 1))
+          Math.round(trackIndex * sourceSampleRate)
         );
         const distanceMeters = sourceWorkoutObject.getDistanceAt(sourceSampleIndex);
         return Number.isFinite(distanceMeters)
@@ -1088,7 +1067,7 @@ export default class WorkoutDBService {
     const enrichedSourceTrack = sourceTrackPoints.map((point, trackIndex) => {
       const sourceSampleIndex = Math.min(
         sourceWorkoutObject.length - 1,
-        Math.round(trackIndex * Math.max(1, Number(sourceSampleRateSeconds) || 1))
+        Math.round(trackIndex * sourceSampleRate)
       );
       return {
         lat: Number(point.lat),
@@ -1123,7 +1102,7 @@ export default class WorkoutDBService {
       });
     };
 
-    for (let index = 0; index < targetWorkoutObject.length; index += 5) {
+    for (let index = 0; index < targetWorkoutObject.length; index += targetSampleRate) {
       const targetDistanceMeters = targetWorkoutObject.getDistanceAt(index);
       if (!Number.isFinite(targetDistanceMeters)) {
         continue;
@@ -1152,7 +1131,7 @@ export default class WorkoutDBService {
 
     return {
       track: sampledTrack,
-      sampleRateSeconds: 5,
+      sampleRateSeconds: targetSampleRate,
       mappedDistanceMeters: computeTrackDistanceMeters(sampledTrack),
       lookupDistanceMeters: sourceDistanceFallback
     };
@@ -1271,10 +1250,14 @@ export default class WorkoutDBService {
     const streamBuffer = streamUpdate?.workoutObject
       ? await streamUpdate.workoutObject.toCompressedBuffer()
       : null;
+    const sampleRateGps = normalizeGpsSampleRateSeconds(
+      manualGpsTrack?.sampleRateSeconds,
+      DEFAULT_GPS_SAMPLE_RATE_SECONDS
+    );
     const gpsTrackBlob = await GpsTrackBlobService.encodeCompressed(
       normalizedTrack.map((point) => [point.lat, point.lng]),
       {
-        sampleRateGps: Number(manualGpsTrack?.sampleRateSeconds) || 5,
+        sampleRateGps,
         codec: "brotli"
       }
     );
@@ -1309,7 +1292,7 @@ export default class WorkoutDBService {
         id,
         uid,
         pointsCount,
-        Number(manualGpsTrack?.sampleRateSeconds) || 5,
+        sampleRateGps,
         bbox.minLng,
         bbox.minLat,
         bbox.maxLng,

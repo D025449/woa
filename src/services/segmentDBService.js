@@ -158,31 +158,45 @@ export default class SegmentDBService {
   static matchSegments(workout, segments) {
     const results = [];
 
-    const normalizedWorkoutTrack = Array.isArray(workout?.track)
-      ? workout.track
-          .map((point) => {
-            if (Array.isArray(point)) {
-              return {
-                lat: Number(point[0]),
-                lng: Number(point[1])
-              };
-            }
-
-            return {
+    const normalizedWorkoutSegments = Array.isArray(workout?.trackSegments) && workout.trackSegments.length
+      ? workout.trackSegments
+          .map((segment) => (Array.isArray(segment) ? segment : [])
+            .map((point, index) => ({
               lat: Number(point?.lat),
-              lng: Number(point?.lng)
-            };
-          })
-          .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))
-      : [];
+              lng: Number(point?.lng),
+              slotIndex: Number.isFinite(Number(point?.slotIndex)) ? Number(point.slotIndex) : index
+            }))
+            .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)))
+          .filter((segment) => segment.length >= 2)
+      : (Array.isArray(workout?.track)
+          ? [workout.track
+              .map((point, index) => {
+                if (Array.isArray(point)) {
+                  return {
+                    lat: Number(point[0]),
+                    lng: Number(point[1]),
+                    slotIndex: index
+                  };
+                }
 
-    if (normalizedWorkoutTrack.length < 2) {
+                return {
+                  lat: Number(point?.lat),
+                  lng: Number(point?.lng),
+                  slotIndex: Number.isFinite(Number(point?.slotIndex)) ? Number(point.slotIndex) : index
+                };
+              })
+              .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))]
+          : [])
+          .filter((segment) => segment.length >= 2);
+
+    if (!normalizedWorkoutSegments.length) {
       return results;
     }
 
     const wotrack = {
       wid: workout.id,
-      track: normalizedWorkoutTrack,
+      track: normalizedWorkoutSegments[0],
+      segments: normalizedWorkoutSegments,
       sampleRate: workout.sampleRate
     }
 
@@ -1200,6 +1214,7 @@ export default class SegmentDBService {
     });
     profile.loadWorkoutTrackMs += Date.now() - decodeTrackStartedAt;
     const track = decodedTrack.points;
+    const trackSegments = Array.isArray(decodedTrack.segments) ? decodedTrack.segments : [];
 
     if (track.length === 0) {
       return includeProfile ? { matches: [], profile } : [];
@@ -1231,6 +1246,7 @@ export default class SegmentDBService {
     const workout = {
       id: workoutId,
       track,
+      trackSegments,
       sampleRate: workoutRow.samplerategps
     };
 

@@ -149,6 +149,179 @@ function compactCoordFromSemicircles(raw) {
   return Math.max(-0x7fffffff, Math.min(0x7fffffff, Math.round(raw * 180000000 / 0x80000000)));
 }
 
+function compactTimestampSecFromGarmin(rawTimestampSec) {
+  if (!Number.isFinite(rawTimestampSec) || rawTimestampSec < 0) {
+    return COMPACT_SENTINELS.uint32;
+  }
+  const unixTimestampSec = Math.round(rawTimestampSec + (GARMIN_TIME_OFFSET_MS / 1000));
+  return Math.max(0, Math.min(COMPACT_SENTINELS.uint32 - 1, unixTimestampSec));
+}
+
+function compactTimestampMsFromSec(timestampSec) {
+  return Number.isFinite(Number(timestampSec)) && Number(timestampSec) !== COMPACT_SENTINELS.uint32
+    ? Number(timestampSec) * 1000
+    : Number.NaN;
+}
+
+function fillGapsCompactRecords(compactRecords) {
+  const recordCount = Number(compactRecords?.recordCount || 0);
+  const timestampsSec = compactRecords?.timestampsSec;
+  if (!(recordCount > 1) || !timestampsSec || timestampsSec.length !== recordCount) {
+    return compactRecords;
+  }
+
+  const maxGap = 5;
+
+  const lerp = (left, right, ratio, fallback = Number.NaN) => {
+    const leftValid = Number.isFinite(left);
+    const rightValid = Number.isFinite(right);
+    if (!leftValid && !rightValid) return fallback;
+    if (!leftValid) return right;
+    if (!rightValid) return left;
+    return left + ((right - left) * ratio);
+  };
+
+  const decodeUint32Sentinel = (value) => value !== COMPACT_SENTINELS.uint32 ? Number(value) : Number.NaN;
+  const decodeUint16Sentinel = (value) => value !== COMPACT_SENTINELS.uint16 ? Number(value) : Number.NaN;
+  const decodeUint8Sentinel = (value) => value !== COMPACT_SENTINELS.uint8 ? Number(value) : Number.NaN;
+  const decodeInt16Sentinel = (value) => value !== COMPACT_SENTINELS.int16 ? Number(value) : Number.NaN;
+
+  const encodeUint32 = (value) => Number.isFinite(value)
+    ? Math.max(0, Math.min(COMPACT_SENTINELS.uint32 - 1, Math.round(value)))
+    : COMPACT_SENTINELS.uint32;
+  const encodeUint16 = (value) => Number.isFinite(value)
+    ? Math.max(0, Math.min(COMPACT_SENTINELS.uint16 - 1, Math.round(value)))
+    : COMPACT_SENTINELS.uint16;
+  const encodeUint8 = (value) => Number.isFinite(value)
+    ? Math.max(0, Math.min(COMPACT_SENTINELS.uint8 - 1, Math.round(value)))
+    : COMPACT_SENTINELS.uint8;
+  const encodeInt16 = (value) => Number.isFinite(value)
+    ? Math.max(-32767, Math.min(32767, Math.round(value)))
+    : COMPACT_SENTINELS.int16;
+
+  const countInterpolatedSteps = () => {
+    let interpolatedCount = 0;
+    for (let index = 0; index < recordCount - 1; index += 1) {
+      const t0Sec = Number(timestampsSec[index]);
+      const t1Sec = Number(timestampsSec[index + 1]);
+      if (!Number.isFinite(t0Sec) || !Number.isFinite(t1Sec) || t0Sec === COMPACT_SENTINELS.uint32 || t1Sec === COMPACT_SENTINELS.uint32) {
+        continue;
+      }
+
+      const gap = t1Sec - t0Sec;
+      if (gap > 1 && gap <= maxGap) {
+        interpolatedCount += gap - 1;
+      }
+    }
+    return interpolatedCount;
+  };
+
+  const outputRecordCount = recordCount + countInterpolatedSteps();
+  if (outputRecordCount === recordCount) {
+    return compactRecords;
+  }
+
+  const outTimestampsSec = new Uint32Array(outputRecordCount);
+  const outDistancesQ = new Uint32Array(outputRecordCount);
+  const outPowersW = new Uint16Array(outputRecordCount);
+  const outHeartRatesBpm = new Uint8Array(outputRecordCount);
+  const outCadencesRpm = new Uint8Array(outputRecordCount);
+  const outSpeedsCmS = new Uint16Array(outputRecordCount);
+  const outAltitudesQ = new Int16Array(outputRecordCount);
+  const outPositionLatsE6 = new Int32Array(outputRecordCount);
+  const outPositionLongsE6 = new Int32Array(outputRecordCount);
+
+  const pushRecord = (writeIndex, sourceIndex) => {
+    outTimestampsSec[writeIndex] = Number(timestampsSec[sourceIndex]);
+    outDistancesQ[writeIndex] = Number(compactRecords.distancesQ[sourceIndex]);
+    outPowersW[writeIndex] = Number(compactRecords.powersW[sourceIndex]);
+    outHeartRatesBpm[writeIndex] = Number(compactRecords.heartRatesBpm[sourceIndex]);
+    outCadencesRpm[writeIndex] = Number(compactRecords.cadencesRpm[sourceIndex]);
+    outSpeedsCmS[writeIndex] = Number(compactRecords.speedsCmS[sourceIndex]);
+    outAltitudesQ[writeIndex] = Number(compactRecords.altitudesQ[sourceIndex]);
+    outPositionLatsE6[writeIndex] = Number(compactRecords.positionLatsE6[sourceIndex]);
+    outPositionLongsE6[writeIndex] = Number(compactRecords.positionLongsE6[sourceIndex]);
+    return writeIndex + 1;
+  };
+
+  let writeIndex = 0;
+  for (let index = 0; index < recordCount - 1; index += 1) {
+    writeIndex = pushRecord(writeIndex, index);
+
+    const t0Sec = Number(timestampsSec[index]);
+    const t1Sec = Number(timestampsSec[index + 1]);
+    if (!Number.isFinite(t0Sec) || !Number.isFinite(t1Sec) || t0Sec === COMPACT_SENTINELS.uint32 || t1Sec === COMPACT_SENTINELS.uint32) {
+      continue;
+    }
+
+    const gap = t1Sec - t0Sec;
+    if (gap > 1 && gap <= maxGap) {
+      const steps = gap - 1;
+      for (let step = 1; step <= steps; step += 1) {
+        const ratio = step / gap;
+        outTimestampsSec[writeIndex] = t0Sec + step;
+        outDistancesQ[writeIndex] = encodeUint32(lerp(
+          decodeUint32Sentinel(compactRecords.distancesQ[index]),
+          decodeUint32Sentinel(compactRecords.distancesQ[index + 1]),
+          ratio,
+          Number.NaN
+        ));
+        outPowersW[writeIndex] = encodeUint16(lerp(
+          decodeUint16Sentinel(compactRecords.powersW[index]),
+          decodeUint16Sentinel(compactRecords.powersW[index + 1]),
+          ratio,
+          0
+        ));
+        outHeartRatesBpm[writeIndex] = encodeUint8(lerp(
+          decodeUint8Sentinel(compactRecords.heartRatesBpm[index]),
+          decodeUint8Sentinel(compactRecords.heartRatesBpm[index + 1]),
+          ratio,
+          Number.NaN
+        ));
+        outCadencesRpm[writeIndex] = encodeUint8(lerp(
+          decodeUint8Sentinel(compactRecords.cadencesRpm[index]),
+          decodeUint8Sentinel(compactRecords.cadencesRpm[index + 1]),
+          ratio,
+          Number.NaN
+        ));
+        outSpeedsCmS[writeIndex] = encodeUint16(lerp(
+          decodeUint16Sentinel(compactRecords.speedsCmS[index]),
+          decodeUint16Sentinel(compactRecords.speedsCmS[index + 1]),
+          ratio,
+          Number.NaN
+        ));
+        outAltitudesQ[writeIndex] = encodeInt16(lerp(
+          decodeInt16Sentinel(compactRecords.altitudesQ[index]),
+          decodeInt16Sentinel(compactRecords.altitudesQ[index + 1]),
+          ratio,
+          Number.NaN
+        ));
+        outPositionLatsE6[writeIndex] = COMPACT_SENTINELS.int32;
+        outPositionLongsE6[writeIndex] = COMPACT_SENTINELS.int32;
+        writeIndex += 1;
+      }
+    }
+  }
+
+  writeIndex = pushRecord(writeIndex, recordCount - 1);
+
+  return {
+    ...compactRecords,
+    recordCount: writeIndex,
+    baseTimestampSec: writeIndex > 0 ? outTimestampsSec[0] : 0,
+    lastTimestampSec: writeIndex > 0 ? outTimestampsSec[writeIndex - 1] : 0,
+    timestampsSec: outTimestampsSec,
+    distancesQ: outDistancesQ,
+    powersW: outPowersW,
+    heartRatesBpm: outHeartRatesBpm,
+    cadencesRpm: outCadencesRpm,
+    speedsCmS: outSpeedsCmS,
+    altitudesQ: dropAllZeroAltitudeColumn(outAltitudesQ),
+    positionLatsE6: outPositionLatsE6,
+    positionLongsE6: outPositionLongsE6
+  };
+}
+
 function makeCompactRecordOps(fields, littleEndian) {
   const ops = [];
   let offset = 0;
@@ -228,7 +401,7 @@ export function parseFitBufferCompactBrowser(buffer, { excludeStartTimes = null 
   const dataLength = readU32LE(bytes, 4);
   const end = headerLength + dataLength;
   const definitions = [];
-  const timestampsMs = [];
+  const timestampsSec = [];
   const distancesQ = [];
   const powersW = [];
   const heartRatesBpm = [];
@@ -238,7 +411,7 @@ export function parseFitBufferCompactBrowser(buffer, { excludeStartTimes = null 
   const positionLatsE6 = [];
   const positionLongsE6 = [];
   const sessions = [];
-  let baseTimestampMs = -1;
+  let baseTimestampSec = COMPACT_SENTINELS.uint32;
   let cursor = headerLength;
 
   while (cursor < end) {
@@ -281,7 +454,7 @@ export function parseFitBufferCompactBrowser(buffer, { excludeStartTimes = null 
 
     const dataOffset = cursor + 1;
     if (definition.globalMessage === 20) {
-      let timestampMs = Number.NaN;
+      let timestampSec = COMPACT_SENTINELS.uint32;
       let distance = COMPACT_SENTINELS.uint32;
       let power = COMPACT_SENTINELS.uint16;
       let heartRate = COMPACT_SENTINELS.uint8;
@@ -297,8 +470,8 @@ export function parseFitBufferCompactBrowser(buffer, { excludeStartTimes = null 
           case 1: {
             const raw = op.littleEndian ? readU32LE(bytes, o) : readU32BE(bytes, o);
             if (raw !== 0xffffffff) {
-              timestampMs = raw * 1000 + GARMIN_TIME_OFFSET_MS;
-              if (baseTimestampMs < 0) baseTimestampMs = timestampMs;
+              timestampSec = compactTimestampSecFromGarmin(raw);
+              if (baseTimestampSec === COMPACT_SENTINELS.uint32) baseTimestampSec = timestampSec;
             }
             break;
           }
@@ -345,7 +518,7 @@ export function parseFitBufferCompactBrowser(buffer, { excludeStartTimes = null 
         }
       }
 
-      timestampsMs.push(Number.isFinite(timestampMs) ? timestampMs : Number.NaN);
+      timestampsSec.push(timestampSec);
       distancesQ.push(distance);
       powersW.push(power);
       heartRatesBpm.push(heartRate);
@@ -388,10 +561,11 @@ export function parseFitBufferCompactBrowser(buffer, { excludeStartTimes = null 
     skippedExisting: false,
     skippedStartTime: null,
     sessions,
-    compactRecords: {
-      recordCount: timestampsMs.length,
-      baseTimestampMs: baseTimestampMs < 0 ? 0 : baseTimestampMs,
-      timestampsMs: Float64Array.from(timestampsMs),
+    compactRecords: fillGapsCompactRecords({
+      recordCount: timestampsSec.length,
+      baseTimestampSec: baseTimestampSec === COMPACT_SENTINELS.uint32 ? 0 : baseTimestampSec,
+      lastTimestampSec: timestampsSec.length > 0 ? timestampsSec[timestampsSec.length - 1] : 0,
+      timestampsSec: Uint32Array.from(timestampsSec),
       distancesQ: Uint32Array.from(distancesQ),
       powersW: Uint16Array.from(powersW),
       heartRatesBpm: Uint8Array.from(heartRatesBpm),
@@ -400,67 +574,7 @@ export function parseFitBufferCompactBrowser(buffer, { excludeStartTimes = null 
       altitudesQ: dropAllZeroAltitudeColumn(Int16Array.from(altitudesQ)),
       positionLatsE6: Int32Array.from(positionLatsE6),
       positionLongsE6: Int32Array.from(positionLongsE6),
-    },
-  };
-}
-
-export function materializeCompactToParsed(parsedCompact) {
-  const compact = parsedCompact?.compactRecords;
-  if (!compact) {
-    return {
-      sessions: Array.isArray(parsedCompact?.sessions) ? parsedCompact.sessions : [],
-      recordsTyped: {
-        recordCount: 0,
-        timestampsMs: new Float64Array(0),
-        distancesM: new Float64Array(0),
-        powersW: new Float64Array(0),
-        heartRatesBpm: new Float64Array(0),
-        cadencesRpm: new Float64Array(0),
-        speedsMps: new Float64Array(0),
-        altitudesM: new Float64Array(0),
-        positionLatsDeg: new Float64Array(0),
-        positionLongsDeg: new Float64Array(0),
-      },
-      recordsAreSorted: true,
-    };
-  }
-
-  const recordCount = Number(compact.recordCount || 0);
-  const distancesM = new Float64Array(recordCount);
-  const powers = new Float64Array(recordCount);
-  const heartRates = new Float64Array(recordCount);
-  const cadences = new Float64Array(recordCount);
-  const speeds = new Float64Array(recordCount);
-  const altitudes = new Float64Array(recordCount);
-  const lats = new Float64Array(recordCount);
-  const lngs = new Float64Array(recordCount);
-
-  for (let index = 0; index < recordCount; index += 1) {
-    distancesM[index] = compact.distancesQ[index] === COMPACT_SENTINELS.uint32 ? Number.NaN : compact.distancesQ[index] / 4;
-    powers[index] = compact.powersW[index] === COMPACT_SENTINELS.uint16 ? Number.NaN : compact.powersW[index];
-    heartRates[index] = compact.heartRatesBpm[index] === COMPACT_SENTINELS.uint8 ? Number.NaN : compact.heartRatesBpm[index];
-    cadences[index] = compact.cadencesRpm[index] === COMPACT_SENTINELS.uint8 ? Number.NaN : compact.cadencesRpm[index];
-    speeds[index] = compact.speedsCmS[index] === COMPACT_SENTINELS.uint16 ? Number.NaN : compact.speedsCmS[index] / 100;
-    altitudes[index] = compact.altitudesQ[index] === COMPACT_SENTINELS.int16 ? Number.NaN : compact.altitudesQ[index] / 4;
-    lats[index] = compact.positionLatsE6[index] === COMPACT_SENTINELS.int32 ? Number.NaN : compact.positionLatsE6[index] / 1000000;
-    lngs[index] = compact.positionLongsE6[index] === COMPACT_SENTINELS.int32 ? Number.NaN : compact.positionLongsE6[index] / 1000000;
-  }
-
-  return {
-    sessions: Array.isArray(parsedCompact?.sessions) ? parsedCompact.sessions : [],
-    recordsTyped: {
-      recordCount,
-      timestampsMs: compact.timestampsMs,
-      distancesM,
-      powersW: powers,
-      heartRatesBpm: heartRates,
-      cadencesRpm: cadences,
-      speedsMps: speeds,
-      altitudesM: altitudes,
-      positionLatsDeg: lats,
-      positionLongsDeg: lngs,
-    },
-    recordsAreSorted: true,
+    }),
   };
 }
 

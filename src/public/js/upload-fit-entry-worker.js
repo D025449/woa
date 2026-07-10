@@ -1,7 +1,6 @@
-import { parseFitBufferTypedBrowser } from "./fit-import-typed-browser.js";
 import { applyCompactEncodingOptions, parseFitBufferCompactBrowser } from "./fit-import-compact-browser.js";
-import { createWoa1File } from "./woa-format.js";
 import { createWoa1FileFromCompactAsync } from "./woa-format-compact.js";
+import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../../shared/gpsSampling.js";
 import { gzipSync } from "/vendor/fflate/browser.js";
 
 const MIN_WORKOUT_RECORD_COUNT = 300;
@@ -81,33 +80,25 @@ function getParsedSessionCount(parsed) {
   return Array.isArray(parsed?.sessions) ? parsed.sessions.length : 0;
 }
 
-async function createWoaFromParsed(parsed, parserVariant, entryName, encodingOptions) {
-  if (parserVariant === "compact") {
-    const adjustedParsed = applyCompactEncodingOptions(parsed, encodingOptions);
-    const streamCodec = resolveUploadCompressionCodec(encodingOptions);
-    return {
-      adjustedParsed,
-      result: await createWoa1FileFromCompactAsync(adjustedParsed, {
-        sourceName: entryName,
-        sampleRateSeconds: 5,
-        powerEncoding: encodingOptions?.compactPowerEncoding === "raw16" ? "raw16" : "delta8-q4w",
-        distanceEncoding: encodingOptions?.compactDistanceEncoding === "default" ? "default" : "uint8-q05m",
-        streamCodec,
-        gpsTrackBlobCodec: streamCodec,
-        compressWorkoutStream: (bytes, options = {}) => compressWithCodec(bytes, streamCodec, options, encodingOptions),
-        compressGpsTrack: (bytes, options = {}) => compressWithCodec(bytes, streamCodec, options, encodingOptions)
-      })
-    };
-  }
-
-  const adjustedParsed = applyEncodingOptions(parsed, encodingOptions);
+async function createWoaFromParsed(parsed, entryName, encodingOptions) {
+  const adjustedParsed = applyCompactEncodingOptions(parsed, encodingOptions);
+  const streamCodec = resolveUploadCompressionCodec(encodingOptions);
+  const gpsSampleRateSeconds = normalizeGpsSampleRateSeconds(
+    encodingOptions?.gpsSampleRateSeconds,
+    DEFAULT_GPS_SAMPLE_RATE_SECONDS
+  );
   return {
     adjustedParsed,
-    result: createWoa1File(adjustedParsed, {
+    result: await createWoa1FileFromCompactAsync(adjustedParsed, {
       sourceName: entryName,
-      sampleRateSeconds: 5,
-      compressWorkoutStream: (bytes, options = {}) => gzipSync(bytes, options),
-      compressGpsTrack: (bytes, options = {}) => gzipSync(bytes, options)
+      sampleRateSeconds: gpsSampleRateSeconds,
+      powerEncoding: "delta8-q4w",
+      distanceEncoding: "uint8-q05m",
+      altitudeEncoding: "rle-delta-q1m",
+      streamCodec,
+      gpsTrackBlobCodec: streamCodec,
+      compressWorkoutStream: (bytes, options = {}) => compressWithCodec(bytes, streamCodec, options, encodingOptions),
+      compressGpsTrack: (bytes, options = {}) => compressWithCodec(bytes, streamCodec, options, encodingOptions)
     })
   };
 }
@@ -115,48 +106,6 @@ async function createWoaFromParsed(parsed, parserVariant, entryName, encodingOpt
 function isTooShortWorkout(parsed) {
   const recordCount = getParsedRecordCount(parsed);
   return recordCount < MIN_WORKOUT_RECORD_COUNT;
-}
-
-function quantizeSeries(sourceArray, recordCount, step) {
-  const normalizedStep = Math.max(1, Number.parseInt(String(step ?? 1), 10) || 1);
-  if (normalizedStep <= 1 || !sourceArray || recordCount <= 0) {
-    return sourceArray;
-  }
-
-  const quantizedValues = new Float64Array(recordCount);
-  for (let index = 0; index < recordCount; index += 1) {
-    const value = Number(sourceArray[index]);
-    quantizedValues[index] = Number.isFinite(value)
-      ? Math.round(value / normalizedStep) * normalizedStep
-      : Number.NaN;
-  }
-
-  return quantizedValues;
-}
-
-function applyEncodingOptions(parsed, encodingOptions = {}) {
-  const source = parsed?.recordsTyped;
-  if (!source || !Number.isFinite(Number(source.recordCount))) {
-    return parsed;
-  }
-
-  const recordCount = Number(source.recordCount);
-  const powerStep = Math.max(1, Number.parseInt(String(encodingOptions.powerStep ?? 4), 10) || 4);
-  const cadenceStep = Math.max(1, Number.parseInt(String(encodingOptions.cadenceStep ?? 2), 10) || 2);
-  const hrStep = Math.max(1, Number.parseInt(String(encodingOptions.hrStep ?? 2), 10) || 2);
-  return {
-    ...parsed,
-    recordsTyped: {
-      ...source,
-      powersW: quantizeSeries(source.powersW, recordCount, powerStep),
-      cadencesRpm: quantizeSeries(source.cadencesRpm, recordCount, cadenceStep),
-      heartRatesBpm: quantizeSeries(source.heartRatesBpm, recordCount, hrStep)
-    }
-  };
-}
-
-function getFitParserVariant(encodingOptions = {}) {
-  return encodingOptions?.fitParserVariant === "compact" ? "compact" : "typed";
 }
 
 self.addEventListener("message", async (event) => {
@@ -170,10 +119,7 @@ self.addEventListener("message", async (event) => {
 
   try {
     const parseStartedAt = nowMs();
-    const parserVariant = getFitParserVariant(encodingOptions);
-    const parsed = parserVariant === "compact"
-      ? parseFitBufferCompactBrowser(arrayBuffer, { excludeStartTimes: existingStartTimes })
-      : parseFitBufferTypedBrowser(arrayBuffer, { excludeStartTimes: existingStartTimes });
+    const parsed = parseFitBufferCompactBrowser(arrayBuffer, { excludeStartTimes: existingStartTimes });
     const parseMs = nowMs() - parseStartedAt;
     const startTimeKey = parsed?.skippedStartTime || buildParsedStartTimeKey(parsed);
 
@@ -203,7 +149,7 @@ self.addEventListener("message", async (event) => {
     }
 
     const buildStartedAt = nowMs();
-    const { adjustedParsed, result } = await createWoaFromParsed(parsed, parserVariant, entryName, encodingOptions);
+    const { adjustedParsed, result } = await createWoaFromParsed(parsed, entryName, encodingOptions);
     const buildWoaMs = nowMs() - buildStartedAt;
 
     self.postMessage({
@@ -218,8 +164,7 @@ self.addEventListener("message", async (event) => {
       timings: {
         parseMs,
         buildWoaMs,
-        buildWoaStepsMs: result.timings || {},
-        parserVariant
+        buildWoaStepsMs: result.timings || {}
       },
       workoutStreamStats: result.stats?.workoutStream || {},
       sessionsCount: getParsedSessionCount(adjustedParsed)

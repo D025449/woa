@@ -1,3 +1,5 @@
+import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../../shared/gpsSampling.js";
+
 const textEncoder = new TextEncoder();
 const UINT8_NAN = 0xFF;
 const UINT16_NAN = 0xFFFF;
@@ -53,6 +55,50 @@ function nowMs() {
     return performance.now();
   }
   return Date.now();
+}
+
+function getCompactTimestampSecAt(compactRecords, index) {
+  const timestampSec = Number(compactRecords?.timestampsSec?.[index]);
+  return Number.isFinite(timestampSec) && timestampSec !== UINT32_NAN
+    ? timestampSec
+    : Number.NaN;
+}
+
+function getCompactTimestampMsAt(compactRecords, index) {
+  const timestampSec = getCompactTimestampSecAt(compactRecords, index);
+  return Number.isFinite(timestampSec) ? timestampSec * 1000 : Number.NaN;
+}
+
+function getCompactBaseTimestampSec(compactRecords, recordCount) {
+  const explicitBaseTimestampSec = Number(compactRecords?.baseTimestampSec);
+  if (Number.isFinite(explicitBaseTimestampSec) && explicitBaseTimestampSec !== UINT32_NAN) {
+    return Math.round(explicitBaseTimestampSec);
+  }
+  if (!(recordCount > 0)) {
+    return 0;
+  }
+  const timestampSec = getCompactTimestampSecAt(compactRecords, 0);
+  return Number.isFinite(timestampSec) ? Math.round(timestampSec) : 0;
+}
+
+function getCompactLastTimestampSec(compactRecords, recordCount) {
+  const explicitLastTimestampSec = Number(compactRecords?.lastTimestampSec);
+  if (Number.isFinite(explicitLastTimestampSec) && explicitLastTimestampSec !== UINT32_NAN) {
+    return Math.round(explicitLastTimestampSec);
+  }
+  if (!(recordCount > 0)) {
+    return 0;
+  }
+  const timestampSec = getCompactTimestampSecAt(compactRecords, recordCount - 1);
+  return Number.isFinite(timestampSec) ? Math.round(timestampSec) : 0;
+}
+
+function getCompactBaseTimestampMs(compactRecords, recordCount) {
+  return getCompactBaseTimestampSec(compactRecords, recordCount) * 1000;
+}
+
+function getCompactLastTimestampMs(compactRecords, recordCount) {
+  return getCompactLastTimestampSec(compactRecords, recordCount) * 1000;
 }
 
 function encodeJson(value) {
@@ -269,9 +315,7 @@ function buildWorkoutStreamBlockFromCompact(compactRecords) {
   const bytes = new Uint8Array(buffer);
   bytes.set(textEncoder.encode("WST3"), 0);
   view.setUint32(4, recordCount, true);
-  const baseTimestampMs = recordCount > 0 && Number.isFinite(Number(compactRecords.timestampsMs[0]))
-    ? Math.round(Number(compactRecords.timestampsMs[0]))
-    : 0;
+  const baseTimestampMs = getCompactBaseTimestampMs(compactRecords, recordCount);
   view.setFloat64(8, baseTimestampMs, true);
   view.setUint32(16, 1000, true);
 
@@ -716,9 +760,7 @@ function buildWorkoutStreamBlockFromCompactDelta16Power(compactRecords) {
   const bytes = new Uint8Array(buffer);
   bytes.set(textEncoder.encode("WST4"), 0);
   view.setUint32(4, recordCount, true);
-  const baseTimestampMs = recordCount > 0 && Number.isFinite(Number(compactRecords.timestampsMs[0]))
-    ? Math.round(Number(compactRecords.timestampsMs[0]))
-    : 0;
+  const baseTimestampMs = getCompactBaseTimestampMs(compactRecords, recordCount);
   view.setFloat64(8, baseTimestampMs, true);
   view.setUint32(16, 1000, true);
 
@@ -892,9 +934,7 @@ function buildWorkoutStreamBlockCompactDistanceUint8Q02(compactRecords, { distan
   const bytes = new Uint8Array(buffer);
   bytes.set(textEncoder.encode("WST5"), 0);
   view.setUint32(4, recordCount, true);
-  const baseTimestampMs = recordCount > 0 && Number.isFinite(Number(compactRecords.timestampsMs[0]))
-    ? Math.round(Number(compactRecords.timestampsMs[0]))
-    : 0;
+  const baseTimestampMs = getCompactBaseTimestampMs(compactRecords, recordCount);
   view.setFloat64(8, baseTimestampMs, true);
   view.setUint32(16, 1000, true);
 
@@ -965,9 +1005,7 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(compactRecor
   const bytes = new Uint8Array(buffer);
   bytes.set(textEncoder.encode("WST6"), 0);
   view.setUint32(4, recordCount, true);
-  const baseTimestampMs = recordCount > 0 && Number.isFinite(Number(compactRecords.timestampsMs[0]))
-    ? Math.round(Number(compactRecords.timestampsMs[0]))
-    : 0;
+  const baseTimestampMs = getCompactBaseTimestampMs(compactRecords, recordCount);
   view.setFloat64(8, baseTimestampMs, true);
   view.setUint32(16, 1000, true);
 
@@ -1042,9 +1080,7 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeDelta
   const bytes = new Uint8Array(buffer);
   bytes.set(textEncoder.encode("WST7"), 0);
   view.setUint32(4, recordCount, true);
-  const baseTimestampMs = recordCount > 0 && Number.isFinite(Number(compactRecords.timestampsMs[0]))
-    ? Math.round(Number(compactRecords.timestampsMs[0]))
-    : 0;
+  const baseTimestampMs = getCompactBaseTimestampMs(compactRecords, recordCount);
   view.setFloat64(8, baseTimestampMs, true);
   view.setUint32(16, 1000, true);
 
@@ -1130,9 +1166,7 @@ function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02AltitudeDelt
   const bytes = new Uint8Array(buffer);
   bytes.set(textEncoder.encode("WST8"), 0);
   view.setUint32(4, recordCount, true);
-  const baseTimestampMs = recordCount > 0 && Number.isFinite(Number(compactRecords.timestampsMs[0]))
-    ? Math.round(Number(compactRecords.timestampsMs[0]))
-    : 0;
+  const baseTimestampMs = getCompactBaseTimestampMs(compactRecords, recordCount);
   view.setFloat64(8, baseTimestampMs, true);
   view.setUint32(16, 1000, true);
 
@@ -1219,9 +1253,7 @@ function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(
   const bytes = new Uint8Array(buffer);
   bytes.set(textEncoder.encode("WST9"), 0);
   view.setUint32(4, recordCount, true);
-  const baseTimestampMs = recordCount > 0 && Number.isFinite(Number(compactRecords.timestampsMs[0]))
-    ? Math.round(Number(compactRecords.timestampsMs[0]))
-    : 0;
+  const baseTimestampMs = getCompactBaseTimestampMs(compactRecords, recordCount);
   view.setFloat64(8, baseTimestampMs, true);
   view.setUint32(16, 1000, true);
 
@@ -1366,15 +1398,16 @@ function buildGpsCoordinatePayload(points, gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE
   return payload;
 }
 
-function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = 5) {
+function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS) {
   const MAX_STEP_DISTANCE_METERS = 40;
   const MIN_RELOCK_SEQUENCE = 3;
   const MAX_INTERPOLATION_GAP = 8;
   const DEG_TO_RAD = Math.PI / 180;
   const EARTH_RADIUS_METERS = 6371000;
-  const sampleRate = Math.max(1, Math.round(Number(sampleRateSeconds) || 1));
+  const sampleRate = normalizeGpsSampleRateSeconds(sampleRateSeconds, DEFAULT_GPS_SAMPLE_RATE_SECONDS);
   const precision = 5;
   const recordCount = Number(compactRecords?.recordCount || 0);
+  const firstTimestampMs = getCompactBaseTimestampMs(compactRecords, recordCount);
 
   function haversine(latA, lngA, latB, lngB) {
     const dLat = (latB - latA) * DEG_TO_RAD;
@@ -1385,23 +1418,24 @@ function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = 5) {
     return 2 * EARTH_RADIUS_METERS * Math.atan2(Math.sqrt(aVal), Math.sqrt(1 - aVal));
   }
 
-  const timestamps = new Array(recordCount);
-  const rawLatitudes = new Array(recordCount);
-  const rawLongitudes = new Array(recordCount);
-  const latitudes = new Array(recordCount);
-  const longitudes = new Array(recordCount);
+  function readRawLatAt(index) {
+    const latRaw = Number(compactRecords?.positionLatsE6?.[index]);
+    return Number.isFinite(latRaw) && latRaw !== INT32_NAN ? latRaw / MICRO_DEGREES : Number.NaN;
+  }
+
+  function readRawLngAt(index) {
+    const lngRaw = Number(compactRecords?.positionLongsE6?.[index]);
+    return Number.isFinite(lngRaw) && lngRaw !== INT32_NAN ? lngRaw / MICRO_DEGREES : Number.NaN;
+  }
+
+  const latitudes = new Float64Array(recordCount);
+  const longitudes = new Float64Array(recordCount);
+  latitudes.fill(Number.NaN);
+  longitudes.fill(Number.NaN);
 
   for (let index = 0; index < recordCount; index += 1) {
-    const latRaw = Number(compactRecords.positionLatsE6[index]);
-    const lngRaw = Number(compactRecords.positionLongsE6[index]);
-    const lat = Number.isFinite(latRaw) && latRaw !== INT32_NAN ? latRaw / MICRO_DEGREES : null;
-    const lng = Number.isFinite(lngRaw) && lngRaw !== INT32_NAN ? lngRaw / MICRO_DEGREES : null;
-    const timestamp = Number(compactRecords.timestampsMs[index]);
-    timestamps[index] = Number.isFinite(timestamp) ? timestamp : null;
-    rawLatitudes[index] = lat;
-    rawLongitudes[index] = lng;
-    latitudes[index] = lat;
-    longitudes[index] = lng;
+    latitudes[index] = readRawLatAt(index);
+    longitudes[index] = readRawLngAt(index);
   }
 
   let lastValidIndex = -1;
@@ -1411,8 +1445,8 @@ function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = 5) {
     const lng = longitudes[i];
     const invalid = !Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0);
     if (invalid) {
-      latitudes[i] = null;
-      longitudes[i] = null;
+      latitudes[i] = Number.NaN;
+      longitudes[i] = Number.NaN;
       continue;
     }
     if (lastValidIndex < 0) {
@@ -1425,11 +1459,11 @@ function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = 5) {
       relockCandidateIndexes.length = 0;
       continue;
     }
-    latitudes[i] = null;
-    longitudes[i] = null;
-    const rawLat = rawLatitudes[i];
-    const rawLng = rawLongitudes[i];
-    if (rawLat == null || rawLng == null) {
+    latitudes[i] = Number.NaN;
+    longitudes[i] = Number.NaN;
+    const rawLat = readRawLatAt(i);
+    const rawLng = readRawLngAt(i);
+    if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng)) {
       relockCandidateIndexes.length = 0;
       continue;
     }
@@ -1438,7 +1472,14 @@ function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = 5) {
       continue;
     }
     const previousCandidateIndex = relockCandidateIndexes[relockCandidateIndexes.length - 1];
-    const candidateDist = haversine(rawLatitudes[previousCandidateIndex], rawLongitudes[previousCandidateIndex], rawLat, rawLng);
+    const prevCandidateLat = readRawLatAt(previousCandidateIndex);
+    const prevCandidateLng = readRawLngAt(previousCandidateIndex);
+    if (!Number.isFinite(prevCandidateLat) || !Number.isFinite(prevCandidateLng)) {
+      relockCandidateIndexes.length = 0;
+      relockCandidateIndexes.push(i);
+      continue;
+    }
+    const candidateDist = haversine(prevCandidateLat, prevCandidateLng, rawLat, rawLng);
     if (candidateDist <= MAX_STEP_DISTANCE_METERS) {
       relockCandidateIndexes.push(i);
     } else {
@@ -1447,16 +1488,18 @@ function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = 5) {
     }
     if (relockCandidateIndexes.length >= MIN_RELOCK_SEQUENCE) {
       for (const candidateIndex of relockCandidateIndexes) {
-        latitudes[candidateIndex] = rawLatitudes[candidateIndex];
-        longitudes[candidateIndex] = rawLongitudes[candidateIndex];
+        latitudes[candidateIndex] = readRawLatAt(candidateIndex);
+        longitudes[candidateIndex] = readRawLngAt(candidateIndex);
       }
       lastValidIndex = relockCandidateIndexes[relockCandidateIndexes.length - 1];
       relockCandidateIndexes.length = 0;
     }
   }
 
-  const prevValidIndex = new Array(recordCount).fill(-1);
-  const nextValidIndex = new Array(recordCount).fill(-1);
+  const prevValidIndex = new Int32Array(recordCount);
+  const nextValidIndex = new Int32Array(recordCount);
+  prevValidIndex.fill(-1);
+  nextValidIndex.fill(-1);
   let previousValidIndex = -1;
   for (let i = 0; i < recordCount; i += 1) {
     prevValidIndex[i] = previousValidIndex;
@@ -1481,10 +1524,10 @@ function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = 5) {
     currentGapLength += 1;
     const prevIndex = prevValidIndex[i];
     const nextValid = nextValidIndex[i];
-    const prevLat = prevIndex >= 0 ? latitudes[prevIndex] : null;
-    const prevLng = prevIndex >= 0 ? longitudes[prevIndex] : null;
-    const nextLat = nextValid >= 0 ? latitudes[nextValid] : null;
-    const nextLng = nextValid >= 0 ? longitudes[nextValid] : null;
+    const prevLat = prevIndex >= 0 ? latitudes[prevIndex] : Number.NaN;
+    const prevLng = prevIndex >= 0 ? longitudes[prevIndex] : Number.NaN;
+    const nextLat = nextValid >= 0 ? latitudes[nextValid] : Number.NaN;
+    const nextLng = nextValid >= 0 ? longitudes[nextValid] : Number.NaN;
     if (!Number.isFinite(prevLat) || !Number.isFinite(prevLng) || !Number.isFinite(nextLat) || !Number.isFinite(nextLng) || currentGapLength > MAX_INTERPOLATION_GAP) {
       continue;
     }
@@ -1496,50 +1539,91 @@ function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = 5) {
   let maxLat = -Infinity;
   let minLng = Infinity;
   let maxLng = -Infinity;
+  const slots = [];
   const points = [];
+  const segments = [];
+  let currentSegment = null;
 
   for (let i = 0; i < recordCount; i += 1) {
-    const latValue = latitudes[i];
-    const lngValue = longitudes[i];
-    if (!Number.isFinite(latValue) || !Number.isFinite(lngValue)) {
-      continue;
-    }
-    const lat = Number(latValue.toFixed(precision));
-    const lng = Number(lngValue.toFixed(precision));
-    if (lat < minLat) minLat = lat;
-    if (lat > maxLat) maxLat = lat;
-    if (lng < minLng) minLng = lng;
-    if (lng > maxLng) maxLng = lng;
     if (i % sampleRate === 0) {
-      points.push({
+      const latValue = latitudes[i];
+      const lngValue = longitudes[i];
+      const valid = Number.isFinite(latValue) && Number.isFinite(lngValue);
+
+      if (!valid) {
+        slots.push({
+          lat: Number.NaN,
+          lng: Number.NaN,
+          valid: false,
+          slotIndex: slots.length,
+          recordIndex: i
+        });
+        currentSegment = null;
+        continue;
+      }
+
+      const lat = Number(latValue.toFixed(precision));
+      const lng = Number(lngValue.toFixed(precision));
+      const slot = {
         lat,
         lng,
-        timestampMs: Number.isFinite(Number(timestamps[i])) ? Number(timestamps[i]) : 0
-      });
+        valid: true,
+        slotIndex: slots.length,
+        recordIndex: i
+      };
+
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+      if (lng < minLng) minLng = lng;
+      if (lng > maxLng) maxLng = lng;
+
+      slots.push(slot);
+      points.push(slot);
+      if (!currentSegment) {
+        currentSegment = [];
+        segments.push(currentSegment);
+      }
+      currentSegment.push(slot);
     }
   }
 
-  if (!points.length) {
-    return { sampleRateSeconds: sampleRate, pointCount: 0, bbox: null, startPoint: null, endPoint: null, points };
+  if (!slots.length || !points.length) {
+    return {
+      sampleRateSeconds: sampleRate,
+      firstTimestampMs,
+      slotCount: slots.length,
+      pointCount: points.length,
+      bbox: null,
+      startPoint: null,
+      endPoint: null,
+      slots,
+      points,
+      segments
+    };
   }
 
   return {
     sampleRateSeconds: sampleRate,
+    firstTimestampMs,
+    slotCount: slots.length,
     pointCount: points.length,
     bbox: points.length >= 2 ? { minLat, maxLat, minLng, maxLng } : null,
     startPoint: { lat: points[0].lat, lng: points[0].lng },
     endPoint: { lat: points[points.length - 1].lat, lng: points[points.length - 1].lng },
-    points
+    slots,
+    points,
+    segments
   };
 }
 
 function buildGpsTrackBlock(gpsTrack, { gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE } = {}) {
-  const pointCount = Number(gpsTrack?.pointCount || 0);
-  const firstTimestampMs = pointCount > 0 && Number.isFinite(Number(gpsTrack?.points?.[0]?.timestampMs))
-    ? Math.round(Number(gpsTrack.points[0].timestampMs))
+  const slots = Array.isArray(gpsTrack?.slots) ? gpsTrack.slots : (Array.isArray(gpsTrack?.points) ? gpsTrack.points : []);
+  const pointCount = Number(gpsTrack?.slotCount || slots.length || 0);
+  const firstTimestampMs = Number.isFinite(Number(gpsTrack?.firstTimestampMs))
+    ? Math.round(Number(gpsTrack.firstTimestampMs))
     : 0;
   const headerBytes = 4 + 2 + 2 + 4 + 8;
-  const coordinatePayload = buildGpsCoordinatePayload(gpsTrack?.points || [], gpsBlockSize);
+  const coordinatePayload = buildGpsCoordinatePayload(slots, gpsBlockSize);
   const payloadBytes = coordinatePayload.byteLength;
   const buffer = new ArrayBuffer(headerBytes + payloadBytes);
   const view = new DataView(buffer);
@@ -1671,8 +1755,8 @@ function deriveSummaryFromCompact(parsedCompact, gpsTrack, sourceName = "") {
   const firstSession = sessions[0] || {};
   const compactRecords = parsedCompact?.compactRecords || {};
   const recordCount = Number(compactRecords.recordCount || 0);
-  const firstTimestamp = recordCount > 0 ? Number(compactRecords.timestampsMs[0]) : Number.NaN;
-  const lastTimestamp = recordCount > 0 ? Number(compactRecords.timestampsMs[recordCount - 1]) : Number.NaN;
+  const firstTimestamp = recordCount > 0 ? getCompactBaseTimestampMs(compactRecords, recordCount) : Number.NaN;
+  const lastTimestamp = recordCount > 0 ? getCompactLastTimestampMs(compactRecords, recordCount) : Number.NaN;
   const persistedRow = derivePersistedRowFromCompact(parsedCompact, gpsTrack, sourceName);
   return {
     sourceName,
@@ -1710,7 +1794,7 @@ function deriveSummaryFromCompact(parsedCompact, gpsTrack, sourceName = "") {
 
 export function createWoa1FileFromCompact(parsedCompact, {
   sourceName = "",
-  sampleRateSeconds = 5,
+  sampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS,
   compressWorkoutStream = null,
   compressGpsTrack = null,
   streamCodec = DEFAULT_STREAM_CODEC,
@@ -1738,29 +1822,11 @@ export function createWoa1FileFromCompact(parsedCompact, {
   timings.buildReducedGpsTrackMs = nowMs() - stepStartedAt;
 
   stepStartedAt = nowMs();
-  const useDeltaPower = powerEncoding === "delta16";
-  const useDeltaPowerQ4 = powerEncoding === "delta8-q4w";
-  const normalizedDistanceEncoding = normalizeDistanceEncoding(distanceEncoding);
   const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
-  const useDistanceUint8Q02 = normalizedDistanceEncoding === DISTANCE_ENCODING_UINT8_Q05M;
-  const useAltitudeDeltaQ1m = altitudeEncoding === "delta8-q1m";
-  const useRleDeltaQ1m = altitudeEncoding === "rle-delta-q1m";
-  let workoutStreamBlock;
-  if (useDeltaPowerQ4 && useDistanceUint8Q02 && useRleDeltaQ1m) {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
-  } else if (useDeltaPowerQ4 && useDistanceUint8Q02 && useAltitudeDeltaQ1m) {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02AltitudeDeltaQ1m(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
-  } else if (useDeltaPower && useDistanceUint8Q02 && useAltitudeDeltaQ1m) {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeDeltaQ1m(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
-  } else if (useDeltaPower && useDistanceUint8Q02) {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
-  } else if (useDeltaPower) {
-    workoutStreamBlock = buildWorkoutStreamBlockFromCompactDelta16Power(parsedCompact?.compactRecords || {});
-  } else if (useDistanceUint8Q02) {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDistanceUint8Q02(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
-  } else {
-    workoutStreamBlock = buildWorkoutStreamBlockFromCompact(parsedCompact?.compactRecords || {});
-  }
+  const workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(
+    parsedCompact?.compactRecords || {},
+    { distanceBlockSize: normalizedDistanceBlockSize }
+  );
   const workoutStreamRawBytes = workoutStreamBlock.bytes;
   timings.buildWorkoutStreamBlockMs = nowMs() - stepStartedAt;
 
@@ -1855,7 +1921,7 @@ export function createWoa1FileFromCompact(parsedCompact, {
 
 export async function createWoa1FileFromCompactAsync(parsedCompact, {
   sourceName = "",
-  sampleRateSeconds = 5,
+  sampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS,
   compressWorkoutStream = null,
   compressGpsTrack = null,
   streamCodec = DEFAULT_STREAM_CODEC,
@@ -1883,29 +1949,11 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
   timings.buildReducedGpsTrackMs = nowMs() - stepStartedAt;
 
   stepStartedAt = nowMs();
-  const useDeltaPower = powerEncoding === "delta16";
-  const useDeltaPowerQ4 = powerEncoding === "delta8-q4w";
-  const normalizedDistanceEncoding = normalizeDistanceEncoding(distanceEncoding);
   const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
-  const useDistanceUint8Q02 = normalizedDistanceEncoding === DISTANCE_ENCODING_UINT8_Q05M;
-  const useAltitudeDeltaQ1m = altitudeEncoding === "delta8-q1m";
-  const useRleDeltaQ1m = altitudeEncoding === "rle-delta-q1m";
-  let workoutStreamBlock;
-  if (useDeltaPowerQ4 && useDistanceUint8Q02 && useRleDeltaQ1m) {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
-  } else if (useDeltaPowerQ4 && useDistanceUint8Q02 && useAltitudeDeltaQ1m) {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02AltitudeDeltaQ1m(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
-  } else if (useDeltaPower && useDistanceUint8Q02 && useAltitudeDeltaQ1m) {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeDeltaQ1m(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
-  } else if (useDeltaPower && useDistanceUint8Q02) {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
-  } else if (useDeltaPower) {
-    workoutStreamBlock = buildWorkoutStreamBlockFromCompactDelta16Power(parsedCompact?.compactRecords || {});
-  } else if (useDistanceUint8Q02) {
-    workoutStreamBlock = buildWorkoutStreamBlockCompactDistanceUint8Q02(parsedCompact?.compactRecords || {}, { distanceBlockSize: normalizedDistanceBlockSize });
-  } else {
-    workoutStreamBlock = buildWorkoutStreamBlockFromCompact(parsedCompact?.compactRecords || {});
-  }
+  const workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(
+    parsedCompact?.compactRecords || {},
+    { distanceBlockSize: normalizedDistanceBlockSize }
+  );
   const workoutStreamRawBytes = workoutStreamBlock.bytes;
   timings.buildWorkoutStreamBlockMs = nowMs() - stepStartedAt;
 

@@ -31,33 +31,6 @@ export default class WorkoutService {
       : Date.now();
   }
 
-  static isOpenV2Enabled() {
-    try {
-      if (window.localStorage?.getItem("workoutOpenV2") === "1") {
-        return true;
-      }
-    } catch {
-      // ignore localStorage access failures
-    }
-
-    try {
-      const params = new URLSearchParams(window.location.search || "");
-      return params.get("workoutOpenV2") === "1";
-    } catch {
-      return false;
-    }
-  }
-
-  static base64ToArrayBuffer(base64) {
-    const binary = window.atob(String(base64 || ""));
-    const length = binary.length;
-    const bytes = new Uint8Array(length);
-    for (let index = 0; index < length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
-    }
-    return bytes.buffer;
-  }
-
   // -----------------------------
   // PUBLIC API
   // -----------------------------
@@ -137,118 +110,7 @@ export default class WorkoutService {
   }
 
   static async loadWorkoutByRow(wid) {
-    if (this.isOpenV2Enabled()) {
-      try {
-        return await this.loadWorkoutByRowV2(wid);
-      } catch (error) {
-        console.warn("[workout-open] v2 fallback", {
-          workoutId: wid,
-          error: error?.message || String(error)
-        });
-      }
-    }
-
-    const profilingEnabled = this.isOpenProfilingEnabled();
-    const profile = {
-      workoutId: wid,
-      initialFetchWallMs: 0,
-      responseBodyWallMs: 0,
-      streamArrayBufferMs: 0,
-      streamDecodeMs: 0,
-      trackJsonMs: 0,
-      segmentFetchMs: 0,
-      totalMs: 0,
-      streamBytes: 0,
-      trackPoints: 0,
-      validGps: false
-    };
-    const totalStartedAt = this.nowMs();
-
-    try {
-      const fetchStartedAt = this.nowMs();
-      const openResponse = await fetch(`/workouts/${wid}/open`);
-      profile.initialFetchWallMs = this.nowMs() - fetchStartedAt;
-
-      if (openResponse.status === 401) {
-        window.location.href = '/login';
-        return;
-      }
-      if (!openResponse.ok) {
-        throw new Error(`Workout open fetch failed (${openResponse.status})`);
-      }
-
-      const bodyStartedAt = this.nowMs();
-      const payload = await openResponse.json();
-      profile.responseBodyWallMs = this.nowMs() - bodyStartedAt;
-      profile.trackJsonMs = profile.responseBodyWallMs;
-
-      const streamDecodeInputStartedAt = this.nowMs();
-      const compressedBuffer = this.base64ToArrayBuffer(payload.streamBase64);
-      profile.streamArrayBufferMs = this.nowMs() - streamDecodeInputStartedAt;
-      profile.streamBytes = compressedBuffer.byteLength;
-
-      let stepStartedAt = this.nowMs();
-      const codec = String(payload?.streamEncoding || "br").trim().toLowerCase() === "gzip"
-        ? "gzip"
-        : "brotli";
-      const rawBuffer = await Workout.decompress(compressedBuffer, codec);
-      const buffer = rawBuffer instanceof ArrayBuffer
-        ? rawBuffer
-        : rawBuffer.buffer.slice(rawBuffer.byteOffset, rawBuffer.byteOffset + rawBuffer.byteLength);
-      const workoutObject = Workout.fromBuffer(buffer);
-      profile.streamDecodeMs = this.nowMs() - stepStartedAt;
-
-      const workout = {
-        id: wid,
-        workoutObject,
-        validGps: !!(payload?.validgps ?? payload?.validGps ?? workoutObject.isValidGps()),
-        sampleRateGPS: payload?.samplerategps ?? payload?.sampleRateGPS ?? 1,
-        gpsSource: payload?.gps_source || null,
-        segmentProcessingStatus: payload?.segment_processing_status || payload?.segmentProcessingStatus || "queued",
-        segmentProcessingError: payload?.segment_processing_error || payload?.segmentProcessingError || null,
-        segmentProcessingUpdatedAt: payload?.segment_processing_updated_at || payload?.segmentProcessingUpdatedAt || null,
-        manualGpsLookupPoints: Array.isArray(payload?.manual_gps_lookup_points) ? payload.manual_gps_lookup_points : [],
-        track: this.parseGeoJsonTrack(payload?.track),
-        segments: [],
-        access: payload?.access || null
-        //...WorkoutService.parseWorkoutBuffer(buffer)
-      };
-      profile.trackPoints = Array.isArray(workout.track) ? workout.track.length : 0;
-      profile.validGps = !!workout.validGps;
-
-      //console.timeEnd("fetchOld");
-
-      stepStartedAt = this.nowMs();
-      if (Array.isArray(payload?.segments) || Array.isArray(payload?.gpsSegments)) {
-        SegmentService.applySegmentsPayload(workout, {
-          meta: payload?.segmentsMeta,
-          segments: payload?.segments,
-          gpsSegments: payload?.gpsSegments
-        });
-      } else {
-        await SegmentService.fetchSegments(workout);
-      }
-      profile.segmentFetchMs = this.nowMs() - stepStartedAt;
-      profile.totalMs = this.nowMs() - totalStartedAt;
-
-      if (profilingEnabled) {
-        console.info("[workout-open] profile", { ...profile });
-      }
-
-      return workout;
-      //}
-    }
-    catch (err) {
-      profile.totalMs = this.nowMs() - totalStartedAt;
-      if (profilingEnabled) {
-        console.info("[workout-open] profile.failed", {
-          ...profile,
-          error: err?.message || String(err)
-        });
-      }
-      console.error("Parsing failed:", err.message);
-    }
-
+    return this.loadWorkoutByRowV2(wid);
   }
 
   static async loadWorkoutByRowV2(wid) {
@@ -322,6 +184,8 @@ export default class WorkoutService {
         segmentProcessingUpdatedAt: meta?.segmentProcessingUpdatedAt || null,
         manualGpsLookupPoints: Array.isArray(meta?.manualGpsLookupPoints) ? meta.manualGpsLookupPoints : [],
         track: Array.isArray(decodedTrack?.track) ? decodedTrack.track : [],
+        trackSlots: Array.isArray(decodedTrack?.slots) ? decodedTrack.slots : [],
+        trackSegments: Array.isArray(decodedTrack?.segments) ? decodedTrack.segments : [],
         segments: [],
         access: meta?.access || null
       };
@@ -624,18 +488,6 @@ export default class WorkoutService {
     }
 
     return await response.json();
-  }
-
-  static parseGeoJsonTrack(trackGeoJson) {
-    if (!trackGeoJson || trackGeoJson.type !== "LineString") {
-      return [];
-    }
-
-    return (trackGeoJson.coordinates || []).map(([lng, lat], idx) => ({
-      lat,
-      lng,
-      idx
-    }));
   }
 
   // -----------------------------

@@ -23,6 +23,7 @@ export default class MapView {
 
     this.hoverMarker = null;
     this.currentTrackPoints = [];
+    this.currentTrackSegments = [];
     this.currentTrackSampleRate = 1;
     this.currentWorkout = null;
     this.manualGpsMode = false;
@@ -53,10 +54,59 @@ export default class MapView {
   // -----------------------------
   // SEGMENT HIGHLIGHT
   // -----------------------------
+  isValidTrackPoint(point) {
+    return Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng));
+  }
+
+  splitTrackIntoSegments(trackPoints = []) {
+    const segments = [];
+    let currentSegment = null;
+
+    for (const point of Array.isArray(trackPoints) ? trackPoints : []) {
+      if (!this.isValidTrackPoint(point)) {
+        currentSegment = null;
+        continue;
+      }
+      if (!currentSegment) {
+        currentSegment = [];
+        segments.push(currentSegment);
+      }
+      currentSegment.push(point);
+    }
+
+    return segments.filter((segment) => segment.length >= 2);
+  }
+
+  findNearestValidTrackIndex(preferredIndex) {
+    if (this.currentTrackPoints.length === 0) {
+      return -1;
+    }
+
+    const boundedIndex = Math.max(0, Math.min(this.currentTrackPoints.length - 1, preferredIndex));
+    if (this.isValidTrackPoint(this.currentTrackPoints[boundedIndex])) {
+      return boundedIndex;
+    }
+
+    for (let distance = 1; distance < this.currentTrackPoints.length; distance += 1) {
+      const leftIndex = boundedIndex - distance;
+      const rightIndex = boundedIndex + distance;
+      if (leftIndex >= 0 && this.isValidTrackPoint(this.currentTrackPoints[leftIndex])) {
+        return leftIndex;
+      }
+      if (rightIndex < this.currentTrackPoints.length && this.isValidTrackPoint(this.currentTrackPoints[rightIndex])) {
+        return rightIndex;
+      }
+    }
+
+    return -1;
+  }
+
   highlightSegment(segment) {
     const startIdx = this.mapSourceIndexToTrackIndex(segment.start, "floor");
     const endIdx = this.mapSourceIndexToTrackIndex(segment.end, "ceil");
-    const coords = this.currentTrackPoints.slice(startIdx, endIdx + 1);
+    const coords = this.currentTrackPoints
+      .slice(startIdx, endIdx + 1)
+      .filter((point) => this.isValidTrackPoint(point));
 
     if (coords.length === 0) return;
 
@@ -74,25 +124,30 @@ export default class MapView {
     this.hoverLayer.clearLayers();
     this.hoverMarker = null;
     this.currentTrackPoints = [];
+    this.currentTrackSegments = [];
     this.currentTrackSampleRate = 1;
 
     if (workout?.validGps) {
 
-      this.currentTrackPoints = workout.track ?? [];
+      this.currentTrackPoints = Array.isArray(workout.trackSlots) && workout.trackSlots.length
+        ? workout.trackSlots
+        : (workout.track ?? []);
+      this.currentTrackSegments = Array.isArray(workout.trackSegments) && workout.trackSegments.length
+        ? workout.trackSegments
+        : this.splitTrackIntoSegments(this.currentTrackPoints);
       this.currentTrackSampleRate = Math.max(1, Number(workout.sampleRateGPS) || 1);
 
-      if (this.currentTrackPoints.length === 0) {
+      if (this.currentTrackSegments.length === 0) {
         return;
       }
 
-      const latlngs = this.currentTrackPoints.map((p) => [p.lat, p.lng]);
-
-      const polyline = L.polyline(latlngs, {
-        color: "#ff4d4f",
-        pane: 'trackPane',
-        weight: 4,
-        opacity: 0.9
-      }).addTo(this.trackLayer);
+      const renderedPolylines = this.currentTrackSegments
+        .map((segment) => L.polyline(segment.map((p) => [p.lat, p.lng]), {
+          color: "#ff4d4f",
+          pane: 'trackPane',
+          weight: 4,
+          opacity: 0.9
+        }).addTo(this.trackLayer));
 
       const markAreas = this.buildMarkAreas(workout);
 
@@ -111,7 +166,13 @@ export default class MapView {
         }).addTo(this.trackLayer);
       }
 
-      this.map.fitBounds(polyline.getBounds(), { padding: [10, 10] });
+      if (renderedPolylines.length > 0) {
+        const bounds = renderedPolylines[0].getBounds();
+        for (let index = 1; index < renderedPolylines.length; index += 1) {
+          bounds.extend(renderedPolylines[index].getBounds());
+        }
+        this.map.fitBounds(bounds, { padding: [10, 10] });
+      }
     }
 
     if (!this.canEditManualGps(workout) && this.manualGpsMode) {
@@ -134,7 +195,9 @@ export default class MapView {
         .forEach(seg => {
           const startIdx = this.mapSourceIndexToTrackIndex(seg.start_offset, "floor");
           const endIdx = this.mapSourceIndexToTrackIndex(seg.end_offset, "ceil");
-          const currentTrackPoints = this.currentTrackPoints.slice(startIdx, endIdx + 1);
+          const currentTrackPoints = this.currentTrackPoints
+            .slice(startIdx, endIdx + 1)
+            .filter((point) => this.isValidTrackPoint(point));
 
           markAreas.push({
             currentTrackPoints,
@@ -165,6 +228,7 @@ export default class MapView {
 
   moveMarkerToIndex(idx) {
     const trackIdx = this.mapSourceIndexToTrackIndex(idx, "nearest");
+    if (trackIdx < 0) return;
     const p = this.currentTrackPoints[trackIdx];
     if (!p) return;
 
@@ -190,7 +254,7 @@ export default class MapView {
       mappedIdx = Math.round(idx / sampleRate);
     }
 
-    return Math.max(0, Math.min(this.currentTrackPoints.length - 1, mappedIdx));
+    return this.findNearestValidTrackIndex(mappedIdx);
   }
 
   hideMarker() {

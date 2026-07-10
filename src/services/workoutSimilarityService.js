@@ -1,5 +1,6 @@
 import SegmentMatcher from "./SegmentMatcher.js";
 import WorkoutDBService from "./workoutDBService.js";
+import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../shared/gpsSampling.js";
 
 export default class WorkoutSimilarityService {
   static MATCH_TYPE_GPS_ROUTE = "gps_route";
@@ -126,7 +127,7 @@ export default class WorkoutSimilarityService {
     };
   }
 
-  static buildControlPoints(track = [], sampleRateSeconds = 5) {
+  static buildControlPoints(track = [], sampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS) {
     if (!Array.isArray(track) || track.length < 2) {
       return [];
     }
@@ -148,7 +149,7 @@ export default class WorkoutSimilarityService {
     )];
   }
 
-  static buildControlPointIndices(trackLength = 0, sampleRateSeconds = 5) {
+  static buildControlPointIndices(trackLength = 0, sampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS) {
     if (!Number.isFinite(trackLength) || trackLength < 2) {
       return [];
     }
@@ -170,7 +171,7 @@ export default class WorkoutSimilarityService {
     )];
   }
 
-  static buildProjectedControlPoints(projectedTrack, sampleRateSeconds = 5) {
+  static buildProjectedControlPoints(projectedTrack, sampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS) {
     if (!projectedTrack?.xs || projectedTrack.xs.length < 2) {
       return { xs: new Float64Array(0), ys: new Float64Array(0) };
     }
@@ -342,8 +343,8 @@ export default class WorkoutSimilarityService {
 
   static passesCheapPrecheck(sourceTrack, candidateTrack, options = {}) {
     const {
-      sourceSampleRateSeconds = 5,
-      candidateSampleRateSeconds = 5,
+      sourceSampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS,
+      candidateSampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS,
       cheapPrecheckDistanceMeters = 40,
       cheapPrecheckMinRatio = 0.6
     } = options;
@@ -362,8 +363,8 @@ export default class WorkoutSimilarityService {
 
   static passesCheapPrecheckProjected(sourceProjectedTrack, candidateProjectedTrack, options = {}) {
     const {
-      sourceSampleRateSeconds = 5,
-      candidateSampleRateSeconds = 5,
+      sourceSampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS,
+      candidateSampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS,
       cheapPrecheckDistanceMeters = 40,
       cheapPrecheckMinRatio = 0.6
     } = options;
@@ -509,7 +510,10 @@ export default class WorkoutSimilarityService {
     let comparedCandidates = 0;
     let precheckRejectedCandidates = 0;
     let matchedCandidates = 0;
-    const sourceSampleRateSeconds = Number(sourceTrackRow?.samplerategps ?? sourceTrackRow?.sampleRateGPS ?? 5) || 5;
+    const sourceSampleRateSeconds = normalizeGpsSampleRateSeconds(
+      sourceTrackRow?.samplerategps ?? sourceTrackRow?.sampleRateGPS,
+      DEFAULT_GPS_SAMPLE_RATE_SECONDS
+    );
 
     for (const candidate of candidates) {
       comparedCandidates += 1;
@@ -526,7 +530,10 @@ export default class WorkoutSimilarityService {
       const projectedCandidateTrack = this.buildProjectedTrack(candidateTrack, projectionContext);
       const cheapPrecheck = this.passesCheapPrecheckProjected(projectedSourceTrack, projectedCandidateTrack, {
         sourceSampleRateSeconds,
-        candidateSampleRateSeconds: Number(candidate?.samplerategps ?? candidate?.sampleRateGPS ?? 5) || 5,
+        candidateSampleRateSeconds: normalizeGpsSampleRateSeconds(
+          candidate?.samplerategps ?? candidate?.sampleRateGPS,
+          DEFAULT_GPS_SAMPLE_RATE_SECONDS
+        ),
         cheapPrecheckDistanceMeters,
         cheapPrecheckMinRatio
       });

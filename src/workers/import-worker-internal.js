@@ -2555,14 +2555,17 @@ export async function createApp(options = {}) {
 
       logPostProcessEvent("segment-best-efforts.failed", {
         queueJobId: job?.id,
+        queueJobName: job?.name ?? null,
         uid: job?.data?.uid,
         workoutId: job?.data?.workoutId ?? null,
-        segmentIds: job?.data?.segmentIds ?? null,
+        segmentIds: Array.isArray(job?.data?.segmentIds) ? job.data.segmentIds : null,
         error: error.message
       });
       console.error("[postprocess] segment-best-efforts.queue-job.failed", {
         queueJobId: job?.id,
-        segmentIds: job?.data?.segmentIds,
+        queueJobName: job?.name,
+        workoutId: job?.data?.workoutId ?? null,
+        segmentIds: Array.isArray(job?.data?.segmentIds) ? job.data.segmentIds : null,
         error: error.message
       });
     });

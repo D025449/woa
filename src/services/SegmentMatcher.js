@@ -1,4 +1,30 @@
 export default class SegmentMatcher {
+    static getPointProgress(point, fallbackIndex = 0) {
+        if (Number.isFinite(Number(point?.sampleOffset))) {
+            return Number(point.sampleOffset);
+        }
+        if (Number.isFinite(Number(point?.slotIndex))) {
+            return Number(point.slotIndex);
+        }
+        return fallbackIndex;
+    }
+
+    static normalizeWorkoutSegments(workout = {}) {
+        const rawSegments = Array.isArray(workout?.segments) && workout.segments.length
+            ? workout.segments
+            : (Array.isArray(workout?.track) && workout.track.length ? [workout.track] : []);
+
+        return rawSegments
+            .map((segment) => (Array.isArray(segment) ? segment : [])
+                .map((point, index) => ({
+                    lat: Number(point?.lat),
+                    lng: Number(point?.lng),
+                    slotIndex: Number.isFinite(Number(point?.slotIndex)) ? Number(point.slotIndex) : index,
+                    sampleOffset: Number.isFinite(Number(point?.sampleOffset)) ? Number(point.sampleOffset) : null
+                }))
+                .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)))
+            .filter((segment) => segment.length >= 2);
+    }
 
     // -----------------------------
     // Haversine Distance
@@ -64,6 +90,17 @@ export default class SegmentMatcher {
         return min;
     }
 
+    static pointToPolylineDistanceAcrossSegments(point, segments) {
+        let min = Infinity;
+
+        for (const segment of segments) {
+            const distance = this.pointToPolylineDistance(point, segment);
+            if (distance < min) min = distance;
+        }
+
+        return min;
+    }
+
     // -----------------------------
     // Find nearest indices
     // -----------------------------
@@ -81,47 +118,53 @@ export default class SegmentMatcher {
 
 
     // new:
-    static findProjectionCandidates(wid, sid, pos, point, polyline, maxDist, startScanIndex = 0, maxHitCount = 100) {
+    static findProjectionCandidates(wid, sid, pos, point, segments, maxDist, startProgress = 0, maxHitCount = 100) {
         const results = [];
 
         let min = Infinity;
 
-        for (let i = startScanIndex; i < polyline.length - 1; i++) {
+        for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+            const polyline = segments[segmentIndex];
+            for (let i = 0; i < polyline.length - 1; i++) {
+                const a = polyline[i];
+                const b = polyline[i + 1];
+                const aProgress = this.getPointProgress(a, i);
+                const bProgress = this.getPointProgress(b, i + 1);
 
-            const a = polyline[i];
-            const b = polyline[i + 1];
+                if (bProgress < startProgress) continue;
 
-            const dx = b.lng - a.lng;
-            const dy = b.lat - a.lat;
+                const dx = b.lng - a.lng;
+                const dy = b.lat - a.lat;
 
-            if (dx === 0 && dy === 0) continue;
+                if (dx === 0 && dy === 0) continue;
 
-            const t =
-                ((point.lng - a.lng) * dx + (point.lat - a.lat) * dy) /
-                (dx * dx + dy * dy);
+                const t =
+                    ((point.lng - a.lng) * dx + (point.lat - a.lat) * dy) /
+                    (dx * dx + dy * dy);
 
-            // 👉 WICHTIG: nur echte Projektionen im Segment
-            if (t < 0 || t > 1) continue;
+                if (t < 0 || t > 1) continue;
 
-            const proj = {
-                lng: a.lng + t * dx,
-                lat: a.lat + t * dy
-            };
+                const proj = {
+                    lng: a.lng + t * dx,
+                    lat: a.lat + t * dy
+                };
 
-            const dist = this.distance(point, proj);
-            min = Math.min(min, dist);
-            if (dist < maxDist) {
-                results.push({
-                    index: i,
-                    t,
-                    dist
-                });
-                if (results.length >= maxHitCount) {
-                    return results
+                const dist = this.distance(point, proj);
+                min = Math.min(min, dist);
+                if (dist < maxDist) {
+                    results.push({
+                        segmentIndex,
+                        index: i,
+                        t,
+                        dist,
+                        progress: aProgress + ((bProgress - aProgress) * t)
+                    });
+                    if (results.length >= maxHitCount) {
+                        return results
+                    }
                 }
             }
         }
-        //console.log(`Skipped Wid ${wid} Sid ${sid} pos ${pos} startscanpos ${startScanIndex} at min dist ${min} ` );
         return results;
     }
 
@@ -193,7 +236,17 @@ export default class SegmentMatcher {
     // -----------------------------
     // 🔥 VALIDATION (Polyline!)
     // -----------------------------
-    static validateSegment(workout, segment, startIdx, endIdx, maxDist) {
+    static validateSegment(workoutSegments, segment, startCandidate, endCandidate, maxDist) {
+        if (!Array.isArray(workoutSegments) || !workoutSegments.length) {
+            return false;
+        }
+        if (startCandidate?.segmentIndex !== endCandidate?.segmentIndex) {
+            return false;
+        }
+
+        const workout = workoutSegments[startCandidate.segmentIndex];
+        const startIdx = startCandidate.index;
+        const endIdx = endCandidate.index;
 
         const checkPoints = [
             segment[Math.floor(segment.length * 0.25)],
@@ -230,6 +283,10 @@ export default class SegmentMatcher {
     static findMatches(workout, segmentObj, options = {}) {
 
         const downsamplingFactor = workout.sampleRate ?? 1;
+        const workoutSegments = this.normalizeWorkoutSegments(workout);
+        if (!workoutSegments.length) {
+            return [];
+        }
         
         const segment = segmentObj.track;
         const segmentId = segmentObj.id;
@@ -237,9 +294,8 @@ export default class SegmentMatcher {
         const MAX_DIST = options.maxDist ?? 20;
 
         const matches = [];
-        //let lastEnd = -1;
         let lastEndCandidate = {
-            index: -1,
+            progress: -1,
             t: 0,
             dist: 0
         };
@@ -248,73 +304,42 @@ export default class SegmentMatcher {
         const endPoint = segment[segment.length - 1];
 
         //const startCandidates = this.findNearbyIndices(workout, startPoint, MAX_DIST);
-        const startCandidatesV2 = this.findProjectionCandidates(workout.wid,segmentId, 'start', startPoint, workout.track, MAX_DIST, 0, 100);
+        const startCandidatesV2 = this.findProjectionCandidates(workout.wid,segmentId, 'start', startPoint, workoutSegments, MAX_DIST, 0, 100);
 
 
         for (const startCandidate of startCandidatesV2) {
-            if (startCandidate.index <= lastEndCandidate.index) continue;
-            const endCandidates = this.findProjectionCandidates(workout.wid,segmentId, 'end', endPoint, workout.track, MAX_DIST, startCandidate.index + 1, 1);
+            if (startCandidate.progress <= lastEndCandidate.progress) continue;
+            const endCandidates = this.findProjectionCandidates(
+                workout.wid,
+                segmentId,
+                'end',
+                endPoint,
+                workoutSegments,
+                MAX_DIST,
+                startCandidate.progress,
+                1
+            );
             if (endCandidates.length < 1) {
                 continue;
             }
             const endCandidate = endCandidates[0];
-            if (this.validateSegment(workout.track, segment, startCandidate.index, endCandidate.index, MAX_DIST)) {
+            if (this.validateSegment(workoutSegments, segment, startCandidate, endCandidate, MAX_DIST)) {
+                const startOffset = Math.floor(startCandidate.progress * downsamplingFactor);
+                const endOffset = Math.ceil(endCandidate.progress * downsamplingFactor);
+
+                if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) {
+                    continue;
+                }
+
                 matches.push({
                     workout_id: workout.wid,
                     segment_id: segmentId,
-                    start_offset: Math.round((startCandidate.index + startCandidate.t) * downsamplingFactor),
-                    end_offset: Math.round((endCandidate.index + endCandidate.t) * downsamplingFactor),
+                    start_offset: startOffset,
+                    end_offset: endOffset,
                 });
                 lastEndCandidate = endCandidate;
             }
-
-            /*for (let i = startCandidate.index + 1; i < workout.length; i++) {
-
-
-                if (this.distance(workout[i], endPoint) < MAX_DIST) {
-
-                    const endIdx = i;
-
-                    if (this.validateSegment(workout, segment, startIdx, endIdx, MAX_DIST)) {
-
-                        matches.push({
-                            segment_id: segmentId,
-                            start_offset: startIdx,
-                            end_offset: endIdx
-                        });
-
-                        lastEnd = endIdx;
-                        break;
-                    }
-                }
-            }*/
         }
-
-
-        /*for (const startIdx of startCandidates) {
-
-            if (startIdx <= lastEnd) continue;
-
-            for (let i = startIdx + 1; i < workout.length; i++) {
-
-                if (this.distance(workout[i], endPoint) < MAX_DIST) {
-
-                    const endIdx = i;
-
-                    if (this.validateSegment(workout, segment, startIdx, endIdx, MAX_DIST)) {
-
-                        matches.push({
-                            segment_id: segmentId,
-                            start_offset: startIdx,
-                            end_offset: endIdx
-                        });
-
-                        lastEnd = endIdx;
-                        break;
-                    }
-                }
-            }
-        }*/
 
         return matches;
     }

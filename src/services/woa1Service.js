@@ -457,23 +457,17 @@ function decodeGpsCoordinatePayload(bytes, pointCount, layoutVersion = 1) {
 function decodeWorkoutStreamBlock(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
-  if (magic !== "WST2" && magic !== "WST3" && magic !== "WST4" && magic !== "WST5" && magic !== "WST6" && magic !== "WST7" && magic !== "WST8" && magic !== "WST9") {
+  if (magic !== "WST9") {
     throw new Error(`Unsupported workout stream block: ${magic}`);
   }
-  const isWst3 = magic === "WST3";
-  const isWst4 = magic === "WST4" || magic === "WST6" || magic === "WST7" || magic === "WST8" || magic === "WST9";
-  const isWst7 = magic === "WST7" || magic === "WST8" || magic === "WST9";
-  const isWst8 = magic === "WST8";
-  const isWst9 = magic === "WST9";
-  const usesInt8PowerDelta = isWst8 || isWst9;
-  const compactHeader = isWst3 || isWst4 || magic === "WST5";
+  const usesInt8PowerDelta = true;
 
   const recordCount = view.getUint32(4, true);
   const baseTimestampMs = view.getFloat64(8, true);
   const sampleIntervalMs = view.getUint32(16, true);
   const lengths = [];
   let headerOffset = 20;
-  for (let i = 0; i < (compactHeader ? 6 : 8); i += 1) {
+  for (let i = 0; i < 6; i += 1) {
     lengths.push(view.getUint32(headerOffset, true));
     headerOffset += 4;
   }
@@ -485,62 +479,39 @@ function decodeWorkoutStreamBlock(bytes) {
   const distancesM = decodeDistancePayload(distancePayload, recordCount);
 
   const powersW = new Float64Array(recordCount);
-  if (isWst4) {
-    const powerBlockEnd = offset + lengths[1];
-    let deltaOffset = offset;
-    let absoluteOffset = offset + 2 + Math.max(0, recordCount - 1) * (usesInt8PowerDelta ? 1 : 2);
-    if (recordCount > 0) {
-      const firstRaw = view.getUint16(deltaOffset, true);
-      powersW[0] = firstRaw === UINT16_NAN ? Number.NaN : firstRaw;
-      deltaOffset += 2;
-    }
-    let prev = powersW[0];
-    for (let i = 1; i < recordCount; i += 1) {
-      const delta = usesInt8PowerDelta ? view.getInt8(deltaOffset) : view.getInt16(deltaOffset, true);
-      deltaOffset += usesInt8PowerDelta ? 1 : 2;
-      if ((usesInt8PowerDelta && delta === 127) || (!usesInt8PowerDelta && delta === INT16_NAN)) {
-        if (absoluteOffset + 2 > powerBlockEnd) {
-          throw new Error(`Corrupt ${usesInt8PowerDelta ? magic : "WST4"} power block: missing absolute fallback value`);
-        }
-        const absoluteRaw = view.getUint16(absoluteOffset, true);
-        absoluteOffset += 2;
-        powersW[i] = absoluteRaw === UINT16_NAN ? Number.NaN : absoluteRaw;
-      } else if (Number.isFinite(prev)) {
-        powersW[i] = prev + (usesInt8PowerDelta ? delta * 4 : delta);
-      } else {
-        powersW[i] = Number.NaN;
+  const powerBlockEnd = offset + lengths[1];
+  let deltaOffset = offset;
+  let absoluteOffset = offset + 2 + Math.max(0, recordCount - 1);
+  if (recordCount > 0) {
+    const firstRaw = view.getUint16(deltaOffset, true);
+    powersW[0] = firstRaw === UINT16_NAN ? Number.NaN : firstRaw;
+    deltaOffset += 2;
+  }
+  let prev = powersW[0];
+  for (let i = 1; i < recordCount; i += 1) {
+    const delta = view.getInt8(deltaOffset);
+    deltaOffset += 1;
+    if (delta === 127) {
+      if (absoluteOffset + 2 > powerBlockEnd) {
+        throw new Error(`Corrupt ${magic} power block: missing absolute fallback value`);
       }
-      prev = powersW[i];
+      const absoluteRaw = view.getUint16(absoluteOffset, true);
+      absoluteOffset += 2;
+      powersW[i] = absoluteRaw === UINT16_NAN ? Number.NaN : absoluteRaw;
+    } else if (Number.isFinite(prev)) {
+      powersW[i] = prev + (delta * 4);
+    } else {
+      powersW[i] = Number.NaN;
     }
-  } else {
-    for (let i = 0; i < recordCount; i += 1) {
-      const raw = view.getUint16(offset + (i * 2), true);
-      powersW[i] = raw === UINT16_NAN ? Number.NaN : raw;
-    }
+    prev = powersW[i];
   }
   offset += lengths[1];
 
   const heartRatesBpm = new Float64Array(recordCount);
-  if (isWst9) {
-    offset = decodeUint8RunLengthDeltaBlock(view, offset, lengths[2], recordCount, heartRatesBpm);
-  } else {
-    for (let i = 0; i < recordCount; i += 1) {
-      const raw = view.getUint8(offset + i);
-      heartRatesBpm[i] = raw === UINT8_NAN ? Number.NaN : raw;
-    }
-    offset += lengths[2];
-  }
+  offset = decodeUint8RunLengthDeltaBlock(view, offset, lengths[2], recordCount, heartRatesBpm);
 
   const cadencesRpm = new Float64Array(recordCount);
-  if (isWst9) {
-    offset = decodeUint8RunLengthDeltaBlock(view, offset, lengths[3], recordCount, cadencesRpm);
-  } else {
-    for (let i = 0; i < recordCount; i += 1) {
-      const raw = view.getUint8(offset + i);
-      cadencesRpm[i] = raw === UINT8_NAN ? Number.NaN : raw;
-    }
-    offset += lengths[3];
-  }
+  offset = decodeUint8RunLengthDeltaBlock(view, offset, lengths[3], recordCount, cadencesRpm);
 
   const hasSpeeds = lengths[4] > 0;
   const speedsMps = new Float64Array(recordCount);
@@ -553,61 +524,7 @@ function decodeWorkoutStreamBlock(bytes) {
   offset += lengths[4];
 
   const altitudesM = new Float64Array(recordCount);
-  if (isWst9) {
-    offset = decodeInt16RunLengthDeltaBlock(view, offset, lengths[5], recordCount, altitudesM);
-  } else if (isWst7) {
-    const altitudeBlockEnd = offset + lengths[5];
-    let deltaOffset = offset;
-    let absoluteOffset = offset + 2 + Math.max(0, recordCount - 1);
-    if (recordCount > 0) {
-      const firstRaw = view.getInt16(deltaOffset, true);
-      altitudesM[0] = firstRaw === INT16_NAN ? Number.NaN : firstRaw;
-      deltaOffset += 2;
-    }
-    let prev = altitudesM[0];
-    for (let i = 1; i < recordCount; i += 1) {
-      const token = view.getInt8(deltaOffset);
-      deltaOffset += 1;
-      if (token === 127) {
-        if (absoluteOffset + 2 > altitudeBlockEnd) {
-          throw new Error("Corrupt WST7 altitude block: missing absolute fallback value");
-        }
-        const absoluteRaw = view.getInt16(absoluteOffset, true);
-        absoluteOffset += 2;
-        altitudesM[i] = absoluteRaw === INT16_NAN ? Number.NaN : absoluteRaw;
-      } else if (Number.isFinite(prev)) {
-        altitudesM[i] = prev + token;
-      } else {
-        altitudesM[i] = Number.NaN;
-      }
-      prev = altitudesM[i];
-    }
-  } else {
-    for (let i = 0; i < recordCount; i += 1) {
-      const raw = view.getInt16(offset + (i * 2), true);
-      altitudesM[i] = raw === INT16_NAN ? Number.NaN : raw / ALTITUDE_SCALE;
-    }
-  }
-  if (!isWst9) {
-    offset += lengths[5];
-  }
-
-  let positionLatsDeg = null;
-  let positionLongsDeg = null;
-  if (!isWst3) {
-    positionLatsDeg = new Float64Array(recordCount);
-    for (let i = 0; i < recordCount; i += 1) {
-      const raw = view.getInt32(offset + (i * 4), true);
-      positionLatsDeg[i] = raw === INT32_NAN ? Number.NaN : raw / MICRO_DEGREES;
-    }
-    offset += lengths[6];
-
-    positionLongsDeg = new Float64Array(recordCount);
-    for (let i = 0; i < recordCount; i += 1) {
-      const raw = view.getInt32(offset + (i * 4), true);
-      positionLongsDeg[i] = raw === INT32_NAN ? Number.NaN : raw / MICRO_DEGREES;
-    }
-  }
+  offset = decodeInt16RunLengthDeltaBlock(view, offset, lengths[5], recordCount, altitudesM);
 
   const timestampsMs = new Float64Array(recordCount);
   for (let i = 0; i < recordCount; i += 1) {
@@ -633,9 +550,7 @@ function decodeWorkoutStreamBlock(bytes) {
     heartRatesBpm,
     cadencesRpm,
     speedsMps,
-    altitudesM,
-    positionLatsDeg,
-    positionLongsDeg
+    altitudesM
   };
 }
 
@@ -652,7 +567,10 @@ function decodeGpsTrackBlock(bytes) {
   const firstTimestampMs = view.getFloat64(12, true);
   const payload = bytes.subarray(20);
   const { latitudes, longitudes } = decodeGpsCoordinatePayload(payload, pointCount, layoutVersion);
+  const slots = [];
   const track = [];
+  const segments = [];
+  let currentSegment = null;
 
   let minLat = Infinity;
   let maxLat = -Infinity;
@@ -662,10 +580,36 @@ function decodeGpsTrackBlock(bytes) {
   for (let i = 0; i < pointCount; i += 1) {
     const lat = latitudes[i];
     const lng = longitudes[i];
+    const timestampMs = Number.isFinite(firstTimestampMs)
+      ? firstTimestampMs + (i * Math.max(1, Number(sampleRateSeconds) || 1) * 1000)
+      : 0;
+
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      slots.push({
+        lat: Number.NaN,
+        lng: Number.NaN,
+        valid: false,
+        slotIndex: i,
+        timestampMs
+      });
+      currentSegment = null;
       continue;
     }
+
+    const slot = {
+      lat,
+      lng,
+      valid: true,
+      slotIndex: i,
+      timestampMs
+    };
+    slots.push(slot);
     track.push([lat, lng]);
+    if (!currentSegment) {
+      currentSegment = [];
+      segments.push(currentSegment);
+    }
+    currentSegment.push([lat, lng]);
     if (lat < minLat) minLat = lat;
     if (lat > maxLat) maxLat = lat;
     if (lng < minLng) minLng = lng;
@@ -674,10 +618,13 @@ function decodeGpsTrackBlock(bytes) {
 
   return {
     validGps: track.length > 1,
+    slotCount: slots.length,
     pointCount: track.length,
     sampleRate: sampleRateSeconds,
     bbox: track.length > 0 ? { minLat, maxLat, minLng, maxLng } : null,
     firstTimestampMs,
+    slots,
+    segments,
     track
   };
 }

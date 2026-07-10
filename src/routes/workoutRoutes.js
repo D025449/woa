@@ -7,6 +7,7 @@ import { FileDBService } from "../services/fileDBService.js";
 import WorkoutDBService from "../services/workoutDBService.js";
 import CollaborationDBService from "../services/collaborationDBService.js";
 import WorkoutSharingService from "../services/workoutSharingService.js";
+import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../shared/gpsSampling.js";
 import SegmentDBService from "../services/segmentDBService.js";
 import { enqueueSegmentBestEfforts } from "../services/segment-best-efforts-service.js";
 import FitExportService from "../services/fitExportService.js";
@@ -216,93 +217,6 @@ router.put("/:id/sharing", authMiddleware, requireActiveAccountWrite, async (req
   } catch (err) {
     console.error("PUT /workouts/:id/sharing failed:", err);
     return res.status(err.statusCode || 500).json({ error: err.message || "Failed to update workout sharing" });
-  }
-});
-
-router.get("/:id/open", authMiddleware, async (req, res) => {
-  try {
-    const startedAt = Date.now();
-    const id = req.params.id;
-    const uid = req.user.id;
-
-    if (!id) {
-      return res.status(400).json({ error: "Missing workout id" });
-    }
-
-    const accessStartedAt = Date.now();
-    const accessInfo = await WorkoutSharingService.getAccessibleWorkout(uid, id);
-    const accessMs = Date.now() - accessStartedAt;
-
-    const payloadStartedAt = Date.now();
-    const openPayload = await WorkoutDBService.getOpenPayload(id, uid);
-    const payloadMs = Date.now() - payloadStartedAt;
-    const row = openPayload?.row || null;
-    const dbProfile = openPayload?.profile || {};
-    const segmentsStartedAt = Date.now();
-    const [segmentResult, gpsSegmentResult] = await Promise.all([
-      FileDBService.getSegmentsByWorkout(uid, id),
-      SegmentDBService.getGPSSegmentByWorkout(uid, id)
-    ]);
-    const segmentsMs = Date.now() - segmentsStartedAt;
-
-    const streamBuffer = Buffer.isBuffer(row.stream)
-      ? row.stream
-      : Buffer.from(row.stream || []);
-    const responseBuildStartedAt = Date.now();
-    const responsePayload = {
-      workoutId: Number(id),
-      streamBase64: streamBuffer.toString("base64"),
-      streamEncoding: String(row.stream_codec || "brotli") === "gzip" ? "gzip" : "br",
-      validgps: row.validgps,
-      samplerategps: row.samplerategps,
-      gps_source: row.gps_source,
-      manual_gps_lookup_points: Array.isArray(row.manual_gps_lookup_points) ? row.manual_gps_lookup_points : [],
-      track: row.track,
-      segments: Array.isArray(segmentResult?.rows) ? segmentResult.rows : [],
-      gpsSegments: Array.isArray(gpsSegmentResult?.rows) ? gpsSegmentResult.rows : [],
-      segmentsMeta: segmentResult?.status || {
-        workoutId: Number(id),
-        segmentProcessingStatus: row.segment_processing_status || "queued",
-        segmentProcessingError: row.segment_processing_error || null,
-        segmentProcessingUpdatedAt: row.segment_processing_updated_at || null
-      },
-      segment_processing_status: row.segment_processing_status || "queued",
-      segment_processing_error: row.segment_processing_error || null,
-      segment_processing_updated_at: row.segment_processing_updated_at || null,
-      access: {
-        isOwner: !!accessInfo.is_owner,
-        ownerDisplayName: accessInfo.owner_display_name || null,
-        ownerEmail: accessInfo.owner_email || null
-      }
-    };
-    const responseBuildMs = Date.now() - responseBuildStartedAt;
-
-    if (WORKOUT_OPEN_PROFILE_LOG) {
-      const trackPoints = Array.isArray(row?.track?.coordinates) ? row.track.coordinates.length : 0;
-      console.info("[workout-open] open.profile", {
-        workoutId: id,
-        uid,
-        accessMs,
-        payloadMs,
-        segmentsMs,
-        queryMs: Number(dbProfile.queryMs || 0),
-        hydrateTrackMs: Number(dbProfile.hydrateTrackMs || 0),
-        responseBuildMs,
-        streamCodec: String(row.stream_codec || "brotli"),
-        streamBytes: Number(row.stream_size || streamBuffer.byteLength || 0),
-        validGps: !!(row?.validgps ?? row?.validGps),
-        sampleRateGps: Number(row?.samplerategps ?? row?.sampleRateGPS ?? 0) || null,
-        trackPoints,
-        segmentCount: Array.isArray(segmentResult?.rows) ? segmentResult.rows.length : 0,
-        gpsSegmentCount: Array.isArray(gpsSegmentResult?.rows) ? gpsSegmentResult.rows.length : 0,
-        totalMs: Date.now() - startedAt
-      });
-    }
-
-    return res.json(responsePayload);
-  } catch (err) {
-    console.error("Workout open payload load error:", err);
-    return res.status(err.statusCode || 500).json({ error: err.message || "Internal server error" });
   }
 });
 
@@ -526,10 +440,16 @@ router.post("/:id/manual-gps", authMiddleware, requireActiveAccountWrite, async 
       });
     }
 
+    const manualGpsSampleRateSeconds = normalizeGpsSampleRateSeconds(
+      req.body?.sampleRateSeconds,
+      context.samplerategps ?? context.sampleRateGPS ?? DEFAULT_GPS_SAMPLE_RATE_SECONDS
+    );
+
     const manualGpsTrack = WorkoutDBService.buildManualGpsTrackFromLookup(
       context.workoutObject,
       routeLookup.track,
-      workoutDistanceMeters
+      workoutDistanceMeters,
+      manualGpsSampleRateSeconds
     );
     const altitudeEnrichedTrack = await WorkoutDBService.enrichManualGpsTrackAltitude(manualGpsTrack);
     const streamUpdate = WorkoutDBService.buildWorkoutStreamFromManualGps(
@@ -557,7 +477,7 @@ router.post("/:id/manual-gps", authMiddleware, requireActiveAccountWrite, async 
       ok: true,
       workoutId,
       gpsSource: updatedTrackRow.gps_source,
-      sampleRateGPS: updatedTrackRow.samplerategps ?? updatedTrackRow.sampleRateGPS ?? 5,
+      sampleRateGPS: updatedTrackRow.samplerategps ?? updatedTrackRow.sampleRateGPS ?? manualGpsSampleRateSeconds,
       pointsCount: Array.isArray(updatedTrackRow?.track?.coordinates) ? updatedTrackRow.track.coordinates.length : 0,
       distanceDeltaRatio,
       totalAscent: updatedTrackRow.total_ascent ?? null,
@@ -616,13 +536,23 @@ router.post("/:id/gps-copy-from", authMiddleware, requireActiveAccountWrite, asy
       return res.status(422).json({ error: "Workout has no usable distance data for GPS copy." });
     }
 
+    const targetGpsSampleRateSeconds = normalizeGpsSampleRateSeconds(
+      req.body?.sampleRateSeconds,
+      targetContext.samplerategps
+        ?? targetContext.sampleRateGPS
+        ?? sourceContext.samplerategps
+        ?? sourceContext.sampleRateGPS
+        ?? DEFAULT_GPS_SAMPLE_RATE_SECONDS
+    );
+
     const copiedGpsTrack = WorkoutDBService.buildGpsTrackFromSourceWorkout(
       targetContext.workoutObject,
       targetWorkoutDistanceMeters,
       sourceContext.workoutObject,
       sourceContext.trackPoints,
-      sourceContext.samplerategps,
-      sourceContext.total_distance
+      sourceContext.samplerategps ?? sourceContext.sampleRateGPS,
+      sourceContext.total_distance,
+      targetGpsSampleRateSeconds
     );
 
     const streamUpdate = WorkoutDBService.buildWorkoutStreamFromManualGps(
@@ -652,7 +582,7 @@ router.post("/:id/gps-copy-from", authMiddleware, requireActiveAccountWrite, asy
       workoutId: targetWorkoutId,
       sourceWorkoutId,
       gpsSource: updatedTrackRow.gps_source,
-      sampleRateGPS: updatedTrackRow.samplerategps ?? updatedTrackRow.sampleRateGPS ?? 5,
+      sampleRateGPS: updatedTrackRow.samplerategps ?? updatedTrackRow.sampleRateGPS ?? targetGpsSampleRateSeconds,
       pointsCount: Array.isArray(updatedTrackRow?.track?.coordinates) ? updatedTrackRow.track.coordinates.length : 0,
       totalAscent: updatedTrackRow.total_ascent ?? null,
       totalDescent: updatedTrackRow.total_descent ?? null,

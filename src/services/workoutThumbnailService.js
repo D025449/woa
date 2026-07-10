@@ -162,13 +162,31 @@ function buildSvgShell({ title, bodyMarkup, accent = "#2563eb", showAccentBar = 
 </svg>`;
 }
 
-function buildRouteThumbnail(track = []) {
-  const numericTrack = (Array.isArray(track) ? track : [])
+function normalizeRouteSegments(gpsTrackSegments = null, gpsTrack = null) {
+  if (Array.isArray(gpsTrackSegments) && gpsTrackSegments.length) {
+    return gpsTrackSegments
+      .map((segment) => (Array.isArray(segment) ? segment : [])
+        .map(([lat, lng]) => ({
+          lat: Number(lat),
+          lng: Number(lng)
+        }))
+        .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)))
+      .filter((segment) => segment.length >= 2);
+  }
+
+  const fallback = (Array.isArray(gpsTrack) ? gpsTrack : [])
     .map(([lat, lng]) => ({
       lat: Number(lat),
       lng: Number(lng)
     }))
     .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+
+  return fallback.length >= 2 ? [fallback] : [];
+}
+
+function buildRouteThumbnail(gpsTrackSegments = null, gpsTrack = null) {
+  const normalizedSegments = normalizeRouteSegments(gpsTrackSegments, gpsTrack);
+  const numericTrack = normalizedSegments.flat();
 
   if (numericTrack.length < 2) {
     return null;
@@ -190,15 +208,24 @@ function buildRouteThumbnail(track = []) {
     return null;
   }
 
-  const pathData = createPathFromPoints(points);
   const bounds = getPointBounds(points);
   const start = points[0];
   const end = points[points.length - 1];
   const startProjected = projectPoint(start, bounds);
   const endProjected = projectPoint(end, bounds);
+  const pathMarkup = normalizedSegments
+    .map((segment) => segment
+      .map((point) => ({
+        x: point.lng * longitudeScale,
+        y: point.lat
+      }))
+      .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y)))
+    .filter((segment) => segment.length >= 2)
+    .map((segment) => `<path d="${createPathFromPoints(segment)}" fill="none" stroke="#dc2626" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`)
+    .join("");
   const bodyMarkup = `
     <rect x="12" y="12" width="${SVG_WIDTH - 24}" height="${SVG_HEIGHT - 24}" rx="16" fill="#dcfce7"/>
-    <path d="${pathData}" fill="none" stroke="#dc2626" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    ${pathMarkup}
     <circle cx="${startProjected.x.toFixed(2)}" cy="${startProjected.y.toFixed(2)}" r="5" fill="#ffffff" stroke="#16a34a" stroke-width="2"/>
     <circle cx="${endProjected.x.toFixed(2)}" cy="${endProjected.y.toFixed(2)}" r="5.5" fill="#dc2626" stroke="#ffffff" stroke-width="2"/>
   `;
@@ -304,9 +331,9 @@ export default class WorkoutThumbnailService {
     };
   }
 
-  static createThumbnailPayload({ gpsTrack = null, workoutObject = null, altitudes = null, powers = null } = {}) {
-    if (Array.isArray(gpsTrack) && gpsTrack.length >= 2) {
-      const routeThumb = buildRouteThumbnail(gpsTrack);
+  static createThumbnailPayload({ gpsTrack = null, gpsTrackSegments = null, workoutObject = null, altitudes = null, powers = null } = {}) {
+    if ((Array.isArray(gpsTrackSegments) && gpsTrackSegments.length) || (Array.isArray(gpsTrack) && gpsTrack.length >= 2)) {
+      const routeThumb = buildRouteThumbnail(gpsTrackSegments, gpsTrack);
       if (routeThumb) {
         return routeThumb;
       }
@@ -449,8 +476,12 @@ export default class WorkoutThumbnailService {
       const workoutObject = row?.stream ? await Workout.fromCompressedWithCodec(row.stream, row?.stream_codec || "brotli") : null;
       const decodedTrack = await GpsTrackBlobService.decodeRowTrack(row);
       const gpsTrack = decodedTrack.points.map((point) => [point.lat, point.lng]);
+      const gpsTrackSegments = Array.isArray(decodedTrack.segments)
+        ? decodedTrack.segments.map((segment) => segment.map((point) => [point.lat, point.lng]))
+        : [];
       const payload = WorkoutThumbnailService.createThumbnailPayload({
         gpsTrack,
+        gpsTrackSegments,
         workoutObject
       });
 
