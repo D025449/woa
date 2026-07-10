@@ -163,6 +163,97 @@ function compactTimestampMsFromSec(timestampSec) {
     : Number.NaN;
 }
 
+const INITIAL_RECORD_BUFFER_CAPACITY = 7200;
+
+function createCompactRecordBuffer(initialCapacity = INITIAL_RECORD_BUFFER_CAPACITY) {
+  const capacity = Math.max(1, Number(initialCapacity) || INITIAL_RECORD_BUFFER_CAPACITY);
+  return {
+    length: 0,
+    capacity,
+    timestampsSec: new Uint32Array(capacity),
+    distancesQ: new Uint32Array(capacity),
+    powersW: new Uint16Array(capacity),
+    heartRatesBpm: new Uint8Array(capacity),
+    cadencesRpm: new Uint8Array(capacity),
+    speedsCmS: new Uint16Array(capacity),
+    altitudesQ: new Int16Array(capacity),
+    positionLatsE6: new Int32Array(capacity),
+    positionLongsE6: new Int32Array(capacity),
+  };
+}
+
+function growCompactRecordBuffer(buffer, minimumCapacity = 0) {
+  const nextCapacity = Math.max(
+    Math.max(1, buffer?.capacity || 0) * 2,
+    Number(minimumCapacity) || 0,
+    INITIAL_RECORD_BUFFER_CAPACITY
+  );
+  const next = createCompactRecordBuffer(nextCapacity);
+  next.length = Number(buffer?.length || 0);
+  next.timestampsSec.set(buffer.timestampsSec.subarray(0, next.length));
+  next.distancesQ.set(buffer.distancesQ.subarray(0, next.length));
+  next.powersW.set(buffer.powersW.subarray(0, next.length));
+  next.heartRatesBpm.set(buffer.heartRatesBpm.subarray(0, next.length));
+  next.cadencesRpm.set(buffer.cadencesRpm.subarray(0, next.length));
+  next.speedsCmS.set(buffer.speedsCmS.subarray(0, next.length));
+  next.altitudesQ.set(buffer.altitudesQ.subarray(0, next.length));
+  next.positionLatsE6.set(buffer.positionLatsE6.subarray(0, next.length));
+  next.positionLongsE6.set(buffer.positionLongsE6.subarray(0, next.length));
+  return next;
+}
+
+function ensureCompactRecordCapacity(buffer, requiredLength) {
+  if (requiredLength <= buffer.capacity) {
+    return buffer;
+  }
+  return growCompactRecordBuffer(buffer, requiredLength);
+}
+
+function appendCompactRecord(buffer, {
+  timestampSec,
+  distance,
+  power,
+  heartRate,
+  cadence,
+  speed,
+  altitude,
+  lat,
+  lng,
+}) {
+  const nextLength = buffer.length + 1;
+  const target = ensureCompactRecordCapacity(buffer, nextLength);
+  const index = target.length;
+  target.timestampsSec[index] = timestampSec;
+  target.distancesQ[index] = distance;
+  target.powersW[index] = power;
+  target.heartRatesBpm[index] = heartRate;
+  target.cadencesRpm[index] = cadence;
+  target.speedsCmS[index] = speed;
+  target.altitudesQ[index] = altitude;
+  target.positionLatsE6[index] = lat;
+  target.positionLongsE6[index] = lng;
+  target.length = nextLength;
+  return target;
+}
+
+function finalizeCompactRecordBuffer(buffer, baseTimestampSec) {
+  const recordCount = Number(buffer?.length || 0);
+  return {
+    recordCount,
+    baseTimestampSec: baseTimestampSec === COMPACT_SENTINELS.uint32 ? 0 : baseTimestampSec,
+    lastTimestampSec: recordCount > 0 ? buffer.timestampsSec[recordCount - 1] : 0,
+    timestampsSec: buffer.timestampsSec.slice(0, recordCount),
+    distancesQ: buffer.distancesQ.slice(0, recordCount),
+    powersW: buffer.powersW.slice(0, recordCount),
+    heartRatesBpm: buffer.heartRatesBpm.slice(0, recordCount),
+    cadencesRpm: buffer.cadencesRpm.slice(0, recordCount),
+    speedsCmS: buffer.speedsCmS.slice(0, recordCount),
+    altitudesQ: dropAllZeroAltitudeColumn(buffer.altitudesQ.slice(0, recordCount)),
+    positionLatsE6: buffer.positionLatsE6.slice(0, recordCount),
+    positionLongsE6: buffer.positionLongsE6.slice(0, recordCount),
+  };
+}
+
 function fillGapsCompactRecords(compactRecords) {
   const recordCount = Number(compactRecords?.recordCount || 0);
   const timestampsSec = compactRecords?.timestampsSec;
@@ -401,15 +492,7 @@ export function parseFitBufferCompactBrowser(buffer, { excludeStartTimes = null 
   const dataLength = readU32LE(bytes, 4);
   const end = headerLength + dataLength;
   const definitions = [];
-  const timestampsSec = [];
-  const distancesQ = [];
-  const powersW = [];
-  const heartRatesBpm = [];
-  const cadencesRpm = [];
-  const speedsCmS = [];
-  const altitudesQ = [];
-  const positionLatsE6 = [];
-  const positionLongsE6 = [];
+  let compactRecordBuffer = createCompactRecordBuffer();
   const sessions = [];
   let baseTimestampSec = COMPACT_SENTINELS.uint32;
   let cursor = headerLength;
@@ -518,15 +601,17 @@ export function parseFitBufferCompactBrowser(buffer, { excludeStartTimes = null 
         }
       }
 
-      timestampsSec.push(timestampSec);
-      distancesQ.push(distance);
-      powersW.push(power);
-      heartRatesBpm.push(heartRate);
-      cadencesRpm.push(cadence);
-      speedsCmS.push(speed);
-      altitudesQ.push(altitude);
-      positionLatsE6.push(lat);
-      positionLongsE6.push(lng);
+      compactRecordBuffer = appendCompactRecord(compactRecordBuffer, {
+        timestampSec,
+        distance,
+        power,
+        heartRate,
+        cadence,
+        speed,
+        altitude,
+        lat,
+        lng,
+      });
     } else if (definition.globalMessage === 18) {
       const session = {};
       const view = new DataView(bytes.buffer, bytes.byteOffset + dataOffset);
@@ -561,20 +646,9 @@ export function parseFitBufferCompactBrowser(buffer, { excludeStartTimes = null 
     skippedExisting: false,
     skippedStartTime: null,
     sessions,
-    compactRecords: fillGapsCompactRecords({
-      recordCount: timestampsSec.length,
-      baseTimestampSec: baseTimestampSec === COMPACT_SENTINELS.uint32 ? 0 : baseTimestampSec,
-      lastTimestampSec: timestampsSec.length > 0 ? timestampsSec[timestampsSec.length - 1] : 0,
-      timestampsSec: Uint32Array.from(timestampsSec),
-      distancesQ: Uint32Array.from(distancesQ),
-      powersW: Uint16Array.from(powersW),
-      heartRatesBpm: Uint8Array.from(heartRatesBpm),
-      cadencesRpm: Uint8Array.from(cadencesRpm),
-      speedsCmS: Uint16Array.from(speedsCmS),
-      altitudesQ: dropAllZeroAltitudeColumn(Int16Array.from(altitudesQ)),
-      positionLatsE6: Int32Array.from(positionLatsE6),
-      positionLongsE6: Int32Array.from(positionLongsE6),
-    }),
+    compactRecords: fillGapsCompactRecords(
+      finalizeCompactRecordBuffer(compactRecordBuffer, baseTimestampSec)
+    ),
   };
 }
 
