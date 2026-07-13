@@ -98,11 +98,16 @@ async function createWoaFromParsed(parsed, fileName, encodingOptions) {
     encodingOptions?.gpsSampleRateSeconds,
     DEFAULT_GPS_SAMPLE_RATE_SECONDS
   );
+  const requestedGpsEncoding = encodingOptions?.gpsCoordinateEncoding;
+  const gpsCoordinateEncoding = requestedGpsEncoding === "int16-escape" || requestedGpsEncoding === "tiered-int8"
+    ? requestedGpsEncoding
+    : "bitmap-columnar";
   return {
     adjustedParsed,
     result: await createWoa1FileFromCompactAsync(adjustedParsed, {
       sourceName: fileName,
       sampleRateSeconds: gpsSampleRateSeconds,
+      gpsCoordinateEncoding,
       powerEncoding: "delta8-q4w",
       distanceEncoding: "uint8-q05m",
       altitudeEncoding: "rle-delta-q1m",
@@ -1044,6 +1049,10 @@ async function convertMixedEntriesToWoaZip({
         rawContainerBytes: rawContainerBytes.byteLength,
         containerCompression: containerCodec,
         containerCompressionEngine,
+        gpsCoordinateEncoding: encodingOptions?.gpsCoordinateEncoding === "int16-escape"
+          || encodingOptions?.gpsCoordinateEncoding === "tiered-int8"
+          ? encodingOptions.gpsCoordinateEncoding
+          : "bitmap-columnar",
         containerGzipLevel: CUSTOM_CONTAINER_GZIP_LEVEL
       },
       skipped: skippedEntries,

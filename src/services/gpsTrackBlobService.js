@@ -3,6 +3,10 @@ import Workout from "../shared/Workout.js";
 const GPS_TRACK_BLOB_VERSION = 1;
 const GPS_TRACK_BLOB_SCALE = 100000;
 const GPS2_COORDINATE_SCALE = 1000000;
+const GPS2_E5_COORDINATE_SCALE = 100000;
+const GPS2_DELTA_ESCAPE = -0x8000;
+const GPS2_TIERED_INT16_MARKER = 126;
+const GPS2_TIERED_EXTENDED_MARKER = 127;
 const GPS_TRACK_BLOB_HEADER_BYTES = 32;
 const GPS2_HEADER_BYTES = 20;
 const DELTA_BLOCK_SIZE = 128;
@@ -113,6 +117,68 @@ function inferCompressedCodec(bufferLike, fallback = DEFAULT_GPS_TRACK_BLOB_CODE
   }
 
   return fallback;
+}
+
+function decodeGpsBitmapColumnarPayload(source, pointCount) {
+  const headerBytes = 24;
+  const bitmapBytes = Math.ceil(pointCount / 8);
+  if (source.byteLength < headerBytes + bitmapBytes) {
+    throw new Error("GPS2 layout v5 header or bitmap is truncated");
+  }
+  const view = new DataView(source.buffer, source.byteOffset, source.byteLength);
+  const latitudeBytes = view.getUint32(20, true);
+  const latitudeStart = headerBytes + bitmapBytes;
+  const longitudeStart = latitudeStart + latitudeBytes;
+  if (longitudeStart > source.byteLength) {
+    throw new Error("GPS2 layout v5 latitude payload is truncated");
+  }
+
+  const decodeColumn = (start, end) => {
+    const values = new Float64Array(pointCount);
+    values.fill(Number.NaN);
+    let offset = start;
+    let previous = 0;
+    let previousValid = false;
+    const requireBytes = (count) => {
+      if (offset + count > end) throw new Error("GPS2 layout v5 coordinate payload is truncated");
+    };
+    for (let index = 0; index < pointCount; index += 1) {
+      const valid = (source[headerBytes + (index >> 3)] & (1 << (index & 7))) !== 0;
+      if (!valid) {
+        previousValid = false;
+        continue;
+      }
+      if (!previousValid) {
+        requireBytes(4);
+        previous = view.getInt32(offset, true);
+        offset += 4;
+      } else {
+        requireBytes(1);
+        const marker = view.getUint8(offset);
+        if (marker === GPS2_TIERED_INT16_MARKER) {
+          requireBytes(3);
+          previous += view.getInt16(offset + 1, true);
+          offset += 3;
+        } else if (marker === GPS2_TIERED_EXTENDED_MARKER) {
+          requireBytes(5);
+          previous = view.getInt32(offset + 1, true);
+          offset += 5;
+        } else {
+          previous += view.getInt8(offset);
+          offset += 1;
+        }
+      }
+      values[index] = previous / GPS2_E5_COORDINATE_SCALE;
+      previousValid = true;
+    }
+    if (offset !== end) throw new Error("GPS2 layout v5 coordinate payload has trailing bytes");
+    return values;
+  };
+
+  return {
+    latitudes: decodeColumn(latitudeStart, longitudeStart),
+    longitudes: decodeColumn(longitudeStart, source.byteLength)
+  };
 }
 
 function normalizeTrackPoints(track = []) {
@@ -229,6 +295,80 @@ function decodeGpsCoordinatePayload(bytes, pointCount, layoutVersion = 1) {
     const mode = view.getUint8(offset);
     const count = view.getUint16(offset + 1, true);
     offset += 3;
+
+    if (layoutVersion >= 4 && mode === 3) {
+      let currentLat = view.getInt32(offset, true);
+      let currentLng = view.getInt32(offset + 4, true);
+      offset += 8;
+      latitudes[writeIndex] = currentLat === INT32_NAN ? Number.NaN : currentLat / GPS2_E5_COORDINATE_SCALE;
+      longitudes[writeIndex] = currentLng === INT32_NAN ? Number.NaN : currentLng / GPS2_E5_COORDINATE_SCALE;
+
+      for (let i = 1; i < count && (writeIndex + i) < pointCount; i += 1) {
+        const marker = view.getInt8(offset);
+        if (marker === GPS2_TIERED_INT16_MARKER) {
+          currentLat += view.getInt16(offset + 1, true);
+          currentLng += view.getInt16(offset + 3, true);
+          offset += 5;
+        } else if (marker === GPS2_TIERED_EXTENDED_MARKER) {
+          const subtype = view.getUint8(offset + 1);
+          if (subtype === 0) {
+            currentLat = INT32_NAN;
+            currentLng = INT32_NAN;
+            offset += 2;
+          } else if (subtype === 1) {
+            currentLat = view.getInt32(offset + 2, true);
+            currentLng = view.getInt32(offset + 6, true);
+            offset += 10;
+          } else {
+            throw new Error(`Corrupt GPS2 layout v4 subtype: ${subtype}`);
+          }
+        } else {
+          currentLat += marker;
+          currentLng += view.getInt8(offset + 1);
+          offset += 2;
+        }
+        latitudes[writeIndex + i] = currentLat === INT32_NAN ? Number.NaN : currentLat / GPS2_E5_COORDINATE_SCALE;
+        longitudes[writeIndex + i] = currentLng === INT32_NAN ? Number.NaN : currentLng / GPS2_E5_COORDINATE_SCALE;
+      }
+
+      writeIndex += count;
+      continue;
+    }
+
+    if (layoutVersion >= 3 && mode === 2) {
+      let currentLat = view.getInt32(offset, true);
+      let currentLng = view.getInt32(offset + 4, true);
+      const tokenCount = Math.max(0, count - 1);
+      let tokenOffset = offset + 8;
+      let absoluteOffset = tokenOffset + (tokenCount * 4);
+      latitudes[writeIndex] = currentLat === INT32_NAN ? Number.NaN : currentLat / GPS2_E5_COORDINATE_SCALE;
+      longitudes[writeIndex] = currentLng === INT32_NAN ? Number.NaN : currentLng / GPS2_E5_COORDINATE_SCALE;
+
+      for (let i = 1; i < count && (writeIndex + i) < pointCount; i += 1) {
+        const deltaLat = view.getInt16(tokenOffset, true);
+        const deltaLng = view.getInt16(tokenOffset + 2, true);
+        tokenOffset += 4;
+        if (deltaLat === GPS2_DELTA_ESCAPE && deltaLng === GPS2_DELTA_ESCAPE) {
+          currentLat = INT32_NAN;
+          currentLng = INT32_NAN;
+        } else if (deltaLat === GPS2_DELTA_ESCAPE && deltaLng === 0) {
+          currentLat = view.getInt32(absoluteOffset, true);
+          currentLng = view.getInt32(absoluteOffset + 4, true);
+          absoluteOffset += 8;
+        } else if (deltaLat === GPS2_DELTA_ESCAPE || deltaLng === GPS2_DELTA_ESCAPE) {
+          throw new Error("Corrupt GPS2 layout v3 escape token");
+        } else {
+          currentLat += deltaLat;
+          currentLng += deltaLng;
+        }
+        latitudes[writeIndex + i] = currentLat === INT32_NAN ? Number.NaN : currentLat / GPS2_E5_COORDINATE_SCALE;
+        longitudes[writeIndex + i] = currentLng === INT32_NAN ? Number.NaN : currentLng / GPS2_E5_COORDINATE_SCALE;
+      }
+
+      offset = absoluteOffset;
+      writeIndex += count;
+      continue;
+    }
 
     if (layoutVersion >= 2) {
       if (mode === 1) {
@@ -525,8 +665,10 @@ export default class GpsTrackBlobService {
     const sampleRateSeconds = view.getUint16(6, true) || 1;
     const pointCount = view.getUint32(8, true);
     const firstTimestampMs = view.getFloat64(12, true);
-    const payload = source.subarray(GPS2_HEADER_BYTES);
-    const { latitudes, longitudes } = decodeGpsCoordinatePayload(payload, pointCount, layoutVersion);
+    const decoded = layoutVersion === 5
+      ? decodeGpsBitmapColumnarPayload(source, pointCount)
+      : decodeGpsCoordinatePayload(source.subarray(GPS2_HEADER_BYTES), pointCount, layoutVersion);
+    const { latitudes, longitudes } = decoded;
     const { slots, slotCount, points, pointCount: validPointCount, segments } = buildGpsSlotsAndSegments(
       latitudes,
       longitudes,

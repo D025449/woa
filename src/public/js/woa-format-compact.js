@@ -10,6 +10,12 @@ const DISTANCE_ENCODING_DEFAULT = "default";
 const DISTANCE_ENCODING_UINT8_Q05M = "uint8-q05m";
 const DISTANCE_ENCODING_UINT8_Q02_LEGACY = "uint8-q02";
 const MICRO_DEGREES = 1e6;
+const GPS_TRACK_COORDINATE_SCALE = 1e5;
+const GPS_DELTA_ESCAPE = -0x8000;
+const GPS_TIERED_INT16_MARKER = 126;
+const GPS_TIERED_EXTENDED_MARKER = 127;
+const GPS_TIERED_MISSING_SUBTYPE = 0;
+const GPS_TIERED_ABSOLUTE_SUBTYPE = 1;
 const DELTA_BLOCK_SIZE = 128;
 const DEFAULT_DISTANCE_BLOCK_SIZE = 999999;
 const DEFAULT_GPS_BLOCK_SIZE = 999999;
@@ -904,9 +910,9 @@ function normalizeDistanceBlockSize(distanceBlockSize) {
 function normalizeGpsBlockSize(gpsBlockSize) {
   const numeric = Number(gpsBlockSize);
   if (!Number.isInteger(numeric) || numeric <= 0) {
-    return DEFAULT_GPS_BLOCK_SIZE;
+    return 0xFFFF;
   }
-  return numeric;
+  return Math.min(0xFFFF, numeric);
 }
 
 function buildWorkoutStreamBlockCompactDistanceUint8Q02(compactRecords, { distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE } = {}) {
@@ -1319,8 +1325,8 @@ function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(
 
 function buildGpsCoordinatePayload(points, gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE) {
   const quantized = points.map((point) => ({
-    lat: Number.isFinite(Number(point.lat)) ? Math.round(Number(point.lat) * MICRO_DEGREES) : INT32_NAN,
-    lng: Number.isFinite(Number(point.lng)) ? Math.round(Number(point.lng) * MICRO_DEGREES) : INT32_NAN
+    lat: Number.isFinite(Number(point.lat)) ? Math.round(Number(point.lat) * GPS_TRACK_COORDINATE_SCALE) : INT32_NAN,
+    lng: Number.isFinite(Number(point.lng)) ? Math.round(Number(point.lng) * GPS_TRACK_COORDINATE_SCALE) : INT32_NAN
   }));
 
   const chunks = [];
@@ -1328,62 +1334,64 @@ function buildGpsCoordinatePayload(points, gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE
   const normalizedGpsBlockSize = normalizeGpsBlockSize(gpsBlockSize);
   for (let start = 0; start < quantized.length; start += normalizedGpsBlockSize) {
     const count = Math.min(normalizedGpsBlockSize, quantized.length - start);
-    let canDeltaEncode = count > 0;
-    for (let offset = 0; offset < count; offset += 1) {
-      const current = quantized[start + offset];
-      if (current.lat === INT32_NAN || current.lng === INT32_NAN) {
-        canDeltaEncode = false;
-        break;
-      }
-      if (offset > 0) {
-        const previous = quantized[start + offset - 1];
-        const deltaLat = current.lat - previous.lat;
-        const deltaLng = current.lng - previous.lng;
-        if (deltaLat < -32767 || deltaLat > 32767 || deltaLng < -32767 || deltaLng > 32767) {
-          canDeltaEncode = false;
-          break;
-        }
+    let escapeCount = 0;
+    for (let index = 1; index < count; index += 1) {
+      const current = quantized[start + index];
+      const previous = quantized[start + index - 1];
+      const currentValid = current.lat !== INT32_NAN && current.lng !== INT32_NAN;
+      const previousValid = previous.lat !== INT32_NAN && previous.lng !== INT32_NAN;
+      const deltaLat = currentValid && previousValid ? current.lat - previous.lat : Number.NaN;
+      const deltaLng = currentValid && previousValid ? current.lng - previous.lng : Number.NaN;
+      if (
+        currentValid
+        && (!Number.isFinite(deltaLat)
+        || !Number.isFinite(deltaLng)
+        || deltaLat <= GPS_DELTA_ESCAPE
+        || deltaLat > 32767
+        || deltaLng <= GPS_DELTA_ESCAPE
+        || deltaLng > 32767)
+      ) {
+        escapeCount += 1;
       }
     }
 
-    if (canDeltaEncode) {
-      const chunk = new Uint8Array(1 + 2 + 4 + Math.max(0, count - 1) * 2 + 4 + Math.max(0, count - 1) * 2);
-      const view = new DataView(chunk.buffer);
-      chunk[0] = 1;
-      view.setUint16(1, count, true);
-      view.setInt32(3, quantized[start].lat, true);
-      let offset = 7;
-      for (let index = 1; index < count; index += 1) {
-        const current = quantized[start + index];
-        const previous = quantized[start + index - 1];
-        view.setInt16(offset, current.lat - previous.lat, true);
-        offset += 2;
-      }
-      view.setInt32(offset, quantized[start].lng, true);
-      offset += 4;
-      for (let index = 1; index < count; index += 1) {
-        const current = quantized[start + index];
-        const previous = quantized[start + index - 1];
-        view.setInt16(offset, current.lng - previous.lng, true);
-        offset += 2;
-      }
-      chunks.push(chunk);
-      totalBytes += chunk.byteLength;
-      continue;
-    }
-
-    const chunk = new Uint8Array(1 + 2 + count * 8);
+    const tokenCount = Math.max(0, count - 1);
+    const chunk = new Uint8Array(1 + 2 + 8 + (tokenCount * 4) + (escapeCount * 8));
     const view = new DataView(chunk.buffer);
-    chunk[0] = 0;
+    chunk[0] = 2;
     view.setUint16(1, count, true);
-    let offset = 3;
-    for (let index = 0; index < count; index += 1) {
-      view.setInt32(offset, quantized[start + index].lat, true);
-      offset += 4;
-    }
-    for (let index = 0; index < count; index += 1) {
-      view.setInt32(offset, quantized[start + index].lng, true);
-      offset += 4;
+    view.setInt32(3, quantized[start].lat, true);
+    view.setInt32(7, quantized[start].lng, true);
+    let tokenOffset = 11;
+    let absoluteOffset = tokenOffset + (tokenCount * 4);
+    for (let index = 1; index < count; index += 1) {
+      const current = quantized[start + index];
+      const previous = quantized[start + index - 1];
+      const currentValid = current.lat !== INT32_NAN && current.lng !== INT32_NAN;
+      const previousValid = previous.lat !== INT32_NAN && previous.lng !== INT32_NAN;
+      const deltaLat = currentValid && previousValid ? current.lat - previous.lat : Number.NaN;
+      const deltaLng = currentValid && previousValid ? current.lng - previous.lng : Number.NaN;
+      const needsAbsolute = currentValid && (!Number.isFinite(deltaLat)
+        || !Number.isFinite(deltaLng)
+        || deltaLat <= GPS_DELTA_ESCAPE
+        || deltaLat > 32767
+        || deltaLng <= GPS_DELTA_ESCAPE
+        || deltaLng > 32767);
+
+      if (!currentValid) {
+        view.setInt16(tokenOffset, GPS_DELTA_ESCAPE, true);
+        view.setInt16(tokenOffset + 2, GPS_DELTA_ESCAPE, true);
+      } else if (needsAbsolute) {
+        view.setInt16(tokenOffset, GPS_DELTA_ESCAPE, true);
+        view.setInt16(tokenOffset + 2, 0, true);
+        view.setInt32(absoluteOffset, current.lat, true);
+        view.setInt32(absoluteOffset + 4, current.lng, true);
+        absoluteOffset += 8;
+      } else {
+        view.setInt16(tokenOffset, deltaLat, true);
+        view.setInt16(tokenOffset + 2, deltaLng, true);
+      }
+      tokenOffset += 4;
     }
     chunks.push(chunk);
     totalBytes += chunk.byteLength;
@@ -1396,6 +1404,156 @@ function buildGpsCoordinatePayload(points, gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE
     writeOffset += chunk.byteLength;
   }
   return payload;
+}
+
+function buildGpsCoordinatePayloadTiered(points, gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE) {
+  const quantized = points.map((point) => ({
+    lat: Number.isFinite(Number(point.lat)) ? Math.round(Number(point.lat) * GPS_TRACK_COORDINATE_SCALE) : INT32_NAN,
+    lng: Number.isFinite(Number(point.lng)) ? Math.round(Number(point.lng) * GPS_TRACK_COORDINATE_SCALE) : INT32_NAN
+  }));
+  const chunks = [];
+  let totalBytes = 0;
+  const normalizedGpsBlockSize = normalizeGpsBlockSize(gpsBlockSize);
+
+  for (let start = 0; start < quantized.length; start += normalizedGpsBlockSize) {
+    const count = Math.min(normalizedGpsBlockSize, quantized.length - start);
+    let payloadBytes = 8;
+    for (let index = 1; index < count; index += 1) {
+      const current = quantized[start + index];
+      const previous = quantized[start + index - 1];
+      const currentValid = current.lat !== INT32_NAN && current.lng !== INT32_NAN;
+      const previousValid = previous.lat !== INT32_NAN && previous.lng !== INT32_NAN;
+      if (!currentValid) {
+        payloadBytes += 2;
+        continue;
+      }
+      const deltaLat = previousValid ? current.lat - previous.lat : Number.NaN;
+      const deltaLng = previousValid ? current.lng - previous.lng : Number.NaN;
+      if (deltaLat >= -128 && deltaLat <= 125 && deltaLng >= -128 && deltaLng <= 127) {
+        payloadBytes += 2;
+      } else if (deltaLat >= -32768 && deltaLat <= 32767 && deltaLng >= -32768 && deltaLng <= 32767) {
+        payloadBytes += 5;
+      } else {
+        payloadBytes += 10;
+      }
+    }
+
+    const chunk = new Uint8Array(3 + payloadBytes);
+    const view = new DataView(chunk.buffer);
+    chunk[0] = 3;
+    view.setUint16(1, count, true);
+    view.setInt32(3, quantized[start].lat, true);
+    view.setInt32(7, quantized[start].lng, true);
+    let offset = 11;
+
+    for (let index = 1; index < count; index += 1) {
+      const current = quantized[start + index];
+      const previous = quantized[start + index - 1];
+      const currentValid = current.lat !== INT32_NAN && current.lng !== INT32_NAN;
+      const previousValid = previous.lat !== INT32_NAN && previous.lng !== INT32_NAN;
+      if (!currentValid) {
+        view.setUint8(offset, GPS_TIERED_EXTENDED_MARKER);
+        view.setUint8(offset + 1, GPS_TIERED_MISSING_SUBTYPE);
+        offset += 2;
+        continue;
+      }
+
+      const deltaLat = previousValid ? current.lat - previous.lat : Number.NaN;
+      const deltaLng = previousValid ? current.lng - previous.lng : Number.NaN;
+      if (deltaLat >= -128 && deltaLat <= 125 && deltaLng >= -128 && deltaLng <= 127) {
+        view.setInt8(offset, deltaLat);
+        view.setInt8(offset + 1, deltaLng);
+        offset += 2;
+      } else if (deltaLat >= -32768 && deltaLat <= 32767 && deltaLng >= -32768 && deltaLng <= 32767) {
+        view.setUint8(offset, GPS_TIERED_INT16_MARKER);
+        view.setInt16(offset + 1, deltaLat, true);
+        view.setInt16(offset + 3, deltaLng, true);
+        offset += 5;
+      } else {
+        view.setUint8(offset, GPS_TIERED_EXTENDED_MARKER);
+        view.setUint8(offset + 1, GPS_TIERED_ABSOLUTE_SUBTYPE);
+        view.setInt32(offset + 2, current.lat, true);
+        view.setInt32(offset + 6, current.lng, true);
+        offset += 10;
+      }
+    }
+
+    chunks.push(chunk);
+    totalBytes += chunk.byteLength;
+  }
+
+  const payload = new Uint8Array(totalBytes);
+  let writeOffset = 0;
+  for (const chunk of chunks) {
+    payload.set(chunk, writeOffset);
+    writeOffset += chunk.byteLength;
+  }
+  return payload;
+}
+
+function buildGpsBitmapCoordinateColumn(quantized, key) {
+  let payloadBytes = 0;
+  for (let index = 0; index < quantized.length; index += 1) {
+    const current = quantized[index];
+    if (!current) continue;
+    const previous = index > 0 ? quantized[index - 1] : null;
+    if (!previous) {
+      payloadBytes += 4;
+      continue;
+    }
+    const delta = current[key] - previous[key];
+    if (delta >= -128 && delta <= 125) payloadBytes += 1;
+    else if (delta >= -32768 && delta <= 32767) payloadBytes += 3;
+    else payloadBytes += 5;
+  }
+
+  const bytes = new Uint8Array(payloadBytes);
+  const view = new DataView(bytes.buffer);
+  let offset = 0;
+  for (let index = 0; index < quantized.length; index += 1) {
+    const current = quantized[index];
+    if (!current) continue;
+    const previous = index > 0 ? quantized[index - 1] : null;
+    if (!previous) {
+      view.setInt32(offset, current[key], true);
+      offset += 4;
+      continue;
+    }
+    const delta = current[key] - previous[key];
+    if (delta >= -128 && delta <= 125) {
+      view.setInt8(offset, delta);
+      offset += 1;
+    } else if (delta >= -32768 && delta <= 32767) {
+      view.setUint8(offset, GPS_TIERED_INT16_MARKER);
+      view.setInt16(offset + 1, delta, true);
+      offset += 3;
+    } else {
+      view.setUint8(offset, GPS_TIERED_EXTENDED_MARKER);
+      view.setInt32(offset + 1, current[key], true);
+      offset += 5;
+    }
+  }
+  return bytes;
+}
+
+function buildGpsBitmapColumnarPayload(points) {
+  const quantized = points.map((point) => (
+    Number.isFinite(Number(point?.lat)) && Number.isFinite(Number(point?.lng))
+      ? {
+          lat: Math.round(Number(point.lat) * GPS_TRACK_COORDINATE_SCALE),
+          lng: Math.round(Number(point.lng) * GPS_TRACK_COORDINATE_SCALE)
+        }
+      : null
+  ));
+  const bitmap = new Uint8Array(Math.ceil(quantized.length / 8));
+  for (let index = 0; index < quantized.length; index += 1) {
+    if (quantized[index]) bitmap[index >> 3] |= 1 << (index & 7);
+  }
+  return {
+    bitmap,
+    latitudes: buildGpsBitmapCoordinateColumn(quantized, "lat"),
+    longitudes: buildGpsBitmapCoordinateColumn(quantized, "lng")
+  };
 }
 
 function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS) {
@@ -1616,20 +1774,48 @@ function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = DEFAULT
   };
 }
 
-function buildGpsTrackBlock(gpsTrack, { gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE } = {}) {
+export function buildGpsTrackBlock(gpsTrack, {
+  gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE,
+  coordinateEncoding = "bitmap-columnar"
+} = {}) {
   const slots = Array.isArray(gpsTrack?.slots) ? gpsTrack.slots : (Array.isArray(gpsTrack?.points) ? gpsTrack.points : []);
   const pointCount = Number(gpsTrack?.slotCount || slots.length || 0);
   const firstTimestampMs = Number.isFinite(Number(gpsTrack?.firstTimestampMs))
     ? Math.round(Number(gpsTrack.firstTimestampMs))
     : 0;
-  const headerBytes = 4 + 2 + 2 + 4 + 8;
-  const coordinatePayload = buildGpsCoordinatePayload(slots, gpsBlockSize);
+  const usesBitmapColumnarEncoding = coordinateEncoding === "bitmap-columnar";
+  const headerBytes = usesBitmapColumnarEncoding ? 24 : 20;
+  const usesTieredEncoding = coordinateEncoding === "tiered-int8";
+  if (usesBitmapColumnarEncoding) {
+    const payload = buildGpsBitmapColumnarPayload(slots);
+    const buffer = new ArrayBuffer(
+      headerBytes + payload.bitmap.byteLength + payload.latitudes.byteLength + payload.longitudes.byteLength
+    );
+    const view = new DataView(buffer);
+    const bytes = new Uint8Array(buffer);
+    bytes.set(textEncoder.encode("GPS2"), 0);
+    view.setUint16(4, 5, true);
+    view.setUint16(6, Number(gpsTrack?.sampleRateSeconds || 0), true);
+    view.setUint32(8, pointCount, true);
+    view.setFloat64(12, firstTimestampMs, true);
+    view.setUint32(20, payload.latitudes.byteLength, true);
+    let offset = headerBytes;
+    bytes.set(payload.bitmap, offset);
+    offset += payload.bitmap.byteLength;
+    bytes.set(payload.latitudes, offset);
+    offset += payload.latitudes.byteLength;
+    bytes.set(payload.longitudes, offset);
+    return bytes;
+  }
+  const coordinatePayload = usesTieredEncoding
+    ? buildGpsCoordinatePayloadTiered(slots, gpsBlockSize)
+    : buildGpsCoordinatePayload(slots, gpsBlockSize);
   const payloadBytes = coordinatePayload.byteLength;
   const buffer = new ArrayBuffer(headerBytes + payloadBytes);
   const view = new DataView(buffer);
   const bytes = new Uint8Array(buffer);
   bytes.set(textEncoder.encode("GPS2"), 0);
-  view.setUint16(4, 2, true);
+  view.setUint16(4, usesTieredEncoding ? 4 : 3, true);
   view.setUint16(6, Number(gpsTrack?.sampleRateSeconds || 0), true);
   view.setUint32(8, pointCount, true);
   view.setFloat64(12, firstTimestampMs, true);
@@ -1803,6 +1989,7 @@ export function createWoa1FileFromCompact(parsedCompact, {
   distanceEncoding = DISTANCE_ENCODING_UINT8_Q05M,
   distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE,
   gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE,
+  gpsCoordinateEncoding = "bitmap-columnar",
   altitudeEncoding = "rle-delta-q1m"
 } = {}) {
   const timings = {
@@ -1832,7 +2019,10 @@ export function createWoa1FileFromCompact(parsedCompact, {
 
   stepStartedAt = nowMs();
   const normalizedGpsBlockSize = normalizeGpsBlockSize(gpsBlockSize);
-  const gpsTrackRawBytes = buildGpsTrackBlock(gpsTrack, { gpsBlockSize: normalizedGpsBlockSize });
+  const gpsTrackRawBytes = buildGpsTrackBlock(gpsTrack, {
+    gpsBlockSize: normalizedGpsBlockSize,
+    coordinateEncoding: gpsCoordinateEncoding
+  });
   timings.buildGpsTrackBlockMs = nowMs() - stepStartedAt;
 
   stepStartedAt = nowMs();
@@ -1930,6 +2120,7 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
   distanceEncoding = DISTANCE_ENCODING_UINT8_Q05M,
   distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE,
   gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE,
+  gpsCoordinateEncoding = "bitmap-columnar",
   altitudeEncoding = "rle-delta-q1m"
 } = {}) {
   const timings = {
@@ -1959,7 +2150,10 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
 
   stepStartedAt = nowMs();
   const normalizedGpsBlockSize = normalizeGpsBlockSize(gpsBlockSize);
-  const gpsTrackRawBytes = buildGpsTrackBlock(gpsTrack, { gpsBlockSize: normalizedGpsBlockSize });
+  const gpsTrackRawBytes = buildGpsTrackBlock(gpsTrack, {
+    gpsBlockSize: normalizedGpsBlockSize,
+    coordinateEncoding: gpsCoordinateEncoding
+  });
   timings.buildGpsTrackBlockMs = nowMs() - stepStartedAt;
 
   stepStartedAt = nowMs();

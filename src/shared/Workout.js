@@ -467,7 +467,6 @@ export default class Workout {
         if (magic !== "WST9") {
             throw new Error(`Unsupported workout stream block: ${magic}`);
         }
-        const usesInt8PowerDelta = true;
         const recordCount = view.getUint32(4, true);
         const baseTimestampMs = view.getFloat64(8, true);
         const sampleIntervalMs = view.getUint32(16, true);

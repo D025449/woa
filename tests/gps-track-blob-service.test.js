@@ -16,7 +16,7 @@ test("gps track blob encodes and decodes sampled track points", async () => {
   const decoded = await GpsTrackBlobService.decodeCompressed(compressed);
 
   assert.equal(decoded.sampleRateGps, 5);
-  assert.deepEqual(decoded.points, [
+  assert.deepEqual(decoded.points.map(({ lat, lng }) => ({ lat, lng })), [
     { lat: 48.13715, lng: 11.57612 },
     { lat: 48.13716, lng: 11.57615 },
     { lat: 48.1372, lng: 11.5762 }

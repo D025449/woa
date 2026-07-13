@@ -1,4 +1,4 @@
-import { FIT } from "/vendor/fit-file-parser-fast/dist/fit.js";
+import { FIT } from "../../../vendor/fit-file-parser-fast/dist/fit.js";
 
 const GARMIN_TIME_OFFSET_MS = 631065600000;
 const SEMICIRCLES_TO_DEGREES = 180 / 0x80000000;

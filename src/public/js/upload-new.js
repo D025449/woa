@@ -474,6 +474,7 @@ function getEncodingOptions() {
     let uploadCompression = "auto";
     let uploadGzipEngine = "compression-stream";
     let gpsSampleRateSeconds = null;
+    let gpsCoordinateEncoding = "bitmap-columnar";
     try {
         const value = String(localStorage.getItem("woaUploadCompression") || "").trim().toLowerCase();
         if (value === "gzip" || value === "brotli" || value === "br") {
@@ -498,12 +499,25 @@ function getEncodingOptions() {
     } catch {
         // ignore
     }
+    try {
+        const value = String(localStorage.getItem("woaGpsCoordinateEncoding") || "").trim().toLowerCase();
+        if (value === "int16-escape" || value === "int16") {
+            gpsCoordinateEncoding = "int16-escape";
+        } else if (value === "tiered-int8" || value === "tiered") {
+            gpsCoordinateEncoding = "tiered-int8";
+        } else if (value === "bitmap-columnar" || value === "columnar") {
+            gpsCoordinateEncoding = "bitmap-columnar";
+        }
+    } catch {
+        // ignore
+    }
     return {
         gentleQuantization: true,
         powerStep: 4,
         cadenceStep: 2,
         hrStep: 2,
         gpsSampleRateSeconds,
+        gpsCoordinateEncoding,
         uploadCompression,
         uploadGzipEngine
     };
@@ -711,7 +725,8 @@ function renderCompletedContainerMarkup({
                 ${Number(stats.outputContainerBytes || 0) > 0
                     ? `Output container size: ${escapeHtml(formatBytes(Number(stats.outputContainerBytes || 0)))} (${escapeHtml(compressionRatio)}% of source ZIP, ${containerCompressionDetail})`
                     : `Output container is streamed directly to the backend.`
-                }
+                }<br>
+                GPS coordinate encoding: ${escapeHtml(String(stats.gpsCoordinateEncoding || "bitmap-columnar"))}
             </div>
             ${skippedExistingMarkup}
             ${skippedTooShortMarkup}
@@ -1435,6 +1450,7 @@ async function handleConvertSubmit(event) {
                             Reduced GPS points: ${escapeHtml(String(stats.totalGpsPointCount || 0))}<br>
                             Source ZIP size: ${escapeHtml(formatBytes(Number(stats.sourceZipBytes || 0)))}<br>
                             Output container size: ${escapeHtml(formatBytes(Number(stats.outputContainerBytes || 0)))} (${escapeHtml(compressionRatio)}% of source ZIP, ${containerCompressionDetail})
+                            <br>GPS coordinate encoding: ${escapeHtml(String(stats.gpsCoordinateEncoding || "bitmap-columnar"))}
                         </div>
                         ${skippedExistingMarkup}
                         ${skippedTooShortMarkup}
