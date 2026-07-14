@@ -425,7 +425,7 @@ export default class Workout {
             if (mode === 3) {
                 let current = view.getUint32(offset, true);
                 offset += 4;
-                values[writeIndex] = current === WOA_UINT32_NAN ? Number.NaN : current / 5;
+                values[writeIndex] = current === WOA_UINT32_NAN ? Number.NaN : current / 2;
                 writeIndex += 1;
 
                 const tokenStart = offset;
@@ -441,7 +441,7 @@ export default class Workout {
                     } else {
                         current += token;
                     }
-                    values[writeIndex] = current === WOA_UINT32_NAN ? Number.NaN : current / 5;
+                    values[writeIndex] = current === WOA_UINT32_NAN ? Number.NaN : current / 2;
                     writeIndex += 1;
                 }
 

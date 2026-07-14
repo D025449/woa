@@ -58,18 +58,18 @@ Danach folgen die sechs Payload-Bloecke genau in dieser Reihenfolge.
 
 ### Interne Quantisierung
 
-Vor der eigentlichen Stream-Erzeugung wird Distanz im Compact-Pfad zuerst in `0.25 m`-Schritte quantisiert.
+Die FIT-Distanz liegt als ganzzahliger Zentimeterwert vor und wird im Compact-Parser direkt in `0.5 m`-Schritte quantisiert. Eine zusaetzliche Zwischenquantisierung findet nicht statt.
 
 Im Stream wird intern der quantisierte Integerwert gespeichert:
 
-- `compactDistanceQ = round(distanceMeters * 4)`
+- `compactDistanceQ = round(distanceCentimeters / 50)`
 - Rueckrechnung:
-  - `distanceMeters = compactDistanceQ / 4`
+  - `distanceMeters = compactDistanceQ / 2`
 
 Beispiel:
 
-- `1234.5 m` -> `4938`
-- Decoding: `4938 / 4 = 1234.5 m`
+- `1234.5 m` -> `2469`
+- Decoding: `2469 / 2 = 1234.5 m`
 
 ### Produktive Distanz-Encodierung
 
@@ -85,13 +85,12 @@ Wichtig:
 
 - `uint8-q02` ist nur noch ein Kompatibilitaetsname
 - semantisch meint der aktuelle Produktpfad **nicht** `0.2 m`
-- er arbeitet auf den bereits quantisierten `0.25 m`-Werten und skaliert diese fuer den Delta-Pfad noch einmal herunter
+- er arbeitet direkt auf den im Parser erzeugten `0.5 m`-Werten
 
 Konkret:
 
-- Encoder-Ausgangspunkt: `compactDistanceQ` in `0.25 m`
-- fuer den `uint8-q05m`-Pfad wird gespeichert:
-  - `encodedDistanceQ = round(compactDistanceQ / 2)`
+- Encoder-Ausgangspunkt: `compactDistanceQ` in `0.5 m`
+- fuer den `uint8-q05m`-Pfad wird `compactDistanceQ` unveraendert gespeichert
 - damit ergibt sich effektiv:
   - `distanceMeters = encodedDistanceQ * 0.5`
 
@@ -329,8 +328,7 @@ Die Motivation war damals:
 
 Quantisierung waere aus heutiger Sicht:
 
-- Compact-Basis: `compactDistanceQ = round(distanceMeters * 4)`
-- Produktpfad: effektive `0.5 m` Encodierung ueber `encodedDistanceQ = round(compactDistanceQ / 2)`
+- Compact-Basis und Produktpfad: `compactDistanceQ = round(distanceCentimeters / 50)`
 
 Ein Block wuerde weiter mit `mode` und `count` beginnen:
 

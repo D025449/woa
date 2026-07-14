@@ -118,9 +118,9 @@ function isInvalidRawValue(rawValue, size, baseType) {
   return false;
 }
 
-function compactDistance(value) {
+function compactDistanceFromCentimeters(value) {
   return Number.isFinite(value) && value >= 0
-    ? Math.max(0, Math.min(0xfffffffe, Math.round(value * 4)))
+    ? Math.max(0, Math.min(0xfffffffe, Math.round(value / 50)))
     : COMPACT_SENTINELS.uint32;
 }
 
@@ -155,12 +155,6 @@ function compactTimestampSecFromGarmin(rawTimestampSec) {
   }
   const unixTimestampSec = Math.round(rawTimestampSec + (GARMIN_TIME_OFFSET_MS / 1000));
   return Math.max(0, Math.min(COMPACT_SENTINELS.uint32 - 1, unixTimestampSec));
-}
-
-function compactTimestampMsFromSec(timestampSec) {
-  return Number.isFinite(Number(timestampSec)) && Number(timestampSec) !== COMPACT_SENTINELS.uint32
-    ? Number(timestampSec) * 1000
-    : Number.NaN;
 }
 
 const INITIAL_RECORD_BUFFER_CAPACITY = 7200;
@@ -242,15 +236,15 @@ function finalizeCompactRecordBuffer(buffer, baseTimestampSec) {
     recordCount,
     baseTimestampSec: baseTimestampSec === COMPACT_SENTINELS.uint32 ? 0 : baseTimestampSec,
     lastTimestampSec: recordCount > 0 ? buffer.timestampsSec[recordCount - 1] : 0,
-    timestampsSec: buffer.timestampsSec.slice(0, recordCount),
-    distancesQ: buffer.distancesQ.slice(0, recordCount),
-    powersW: buffer.powersW.slice(0, recordCount),
-    heartRatesBpm: buffer.heartRatesBpm.slice(0, recordCount),
-    cadencesRpm: buffer.cadencesRpm.slice(0, recordCount),
-    speedsCmS: buffer.speedsCmS.slice(0, recordCount),
-    altitudesQ: dropAllZeroAltitudeColumn(buffer.altitudesQ.slice(0, recordCount)),
-    positionLatsE6: buffer.positionLatsE6.slice(0, recordCount),
-    positionLongsE6: buffer.positionLongsE6.slice(0, recordCount),
+    timestampsSec: buffer.timestampsSec.subarray(0, recordCount),
+    distancesQ: buffer.distancesQ.subarray(0, recordCount),
+    powersW: buffer.powersW.subarray(0, recordCount),
+    heartRatesBpm: buffer.heartRatesBpm.subarray(0, recordCount),
+    cadencesRpm: buffer.cadencesRpm.subarray(0, recordCount),
+    speedsCmS: buffer.speedsCmS.subarray(0, recordCount),
+    altitudesQ: dropAllZeroAltitudeColumn(buffer.altitudesQ.subarray(0, recordCount)),
+    positionLatsE6: buffer.positionLatsE6.subarray(0, recordCount),
+    positionLongsE6: buffer.positionLongsE6.subarray(0, recordCount),
   };
 }
 
@@ -258,7 +252,7 @@ function fillGapsCompactRecords(compactRecords) {
   const recordCount = Number(compactRecords?.recordCount || 0);
   const timestampsSec = compactRecords?.timestampsSec;
   if (!(recordCount > 1) || !timestampsSec || timestampsSec.length !== recordCount) {
-    return compactRecords;
+    return { ...compactRecords, timestampsSec: null };
   }
 
   const maxGap = 5;
@@ -309,10 +303,9 @@ function fillGapsCompactRecords(compactRecords) {
 
   const outputRecordCount = recordCount + countInterpolatedSteps();
   if (outputRecordCount === recordCount) {
-    return compactRecords;
+    return { ...compactRecords, timestampsSec: null };
   }
 
-  const outTimestampsSec = new Uint32Array(outputRecordCount);
   const outDistancesQ = new Uint32Array(outputRecordCount);
   const outPowersW = new Uint16Array(outputRecordCount);
   const outHeartRatesBpm = new Uint8Array(outputRecordCount);
@@ -323,7 +316,6 @@ function fillGapsCompactRecords(compactRecords) {
   const outPositionLongsE6 = new Int32Array(outputRecordCount);
 
   const pushRecord = (writeIndex, sourceIndex) => {
-    outTimestampsSec[writeIndex] = Number(timestampsSec[sourceIndex]);
     outDistancesQ[writeIndex] = Number(compactRecords.distancesQ[sourceIndex]);
     outPowersW[writeIndex] = Number(compactRecords.powersW[sourceIndex]);
     outHeartRatesBpm[writeIndex] = Number(compactRecords.heartRatesBpm[sourceIndex]);
@@ -350,7 +342,6 @@ function fillGapsCompactRecords(compactRecords) {
       const steps = gap - 1;
       for (let step = 1; step <= steps; step += 1) {
         const ratio = step / gap;
-        outTimestampsSec[writeIndex] = t0Sec + step;
         outDistancesQ[writeIndex] = encodeUint32(lerp(
           decodeUint32Sentinel(compactRecords.distancesQ[index]),
           decodeUint32Sentinel(compactRecords.distancesQ[index + 1]),
@@ -399,9 +390,7 @@ function fillGapsCompactRecords(compactRecords) {
   return {
     ...compactRecords,
     recordCount: writeIndex,
-    baseTimestampSec: writeIndex > 0 ? outTimestampsSec[0] : 0,
-    lastTimestampSec: writeIndex > 0 ? outTimestampsSec[writeIndex - 1] : 0,
-    timestampsSec: outTimestampsSec,
+    timestampsSec: null,
     distancesQ: outDistancesQ,
     powersW: outPowersW,
     heartRatesBpm: outHeartRatesBpm,
@@ -582,7 +571,7 @@ export function parseFitBufferCompactBrowser(buffer, { excludeStartTimes = null 
             break;
           case 7: {
             const raw = op.littleEndian ? readU32LE(bytes, o) : readU32BE(bytes, o);
-            if (raw !== 0xffffffff) distance = compactDistance(raw / 100);
+            if (raw !== 0xffffffff) distance = compactDistanceFromCentimeters(raw);
             break;
           }
           case 8:
@@ -652,22 +641,20 @@ export function parseFitBufferCompactBrowser(buffer, { excludeStartTimes = null 
   };
 }
 
-function quantizeCompactUintArray(sourceArray, step, sentinel, maxValue) {
+function quantizeCompactUintArrayInPlace(sourceArray, step, sentinel, maxValue) {
   const normalizedStep = Math.max(1, Number.parseInt(String(step ?? 1), 10) || 1);
   if (normalizedStep <= 1 || !sourceArray) {
     return sourceArray;
   }
 
-  const quantizedValues = new sourceArray.constructor(sourceArray.length);
   for (let index = 0; index < sourceArray.length; index += 1) {
     const value = Number(sourceArray[index]);
     if (!Number.isFinite(value) || value === sentinel) {
-      quantizedValues[index] = sentinel;
       continue;
     }
-    quantizedValues[index] = Math.max(0, Math.min(maxValue, Math.round(value / normalizedStep) * normalizedStep));
+    sourceArray[index] = Math.max(0, Math.min(maxValue, Math.round(value / normalizedStep) * normalizedStep));
   }
-  return quantizedValues;
+  return sourceArray;
 }
 
 export function applyCompactEncodingOptions(parsedCompact, encodingOptions = {}) {
@@ -680,13 +667,23 @@ export function applyCompactEncodingOptions(parsedCompact, encodingOptions = {})
   const cadenceStep = Math.max(1, Number.parseInt(String(encodingOptions.cadenceStep ?? 2), 10) || 2);
   const hrStep = Math.max(1, Number.parseInt(String(encodingOptions.hrStep ?? 2), 10) || 2);
 
-  return {
-    ...parsedCompact,
-    compactRecords: {
-      ...compact,
-      powersW: quantizeCompactUintArray(compact.powersW, powerStep, COMPACT_SENTINELS.uint16, COMPACT_SENTINELS.uint16 - 1),
-      cadencesRpm: quantizeCompactUintArray(compact.cadencesRpm, cadenceStep, COMPACT_SENTINELS.uint8, COMPACT_SENTINELS.uint8 - 1),
-      heartRatesBpm: quantizeCompactUintArray(compact.heartRatesBpm, hrStep, COMPACT_SENTINELS.uint8, COMPACT_SENTINELS.uint8 - 1),
-    },
-  };
+  quantizeCompactUintArrayInPlace(
+    compact.powersW,
+    powerStep,
+    COMPACT_SENTINELS.uint16,
+    COMPACT_SENTINELS.uint16 - 1
+  );
+  quantizeCompactUintArrayInPlace(
+    compact.cadencesRpm,
+    cadenceStep,
+    COMPACT_SENTINELS.uint8,
+    COMPACT_SENTINELS.uint8 - 1
+  );
+  quantizeCompactUintArrayInPlace(
+    compact.heartRatesBpm,
+    hrStep,
+    COMPACT_SENTINELS.uint8,
+    COMPACT_SENTINELS.uint8 - 1
+  );
+  return parsedCompact;
 }

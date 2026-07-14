@@ -238,6 +238,9 @@ function encodeSessionBlock(sessions = []) {
 
 function buildDistancePayloadCompact(records, recordCount) {
   const values = records.distancesQ;
+  const toTenths = (value) => value === UINT32_NAN
+    ? UINT32_NAN
+    : Math.min(UINT32_NAN - 1, value * 5);
   const chunks = [];
   let totalBytes = 0;
   for (let start = 0; start < recordCount; start += DELTA_BLOCK_SIZE) {
@@ -251,7 +254,7 @@ function buildDistancePayloadCompact(records, recordCount) {
       }
       if (offset > 0) {
         const previous = values[start + offset - 1];
-        const delta = current - previous;
+        const delta = (current - previous) * 5;
         if (delta < -32767 || delta > 32767) {
           canDeltaEncode = false;
           break;
@@ -264,10 +267,10 @@ function buildDistancePayloadCompact(records, recordCount) {
       const view = new DataView(chunk.buffer);
       chunk[0] = 1;
       view.setUint16(1, count, true);
-      view.setUint32(3, values[start], true);
+      view.setUint32(3, toTenths(values[start]), true);
       let offset = 7;
       for (let index = 1; index < count; index += 1) {
-        view.setInt16(offset, values[start + index] - values[start + index - 1], true);
+        view.setInt16(offset, (values[start + index] - values[start + index - 1]) * 5, true);
         offset += 2;
       }
       chunks.push(chunk);
@@ -281,7 +284,7 @@ function buildDistancePayloadCompact(records, recordCount) {
     view.setUint16(1, count, true);
     let offset = 3;
     for (let index = 0; index < count; index += 1) {
-      view.setUint32(offset, values[start + index], true);
+      view.setUint32(offset, toTenths(values[start + index]), true);
       offset += 4;
     }
     chunks.push(chunk);
@@ -812,8 +815,7 @@ function buildWorkoutStreamBlockFromCompactDelta16Power(compactRecords) {
   };
 }
 
-function buildDistancePayloadCompactUint8Q02(compactRecords, recordCount, distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE) {
-  const DISTANCE_DIVISOR = 2;
+function buildDistancePayloadCompactUint8Q05(compactRecords, recordCount, distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE) {
   const DISTANCE_ESCAPE = 255;
   const values = compactRecords.distancesQ;
   const chunks = [];
@@ -827,7 +829,7 @@ function buildDistancePayloadCompactUint8Q02(compactRecords, recordCount, distan
     if (canUint8Encode) {
       const tokenBytes = new Uint8Array(Math.max(0, count - 1));
       const absoluteTailValues = [];
-      let previousScaled = Math.round(values[start] / DISTANCE_DIVISOR);
+      let previousScaled = values[start];
 
       for (let offset = 1; offset < count; offset += 1) {
         const current = values[start + offset];
@@ -836,7 +838,7 @@ function buildDistancePayloadCompactUint8Q02(compactRecords, recordCount, distan
           break;
         }
 
-        const currentScaled = Math.round(current / DISTANCE_DIVISOR);
+        const currentScaled = current;
         const delta = currentScaled - previousScaled;
         if (delta >= 0 && delta < DISTANCE_ESCAPE) {
           tokenBytes[offset - 1] = delta;
@@ -852,7 +854,7 @@ function buildDistancePayloadCompactUint8Q02(compactRecords, recordCount, distan
         const view = new DataView(chunk.buffer);
         chunk[0] = 3;
         view.setUint16(1, count, true);
-        view.setUint32(3, Math.round(values[start] / DISTANCE_DIVISOR), true);
+        view.setUint32(3, values[start], true);
         chunk.set(tokenBytes, 7);
         let tailOffset = 7 + tokenBytes.byteLength;
         for (const absoluteValue of absoluteTailValues) {
@@ -867,10 +869,16 @@ function buildDistancePayloadCompactUint8Q02(compactRecords, recordCount, distan
 
     const chunk = new Uint8Array(1 + 2 + count * 4);
     chunk[0] = 0;
-    new DataView(chunk.buffer).setUint16(1, count, true);
+    const view = new DataView(chunk.buffer);
+    view.setUint16(1, count, true);
     let writeOffset = 3;
     for (let index = 0; index < count; index += 1) {
-      new DataView(chunk.buffer).setUint32(writeOffset, values[start + index], true);
+      const value = values[start + index];
+      view.setUint32(
+        writeOffset,
+        value === UINT32_NAN ? UINT32_NAN : Math.min(UINT32_NAN - 1, value * 5),
+        true
+      );
       writeOffset += 4;
     }
     chunks.push(chunk);
@@ -927,7 +935,7 @@ function buildWorkoutStreamBlockCompactDistanceUint8Q02(compactRecords, { distan
   const usesSpeedFallback = !hasCompleteDistanceSeries;
   const headerBytes = 4 + 4 + 8 + 4 + 6 * 4;
   const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
-  const distancePayload = buildDistancePayloadCompactUint8Q02(compactRecords, recordCount, normalizedDistanceBlockSize);
+  const distancePayload = buildDistancePayloadCompactUint8Q05(compactRecords, recordCount, normalizedDistanceBlockSize);
   const distancesBytes = distancePayload.byteLength;
   const powersBytes = recordCount * 2;
   const heartRatesBytes = recordCount;
@@ -997,7 +1005,7 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02(compactRecor
   const usesSpeedFallback = !hasCompleteDistanceSeries;
   const headerBytes = 4 + 4 + 8 + 4 + 6 * 4;
   const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
-  const distancePayload = buildDistancePayloadCompactUint8Q02(compactRecords, recordCount, normalizedDistanceBlockSize);
+  const distancePayload = buildDistancePayloadCompactUint8Q05(compactRecords, recordCount, normalizedDistanceBlockSize);
   const powerPayload = buildPowerDeltaPayloadFromCompact(compactRecords, recordCount);
   const distancesBytes = distancePayload.byteLength;
   const powersBytes = powerPayload.bytes.byteLength;
@@ -1071,7 +1079,7 @@ function buildWorkoutStreamBlockCompactDelta16PowerDistanceUint8Q02AltitudeDelta
   const usesSpeedFallback = !hasCompleteDistanceSeries;
   const headerBytes = 4 + 4 + 8 + 4 + 6 * 4;
   const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
-  const distancePayload = buildDistancePayloadCompactUint8Q02(compactRecords, recordCount, normalizedDistanceBlockSize);
+  const distancePayload = buildDistancePayloadCompactUint8Q05(compactRecords, recordCount, normalizedDistanceBlockSize);
   const powerPayload = buildPowerDeltaPayloadFromCompact(compactRecords, recordCount);
   const altitudePayload = buildAltitudeDeltaPayloadFromCompact(compactRecords, recordCount);
   const distancesBytes = distancePayload.byteLength;
@@ -1157,7 +1165,7 @@ function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02AltitudeDelt
   const usesSpeedFallback = !hasCompleteDistanceSeries;
   const headerBytes = 4 + 4 + 8 + 4 + 6 * 4;
   const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
-  const distancePayload = buildDistancePayloadCompactUint8Q02(compactRecords, recordCount, normalizedDistanceBlockSize);
+  const distancePayload = buildDistancePayloadCompactUint8Q05(compactRecords, recordCount, normalizedDistanceBlockSize);
   const powerPayload = buildPowerDeltaInt8Q4PayloadFromCompact(compactRecords, recordCount);
   const altitudePayload = buildAltitudeDeltaPayloadFromCompact(compactRecords, recordCount);
   const distancesBytes = distancePayload.byteLength;
@@ -1242,7 +1250,7 @@ function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(
   const usesSpeedFallback = !hasCompleteDistanceSeries;
   const headerBytes = 4 + 4 + 8 + 4 + 6 * 4;
   const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
-  const distancePayload = buildDistancePayloadCompactUint8Q02(compactRecords, recordCount, normalizedDistanceBlockSize);
+  const distancePayload = buildDistancePayloadCompactUint8Q05(compactRecords, recordCount, normalizedDistanceBlockSize);
   const powerPayload = buildPowerDeltaInt8Q4PayloadFromCompact(compactRecords, recordCount);
   const heartRatePayload = buildUint8RunLengthPayloadColumnDelta(compactRecords.heartRatesBpm, UINT8_NAN, "hr-rle-col-delta8");
   const cadencePayload = buildUint8RunLengthPayloadColumnDelta(compactRecords.cadencesRpm, UINT8_NAN, "cad-rle-col-delta8");
@@ -1556,141 +1564,98 @@ function buildGpsBitmapColumnarPayload(points) {
   };
 }
 
-function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS) {
+export function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS) {
   const MAX_STEP_DISTANCE_METERS = 40;
   const MIN_RELOCK_SEQUENCE = 3;
   const MAX_INTERPOLATION_GAP = 8;
   const DEG_TO_RAD = Math.PI / 180;
   const EARTH_RADIUS_METERS = 6371000;
+  const METERS_PER_MICRO_DEGREE = EARTH_RADIUS_METERS * DEG_TO_RAD / MICRO_DEGREES;
+  const MAX_STEP_DISTANCE_SQUARED = MAX_STEP_DISTANCE_METERS ** 2;
   const sampleRate = normalizeGpsSampleRateSeconds(sampleRateSeconds, DEFAULT_GPS_SAMPLE_RATE_SECONDS);
-  const precision = 5;
   const recordCount = Number(compactRecords?.recordCount || 0);
   const firstTimestampMs = getCompactBaseTimestampMs(compactRecords, recordCount);
+  const rawLatitudesE6 = compactRecords?.positionLatsE6;
+  const rawLongitudesE6 = compactRecords?.positionLongsE6;
 
-  function haversine(latA, lngA, latB, lngB) {
-    const dLat = (latB - latA) * DEG_TO_RAD;
-    const dLng = (lngB - lngA) * DEG_TO_RAD;
-    const lat1 = latA * DEG_TO_RAD;
-    const lat2 = latB * DEG_TO_RAD;
-    const aVal = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-    return 2 * EARTH_RADIUS_METERS * Math.atan2(Math.sqrt(aVal), Math.sqrt(1 - aVal));
+  function hasRawCoordinateAt(index) {
+    const latE6 = rawLatitudesE6?.[index];
+    const lngE6 = rawLongitudesE6?.[index];
+    return Number.isFinite(latE6)
+      && Number.isFinite(lngE6)
+      && latE6 !== INT32_NAN
+      && lngE6 !== INT32_NAN
+      && (latE6 !== 0 || lngE6 !== 0);
   }
 
-  function readRawLatAt(index) {
-    const latRaw = Number(compactRecords?.positionLatsE6?.[index]);
-    return Number.isFinite(latRaw) && latRaw !== INT32_NAN ? latRaw / MICRO_DEGREES : Number.NaN;
+  function isWithinMaxStep(indexA, indexB) {
+    const latAE6 = rawLatitudesE6[indexA];
+    const lngAE6 = rawLongitudesE6[indexA];
+    const latBE6 = rawLatitudesE6[indexB];
+    const lngBE6 = rawLongitudesE6[indexB];
+    const dLatMeters = (latBE6 - latAE6) * METERS_PER_MICRO_DEGREE;
+    const dLngUpperBoundMeters = (lngBE6 - lngAE6) * METERS_PER_MICRO_DEGREE;
+
+    // Longitude degrees are never longer than at the equator. If this
+    // conservative bound fits, the exact great-circle distance fits as well.
+    if (
+      (dLatMeters * dLatMeters) + (dLngUpperBoundMeters * dLngUpperBoundMeters)
+      <= MAX_STEP_DISTANCE_SQUARED
+    ) {
+      return true;
+    }
+
+    let dLngE6 = lngBE6 - lngAE6;
+    if (dLngE6 > 180 * MICRO_DEGREES) dLngE6 -= 360 * MICRO_DEGREES;
+    if (dLngE6 < -180 * MICRO_DEGREES) dLngE6 += 360 * MICRO_DEGREES;
+
+    const meanLatRadians = ((latAE6 + latBE6) / (2 * MICRO_DEGREES)) * DEG_TO_RAD;
+    const dLngMeters = dLngE6 * METERS_PER_MICRO_DEGREE * Math.cos(meanLatRadians);
+    return (dLatMeters * dLatMeters) + (dLngMeters * dLngMeters) <= MAX_STEP_DISTANCE_SQUARED;
   }
 
-  function readRawLngAt(index) {
-    const lngRaw = Number(compactRecords?.positionLongsE6?.[index]);
-    return Number.isFinite(lngRaw) && lngRaw !== INT32_NAN ? lngRaw / MICRO_DEGREES : Number.NaN;
-  }
-
-  const latitudes = new Float64Array(recordCount);
-  const longitudes = new Float64Array(recordCount);
-  latitudes.fill(Number.NaN);
-  longitudes.fill(Number.NaN);
-
-  for (let index = 0; index < recordCount; index += 1) {
-    latitudes[index] = readRawLatAt(index);
-    longitudes[index] = readRawLngAt(index);
-  }
-
+  const validCoordinates = new Uint8Array(recordCount);
   let lastValidIndex = -1;
-  const relockCandidateIndexes = [];
+  const relockCandidateIndexes = new Int32Array(MIN_RELOCK_SEQUENCE);
+  let relockCandidateCount = 0;
   for (let i = 0; i < recordCount; i += 1) {
-    const lat = latitudes[i];
-    const lng = longitudes[i];
-    const invalid = !Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0);
-    if (invalid) {
-      latitudes[i] = Number.NaN;
-      longitudes[i] = Number.NaN;
-      continue;
-    }
+    if (!hasRawCoordinateAt(i)) continue;
+
     if (lastValidIndex < 0) {
+      validCoordinates[i] = 1;
       lastValidIndex = i;
       continue;
     }
-    const dist = haversine(latitudes[lastValidIndex], longitudes[lastValidIndex], lat, lng);
-    if (dist <= MAX_STEP_DISTANCE_METERS) {
+
+    if (isWithinMaxStep(lastValidIndex, i)) {
+      validCoordinates[i] = 1;
       lastValidIndex = i;
-      relockCandidateIndexes.length = 0;
+      relockCandidateCount = 0;
       continue;
     }
-    latitudes[i] = Number.NaN;
-    longitudes[i] = Number.NaN;
-    const rawLat = readRawLatAt(i);
-    const rawLng = readRawLngAt(i);
-    if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng)) {
-      relockCandidateIndexes.length = 0;
+
+    if (relockCandidateCount === 0) {
+      relockCandidateIndexes[0] = i;
+      relockCandidateCount = 1;
       continue;
     }
-    if (relockCandidateIndexes.length === 0) {
-      relockCandidateIndexes.push(i);
-      continue;
-    }
-    const previousCandidateIndex = relockCandidateIndexes[relockCandidateIndexes.length - 1];
-    const prevCandidateLat = readRawLatAt(previousCandidateIndex);
-    const prevCandidateLng = readRawLngAt(previousCandidateIndex);
-    if (!Number.isFinite(prevCandidateLat) || !Number.isFinite(prevCandidateLng)) {
-      relockCandidateIndexes.length = 0;
-      relockCandidateIndexes.push(i);
-      continue;
-    }
-    const candidateDist = haversine(prevCandidateLat, prevCandidateLng, rawLat, rawLng);
-    if (candidateDist <= MAX_STEP_DISTANCE_METERS) {
-      relockCandidateIndexes.push(i);
+
+    const previousCandidateIndex = relockCandidateIndexes[relockCandidateCount - 1];
+    if (isWithinMaxStep(previousCandidateIndex, i)) {
+      relockCandidateIndexes[relockCandidateCount] = i;
+      relockCandidateCount += 1;
     } else {
-      relockCandidateIndexes.length = 0;
-      relockCandidateIndexes.push(i);
+      relockCandidateIndexes[0] = i;
+      relockCandidateCount = 1;
     }
-    if (relockCandidateIndexes.length >= MIN_RELOCK_SEQUENCE) {
-      for (const candidateIndex of relockCandidateIndexes) {
-        latitudes[candidateIndex] = readRawLatAt(candidateIndex);
-        longitudes[candidateIndex] = readRawLngAt(candidateIndex);
+
+    if (relockCandidateCount >= MIN_RELOCK_SEQUENCE) {
+      for (let candidate = 0; candidate < relockCandidateCount; candidate += 1) {
+        validCoordinates[relockCandidateIndexes[candidate]] = 1;
       }
-      lastValidIndex = relockCandidateIndexes[relockCandidateIndexes.length - 1];
-      relockCandidateIndexes.length = 0;
+      lastValidIndex = relockCandidateIndexes[relockCandidateCount - 1];
+      relockCandidateCount = 0;
     }
-  }
-
-  const prevValidIndex = new Int32Array(recordCount);
-  const nextValidIndex = new Int32Array(recordCount);
-  prevValidIndex.fill(-1);
-  nextValidIndex.fill(-1);
-  let previousValidIndex = -1;
-  for (let i = 0; i < recordCount; i += 1) {
-    prevValidIndex[i] = previousValidIndex;
-    if (Number.isFinite(latitudes[i]) && Number.isFinite(longitudes[i])) {
-      previousValidIndex = i;
-    }
-  }
-  let nextIndex = -1;
-  for (let i = recordCount - 1; i >= 0; i -= 1) {
-    nextValidIndex[i] = nextIndex;
-    if (Number.isFinite(latitudes[i]) && Number.isFinite(longitudes[i])) {
-      nextIndex = i;
-    }
-  }
-
-  let currentGapLength = 0;
-  for (let i = 0; i < recordCount; i += 1) {
-    if (Number.isFinite(latitudes[i]) && Number.isFinite(longitudes[i])) {
-      currentGapLength = 0;
-      continue;
-    }
-    currentGapLength += 1;
-    const prevIndex = prevValidIndex[i];
-    const nextValid = nextValidIndex[i];
-    const prevLat = prevIndex >= 0 ? latitudes[prevIndex] : Number.NaN;
-    const prevLng = prevIndex >= 0 ? longitudes[prevIndex] : Number.NaN;
-    const nextLat = nextValid >= 0 ? latitudes[nextValid] : Number.NaN;
-    const nextLng = nextValid >= 0 ? longitudes[nextValid] : Number.NaN;
-    if (!Number.isFinite(prevLat) || !Number.isFinite(prevLng) || !Number.isFinite(nextLat) || !Number.isFinite(nextLng) || currentGapLength > MAX_INTERPOLATION_GAP) {
-      continue;
-    }
-    latitudes[i] = (prevLat + nextLat) / 2;
-    longitudes[i] = (prevLng + nextLng) / 2;
   }
 
   let minLat = Infinity;
@@ -1702,46 +1667,75 @@ function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = DEFAULT
   const segments = [];
   let currentSegment = null;
 
-  for (let i = 0; i < recordCount; i += 1) {
-    if (i % sampleRate === 0) {
-      const latValue = latitudes[i];
-      const lngValue = longitudes[i];
-      const valid = Number.isFinite(latValue) && Number.isFinite(lngValue);
+  function appendInvalidSlot(recordIndex) {
+    slots.push({
+      lat: Number.NaN,
+      lng: Number.NaN,
+      valid: false,
+      slotIndex: slots.length,
+      recordIndex
+    });
+    currentSegment = null;
+  }
 
-      if (!valid) {
-        slots.push({
-          lat: Number.NaN,
-          lng: Number.NaN,
-          valid: false,
-          slotIndex: slots.length,
-          recordIndex: i
-        });
-        currentSegment = null;
-        continue;
+  function appendValidSlot(recordIndex, latE6, lngE6) {
+    const lat = Math.round(latE6 / 10) / GPS_TRACK_COORDINATE_SCALE;
+    const lng = Math.round(lngE6 / 10) / GPS_TRACK_COORDINATE_SCALE;
+    const slot = {
+      lat,
+      lng,
+      valid: true,
+      slotIndex: slots.length,
+      recordIndex
+    };
+
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+
+    slots.push(slot);
+    points.push(slot);
+    if (!currentSegment) {
+      currentSegment = [];
+      segments.push(currentSegment);
+    }
+    currentSegment.push(slot);
+  }
+
+  let index = 0;
+  while (index < recordCount) {
+    if (validCoordinates[index]) {
+      if (index % sampleRate === 0) {
+        appendValidSlot(index, rawLatitudesE6[index], rawLongitudesE6[index]);
       }
+      index += 1;
+      continue;
+    }
 
-      const lat = Number(latValue.toFixed(precision));
-      const lng = Number(lngValue.toFixed(precision));
-      const slot = {
-        lat,
-        lng,
-        valid: true,
-        slotIndex: slots.length,
-        recordIndex: i
-      };
+    const gapStart = index;
+    while (index < recordCount && !validCoordinates[index]) index += 1;
+    const gapEnd = index;
+    const previousValidIndex = gapStart - 1;
+    const nextValidIndex = gapEnd < recordCount ? gapEnd : -1;
+    const canInterpolate = previousValidIndex >= 0 && nextValidIndex >= 0;
+    const interpolatedEnd = canInterpolate
+      ? Math.min(gapEnd, gapStart + MAX_INTERPOLATION_GAP)
+      : gapStart;
+    const interpolatedLatE6 = canInterpolate
+      ? (rawLatitudesE6[previousValidIndex] + rawLatitudesE6[nextValidIndex]) / 2
+      : 0;
+    const interpolatedLngE6 = canInterpolate
+      ? (rawLongitudesE6[previousValidIndex] + rawLongitudesE6[nextValidIndex]) / 2
+      : 0;
 
-      if (lat < minLat) minLat = lat;
-      if (lat > maxLat) maxLat = lat;
-      if (lng < minLng) minLng = lng;
-      if (lng > maxLng) maxLng = lng;
-
-      slots.push(slot);
-      points.push(slot);
-      if (!currentSegment) {
-        currentSegment = [];
-        segments.push(currentSegment);
+    for (let gapIndex = gapStart; gapIndex < gapEnd; gapIndex += 1) {
+      if (gapIndex % sampleRate !== 0) continue;
+      if (gapIndex < interpolatedEnd) {
+        appendValidSlot(gapIndex, interpolatedLatE6, interpolatedLngE6);
+      } else {
+        appendInvalidSlot(gapIndex);
       }
-      currentSegment.push(slot);
     }
   }
 

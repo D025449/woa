@@ -14,6 +14,7 @@ import { encodeWoaTransportContainer } from "../public/js/woa-transport-containe
 
 const COMPRESSION_FORMATS = new Set(["gzip", "brotli", "identity", "none"]);
 const UINT8_NAN = 0xFF;
+const UINT32_NAN = 0xFFFFFFFF;
 const MIN_WORKOUT_RECORD_COUNT = 300;
 const MIB = 1024 * 1024;
 
@@ -304,6 +305,143 @@ function formatDictionaryStats(name, stats) {
     `gzip current=${formatMiB(stats.currentGzipBytes)}, dictionary=${formatMiB(stats.candidateGzipBytes)}, ` +
     `adaptive=${formatMiB(stats.adaptiveGzipBytes)} (selected ${stats.gzipSelected}/${stats.workouts}), ` +
     `avgBits=${(stats.bitWidthTotal / Math.max(1, stats.workouts)).toFixed(1)}, widths=${widths.join("|")}`
+  );
+}
+
+function createDistanceDeltaStats() {
+  return {
+    workouts: 0,
+    samples: 0,
+    deltas: 0,
+    escapes: 0,
+    currentBytes: 0,
+    q1Bytes: 0,
+    q1GzipBytes: 0,
+    q1AbsoluteErrorMeters: 0,
+    q1SquaredErrorMeters: 0,
+    q1MaxErrorMeters: 0,
+    q1ErrorSamples: 0,
+    tokenCounts: new Float64Array(256),
+    packedBytes: new Float64Array(9),
+  };
+}
+
+function buildDistancePayloadCandidate(values, divisor) {
+  if (values.length === 0) return new Uint8Array(0);
+  const tokens = new Uint8Array(Math.max(0, values.length - 1));
+  const absolutes = [];
+  let previous = Math.round(values[0] / divisor);
+  for (let index = 1; index < values.length; index += 1) {
+    const current = Math.round(values[index] / divisor);
+    const delta = current - previous;
+    if (delta >= 0 && delta < 255) {
+      tokens[index - 1] = delta;
+    } else {
+      tokens[index - 1] = 255;
+      absolutes.push(current);
+    }
+    previous = current;
+  }
+  const bytes = new Uint8Array(7 + tokens.length + absolutes.length * 4);
+  const view = new DataView(bytes.buffer);
+  bytes[0] = 3;
+  view.setUint16(1, values.length, true);
+  view.setUint32(3, Math.round(values[0] / divisor), true);
+  bytes.set(tokens, 7);
+  let offset = 7 + tokens.length;
+  for (const absolute of absolutes) {
+    view.setUint32(offset, absolute, true);
+    offset += 4;
+  }
+  return bytes;
+}
+
+function analyzeDistanceDeltas(stats, values, currentPayload, gzipLevel) {
+  stats.workouts += 1;
+  stats.samples += values.length;
+  stats.currentBytes += currentPayload.byteLength;
+
+  let complete = values.length > 0;
+  for (let index = 0; index < values.length; index += 1) {
+    if (values[index] === UINT32_NAN) {
+      complete = false;
+      break;
+    }
+  }
+  if (!complete) return;
+
+  const q1Payload = buildDistancePayloadCandidate(values, 2);
+  stats.q1Bytes += q1Payload.byteLength;
+  stats.q1GzipBytes += gzipSync(q1Payload, { level: gzipLevel }).byteLength;
+  for (let index = 0; index < values.length; index += 1) {
+    const sourceMeters = values[index] / 2;
+    const encodedMeters = Math.round(values[index] / 2);
+    const error = Math.abs(encodedMeters - sourceMeters);
+    stats.q1AbsoluteErrorMeters += error;
+    stats.q1SquaredErrorMeters += error * error;
+    stats.q1MaxErrorMeters = Math.max(stats.q1MaxErrorMeters, error);
+    stats.q1ErrorSamples += 1;
+  }
+
+  let previous = values[0];
+  const perWidthEscapes = new Uint32Array(9);
+  for (let index = 1; index < values.length; index += 1) {
+    const current = values[index];
+    const delta = current - previous;
+    const token = delta >= 0 && delta < 255 ? delta : 255;
+    stats.tokenCounts[token] += 1;
+    stats.deltas += 1;
+    if (token === 255) stats.escapes += 1;
+    for (let width = 4; width <= 8; width += 1) {
+      const escape = (2 ** width) - 1;
+      if (delta < 0 || delta >= escape) perWidthEscapes[width] += 1;
+    }
+    previous = current;
+  }
+
+  // One mode/count/absolute header per workout, packed tokens, then Uint32 escape absolutes.
+  for (let width = 4; width <= 8; width += 1) {
+    stats.packedBytes[width] += 7 + Math.ceil(Math.max(0, values.length - 1) * width / 8)
+      + perWidthEscapes[width] * 4;
+  }
+}
+
+function formatDistanceDeltaStats(stats) {
+  const total = Math.max(1, stats.deltas);
+  let entropyBits = 0;
+  const frequencies = [];
+  for (let token = 0; token < stats.tokenCounts.length; token += 1) {
+    const count = stats.tokenCounts[token];
+    if (count === 0) continue;
+    const probability = count / total;
+    entropyBits -= probability * Math.log2(probability);
+    frequencies.push({ token, count });
+  }
+  frequencies.sort((left, right) => right.count - left.count);
+  const top = frequencies.slice(0, 15)
+    .map(({ token, count }) => `${token}:${((count * 100) / total).toFixed(2)}%`)
+    .join("|");
+  const packed = [];
+  for (let width = 4; width <= 8; width += 1) {
+    const saving = stats.currentBytes > 0
+      ? ((stats.currentBytes - stats.packedBytes[width]) * 100) / stats.currentBytes
+      : 0;
+    packed.push(`${width}bit=${formatMiB(stats.packedBytes[width])} (${saving.toFixed(1)}%)`);
+  }
+  const idealTokenBytes = (stats.deltas * entropyBits) / 8;
+  const q1RawSaving = stats.currentBytes > 0
+    ? ((stats.currentBytes - stats.q1Bytes) * 100) / stats.currentBytes
+    : 0;
+  const meanError = stats.q1AbsoluteErrorMeters / Math.max(1, stats.q1ErrorSamples);
+  const rmse = Math.sqrt(stats.q1SquaredErrorMeters / Math.max(1, stats.q1ErrorSamples));
+  return (
+    `Distance delta distribution (units of 0.5m): samples=${stats.samples}, deltas=${stats.deltas}, ` +
+    `current=${formatMiB(stats.currentBytes)}, escapes=${stats.escapes} ` +
+    `(${((stats.escapes * 100) / total).toFixed(4)}%), entropy=${entropyBits.toFixed(3)} bit/token, ` +
+    `idealTokens=${formatMiB(idealTokenBytes)}, ${packed.join(", ")}, top=${top}\n` +
+    `Distance 1.0m candidate: raw=${formatMiB(stats.q1Bytes)} (${q1RawSaving.toFixed(1)}% smaller), ` +
+    `gzip=${formatMiB(stats.q1GzipBytes)}, meanError=${meanError.toFixed(3)}m, ` +
+    `rmse=${rmse.toFixed(3)}m, maxError=${stats.q1MaxErrorMeters.toFixed(3)}m`
   );
 }
 
@@ -982,6 +1120,7 @@ for (let run = 1; run <= options.repeats; run += 1) {
 
   const cadenceStats = createDictionaryStats();
   const heartRateStats = createDictionaryStats();
+  const distanceStats = createDistanceDeltaStats();
   const powerPforStats = createPowerPforStats();
   const gpsBitmapStats = createGpsBitmapStats();
   const outputEntries = [];
@@ -1059,6 +1198,12 @@ for (let run = 1; run <= options.repeats; run += 1) {
         ? gzipSync(payload, { level: options.gzipLevel }).byteLength
         : 0;
     }
+    analyzeDistanceDeltas(
+      distanceStats,
+      compact.distancesQ,
+      woa.workoutStreamBlock.distancePayloadBytes,
+      options.gzipLevel
+    );
     const powerExperimentStartedAt = performance.now();
     analyzePowerPfor(
       powerPforStats,
@@ -1101,6 +1246,7 @@ for (let run = 1; run <= options.repeats; run += 1) {
   );
   console.log(formatDictionaryStats("Cadence delta dictionary", cadenceStats));
   console.log(formatDictionaryStats("Heart-rate delta dictionary", heartRateStats));
+  console.log(formatDistanceDeltaStats(distanceStats));
   console.log(formatPowerPforStats(powerPforStats));
   console.log(formatPowerDeltaDistribution(powerPforStats));
   console.log(formatPowerNibbleStats(powerPforStats));
