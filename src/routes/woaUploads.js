@@ -21,7 +21,7 @@ import { enqueueWorkoutSimilarityClassificationBulk } from "../services/workout-
 
 const router = Router();
 const IMPORT_SYNC_PROFILE_LOG = String(process.env.IMPORT_SYNC_PROFILE_LOG || "1").trim() !== "0";
-const IMPORT_DB_BULK_INSERT_SIZE = Math.max(1, Number(process.env.IMPORT_DB_BULK_INSERT_SIZE) || 20);
+const IMPORT_DB_BULK_INSERT_SIZE = Math.max(1, Number(process.env.IMPORT_DB_BULK_INSERT_SIZE) || 200);
 const IMPORT_POSTPROCESS_ENQUEUE_BULK_SIZE = 500;
 
 function resolveUploadContainerCompression(req) {
@@ -74,6 +74,7 @@ function createImportProfile() {
     prepareInsertGpsTrackBlobCompressedBytes: 0,
     deleteExistingRowsMs: 0,
     insertWorkoutMs: 0,
+    insertWorkoutBatchCount: 0,
     insertWorkoutRowsMs: 0,
     insertWorkoutLoadExistingRowsMs: 0,
     schedulePostprocessMs: 0,
@@ -203,6 +204,7 @@ async function importWoaEntryReaders({
 
   for (let start = 0; start < pendingItems.length; start += IMPORT_DB_BULK_INSERT_SIZE) {
     const chunk = pendingItems.slice(start, start + IMPORT_DB_BULK_INSERT_SIZE);
+    profile.insertWorkoutBatchCount += 1;
     try {
       const insertStartedAt = Date.now();
       const bulkResult = await FileDBService.insertPreparedFilesBulk(
@@ -384,6 +386,10 @@ async function importWoaEntryReaders({
           gpsTrackBlobCompressedBytes: profile.prepareInsertGpsTrackBlobCompressedBytes
         },
         insertWorkoutMs: profile.insertWorkoutMs,
+        insertWorkoutBatches: {
+          configuredBatchSize: IMPORT_DB_BULK_INSERT_SIZE,
+          batchCount: profile.insertWorkoutBatchCount
+        },
         insertWorkoutStepsMs: {
           deleteExistingRowsMs: profile.deleteExistingRowsMs,
           insertWorkoutRowsMs: profile.insertWorkoutRowsMs,

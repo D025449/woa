@@ -52,7 +52,7 @@ export async function createApp(options = {}) {
   const IMPORT_UPLOAD_TEMP_DIR = getImportUploadDir();
   const IMPORT_QUEUE_CONCURRENCY = Math.max(1, Number(process.env.IMPORT_QUEUE_CONCURRENCY) || 2);
   const IMPORT_BATCH_WORKER_CONCURRENCY = Math.max(1, Number(process.env.IMPORT_BATCH_WORKER_CONCURRENCY) || 2);
-  const IMPORT_DB_BULK_INSERT_SIZE = Math.max(1, Number(process.env.IMPORT_DB_BULK_INSERT_SIZE) || 20);
+  const IMPORT_DB_BULK_INSERT_SIZE = Math.max(1, Number(process.env.IMPORT_DB_BULK_INSERT_SIZE) || 200);
   const IMPORT_POSTPROCESS_MODE = String(process.env.IMPORT_POSTPROCESS_MODE || "immediate").trim().toLowerCase() === "phased"
     ? "phased"
     : "immediate";
