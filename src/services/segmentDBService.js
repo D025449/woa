@@ -1211,27 +1211,52 @@ export default class SegmentDBService {
     return matches;
   }
 
-  static async scanWorkoutsForSegment(uid, segment) {
+  static async scanWorkoutsForSegment(uid, segment, options = {}) {
+    const includeProfile = options?.includeProfile === true;
+    const profile = {
+      loadCandidateRowsMs: 0,
+      decodeCandidateTracksMs: 0,
+      matchSegmentsMs: 0,
+      loadWorkoutObjectsMs: 0,
+      calculateAveragesMs: 0,
+      candidateCount: 0,
+      matchedWorkoutCount: 0,
+      matchCount: 0
+    };
+
     if (!segment?.id || !segment?.bbox) {
-      return [];
+      return includeProfile ? { matches: [], profile } : [];
     }
 
-    console.time("scanWorkoutsForSegment");
-
-    const candidates = await FileDBService.getMatchingWorkoutCandidatesV2(
+    const loadCandidateRowsStartedAt = Date.now();
+    const candidateRows = await FileDBService.getMatchingWorkoutCandidatesV2(
       segment.bbox,
       segment.id,
       uid
     );
+    profile.loadCandidateRowsMs = Date.now() - loadCandidateRowsStartedAt;
+    profile.candidateCount = candidateRows.length;
+
+    const decodeCandidateTracksStartedAt = Date.now();
+    const candidates = await Promise.all(candidateRows.map(async (row) => ({
+      ...row,
+      decodedTrack: await GpsTrackBlobService.decodeRowTrack(row, { includeGeoJson: false })
+    })));
+    profile.decodeCandidateTracksMs = Date.now() - decodeCandidateTracksStartedAt;
 
     const segLine = segment.track.map(({ lat, lng }) => ({ lat, lng }));
     const matches = [];
 
+    const matchSegmentsStartedAt = Date.now();
     candidates.forEach((cand) => {
+      const decodedTrack = cand.decodedTrack;
       const wotrack = {
         wid: cand.wid,
-        track: cand.wgeom.coordinates.map(([lng, lat]) => ({ lat, lng })),
-        sampleRate: cand.wsamplerate
+        track: decodedTrack.points,
+        segments: decodedTrack.segments,
+        sampleRate: Number(decodedTrack.sampleRateGps) > 0
+          ? Number(decodedTrack.sampleRateGps)
+          : cand.wsamplerate
       };
 
       const found = SegmentMatcher.findMatches(wotrack, {
@@ -1241,38 +1266,32 @@ export default class SegmentDBService {
 
       matches.push(...found);
     });
+    profile.matchSegmentsMs = Date.now() - matchSegmentsStartedAt;
+    profile.matchCount = matches.length;
 
     const uniqueIds = [...new Set(matches.map((match) => match.workout_id))];
+    profile.matchedWorkoutCount = uniqueIds.length;
 
     if (uniqueIds.length > 0) {
-      const chunks = SegmentDBService.chunkArray(uniqueIds, 10);
-      const CONCURRENCY = 3;
+      const loadWorkoutObjectsStartedAt = Date.now();
+      const rawWorkoutObjects = await WorkoutDBService.getWorkouts(uniqueIds);
+      const workoutObjects = new Map(
+        [...rawWorkoutObjects.entries()].map(([workoutId, workout]) => [Number(workoutId), workout])
+      );
+      profile.loadWorkoutObjectsMs = Date.now() - loadWorkoutObjectsStartedAt;
 
-      for (let i = 0; i < chunks.length; i += CONCURRENCY) {
-        const batch = chunks.slice(i, i + CONCURRENCY);
+      const calculateAveragesStartedAt = Date.now();
+      for (const match of matches) {
+        const workoutObject = workoutObjects.get(Number(match.workout_id));
+        if (!workoutObject) continue;
 
-        const results = await Promise.all(
-          batch.map((chunk) => WorkoutDBService.getWorkouts(chunk))
-        );
-
-        results.forEach((workoutMap, idx) => {
-          const chunk = batch[idx];
-
-          matches.forEach((match) => {
-            if (!chunk.includes(match.workout_id)) return;
-
-            const workoutObject = workoutMap.get(match.workout_id);
-            if (!workoutObject) return;
-
-            const avgs = workoutObject.getAverages(match.start_offset, match.end_offset);
-            Object.assign(match, avgs);
-          });
-        });
+        const averages = workoutObject.getAverages(match.start_offset, match.end_offset);
+        Object.assign(match, averages);
       }
+      profile.calculateAveragesMs = Date.now() - calculateAveragesStartedAt;
     }
 
-    console.timeEnd("scanWorkoutsForSegment");
-    return matches;
+    return includeProfile ? { matches, profile } : matches;
   }
 
   static async getSharedSegmentRescanTargetsForWorkout(workoutId, workoutOwnerId, groupIds = []) {

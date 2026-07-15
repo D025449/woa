@@ -327,7 +327,7 @@ export default class TableView {
         this.currentSegment.bestEffortsStatus = data.status;
 
         if (data.status === "completed" || data.status === "failed") {
-          await this.table.setData(`/segments/bestefforts/${segmentId}/data?scope=${encodeURIComponent(this.scopeValue || "mine")}`);
+          await this.table.setData(`/segments/bestefforts/${segmentId}/data`);
           this.stopBestEffortsPolling();
           return;
         }

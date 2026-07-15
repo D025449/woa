@@ -135,8 +135,60 @@ export default class IntervalDetector {
   }
 
   static computeBaseline(power) {
-    const sorted = Array.from(power).sort((a, b) => a - b);
-    return sorted[Math.floor(sorted.length * 0.3)];
+    if (power.length === 0) {
+      return undefined;
+    }
+
+    const values = power.slice();
+    const target = Math.floor(values.length * 0.3);
+    let left = 0;
+    let right = values.length - 1;
+
+    while (left <= right) {
+      const middle = left + ((right - left) >> 1);
+      const pivot = this.medianOfThree(values[left], values[middle], values[right]);
+      let lower = left;
+      let index = left;
+      let upper = right;
+
+      // Three-way partition handles the many repeated power values efficiently.
+      while (index <= upper) {
+        if (values[index] < pivot) {
+          this.swap(values, lower, index);
+          lower += 1;
+          index += 1;
+        } else if (values[index] > pivot) {
+          this.swap(values, index, upper);
+          upper -= 1;
+        } else {
+          index += 1;
+        }
+      }
+
+      if (target < lower) {
+        right = lower - 1;
+      } else if (target > upper) {
+        left = upper + 1;
+      } else {
+        return values[target];
+      }
+    }
+
+    return values[target];
+  }
+
+  static medianOfThree(a, b, c) {
+    if (a < b) {
+      return b < c ? b : Math.max(a, c);
+    }
+    return a < c ? a : Math.max(b, c);
+  }
+
+  static swap(values, a, b) {
+    if (a === b) return;
+    const value = values[a];
+    values[a] = values[b];
+    values[b] = value;
   }
 
   // ================================

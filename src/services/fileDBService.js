@@ -223,16 +223,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     ]
   );
 
-  return Promise.all(result.rows.map(async (row) => {
-    const decoded = await GpsTrackBlobService.decodeRowTrack({
-      gps_track_blob: row.gps_track_blob,
-      gps_track_blob_codec: row.gps_track_blob_codec
-    });
-    return {
-      ...row,
-      wgeom: decoded.geoJson
-    };
-  }));
+  return result.rows;
 }
 
 
