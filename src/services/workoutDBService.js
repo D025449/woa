@@ -299,6 +299,16 @@ function interpolateTrackPointAtDistanceAxis(track, distanceAxis, distanceMeters
 
 
 export default class WorkoutDBService {
+  static async ensureSimilarityPerformanceIndexes() {
+    await pool.query("DROP INDEX IF EXISTS idx_workouts_track_start");
+    await pool.query("DROP INDEX IF EXISTS idx_workouts_track_end");
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_workouts_track_start_geography
+      ON workouts
+      USING GIST ((track_start::geography))
+    `);
+  }
+
   static async getOwnGpsWorkoutIds(uid) {
     const result = await pool.query(
       `
@@ -364,6 +374,7 @@ export default class WorkoutDBService {
         w.total_ascent,
         w.samplerategps,
         w.gps_track_blob,
+        w.gps_track_blob_codec,
         ST_Distance(w.track_start::geography, s.track_start::geography) AS start_distance_m,
         ST_Distance(w.track_end::geography, s.track_end::geography) AS end_distance_m,
         ABS(w.total_distance - s.total_distance) / NULLIF(s.total_distance, 0) AS distance_delta_ratio,
@@ -412,6 +423,145 @@ export default class WorkoutDBService {
     return Promise.all(result.rows.map((row) => hydrateTrackRow(row, {
       includeGeoJson: false
     })));
+  }
+
+  static async getSimilarRouteCandidateMetadataBulk(sourceWorkoutIds, uid, options = {}) {
+    const sourceIds = [...new Set((Array.isArray(sourceWorkoutIds) ? sourceWorkoutIds : [])
+      .map(Number)
+      .filter(Number.isInteger))];
+    if (sourceIds.length === 0) {
+      return new Map();
+    }
+
+    const {
+      distanceToleranceRatio = 0.04,
+      ascentToleranceRatio = 0.05,
+      endpointRadiusMeters = 200,
+      startRadiusMeters = null,
+      endRadiusMeters = null,
+      skipExistingEdgeMatchType = null
+    } = options;
+    const effectiveStartRadiusMeters = Number.isFinite(Number(startRadiusMeters))
+      ? Number(startRadiusMeters)
+      : Number(endpointRadiusMeters);
+    const effectiveEndRadiusMeters = Number.isFinite(Number(endRadiusMeters))
+      ? Number(endRadiusMeters)
+      : Number(endpointRadiusMeters);
+    const skipExistingEdgeType = typeof skipExistingEdgeMatchType === "string"
+      && skipExistingEdgeMatchType.trim().length > 0
+      ? skipExistingEdgeMatchType.trim()
+      : null;
+
+    const result = await pool.query(
+      `
+        WITH requested_sources AS (
+          SELECT requested.id, requested.source_order
+          FROM UNNEST($1::bigint[]) WITH ORDINALITY AS requested(id, source_order)
+        ),
+        sources AS (
+          SELECT
+            w.id,
+            w.uid,
+            w.total_distance,
+            w.total_ascent,
+            w.bounds,
+            w.track_start,
+            w.track_end,
+            requested_sources.source_order
+          FROM workouts w
+          JOIN requested_sources ON requested_sources.id = w.id
+          WHERE w.uid = $2
+            AND w.validgps = true
+            AND w.bounds IS NOT NULL
+            AND w.track_start IS NOT NULL
+            AND w.track_end IS NOT NULL
+        )
+        SELECT
+          s.id AS source_workout_id,
+          w.id,
+          w.total_distance,
+          w.total_ascent,
+          w.samplerategps,
+          ST_Distance(w.track_start::geography, s.track_start::geography) AS start_distance_m,
+          ST_Distance(w.track_end::geography, s.track_end::geography) AS end_distance_m,
+          ABS(w.total_distance - s.total_distance) / NULLIF(s.total_distance, 0) AS distance_delta_ratio,
+          ABS(COALESCE(w.total_ascent, 0) - COALESCE(s.total_ascent, 0))
+            / NULLIF(GREATEST(COALESCE(s.total_ascent, 0), 1), 0) AS ascent_delta_ratio
+        FROM sources s
+        JOIN workouts w
+          ON w.uid = s.uid
+          AND w.id <> s.id
+          AND w.validgps = true
+          AND w.bounds IS NOT NULL
+          AND w.track_start IS NOT NULL
+          AND w.track_end IS NOT NULL
+          AND s.bounds && w.bounds
+          AND w.total_distance BETWEEN s.total_distance * (1::double precision - $3::double precision)
+            AND s.total_distance * (1::double precision + $3::double precision)
+          AND COALESCE(w.total_ascent, 0) BETWEEN COALESCE(s.total_ascent, 0) * (1::double precision - $4::double precision)
+            AND COALESCE(s.total_ascent, 0) * (1::double precision + $4::double precision)
+          AND ST_DWithin(w.track_start::geography, s.track_start::geography, $5::double precision)
+          AND ST_DWithin(w.track_end::geography, s.track_end::geography, $6::double precision)
+        WHERE (
+          $7::text IS NULL
+          OR NOT EXISTS (
+            SELECT 1
+            FROM workout_similarity_edges existing
+            WHERE existing.uid = s.uid
+              AND existing.match_type = $7::text
+              AND existing.workout_id_a = LEAST(s.id, w.id)
+              AND existing.workout_id_b = GREATEST(s.id, w.id)
+          )
+        )
+        ORDER BY s.id, start_distance_m, end_distance_m, w.id
+      `,
+      [
+        sourceIds,
+        uid,
+        distanceToleranceRatio,
+        ascentToleranceRatio,
+        effectiveStartRadiusMeters,
+        effectiveEndRadiusMeters,
+        skipExistingEdgeType
+      ]
+    );
+
+    const candidatesBySourceId = new Map(sourceIds.map((sourceId) => [sourceId, []]));
+    for (const row of result.rows) {
+      const sourceId = Number(row.source_workout_id);
+      const candidates = candidatesBySourceId.get(sourceId);
+      if (candidates) {
+        candidates.push(row);
+      }
+    }
+    return candidatesBySourceId;
+  }
+
+  static async loadSimilarityTrackRowsBulk(uid, workoutIds) {
+    const normalizedIds = [...new Set((Array.isArray(workoutIds) ? workoutIds : [])
+      .map(Number)
+      .filter(Number.isInteger))];
+    if (normalizedIds.length === 0) {
+      return new Map();
+    }
+
+    const result = await pool.query(
+      `
+        SELECT
+          id,
+          samplerategps,
+          gps_track_blob,
+          gps_track_blob_codec
+        FROM workouts
+        WHERE uid = $1
+          AND id = ANY($2::bigint[])
+          AND validgps = true
+          AND gps_track_blob IS NOT NULL
+      `,
+      [uid, normalizedIds]
+    );
+
+    return new Map(result.rows.map((row) => [Number(row.id), row]));
   }
 
   static async upsertSimilarityEdge(edge) {
@@ -498,7 +648,7 @@ export default class WorkoutDBService {
     };
   }
 
-  static async upsertSimilarityEdgesBulk(edges = []) {
+  static async upsertSimilarityEdgesBulk(edges = [], options = {}) {
     const normalizedEdges = Array.isArray(edges)
       ? edges.filter(Boolean).map((edge) => this.normalizeSimilarityEdge(edge))
       : [];
@@ -507,24 +657,20 @@ export default class WorkoutDBService {
       return [];
     }
 
-    const values = [];
-    const placeholders = normalizedEdges.map((edge, index) => {
-      const base = index * 11;
-      values.push(
-        edge.uid,
-        edge.workoutIdA,
-        edge.workoutIdB,
-        edge.matchType,
-        edge.score,
-        edge.distanceDeltaRatio,
-        edge.ascentDeltaRatio,
-        edge.startDistanceM,
-        edge.endDistanceM,
-        edge.pointMatchRatioAB,
-        edge.pointMatchRatioBA
-      );
-      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11})`;
-    });
+    const values = Array.from({ length: 11 }, () => []);
+    for (const edge of normalizedEdges) {
+      values[0].push(edge.uid);
+      values[1].push(edge.workoutIdA);
+      values[2].push(edge.workoutIdB);
+      values[3].push(edge.matchType);
+      values[4].push(edge.score);
+      values[5].push(edge.distanceDeltaRatio);
+      values[6].push(edge.ascentDeltaRatio);
+      values[7].push(edge.startDistanceM);
+      values[8].push(edge.endDistanceM);
+      values[9].push(edge.pointMatchRatioAB);
+      values[10].push(edge.pointMatchRatioBA);
+    }
 
     const sql = `
       INSERT INTO workout_similarity_edges (
@@ -540,8 +686,20 @@ export default class WorkoutDBService {
         point_match_ratio_ab,
         point_match_ratio_ba
       )
-      VALUES
-        ${placeholders.join(",\n        ")}
+      SELECT *
+      FROM UNNEST(
+        $1::bigint[],
+        $2::bigint[],
+        $3::bigint[],
+        $4::text[],
+        $5::float8[],
+        $6::float8[],
+        $7::float8[],
+        $8::float8[],
+        $9::float8[],
+        $10::float8[],
+        $11::float8[]
+      )
       ON CONFLICT (uid, workout_id_a, workout_id_b, match_type)
       DO UPDATE SET
         score = EXCLUDED.score,
@@ -552,11 +710,12 @@ export default class WorkoutDBService {
         point_match_ratio_ab = EXCLUDED.point_match_ratio_ab,
         point_match_ratio_ba = EXCLUDED.point_match_ratio_ba,
         updated_at = NOW()
-      RETURNING *;
+      ${options.returnRows === false ? "" : "RETURNING *"};
     `;
 
-    const result = await pool.query(sql, values);
-    return result.rows;
+    const queryable = options.queryable || pool;
+    const result = await queryable.query(sql, values);
+    return options.returnRows === false ? [] : result.rows;
   }
 
   static async getSimilarityEdgesForWorkout(workoutId, uid, matchType = null) {

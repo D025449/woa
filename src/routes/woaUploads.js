@@ -94,6 +94,7 @@ async function importWoaEntryReaders({
 }) {
   const inserted = [];
   const skipped = [];
+  const postprocessErrors = [];
   const startedAt = Date.now();
   const pendingItems = [];
   const importJob = await createImportJob({
@@ -300,12 +301,11 @@ async function importWoaEntryReaders({
       enqueueWorkoutSegmentPersistenceBulk
     );
   } catch (error) {
-    for (const item of allSegmentPersistItems) {
-      skipped.push({
-        entryName: item.entryName,
-        error: `Postprocess enqueue failed: segment-persist: ${error instanceof Error ? error.message : String(error)}`
-      });
-    }
+    postprocessErrors.push({
+      phase: "segment-persist",
+      affectedCount: allSegmentPersistItems.length,
+      error: error instanceof Error ? error.message : String(error)
+    });
   } finally {
     profile.scheduleSegmentPersistenceMs += Date.now() - persistStartedAt;
   }
@@ -318,13 +318,11 @@ async function importWoaEntryReaders({
       enqueueWorkoutSimilarityClassificationBulk
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    for (const item of allSimilarityItems) {
-      skipped.push({
-        entryName: `workout:${item.workoutId}`,
-        error: `Postprocess enqueue failed: similarity: ${message}`
-      });
-    }
+    postprocessErrors.push({
+      phase: "similarity",
+      affectedCount: allSimilarityItems.length,
+      error: error instanceof Error ? error.message : String(error)
+    });
   } finally {
     profile.scheduleSimilarityMs += Date.now() - similarityStartedAt;
   }
@@ -337,13 +335,11 @@ async function importWoaEntryReaders({
       enqueueWorkoutSegmentBestEffortsBulk
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    for (const item of allSegmentBestEffortsItems) {
-      skipped.push({
-        entryName: `workout:${item.workoutId}`,
-        error: `Postprocess enqueue failed: segment-best-efforts: ${message}`
-      });
-    }
+    postprocessErrors.push({
+      phase: "segment-best-efforts",
+      affectedCount: allSegmentBestEffortsItems.length,
+      error: error instanceof Error ? error.message : String(error)
+    });
   } finally {
     profile.scheduleSegmentBestEffortsMs += Date.now() - segmentBestEffortsStartedAt;
   }
@@ -363,6 +359,7 @@ async function importWoaEntryReaders({
       totalEntries: entryReaders.length,
       importedEntries: inserted.length,
       skippedEntries: skipped.length,
+      postprocessErrors,
       syncTotalMs: elapsedMs,
       avgPerImportedEntryMs: inserted.length > 0
         ? Number((elapsedMs / inserted.length).toFixed(3))
@@ -420,6 +417,7 @@ async function importWoaEntryReaders({
     totalEntries: entryReaders.length,
     importedEntries: inserted.length,
     skippedEntries: skipped.length,
+    postprocessErrors,
     elapsedMs
   });
 
@@ -427,10 +425,12 @@ async function importWoaEntryReaders({
     importJobId,
     importedCount: inserted.length,
     skippedCount: skipped.length,
+    postprocessErrorCount: postprocessErrors.length,
     totalEntries: entryReaders.length,
     elapsedMs,
     inserted,
-    skipped
+    skipped,
+    postprocessErrors
   };
 }
 

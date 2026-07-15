@@ -78,13 +78,9 @@ CREATE INDEX IF NOT EXISTS idx_files_bounds
 ON workouts
 USING GIST (bounds);
 
-CREATE INDEX IF NOT EXISTS idx_workouts_track_start
+CREATE INDEX IF NOT EXISTS idx_workouts_track_start_geography
 ON workouts
-USING GIST (track_start);
-
-CREATE INDEX IF NOT EXISTS idx_workouts_track_end
-ON workouts
-USING GIST (track_end);
+USING GIST ((track_start::geography));
 
 -- CREATE INDEX IF NOT EXISTS idx_files_geom
 -- ON workouts

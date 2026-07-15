@@ -1296,10 +1296,252 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     return [...inserted, ...updated];
   }
 
+  static async loadWorkoutStreamsBulk(uid, workoutIds) {
+    const normalizedIds = [...new Set(
+      (Array.isArray(workoutIds) ? workoutIds : [])
+        .map((workoutId) => Number(workoutId))
+        .filter(Number.isInteger)
+    )];
+    if (!uid || normalizedIds.length === 0) {
+      return new Map();
+    }
 
+    const result = await pool.query(`
+      SELECT id, stream, stream_codec
+      FROM workouts
+      WHERE uid = $1
+        AND id = ANY($2::int[])
+    `, [uid, normalizedIds]);
 
+    return new Map(result.rows.map((row) => [Number(row.id), row]));
+  }
 
+  static async insertSegmentsForWorkoutsBulk(uid, workoutSegments, queryable = pool) {
+    const { values, segmentCount } = FileDBService.buildSegmentsForWorkoutsBulkArrays(
+      uid,
+      workoutSegments
+    );
 
+    if (segmentCount === 0) {
+      return { insertedCount: 0, statementCount: 0 };
+    }
+
+    const result = await queryable.query(`
+      INSERT INTO workout_segments (
+        wid,
+        uid,
+        start_offset,
+        end_offset,
+        segmenttype,
+        duration,
+        avg_power,
+        avg_heart_rate,
+        avg_cadence,
+        avg_speed,
+        altimeters,
+        position,
+        segmentname
+      )
+      SELECT
+        u.wid,
+        u.uid,
+        u.start_offset,
+        u.end_offset,
+        u.segmenttype,
+        u.duration,
+        u.avg_power,
+        u.avg_heart_rate,
+        u.avg_cadence,
+        u.avg_speed,
+        u.altimeters,
+        u.position,
+        u.segmentname
+      FROM UNNEST(
+        $1::int[],
+        $2::int[],
+        $3::int[],
+        $4::int[],
+        $5::text[],
+        $6::float8[],
+        $7::float8[],
+        $8::float8[],
+        $9::float8[],
+        $10::float8[],
+        $11::float8[],
+        $12::int[],
+        $13::text[]
+      ) AS u(
+        wid,
+        uid,
+        start_offset,
+        end_offset,
+        segmenttype,
+        duration,
+        avg_power,
+        avg_heart_rate,
+        avg_cadence,
+        avg_speed,
+        altimeters,
+        position,
+        segmentname
+      )
+    `, values);
+
+    return {
+      insertedCount: Number(result.rowCount || 0),
+      statementCount: 1
+    };
+  }
+
+  static buildSegmentsForWorkoutsBulkArrays(uid, workoutSegments) {
+    const values = Array.from({ length: 13 }, () => []);
+    let segmentCount = 0;
+
+    for (const item of Array.isArray(workoutSegments) ? workoutSegments : []) {
+      const workoutId = Number(item?.workoutId);
+      if (!Number.isInteger(workoutId)) {
+        continue;
+      }
+
+      let position = 0;
+      for (const segment of Array.isArray(item?.segments) ? item.segments : []) {
+        if (segment?.rowstate !== "CRE") {
+          continue;
+        }
+        values[0].push(workoutId);
+        values[1].push(uid);
+        values[2].push(segment.start_offset);
+        values[3].push(segment.end_offset);
+        values[4].push(segment.segmenttype || "manual");
+        values[5].push(segment.duration);
+        values[6].push(segment.avg_power);
+        values[7].push(segment.avg_heart_rate);
+        values[8].push(segment.avg_cadence);
+        values[9].push(segment.avg_speed);
+        values[10].push(segment.altimeters);
+        values[11].push(++position);
+        values[12].push(segment.segmentname ?? "");
+        segmentCount += 1;
+      }
+    }
+
+    return { values, segmentCount };
+  }
+
+  static async persistSegmentsForWorkoutsBulk(
+    uid,
+    workoutSegments,
+    status = "completed",
+    errorMessage = null,
+    queryable = pool
+  ) {
+    const workoutIds = [...new Set(
+      (Array.isArray(workoutSegments) ? workoutSegments : [])
+        .map((item) => Number(item?.workoutId))
+        .filter(Number.isInteger)
+    )];
+    if (!uid || workoutIds.length === 0 || !status) {
+      return { insertedCount: 0, updatedWorkoutCount: 0, statementCount: 0 };
+    }
+
+    const prepareStartedAt = performance.now();
+    const { values, segmentCount } = FileDBService.buildSegmentsForWorkoutsBulkArrays(
+      uid,
+      workoutSegments
+    );
+    const prepareArraysMs = performance.now() - prepareStartedAt;
+
+    const queryStartedAt = performance.now();
+    const result = await queryable.query(`
+      WITH inserted_segments AS (
+        INSERT INTO workout_segments (
+          wid,
+          uid,
+          start_offset,
+          end_offset,
+          segmenttype,
+          duration,
+          avg_power,
+          avg_heart_rate,
+          avg_cadence,
+          avg_speed,
+          altimeters,
+          position,
+          segmentname
+        )
+        SELECT
+          u.wid,
+          u.uid,
+          u.start_offset,
+          u.end_offset,
+          u.segmenttype,
+          u.duration,
+          u.avg_power,
+          u.avg_heart_rate,
+          u.avg_cadence,
+          u.avg_speed,
+          u.altimeters,
+          u.position,
+          u.segmentname
+        FROM UNNEST(
+          $1::int[],
+          $2::int[],
+          $3::int[],
+          $4::int[],
+          $5::text[],
+          $6::float8[],
+          $7::float8[],
+          $8::float8[],
+          $9::float8[],
+          $10::float8[],
+          $11::float8[],
+          $12::int[],
+          $13::text[]
+        ) AS u(
+          wid,
+          uid,
+          start_offset,
+          end_offset,
+          segmenttype,
+          duration,
+          avg_power,
+          avg_heart_rate,
+          avg_cadence,
+          avg_speed,
+          altimeters,
+          position,
+          segmentname
+        )
+      ), updated_workouts AS (
+        UPDATE workouts
+        SET
+          segment_processing_status = $16,
+          segment_processing_error = $17,
+          segment_processing_updated_at = NOW()
+        WHERE uid = $14
+          AND id = ANY($15::int[])
+        RETURNING id
+      )
+      SELECT
+        (SELECT COUNT(*)::int FROM updated_workouts) AS updated_workout_count
+    `, [
+      ...values,
+      uid,
+      workoutIds,
+      status,
+      errorMessage
+    ]);
+    const queryMs = performance.now() - queryStartedAt;
+
+    return {
+      insertedCount: segmentCount,
+      updatedWorkoutCount: Number(result.rows[0]?.updated_workout_count || 0),
+      expectedSegmentCount: segmentCount,
+      prepareArraysMs,
+      queryMs,
+      statementCount: 1
+    };
+  }
 
   static async deleteSegmentsBulk(uid, workoutId, segments) {
     if (!Array.isArray(segments)) {
@@ -1369,6 +1611,30 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     `, [uid, normalizedWorkoutId, status, errorMessage]);
 
     return result.rows[0] || null;
+  }
+
+  static async updateWorkoutSegmentProcessingStatusBulk(uid, workoutIds, status, errorMessage = null, queryable = pool) {
+    const normalizedIds = [...new Set(
+      (Array.isArray(workoutIds) ? workoutIds : [])
+        .map((workoutId) => Number(workoutId))
+        .filter(Number.isInteger)
+    )];
+    if (!uid || normalizedIds.length === 0 || !status) {
+      return [];
+    }
+
+    const result = await queryable.query(`
+      UPDATE workouts
+      SET
+        segment_processing_status = $3,
+        segment_processing_error = $4,
+        segment_processing_updated_at = NOW()
+      WHERE uid = $1
+        AND id = ANY($2::int[])
+      RETURNING id
+    `, [uid, normalizedIds, status, errorMessage]);
+
+    return result.rows;
   }
 
   static async getSegmentsByWorkout(uid, workoutId) {

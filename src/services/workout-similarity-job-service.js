@@ -1,4 +1,11 @@
 import { workoutSimilarityQueue } from "../queue/workout-similarity-queue.js";
+import { buildImportScopedJobId } from "./import-scoped-job-id.js";
+import { groupWorkoutSimilarityItems } from "./workout-similarity-batches.js";
+
+export const WORKOUT_SIMILARITY_BATCH_SIZE = Math.max(
+  1,
+  Math.floor(Number(process.env.WORKOUT_SIMILARITY_BATCH_SIZE) || 100)
+);
 
 function buildQueueOptions(jobId) {
   return {
@@ -14,6 +21,7 @@ function buildQueueOptions(jobId) {
 }
 
 function buildWorkoutSimilarityClassificationJob({ uid, workoutId, importJobId = null }) {
+  const baseJobId = `classify-workout-similarity:${uid}:${Number(workoutId)}`;
   return {
     name: "classify-workout-similarity",
     data: {
@@ -21,7 +29,25 @@ function buildWorkoutSimilarityClassificationJob({ uid, workoutId, importJobId =
       workoutId: Number(workoutId),
       importJobId
     },
-    opts: buildQueueOptions(`classify-workout-similarity:${uid}:${Number(workoutId)}`)
+    opts: buildQueueOptions(buildImportScopedJobId(baseJobId, importJobId))
+  };
+}
+
+function buildWorkoutSimilarityClassificationBatchJob(items) {
+  const firstItem = items[0];
+  const lastItem = items[items.length - 1];
+  const uid = firstItem.uid;
+  const importJobId = firstItem.importJobId ?? null;
+  const baseJobId = `classify-workout-similarity-batch:${uid}:${Number(firstItem.workoutId)}-${Number(lastItem.workoutId)}`;
+
+  return {
+    name: "classify-workout-similarity-batch",
+    data: {
+      uid,
+      importJobId,
+      workoutIds: items.map((item) => Number(item.workoutId))
+    },
+    opts: buildQueueOptions(buildImportScopedJobId(baseJobId, importJobId))
   };
 }
 
@@ -39,9 +65,8 @@ export async function enqueueWorkoutSimilarityClassification({ uid, workoutId, i
 }
 
 export async function enqueueWorkoutSimilarityClassificationBulk(items = []) {
-  const jobs = items
-    .filter((item) => item?.uid && Number.isInteger(Number(item?.workoutId)))
-    .map((item) => buildWorkoutSimilarityClassificationJob(item));
+  const jobs = groupWorkoutSimilarityItems(items, WORKOUT_SIMILARITY_BATCH_SIZE)
+    .map((group) => buildWorkoutSimilarityClassificationBatchJob(group));
   if (jobs.length === 0) {
     return [];
   }
@@ -82,7 +107,7 @@ export async function getWorkoutSimilarityRebuildJob(jobId) {
 
   const state = await job.getState();
   const progress = job.progress && typeof job.progress === "object"
-    ? job.progress
+    ? /** @type {Record<string, unknown>} */ (job.progress)
     : { progressPercent: Number(job.progress || 0) };
 
   return {

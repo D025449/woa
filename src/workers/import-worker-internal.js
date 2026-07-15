@@ -21,11 +21,19 @@ import SegmentDBService from "../services/segmentDBService.js";
 import EntitlementService from "../services/entitlementService.js";
 import WorkoutSharingService from "../services/workoutSharingService.js";
 import WorkoutThumbnailService from "../services/workoutThumbnailService.js";
+import WorkoutDBService from "../services/workoutDBService.js";
 import WorkoutSimilarityService from "../services/workoutSimilarityService.js";
-import { enqueueWorkoutSimilarityClassification } from "../services/workout-similarity-job-service.js";
+import {
+  WORKOUT_SIMILARITY_BATCH_SIZE,
+  enqueueWorkoutSimilarityClassification,
+  enqueueWorkoutSimilarityClassificationBulk
+} from "../services/workout-similarity-job-service.js";
 import { enqueueImportBatchJobs } from "../services/import-batch-job-service.js";
 import {
+  SEGMENT_BEST_EFFORTS_BATCH_SIZE,
+  SEGMENT_PERSIST_BATCH_SIZE,
   enqueueWorkoutSegmentBestEfforts,
+  enqueueWorkoutSegmentBestEffortsBulk,
   enqueueWorkoutSegmentPersistence,
   enqueueWorkoutThumbnailGeneration
 } from "../services/segment-best-efforts-service.js";
@@ -87,6 +95,9 @@ export async function createApp(options = {}) {
     IMPORT_QUEUE_CONCURRENCY,
     IMPORT_BATCH_WORKER_CONCURRENCY,
     IMPORT_DB_BULK_INSERT_SIZE,
+    SEGMENT_PERSIST_BATCH_SIZE,
+    SEGMENT_BEST_EFFORTS_BATCH_SIZE,
+    WORKOUT_SIMILARITY_BATCH_SIZE,
     FIT_PARSER_VARIANT: getFitParserVariant(),
     IMPORT_UPLOAD_TEMP_DIR,
     SEGMENT_PERSIST_TEMP_DIR,
@@ -95,6 +106,14 @@ export async function createApp(options = {}) {
     ALTITUDE_IMPORT_DEBUG: String(process.env.ALTITUDE_IMPORT_DEBUG || "").trim() === "1",
     SIMILARITY_DEBUG: String(process.env.SIMILARITY_DEBUG || "").trim() === "1"
   });
+
+  if (enableWorkoutSimilarityWorker) {
+    const similarityIndexStartedAt = Date.now();
+    await WorkoutDBService.ensureSimilarityPerformanceIndexes();
+    console.log("[postprocess] similarity.indexes.ready", {
+      elapsedMs: Date.now() - similarityIndexStartedAt
+    });
+  }
 
   getFilesystemCapacitySnapshot(IMPORT_UPLOAD_TEMP_DIR).then((snapshot) => {
     console.log("[import] storage.temp-dir", snapshot);
@@ -826,17 +845,13 @@ export async function createApp(options = {}) {
     }
 
     if (phaseType === "segment-best-efforts") {
-      for (const target of normalizedTargets) {
-        const { uid, workoutId, validGps } = target;
-        if (!validGps) {
-          continue;
-        }
-        await enqueueWorkoutSegmentBestEfforts({
-          uid,
-          workoutId,
+      await enqueueWorkoutSegmentBestEffortsBulk(normalizedTargets
+        .filter((target) => target?.validGps)
+        .map((target) => ({
+          uid: target.uid,
+          workoutId: target.workoutId,
           importJobId
-        });
-      }
+        })));
 
       await waitForImportPostprocessPhaseCompletion(importJobId, phaseType);
       markImportPostprocessPhaseCompleted(importJobId, phaseType);
@@ -845,17 +860,13 @@ export async function createApp(options = {}) {
     }
 
     if (phaseType === "similarity") {
-      for (const target of normalizedTargets) {
-        const { uid, workoutId, validGps } = target;
-        if (!validGps) {
-          continue;
-        }
-        await enqueueWorkoutSimilarityClassification({
-          uid,
-          workoutId,
+      await enqueueWorkoutSimilarityClassificationBulk(normalizedTargets
+        .filter((target) => target?.validGps)
+        .map((target) => ({
+          uid: target.uid,
+          workoutId: target.workoutId,
           importJobId
-        });
-      }
+        })));
 
       await waitForImportPostprocessPhaseCompletion(importJobId, phaseType);
       markImportPostprocessPhaseCompleted(importJobId, phaseType);
@@ -1076,6 +1087,79 @@ export async function createApp(options = {}) {
     }
   }
 
+  function buildSimilarityProfileMetrics(similarityProfile = {}, edgeCount = 0) {
+    return {
+      edgeCount,
+      candidateCount: Number(similarityProfile.candidateCount || 0),
+      comparedCandidates: Number(similarityProfile.comparedCandidates || 0),
+      precheckRejectedCandidates: Number(similarityProfile.precheckRejectedCandidates || 0),
+      matchedCandidates: Number(similarityProfile.matchedCandidates || 0),
+      loadSourceTrackMs: Number(similarityProfile.loadSourceTrackMs || 0),
+      loadCandidatesMs: Number(similarityProfile.loadCandidatesMs || 0),
+      deleteExistingEdgesMs: Number(similarityProfile.deleteExistingEdgesMs || 0),
+      sampleSourceTrackMs: Number(similarityProfile.sampleSourceTrackMs || 0),
+      candidateTrackNormalizeMs: Number(similarityProfile.candidateTrackNormalizeMs || 0),
+      cheapPrecheckMs: Number(similarityProfile.cheapPrecheckMs || 0),
+      sampleCandidateTrackMs: Number(similarityProfile.sampleCandidateTrackMs || 0),
+      compareRouteMs: Number(similarityProfile.compareRouteMs || 0),
+      compareRouteABMs: Number(similarityProfile.compareRouteABMs || 0),
+      compareRouteBAMs: Number(similarityProfile.compareRouteBAMs || 0),
+      scoreMs: Number(similarityProfile.scoreMs || 0),
+      persistEdgeMs: Number(similarityProfile.persistEdgeMs || 0),
+      rejectedByRouteAB: Number(similarityProfile.rejectedByRouteAB || 0),
+      rejectedByRouteBA: Number(similarityProfile.rejectedByRouteBA || 0),
+      rejectedByScore: Number(similarityProfile.rejectedByScore || 0),
+      batchSize: Number(similarityProfile.batchSize || 1),
+      candidateMetadataMs: Number(similarityProfile.candidateMetadataMs || 0),
+      loadTrackRowsMs: Number(similarityProfile.loadTrackRowsMs || 0),
+      decodeTrackMs: Number(similarityProfile.decodeTrackMs || 0),
+      trackCacheEntriesPerWorkout: Number(similarityProfile.trackCacheEntriesPerWorkout || 0),
+      trackCacheBytesPerWorkout: Number(similarityProfile.trackCacheBytesPerWorkout || 0),
+      trackCacheReuseRatio: Number(similarityProfile.trackCacheReuseRatio || 0),
+      edgeInsertBatchCount: Number(similarityProfile.edgeInsertBatchCount || 0)
+    };
+  }
+
+  async function processWorkoutSimilarityClassificationBatchJob(job) {
+    const uid = job.data?.uid;
+    const importJobId = job.data?.importJobId ? String(job.data.importJobId) : null;
+    const workoutIds = [...new Set((Array.isArray(job.data?.workoutIds) ? job.data.workoutIds : [])
+      .map(Number)
+      .filter(Number.isInteger))];
+    if (!uid || workoutIds.length === 0) {
+      throw new Error("Workout similarity batch is missing uid or workoutIds");
+    }
+
+    await ensureImportPostprocessRun(importJobId, "similarity");
+    markImportPostprocessPhaseStarted(importJobId, "similarity");
+    await job.updateProgress({ progressPercent: 0, batchSize: workoutIds.length });
+    try {
+      const results = await WorkoutSimilarityService.classifySimilarGpsWorkoutsBatch(workoutIds, uid);
+      let edgeCount = 0;
+      for (const result of results) {
+        const resultEdgeCount = Array.isArray(result?.edges) ? result.edges.length : 0;
+        const profile = result?.profile || {};
+        const elapsedMs = Number(result?.profile?.elapsedMs || 0);
+        const metrics = buildSimilarityProfileMetrics(profile, resultEdgeCount);
+        edgeCount += resultEdgeCount;
+        recordPostprocessProfile("similarity", elapsedMs, metrics);
+        await recordImportPostprocessOutcome(importJobId, "similarity", elapsedMs, metrics);
+      }
+
+      await job.updateProgress({
+        progressPercent: 100,
+        batchSize: workoutIds.length,
+        edgeCount
+      });
+      return { progressPercent: 100, batchSize: workoutIds.length, edgeCount };
+    } catch (error) {
+      for (let index = 0; index < workoutIds.length; index += 1) {
+        await recordImportPostprocessOutcome(importJobId, "similarity", 0, {}, true);
+      }
+      throw error;
+    }
+  }
+
   async function processWorkoutSegmentBestEffortsJob(job) {
     const uid = job.data?.uid;
     const workoutId = Number(job.data?.workoutId);
@@ -1142,6 +1226,239 @@ export async function createApp(options = {}) {
     }
   }
 
+  function buildSegmentBestEffortsProfileMetrics(profile = {}, matchCount = 0) {
+    return {
+      matchCount,
+      loadWorkoutTrackMs: Number(profile.loadWorkoutTrackMs || 0),
+      buildBoundsMs: Number(profile.buildBoundsMs || 0),
+      loadSegmentCandidatesMs: Number(profile.loadSegmentCandidatesMs || 0),
+      matchSegmentsMs: Number(profile.matchSegmentsMs || 0),
+      loadWorkoutObjectMs: Number(profile.loadWorkoutObjectMs || 0),
+      persistBestEffortsMs: Number(profile.persistBestEffortsMs || 0),
+      candidateCount: Number(profile.candidateCount || 0),
+      rawMatchCount: Number(profile.rawMatchCount || 0),
+      batchSize: Number(profile.batchSize || 1),
+      loadWorkoutTrackRowsMs: Number(profile.loadWorkoutTrackRowsMs || 0),
+      loadSegmentCandidateIdsMs: Number(profile.loadSegmentCandidateIdsMs || 0),
+      loadSegmentDefinitionsMs: Number(profile.loadSegmentDefinitionsMs || 0),
+      segmentCacheEntriesPerWorkout: Number(profile.segmentCacheEntriesPerWorkout || 0),
+      segmentCacheReuseRatio: Number(profile.segmentCacheReuseRatio || 0),
+      matchedWorkoutRatio: Number(profile.matchedWorkoutRatio || 0),
+      insertedBestEffortsPerWorkout: Number(profile.insertedBestEffortsPerWorkout || 0)
+    };
+  }
+
+  async function processWorkoutSegmentBestEffortsBatchJob(job) {
+    const uid = job.data?.uid;
+    const importJobId = job.data?.importJobId ? String(job.data.importJobId) : null;
+    const workoutIds = [...new Set((Array.isArray(job.data?.workoutIds) ? job.data.workoutIds : [])
+      .map(Number)
+      .filter(Number.isInteger))];
+    if (!uid || workoutIds.length === 0) {
+      throw new Error("Workout segment best-efforts batch is missing uid or workoutIds");
+    }
+
+    await ensureImportPostprocessRun(importJobId, "segment-best-efforts");
+    markImportPostprocessPhaseStarted(importJobId, "segment-best-efforts");
+    await job.updateProgress({ progressPercent: 0, batchSize: workoutIds.length });
+    try {
+      const results = await SegmentDBService.rescanSegmentBestEffortsForWorkoutsBatch(uid, workoutIds);
+      let matchCount = 0;
+      for (const result of results) {
+        const resultMatchCount = Array.isArray(result?.matches) ? result.matches.length : 0;
+        const elapsedMs = Number(result?.elapsedMs || 0);
+        const metrics = buildSegmentBestEffortsProfileMetrics(result?.profile || {}, resultMatchCount);
+        matchCount += resultMatchCount;
+        recordPostprocessProfile("segment-best-efforts", elapsedMs, metrics);
+        await recordImportPostprocessOutcome(importJobId, "segment-best-efforts", elapsedMs, metrics);
+      }
+      await job.updateProgress({ progressPercent: 100, batchSize: workoutIds.length, matchCount });
+      return { progressPercent: 100, batchSize: workoutIds.length, matchCount };
+    } catch (error) {
+      for (let index = 0; index < workoutIds.length; index += 1) {
+        await recordImportPostprocessOutcome(importJobId, "segment-best-efforts", 0, {}, true);
+      }
+      throw error;
+    }
+  }
+
+  async function detectStoredWorkoutSegments(row) {
+    const decompressStartedAt = Date.now();
+    const workout = await Workout.fromCompressedWithCodec(
+      row.stream,
+      row.stream_codec || "brotli"
+    );
+    const decompressMs = Date.now() - decompressStartedAt;
+    const startTime = Number(workout.getStartTime());
+    const rebuildStartedAt = Date.now();
+    const records = new Array(workout.length);
+    for (let index = 0; index < workout.length; index += 1) {
+      records[index] = {
+        timestamp: new Date(startTime + (index * 1000)),
+        power: workout.getPowerAt(index),
+        heart_rate: workout.getHrAt(index),
+        cadence: workout.getCadenceAt(index),
+        speed: workout.getSpeedAt(index) / 3.6,
+        altitude: workout.getAltitudeAt(index),
+        distance: workout.getDistanceAt(index)
+      };
+    }
+    const recordRebuildMs = Date.now() - rebuildStartedAt;
+
+    const autoStartedAt = Date.now();
+    const autoIntervals = IntervalDetector.detect(records);
+    const detectAutoMs = Date.now() - autoStartedAt;
+    const bestEffortsStartedAt = Date.now();
+    const bestEffortIntervals = BestEffortDetector.detect(records);
+    const detectBestEffortsMs = Date.now() - bestEffortsStartedAt;
+    const mapSegmentsStartedAt = Date.now();
+    const segments = [
+      ...SegmentService.createSgmentsFromIntervals(autoIntervals, "auto"),
+      ...SegmentService.createSgmentsFromIntervals(bestEffortIntervals, "crit")
+    ];
+    const mapSegmentsMs = Date.now() - mapSegmentsStartedAt;
+
+    return {
+      segments,
+      metrics: {
+        decompressMs,
+        recordRebuildMs,
+        detectAutoMs,
+        detectBestEffortsMs,
+        mapSegmentsMs
+      }
+    };
+  }
+
+  async function processWorkoutSegmentPersistenceBatchJob(job) {
+    const uid = job.data?.uid;
+    const importJobId = job.data?.importJobId ? String(job.data.importJobId) : null;
+    const batchItems = (Array.isArray(job.data?.batchItems) ? job.data.batchItems : [])
+      .map((item) => ({
+        workoutId: Number(item?.workoutId),
+        entryName: item?.entryName ?? null
+      }))
+      .filter((item) => Number.isInteger(item.workoutId));
+
+    if (!uid || batchItems.length === 0) {
+      throw new Error("Workout segment persistence batch is missing uid or workoutIds");
+    }
+
+    const workoutIds = batchItems.map((item) => item.workoutId);
+    const startedAt = Date.now();
+    await ensureImportPostprocessRun(importJobId, "segment-persist");
+    markImportPostprocessPhaseStarted(importJobId, "segment-persist");
+    await job.updateProgress({
+      progressPercent: 0,
+      batchSize: batchItems.length
+    });
+
+    try {
+      const dbReadStartedAt = Date.now();
+      const rowsByWorkoutId = await FileDBService.loadWorkoutStreamsBulk(uid, workoutIds);
+      const dbReadMs = Date.now() - dbReadStartedAt;
+      const missingWorkoutIds = workoutIds.filter((workoutId) => !rowsByWorkoutId.has(workoutId));
+      if (missingWorkoutIds.length > 0) {
+        throw new Error(`Workout streams not found for segment batch: ${missingWorkoutIds.join(",")}`);
+      }
+
+      const results = [];
+      for (const item of batchItems) {
+        const detected = await detectStoredWorkoutSegments(rowsByWorkoutId.get(item.workoutId));
+        results.push({
+          ...item,
+          ...detected
+        });
+      }
+
+      let persistSegmentsMs = 0;
+      const statusUpdateMs = 0;
+      let insertStatementCount = 0;
+      let prepareSegmentArraysMs = 0;
+      let insertSegmentRowsMs = 0;
+      const persistSegmentsStartedAt = Date.now();
+      const persistResult = await FileDBService.persistSegmentsForWorkoutsBulk(
+        uid,
+        results,
+        "completed",
+        null
+      );
+      persistSegmentsMs = Date.now() - persistSegmentsStartedAt;
+      insertStatementCount = Number(persistResult.statementCount || 0);
+      prepareSegmentArraysMs = Number(persistResult.prepareArraysMs || 0);
+      insertSegmentRowsMs = Number(persistResult.queryMs || 0);
+
+      const elapsedMs = Date.now() - startedAt;
+      const batchSize = results.length;
+      const dbReadShareMs = dbReadMs / batchSize;
+      const persistShareMs = persistSegmentsMs / batchSize;
+      const prepareSegmentArraysShareMs = prepareSegmentArraysMs / batchSize;
+      const insertSegmentRowsShareMs = insertSegmentRowsMs / batchSize;
+      const statusShareMs = statusUpdateMs / batchSize;
+      const dataStatementCount = 1 + insertStatementCount;
+      const measuredCpuMs = results.reduce((total, result) => total
+        + Number(result.metrics.decompressMs || 0)
+        + Number(result.metrics.recordRebuildMs || 0)
+        + Number(result.metrics.detectAutoMs || 0)
+        + Number(result.metrics.detectBestEffortsMs || 0)
+        + Number(result.metrics.mapSegmentsMs || 0), 0);
+      const overheadShareMs = Math.max(
+        0,
+        elapsedMs - measuredCpuMs - dbReadMs - persistSegmentsMs - statusUpdateMs
+      ) / batchSize;
+
+      for (const result of results) {
+        const metrics = {
+          segmentCount: result.segments.length,
+          dbReadMs: dbReadShareMs,
+          ...result.metrics,
+          persistSegmentsMs: persistShareMs,
+          prepareSegmentArraysMs: prepareSegmentArraysShareMs,
+          insertSegmentRowsMs: insertSegmentRowsShareMs,
+          statusUpdateMs: statusShareMs,
+          cleanupMs: 0,
+          batchSize,
+          dbStatementsPerWorkout: dataStatementCount / batchSize
+        };
+        const itemElapsedMs = dbReadShareMs
+          + persistShareMs
+          + statusShareMs
+          + overheadShareMs
+          + Number(result.metrics.decompressMs || 0)
+          + Number(result.metrics.recordRebuildMs || 0)
+          + Number(result.metrics.detectAutoMs || 0)
+          + Number(result.metrics.detectBestEffortsMs || 0)
+          + Number(result.metrics.mapSegmentsMs || 0);
+        recordPostprocessProfile("segment-persist", itemElapsedMs, metrics);
+        await recordImportPostprocessOutcome(importJobId, "segment-persist", itemElapsedMs, metrics);
+      }
+
+      await job.updateProgress({
+        progressPercent: 100,
+        batchSize,
+        segmentCount: results.reduce((total, result) => total + result.segments.length, 0),
+        dataStatementCount
+      });
+
+      return {
+        progressPercent: 100,
+        batchSize,
+        dataStatementCount
+      };
+    } catch (error) {
+      await FileDBService.updateWorkoutSegmentProcessingStatusBulk(
+        uid,
+        workoutIds,
+        "failed",
+        error.message || "Unknown segment persistence batch error"
+      );
+      for (let index = 0; index < batchItems.length; index += 1) {
+        await recordImportPostprocessOutcome(importJobId, "segment-persist", 0, {}, true);
+      }
+      throw error;
+    }
+  }
+
   async function processWorkoutSegmentPersistenceJob(job) {
     const uid = job.data?.uid;
     const workoutId = Number(job.data?.workoutId);
@@ -1184,40 +1501,15 @@ export async function createApp(options = {}) {
           throw new Error("Workout stream not found for segment recompute");
         }
 
-        const decompressStartedAt = Date.now();
-        const workout = await Workout.fromCompressedWithCodec(
-          rowResult.rows[0].stream,
-          rowResult.rows[0].stream_codec || "brotli"
-        );
-        decompressMs = Date.now() - decompressStartedAt;
-        const startTime = Number(workout.getStartTime());
-        const rebuildStartedAt = Date.now();
-        const records = new Array(workout.length);
-        for (let index = 0; index < workout.length; index += 1) {
-          records[index] = {
-            timestamp: new Date(startTime + (index * 1000)),
-            power: workout.getPowerAt(index),
-            heart_rate: workout.getHrAt(index),
-            cadence: workout.getCadenceAt(index),
-            speed: workout.getSpeedAt(index) / 3.6,
-            altitude: workout.getAltitudeAt(index),
-            distance: workout.getDistanceAt(index)
-          };
-        }
-        recordRebuildMs = Date.now() - rebuildStartedAt;
-
-        const autoStartedAt = Date.now();
-        const autoIntervals = IntervalDetector.detect(records);
-        detectAutoMs = Date.now() - autoStartedAt;
-        const bestEffortsStartedAt = Date.now();
-        const bestEffortIntervals = BestEffortDetector.detect(records);
-        detectBestEffortsMs = Date.now() - bestEffortsStartedAt;
-        const mapSegmentsStartedAt = Date.now();
-        segments = [
-          ...SegmentService.createSgmentsFromIntervals(autoIntervals, "auto"),
-          ...SegmentService.createSgmentsFromIntervals(bestEffortIntervals, "crit")
-        ];
-        mapSegmentsMs = Date.now() - mapSegmentsStartedAt;
+        const detected = await detectStoredWorkoutSegments(rowResult.rows[0]);
+        segments = detected.segments;
+        ({
+          decompressMs,
+          recordRebuildMs,
+          detectAutoMs,
+          detectBestEffortsMs,
+          mapSegmentsMs
+        } = detected.metrics);
       } else {
         const payload = await readSegmentPersistencePayload(payloadPath);
         segments = Array.isArray(payload?.segments) ? payload.segments : [];
@@ -2491,6 +2783,10 @@ export async function createApp(options = {}) {
     const segmentBestEffortsWorker = new Worker(
       "segment-best-efforts",
       async (job) => {
+        if (job.name === "persist-workout-segments-batch") {
+          return await processWorkoutSegmentPersistenceBatchJob(job);
+        }
+
         if (job.name === "persist-workout-segments") {
           return await processWorkoutSegmentPersistenceJob(job);
         }
@@ -2501,6 +2797,10 @@ export async function createApp(options = {}) {
 
         if (job.name === "process-workout-segment-best-efforts") {
           return await processWorkoutSegmentBestEffortsJob(job);
+        }
+
+        if (job.name === "process-workout-segment-best-efforts-batch") {
+          return await processWorkoutSegmentBestEffortsBatchJob(job);
         }
 
         const { uid, segmentIds } = job.data ?? {};
@@ -2526,16 +2826,18 @@ export async function createApp(options = {}) {
     });
 
     segmentBestEffortsWorker.on("failed", (job, error) => {
-      if (job?.name === "persist-workout-segments") {
+      if (job?.name === "persist-workout-segments" || job?.name === "persist-workout-segments-batch") {
         logPostProcessEvent("segment-persist.failed", {
           queueJobId: job?.id,
           uid: job?.data?.uid,
           workoutId: job?.data?.workoutId ?? null,
+          batchSize: Array.isArray(job?.data?.batchItems) ? job.data.batchItems.length : null,
           payloadPath: job?.data?.payloadPath ?? null,
           error: error.message
         });
         console.error("[postprocess] segment-persist.queue-job.failed", {
           queueJobId: job?.id,
+          batchSize: Array.isArray(job?.data?.batchItems) ? job.data.batchItems.length : null,
           payloadPath: job?.data?.payloadPath,
           error: error.message
         });
@@ -2558,6 +2860,7 @@ export async function createApp(options = {}) {
         queueJobName: job?.name ?? null,
         uid: job?.data?.uid,
         workoutId: job?.data?.workoutId ?? null,
+        batchSize: Array.isArray(job?.data?.workoutIds) ? job.data.workoutIds.length : null,
         segmentIds: Array.isArray(job?.data?.segmentIds) ? job.data.segmentIds : null,
         error: error.message
       });
@@ -2565,6 +2868,7 @@ export async function createApp(options = {}) {
         queueJobId: job?.id,
         queueJobName: job?.name,
         workoutId: job?.data?.workoutId ?? null,
+        batchSize: Array.isArray(job?.data?.workoutIds) ? job.data.workoutIds.length : null,
         segmentIds: Array.isArray(job?.data?.segmentIds) ? job.data.segmentIds : null,
         error: error.message
       });
@@ -2581,6 +2885,10 @@ export async function createApp(options = {}) {
       async (job) => {
         if (job.name === "classify-workout-similarity") {
           return await processWorkoutSimilarityClassificationJob(job);
+        }
+
+        if (job.name === "classify-workout-similarity-batch") {
+          return await processWorkoutSimilarityClassificationBatchJob(job);
         }
 
         return await processWorkoutSimilarityRebuildJob(job);
@@ -2604,12 +2912,14 @@ export async function createApp(options = {}) {
         queueJobId: job?.id,
         uid: job?.data?.uid,
         workoutId: job?.data?.workoutId ?? null,
+        batchSize: Array.isArray(job?.data?.workoutIds) ? job.data.workoutIds.length : null,
         mode: job?.data?.mode ?? null,
         error: error.message
       });
       console.error("[postprocess] similarity.queue-job.failed", {
         queueJobId: job?.id,
         uid: job?.data?.uid,
+        batchSize: Array.isArray(job?.data?.workoutIds) ? job.data.workoutIds.length : null,
         error: error.message
       });
     });

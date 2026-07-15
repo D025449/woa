@@ -5,6 +5,7 @@ import { buildGpsTrackBlock } from "../src/public/js/woa-format-compact.js";
 import GpsTrackBlobCodec from "../src/shared/GpsTrackBlobCodec.js";
 import GpsTrackBlobService from "../src/services/gpsTrackBlobService.js";
 import { decodeGpsTrackBlock } from "../src/services/woa1Service.js";
+import Workout from "../src/shared/Workout.js";
 
 const sourceSlots = [
   { lat: 48.137151, lng: 11.576121 },
@@ -143,6 +144,25 @@ test("default GPS2 layout v5 roundtrips a shared bitmap and columnar coordinates
       assert.equal(actual.lng, expected.lng);
     }
   }
+});
+
+test("compact similarity decode keeps only E5 integer coordinate columns", async () => {
+  const encoded = buildGpsTrackBlock({
+    slots: sourceSlots,
+    slotCount: sourceSlots.length,
+    sampleRateSeconds: 5
+  });
+  const compressed = await Workout.compress(encoded, "gzip");
+
+  const decoded = await GpsTrackBlobService.decodeCompressedCompact(compressed, { codec: "gzip" });
+
+  assert.equal(decoded.layoutVersion, 5);
+  assert.equal(decoded.sampleRateGps, 5);
+  assert.equal(decoded.slotCount, sourceSlots.length);
+  assert.equal(decoded.pointCount, 4);
+  assert.deepEqual([...decoded.latitudesE5], [4813715, 4813716, 4950000, 4950001]);
+  assert.deepEqual([...decoded.longitudesE5], [1157612, 1157615, 1250000, 1250001]);
+  assert.equal(decoded.byteLength, 32);
 });
 
 test("GPS2 layout v3 keeps isolated invalid slots from forcing a raw track", () => {

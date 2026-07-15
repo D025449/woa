@@ -1,9 +1,9 @@
 export default class SegmentMatcher {
     static getPointProgress(point, fallbackIndex = 0) {
-        if (Number.isFinite(Number(point?.sampleOffset))) {
+        if (point?.sampleOffset != null && Number.isFinite(Number(point.sampleOffset))) {
             return Number(point.sampleOffset);
         }
-        if (Number.isFinite(Number(point?.slotIndex))) {
+        if (point?.slotIndex != null && Number.isFinite(Number(point.slotIndex))) {
             return Number(point.slotIndex);
         }
         return fallbackIndex;
@@ -247,6 +247,9 @@ export default class SegmentMatcher {
         const workout = workoutSegments[startCandidate.segmentIndex];
         const startIdx = startCandidate.index;
         const endIdx = endCandidate.index;
+        if (endIdx < startIdx) {
+            return false;
+        }
 
         const checkPoints = [
             segment[Math.floor(segment.length * 0.25)],
@@ -262,7 +265,7 @@ export default class SegmentMatcher {
 
                 const dist = this.pointToPolylineDistance(
                     sp,
-                    [workout[i], workout[Math.min(i + 1, endIdx)]]
+                    [workout[i], workout[Math.min(i + 1, workout.length - 1)]]
                 );
 
                 if (dist < maxDist) {

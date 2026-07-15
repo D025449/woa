@@ -1,4 +1,17 @@
 import { segmentBestEffortsQueue } from "../queue/segment-best-efforts-queue.js";
+import { buildImportScopedJobId } from "./import-scoped-job-id.js";
+import { groupSegmentPersistenceItems } from "./segment-persistence-batches.js";
+import { groupWorkoutSegmentBestEffortItems } from "./segment-best-efforts-batches.js";
+
+export const SEGMENT_PERSIST_BATCH_SIZE = Math.max(
+  1,
+  Math.floor(Number(process.env.SEGMENT_PERSIST_BATCH_SIZE) || 200)
+);
+
+export const SEGMENT_BEST_EFFORTS_BATCH_SIZE = Math.max(
+  1,
+  Math.floor(Number(process.env.SEGMENT_BEST_EFFORTS_BATCH_SIZE) || 100)
+);
 
 function buildQueueOptions(jobId) {
   return {
@@ -14,6 +27,7 @@ function buildQueueOptions(jobId) {
 }
 
 function buildSegmentPersistenceJob({ uid, workoutId, payloadPath = null, entryName = null, recomputeFromDb = false, importJobId = null }) {
+  const baseJobId = `persist-workout-segments:${uid}:${Number(workoutId)}`;
   return {
     name: "persist-workout-segments",
     data: {
@@ -24,11 +38,12 @@ function buildSegmentPersistenceJob({ uid, workoutId, payloadPath = null, entryN
       recomputeFromDb: !!recomputeFromDb,
       importJobId
     },
-    opts: buildQueueOptions(`persist-workout-segments:${uid}:${Number(workoutId)}`)
+    opts: buildQueueOptions(buildImportScopedJobId(baseJobId, importJobId))
   };
 }
 
 function buildWorkoutSegmentBestEffortsJob({ uid, workoutId, importJobId = null }) {
+  const baseJobId = `process-workout-segment-best-efforts:${uid}:${Number(workoutId)}`;
   return {
     name: "process-workout-segment-best-efforts",
     data: {
@@ -36,7 +51,45 @@ function buildWorkoutSegmentBestEffortsJob({ uid, workoutId, importJobId = null 
       workoutId: Number(workoutId),
       importJobId
     },
-    opts: buildQueueOptions(`process-workout-segment-best-efforts:${uid}:${Number(workoutId)}`)
+    opts: buildQueueOptions(buildImportScopedJobId(baseJobId, importJobId))
+  };
+}
+
+function buildWorkoutSegmentBestEffortsBatchJob(items) {
+  const firstItem = items[0];
+  const lastItem = items[items.length - 1];
+  const uid = firstItem.uid;
+  const importJobId = firstItem.importJobId ?? null;
+  const baseJobId = `process-workout-segment-best-efforts-batch:${uid}:${Number(firstItem.workoutId)}-${Number(lastItem.workoutId)}`;
+  return {
+    name: "process-workout-segment-best-efforts-batch",
+    data: {
+      uid,
+      importJobId,
+      workoutIds: items.map((item) => Number(item.workoutId))
+    },
+    opts: buildQueueOptions(buildImportScopedJobId(baseJobId, importJobId))
+  };
+}
+
+function buildSegmentPersistenceBatchJob(items) {
+  const firstItem = items[0];
+  const lastItem = items[items.length - 1];
+  const uid = firstItem.uid;
+  const importJobId = firstItem.importJobId ?? null;
+  const baseJobId = `persist-workout-segments-batch:${uid}:${Number(firstItem.workoutId)}-${Number(lastItem.workoutId)}`;
+
+  return {
+    name: "persist-workout-segments-batch",
+    data: {
+      uid,
+      importJobId,
+      batchItems: items.map((item) => ({
+        workoutId: Number(item.workoutId),
+        entryName: item.entryName ?? null
+      }))
+    },
+    opts: buildQueueOptions(buildImportScopedJobId(baseJobId, importJobId))
   };
 }
 
@@ -71,7 +124,10 @@ export async function enqueueWorkoutThumbnailGeneration({ uid, workoutId, payloa
       },
       removeOnComplete: 100,
       removeOnFail: 100,
-      jobId: `generate-workout-thumbnail:${uid}:${Number(workoutId)}`
+      jobId: buildImportScopedJobId(
+        `generate-workout-thumbnail:${uid}:${Number(workoutId)}`,
+        importJobId
+      )
     }
   );
 }
@@ -86,9 +142,15 @@ export async function enqueueWorkoutSegmentBestEfforts({ uid, workoutId, importJ
 }
 
 export async function enqueueWorkoutSegmentPersistenceBulk(items = []) {
-  const jobs = items
-    .filter((item) => item?.uid && Number.isInteger(Number(item?.workoutId)) && (item?.payloadPath || item?.recomputeFromDb))
-    .map((item) => buildSegmentPersistenceJob(item));
+  const validItems = items.filter((item) =>
+    item?.uid
+    && Number.isInteger(Number(item?.workoutId))
+    && (item?.payloadPath || item?.recomputeFromDb)
+  );
+  const jobs = groupSegmentPersistenceItems(validItems, SEGMENT_PERSIST_BATCH_SIZE)
+    .map((group) => group.type === "batch"
+      ? buildSegmentPersistenceBatchJob(group.items)
+      : buildSegmentPersistenceJob(group.items[0]));
   if (jobs.length === 0) {
     return [];
   }
@@ -96,9 +158,8 @@ export async function enqueueWorkoutSegmentPersistenceBulk(items = []) {
 }
 
 export async function enqueueWorkoutSegmentBestEffortsBulk(items = []) {
-  const jobs = items
-    .filter((item) => item?.uid && Number.isInteger(Number(item?.workoutId)))
-    .map((item) => buildWorkoutSegmentBestEffortsJob(item));
+  const jobs = groupWorkoutSegmentBestEffortItems(items, SEGMENT_BEST_EFFORTS_BATCH_SIZE)
+    .map((group) => buildWorkoutSegmentBestEffortsBatchJob(group));
   if (jobs.length === 0) {
     return [];
   }

@@ -181,6 +181,81 @@ function decodeGpsBitmapColumnarPayload(source, pointCount) {
   };
 }
 
+function decodeGpsBitmapColumnarCompactPayload(source, pointCount) {
+  const headerBytes = 24;
+  const bitmapBytes = Math.ceil(pointCount / 8);
+  if (source.byteLength < headerBytes + bitmapBytes) {
+    throw new Error("GPS2 layout v5 header or bitmap is truncated");
+  }
+
+  const view = new DataView(source.buffer, source.byteOffset, source.byteLength);
+  const latitudeBytes = view.getUint32(20, true);
+  const latitudeStart = headerBytes + bitmapBytes;
+  const longitudeStart = latitudeStart + latitudeBytes;
+  if (longitudeStart > source.byteLength) {
+    throw new Error("GPS2 layout v5 latitude payload is truncated");
+  }
+
+  let validPointCount = 0;
+  for (let index = 0; index < pointCount; index += 1) {
+    if ((source[headerBytes + (index >> 3)] & (1 << (index & 7))) !== 0) {
+      validPointCount += 1;
+    }
+  }
+
+  const decodeColumn = (start, end) => {
+    const values = new Int32Array(validPointCount);
+    let offset = start;
+    let writeIndex = 0;
+    let previous = 0;
+    let previousValid = false;
+    const requireBytes = (count) => {
+      if (offset + count > end) throw new Error("GPS2 layout v5 coordinate payload is truncated");
+    };
+
+    for (let index = 0; index < pointCount; index += 1) {
+      const valid = (source[headerBytes + (index >> 3)] & (1 << (index & 7))) !== 0;
+      if (!valid) {
+        previousValid = false;
+        continue;
+      }
+
+      if (!previousValid) {
+        requireBytes(4);
+        previous = view.getInt32(offset, true);
+        offset += 4;
+      } else {
+        requireBytes(1);
+        const marker = view.getUint8(offset);
+        if (marker === GPS2_TIERED_INT16_MARKER) {
+          requireBytes(3);
+          previous += view.getInt16(offset + 1, true);
+          offset += 3;
+        } else if (marker === GPS2_TIERED_EXTENDED_MARKER) {
+          requireBytes(5);
+          previous = view.getInt32(offset + 1, true);
+          offset += 5;
+        } else {
+          previous += view.getInt8(offset);
+          offset += 1;
+        }
+      }
+      values[writeIndex] = previous;
+      writeIndex += 1;
+      previousValid = true;
+    }
+
+    if (offset !== end) throw new Error("GPS2 layout v5 coordinate payload has trailing bytes");
+    return values;
+  };
+
+  return {
+    latitudesE5: decodeColumn(latitudeStart, longitudeStart),
+    longitudesE5: decodeColumn(longitudeStart, source.byteLength),
+    validPointCount
+  };
+}
+
 function normalizeTrackPoints(track = []) {
   if (!Array.isArray(track)) {
     return [];
@@ -729,6 +804,50 @@ export default class GpsTrackBlobService {
 
     const raw = await Workout.decompress(bufferLike, options.codec || "brotli");
     return this.decodeTrackBuffer(raw, options);
+  }
+
+  static async decodeCompressedCompact(bufferLike, options = {}) {
+    const raw = await Workout.decompress(bufferLike, options.codec || "brotli");
+    const source = Buffer.isBuffer(raw) ? raw : Buffer.from(new Uint8Array(raw));
+    const magic = source.length >= 4 ? TEXT_DECODER.decode(source.subarray(0, 4)) : "";
+
+    if (magic === "GPS2" && source.length >= GPS2_HEADER_BYTES) {
+      const view = new DataView(source.buffer, source.byteOffset, source.byteLength);
+      const layoutVersion = view.getUint16(4, true) || 1;
+      const sampleRateGps = view.getUint16(6, true) || 1;
+      const pointCount = view.getUint32(8, true);
+      if (layoutVersion === 5) {
+        const compact = decodeGpsBitmapColumnarCompactPayload(source, pointCount);
+        return {
+          layoutVersion,
+          sampleRateGps,
+          pointCount: compact.validPointCount,
+          slotCount: pointCount,
+          latitudesE5: compact.latitudesE5,
+          longitudesE5: compact.longitudesE5,
+          byteLength: compact.latitudesE5.byteLength + compact.longitudesE5.byteLength
+        };
+      }
+    }
+
+    const decoded = this.decodeTrackBuffer(source, { includeGeoJson: false });
+    const points = Array.isArray(decoded?.points) ? decoded.points : [];
+    const latitudesE5 = new Int32Array(points.length);
+    const longitudesE5 = new Int32Array(points.length);
+    for (let index = 0; index < points.length; index += 1) {
+      latitudesE5[index] = Math.round(Number(points[index]?.lat || 0) * GPS2_E5_COORDINATE_SCALE);
+      longitudesE5[index] = Math.round(Number(points[index]?.lng || 0) * GPS2_E5_COORDINATE_SCALE);
+    }
+
+    return {
+      layoutVersion: decoded?.version ?? null,
+      sampleRateGps: decoded?.sampleRateGps || 1,
+      pointCount: points.length,
+      slotCount: decoded?.slotCount ?? points.length,
+      latitudesE5,
+      longitudesE5,
+      byteLength: latitudesE5.byteLength + longitudesE5.byteLength
+    };
   }
 
   static async decodeRowTrack(row = {}, options = {}) {

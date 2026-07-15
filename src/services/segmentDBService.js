@@ -299,7 +299,79 @@ export default class SegmentDBService {
 
   }
 
-  static async getMatchingSegmentCandidatesV2(bounds, uid, workoutId = null) {
+  static async storeSegmentBestEffortsForWorkoutsBulk(matches, workoutObjectsById, segmentDefinitionsById) {
+    const segmentIds = [];
+    const fileIds = [];
+    const starts = [];
+    const ends = [];
+    const durations = [];
+    const powers = [];
+    const heartRates = [];
+    const cadences = [];
+    const speeds = [];
+
+    for (const match of Array.isArray(matches) ? matches : []) {
+      const workoutId = Number(match?.workout_id);
+      const segmentId = Number(match?.segment_id);
+      const workoutObject = workoutObjectsById.get(workoutId);
+      const segmentDefinition = segmentDefinitionsById.get(segmentId);
+      if (!workoutObject || !segmentDefinition) {
+        continue;
+      }
+
+      const startOffset = Number(match.start_offset);
+      const endOffset = Number(match.end_offset);
+      const duration = endOffset - startOffset;
+      if (!Number.isFinite(duration) || duration <= 0) {
+        continue;
+      }
+      const averages = workoutObject.getAverages(startOffset, endOffset);
+      segmentIds.push(segmentId);
+      fileIds.push(workoutId);
+      starts.push(startOffset);
+      ends.push(endOffset);
+      durations.push(duration);
+      powers.push(Math.round(averages.power ?? 0));
+      heartRates.push(Math.round(averages.hr ?? 0));
+      cadences.push(Math.round(averages.cadence ?? 0));
+      speeds.push(this.calculateNormalizedSegmentSpeed(segmentDefinition.distance, duration));
+    }
+
+    if (segmentIds.length === 0) {
+      return { insertedCount: 0 };
+    }
+
+    await pool.query(`
+      INSERT INTO gps_segment_best_efforts (
+        sid,
+        wid,
+        start_offset,
+        end_offset,
+        duration,
+        avg_power,
+        avg_heart_rate,
+        avg_cadence,
+        avg_speed
+      )
+      SELECT *
+      FROM UNNEST(
+        $1::int[],
+        $2::int[],
+        $3::int[],
+        $4::int[],
+        $5::int[],
+        $6::float8[],
+        $7::float8[],
+        $8::float8[],
+        $9::float8[]
+      )
+    `, [segmentIds, fileIds, starts, ends, durations, powers, heartRates, cadences, speeds]);
+
+    return { insertedCount: segmentIds.length };
+  }
+
+  static async getMatchingSegmentCandidatesV2(bounds, uid, workoutId = null, options = {}) {
+    const includeExistingBestEfforts = options?.includeExistingBestEfforts === true;
     const sql = `SELECT
       s.id,
       ST_AsGeoJSON(s.geom)::json AS geom
@@ -322,6 +394,7 @@ export default class SegmentDBService {
         AND s.bounds && ST_MakeEnvelope($2, $3, $4, $5, 4326)
         AND (
           $6::bigint IS NULL
+          OR $7::boolean = true
           OR NOT EXISTS (
             SELECT 1
             FROM gps_segment_best_efforts sbe
@@ -337,10 +410,93 @@ export default class SegmentDBService {
       bounds.minLat,
       bounds.maxLng,
       bounds.maxLat,
-      workoutId]
+      workoutId,
+      includeExistingBestEfforts]
     );
 
     return result.rows;
+  }
+
+  static async getMatchingSegmentCandidateIdsForWorkoutsBulk(uid, workoutIds, options = {}) {
+    const includeExistingBestEfforts = options?.includeExistingBestEfforts === true;
+    const normalizedIds = [...new Set((Array.isArray(workoutIds) ? workoutIds : [])
+      .map(Number)
+      .filter(Number.isInteger))];
+    const candidatesByWorkoutId = new Map(normalizedIds.map((workoutId) => [workoutId, []]));
+    if (normalizedIds.length === 0) {
+      return { candidatesByWorkoutId, segmentIds: [] };
+    }
+
+    const result = await pool.query(`
+      WITH source_workouts AS (
+        SELECT id, uid, bounds
+        FROM workouts
+        WHERE uid = $1
+          AND id = ANY($2::bigint[])
+          AND validgps = true
+          AND bounds IS NOT NULL
+      )
+      SELECT
+        w.id AS workout_id,
+        s.id AS segment_id
+      FROM source_workouts w
+      JOIN gps_segments s
+        ON s.bounds && w.bounds
+        AND (
+          s.uid = $1
+          OR EXISTS (
+            SELECT 1
+            FROM gps_segment_group_shares sgs
+            INNER JOIN workout_group_shares wgs
+              ON wgs.group_id = sgs.group_id
+            WHERE sgs.segment_id = s.id
+              AND wgs.workout_id = w.id
+          )
+        )
+      WHERE $3::boolean = true
+        OR NOT EXISTS (
+          SELECT 1
+          FROM gps_segment_best_efforts sbe
+          WHERE sbe.wid = w.id
+            AND sbe.sid = s.id
+        )
+      ORDER BY w.id, s.id
+    `, [uid, normalizedIds, includeExistingBestEfforts]);
+
+    const segmentIds = new Set();
+    for (const row of result.rows) {
+      const workoutId = Number(row.workout_id);
+      const segmentId = Number(row.segment_id);
+      const candidates = candidatesByWorkoutId.get(workoutId);
+      if (candidates && Number.isInteger(segmentId)) {
+        candidates.push(segmentId);
+        segmentIds.add(segmentId);
+      }
+    }
+    return { candidatesByWorkoutId, segmentIds: [...segmentIds] };
+  }
+
+  static async loadSegmentMatchDefinitionsBulk(segmentIds) {
+    const normalizedIds = [...new Set((Array.isArray(segmentIds) ? segmentIds : [])
+      .map(Number)
+      .filter((segmentId) => Number.isInteger(segmentId) && segmentId > 0))];
+    if (normalizedIds.length === 0) {
+      return new Map();
+    }
+
+    const result = await pool.query(`
+      SELECT
+        id,
+        distance,
+        ST_AsGeoJSON(geom)::json AS geom
+      FROM gps_segments
+      WHERE id = ANY($1::bigint[])
+    `, [normalizedIds]);
+    return new Map(result.rows.map((row) => [Number(row.id), {
+      id: Number(row.id),
+      distance: Number(row.distance) || 0,
+      geom: row.geom
+    }]));
   }
 
   static async getSegmentById(uid, segmentId) {
@@ -1176,6 +1332,7 @@ export default class SegmentDBService {
 
   static async rescanSegmentBestEffortsForWorkout(uid, workoutId, options = {}) {
     const includeProfile = options?.includeProfile === true;
+    const includeExistingBestEfforts = options?.includeExistingBestEfforts === true;
     const profile = {
       loadWorkoutTrackMs: 0,
       buildBoundsMs: 0,
@@ -1211,7 +1368,7 @@ export default class SegmentDBService {
       gps_track_blob: workoutRow.gps_track_blob,
       gps_track_blob_codec: workoutRow.gps_track_blob_codec,
       samplerategps: workoutRow.samplerategps
-    });
+    }, { includeGeoJson: false });
     profile.loadWorkoutTrackMs += Date.now() - decodeTrackStartedAt;
     const track = decodedTrack.points;
     const trackSegments = Array.isArray(decodedTrack.segments) ? decodedTrack.segments : [];
@@ -1235,7 +1392,9 @@ export default class SegmentDBService {
     profile.buildBoundsMs += Date.now() - buildBoundsStartedAt;
 
     const loadSegmentCandidatesStartedAt = Date.now();
-    const candidates = await SegmentDBService.getMatchingSegmentCandidatesV2(bounds, uid, workoutId);
+    const candidates = await SegmentDBService.getMatchingSegmentCandidatesV2(bounds, uid, workoutId, {
+      includeExistingBestEfforts
+    });
     profile.loadSegmentCandidatesMs += Date.now() - loadSegmentCandidatesStartedAt;
     profile.candidateCount = Array.isArray(candidates) ? candidates.length : 0;
 
@@ -1247,7 +1406,9 @@ export default class SegmentDBService {
       id: workoutId,
       track,
       trackSegments,
-      sampleRate: workoutRow.samplerategps
+      sampleRate: Number(decodedTrack.sampleRateGps) > 0
+        ? Number(decodedTrack.sampleRateGps)
+        : workoutRow.samplerategps
     };
 
     const matchSegmentsStartedAt = Date.now();
@@ -1267,6 +1428,135 @@ export default class SegmentDBService {
     profile.persistBestEffortsMs += Date.now() - persistBestEffortsStartedAt;
 
     return includeProfile ? { matches, profile } : matches;
+  }
+
+  static async rescanSegmentBestEffortsForWorkoutsBatch(uid, workoutIds, options = {}) {
+    const includeExistingBestEfforts = options?.includeExistingBestEfforts === true;
+    const normalizedIds = [...new Set((Array.isArray(workoutIds) ? workoutIds : [])
+      .map(Number)
+      .filter(Number.isInteger))];
+    if (!uid || normalizedIds.length === 0) {
+      return [];
+    }
+
+    const loadWorkoutTrackStartedAt = Date.now();
+    const trackRowsByWorkoutId = await WorkoutDBService.loadSimilarityTrackRowsBulk(uid, normalizedIds);
+    const loadWorkoutTrackRowsMs = Date.now() - loadWorkoutTrackStartedAt;
+
+    const loadSegmentCandidateIdsStartedAt = Date.now();
+    const { candidatesByWorkoutId, segmentIds } = await this.getMatchingSegmentCandidateIdsForWorkoutsBulk(
+      uid,
+      normalizedIds,
+      { includeExistingBestEfforts }
+    );
+    const loadSegmentCandidateIdsMs = Date.now() - loadSegmentCandidateIdsStartedAt;
+
+    const loadSegmentDefinitionsStartedAt = Date.now();
+    const segmentDefinitionsById = await this.loadSegmentMatchDefinitionsBulk(segmentIds);
+    const loadSegmentDefinitionsMs = Date.now() - loadSegmentDefinitionsStartedAt;
+    const loadSegmentCandidatesMs = loadSegmentCandidateIdsMs + loadSegmentDefinitionsMs;
+
+    const matchesByWorkoutId = new Map();
+    const profilesByWorkoutId = new Map();
+    const allMatches = [];
+    let candidateOccurrenceCount = 0;
+    for (const workoutId of normalizedIds) {
+      const profile = {
+        loadWorkoutTrackMs: 0,
+        buildBoundsMs: 0,
+        loadSegmentCandidatesMs: 0,
+        matchSegmentsMs: 0,
+        loadWorkoutObjectMs: 0,
+        persistBestEffortsMs: 0,
+        candidateCount: 0,
+        rawMatchCount: 0
+      };
+      const row = trackRowsByWorkoutId.get(workoutId);
+      let matches = [];
+      if (row) {
+        const decodeTrackStartedAt = Date.now();
+        const decodedTrack = await GpsTrackBlobService.decodeRowTrack(row, { includeGeoJson: false });
+        profile.loadWorkoutTrackMs += Date.now() - decodeTrackStartedAt;
+        const candidateIds = candidatesByWorkoutId.get(workoutId) || [];
+        const candidates = candidateIds
+          .map((segmentId) => segmentDefinitionsById.get(segmentId))
+          .filter(Boolean);
+        profile.candidateCount = candidates.length;
+        candidateOccurrenceCount += candidates.length;
+
+        if (decodedTrack.points.length > 0 && candidates.length > 0) {
+          const workout = {
+            id: workoutId,
+            track: decodedTrack.points,
+            trackSegments: Array.isArray(decodedTrack.segments) ? decodedTrack.segments : [],
+            sampleRate: Number(decodedTrack.sampleRateGps) > 0
+              ? Number(decodedTrack.sampleRateGps)
+              : row.samplerategps
+          };
+          const matchSegmentsStartedAt = Date.now();
+          matches = this.matchSegments(workout, candidates);
+          profile.matchSegmentsMs += Date.now() - matchSegmentsStartedAt;
+          profile.rawMatchCount = matches.length;
+          allMatches.push(...matches);
+        }
+      }
+      matchesByWorkoutId.set(workoutId, matches);
+      profilesByWorkoutId.set(workoutId, profile);
+    }
+
+    const matchedWorkoutIds = [...new Set(allMatches.map((match) => Number(match.workout_id)))];
+    const loadWorkoutObjectsStartedAt = Date.now();
+    const rawWorkoutObjectsById = matchedWorkoutIds.length > 0
+      ? await WorkoutDBService.getWorkouts(matchedWorkoutIds)
+      : new Map();
+    const workoutObjectsById = new Map(
+      [...rawWorkoutObjectsById.entries()].map(([workoutId, workout]) => [Number(workoutId), workout])
+    );
+    const loadWorkoutObjectMs = Date.now() - loadWorkoutObjectsStartedAt;
+
+    const persistBestEffortsStartedAt = Date.now();
+    const persistResult = await this.storeSegmentBestEffortsForWorkoutsBulk(
+      allMatches,
+      workoutObjectsById,
+      segmentDefinitionsById
+    );
+    const persistBestEffortsMs = Date.now() - persistBestEffortsStartedAt;
+
+    const batchSize = normalizedIds.length;
+    const sharedTrackLoadMs = loadWorkoutTrackRowsMs / batchSize;
+    const sharedCandidateLoadMs = loadSegmentCandidatesMs / batchSize;
+    const sharedWorkoutObjectMs = loadWorkoutObjectMs / batchSize;
+    const sharedPersistMs = persistBestEffortsMs / batchSize;
+    const segmentCacheReuseRatio = segmentDefinitionsById.size > 0
+      ? candidateOccurrenceCount / segmentDefinitionsById.size
+      : 0;
+
+    return normalizedIds.map((workoutId) => {
+      const profile = profilesByWorkoutId.get(workoutId);
+      profile.loadWorkoutTrackMs += sharedTrackLoadMs;
+      profile.loadSegmentCandidatesMs += sharedCandidateLoadMs;
+      profile.loadWorkoutObjectMs += sharedWorkoutObjectMs;
+      profile.persistBestEffortsMs += sharedPersistMs;
+      profile.batchSize = batchSize;
+      profile.loadWorkoutTrackRowsMs = sharedTrackLoadMs;
+      profile.loadSegmentCandidateIdsMs = loadSegmentCandidateIdsMs / batchSize;
+      profile.loadSegmentDefinitionsMs = loadSegmentDefinitionsMs / batchSize;
+      profile.segmentCacheEntriesPerWorkout = segmentDefinitionsById.size / batchSize;
+      profile.segmentCacheReuseRatio = segmentCacheReuseRatio;
+      profile.matchedWorkoutRatio = matchedWorkoutIds.length / batchSize;
+      profile.insertedBestEffortsPerWorkout = Number(persistResult.insertedCount || 0) / batchSize;
+      const elapsedMs = profile.loadWorkoutTrackMs
+        + profile.loadSegmentCandidatesMs
+        + profile.matchSegmentsMs
+        + profile.loadWorkoutObjectMs
+        + profile.persistBestEffortsMs;
+      return {
+        workoutId,
+        matches: matchesByWorkoutId.get(workoutId) || [],
+        profile,
+        elapsedMs
+      };
+    });
   }
 
   static async insertGpsSegmentsBulk(uid, segments) {
