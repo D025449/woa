@@ -15,6 +15,7 @@ import CollaborationDBService from "../services/collaborationDBService.js";
 import pool from "../services/database.js";
 
 import { FileDBService } from "../services/fileDBService.js";
+import { fetchBicycleRoute } from "../services/bicycleRoutingService.js";
 
 const router = express.Router();
 
@@ -220,7 +221,7 @@ function createStepLogger(scope, meta = {}) {
 
 
 
-router.post("/track-lookup", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
+router.post("/track-lookup", authMiddleware, requireActiveAccountWrite, async (req, res) => {
   const timing = createStepLogger("segments.track-lookup");
   try {
     const { start, waypoints = [], end, points = null } = req.body;
@@ -256,29 +257,14 @@ router.post("/track-lookup", authMiddleware, requireActiveAccountWrite, async (r
     const { lat: lat1, lng: lng1 } = normalizedStart;
     const { lat: lat2, lng: lng2 } = normalizedEnd;
 
-    // ⚠️ OSRM erwartet: lng,lat
-    const osrmCoordinates = normalizedPoints
-      .map((point) => `${point.lng},${point.lat}`)
-      .join(";");
-    const url = `https://router.project-osrm.org/route/v1/cycling/${osrmCoordinates}?overview=full&geometries=geojson&exclude=motorway`;
-
-    const routePromise = fetch(url).then((response) => response.json());
+    const routePromise = fetchBicycleRoute(normalizedPoints);
     const startLocationPromise = reverseGeocode(lat1, lng1);
 
-    const data = await routePromise;
+    const route = await routePromise;
     timing.mark("osrm-route");
 
     const start_location = await startLocationPromise;
     timing.mark("reverse-start");
-
-    if (!data.routes || data.routes.length === 0) {
-      timing.flush({ status: 404, reason: "no_route" });
-      return res.status(404).json({
-        error: "No route found"
-      });
-    }
-
-    const route = data.routes[0];
 
     // 👉 GeoJSON → dein Format
     const rawTrack = route.geometry.coordinates.map(([lng, lat]) => ({
@@ -373,12 +359,18 @@ router.post("/track-lookup", authMiddleware, requireActiveAccountWrite, async (r
     });*/
 
   } catch (err) {
+    const status = err.statusCode || 500;
     timing.flush({
-      status: 500,
-      error: err.message
+      status,
+      error: err.message,
+      upstreamStatus: err.upstreamStatus,
+      upstreamCode: err.upstreamCode
     });
-    console.error("POST /files/track-lookup failed:", err);
-    next(err);
+    console.error("POST /segments/track-lookup failed:", err);
+    return res.status(status).json({
+      error: err.message || "Segment route lookup failed",
+      upstreamCode: err.upstreamCode
+    });
   }
 });
 

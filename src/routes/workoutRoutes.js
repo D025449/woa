@@ -13,6 +13,7 @@ import { enqueueSegmentBestEfforts } from "../services/segment-best-efforts-serv
 import FitExportService from "../services/fitExportService.js";
 import WorkoutThumbnailService from "../services/workoutThumbnailService.js";
 import WorkoutSimilarityService from "../services/workoutSimilarityService.js";
+import { fetchBicycleRoute } from "../services/bicycleRoutingService.js";
 import WorkoutOpenV2 from "../shared/WorkoutOpenV2.js";
 import {
   enqueueWorkoutSimilarityRebuild,
@@ -60,26 +61,7 @@ async function lookupManualWorkoutRoute(points = []) {
     throw error;
   }
 
-  const osrmCoordinates = normalizedPoints
-    .map((point) => `${point.lng},${point.lat}`)
-    .join(";");
-  const url = `https://router.project-osrm.org/route/v1/cycling/${osrmCoordinates}?overview=full&geometries=geojson&exclude=motorway`;
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    const error = new Error(`OSRM route lookup failed (${response.status})`);
-    error.statusCode = 502;
-    throw error;
-  }
-
-  const data = await response.json();
-  if (!Array.isArray(data?.routes) || data.routes.length === 0) {
-    const error = new Error("No route found for the selected points.");
-    error.statusCode = 404;
-    throw error;
-  }
-
-  const route = data.routes[0];
+  const route = await fetchBicycleRoute(normalizedPoints);
   const track = Array.isArray(route?.geometry?.coordinates)
     ? route.geometry.coordinates.map(([lng, lat]) => ({ lat: Number(lat), lng: Number(lng) }))
     : [];
