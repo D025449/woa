@@ -3,6 +3,7 @@ const fileInput = document.getElementById("file");
 const filePickerButton = document.getElementById("filePickerButton");
 const filePickerLabel = document.getElementById("filePickerLabel");
 const overwriteExistingWorkoutsCheckbox = document.getElementById("overwriteExistingWorkouts");
+const browserPostprocessBenchmarkCheckbox = document.getElementById("browserPostprocessBenchmark");
 const submitButton = document.getElementById("submitButton");
 const response = document.getElementById("response");
 const statusArea = document.getElementById("statusArea");
@@ -444,6 +445,7 @@ function buildStartupTimingLines(timings = {}) {
     const orderedKeys = [
         "readSourceMs",
         "fetchExistingStartTimesMs",
+        "fetchGpsSegmentDefinitionsMs",
         "workerBootstrapMs",
         "fitWorkerPoolWarmMs",
         "unzipSyncMs",
@@ -455,6 +457,7 @@ function buildStartupTimingLines(timings = {}) {
     const labels = {
         readSourceMs: "Quelldateien lesen",
         fetchExistingStartTimesMs: "Vorhandene Workouts laden",
+        fetchGpsSegmentDefinitionsMs: "GPS-Segmentdefinitionen laden",
         workerBootstrapMs: "Worker-Start bis erster Kontakt",
         fitWorkerPoolWarmMs: "FIT-Worker-Pool warmziehen",
         unzipSyncMs: "ZIP entpacken",
@@ -519,7 +522,8 @@ function getEncodingOptions() {
         gpsSampleRateSeconds,
         gpsCoordinateEncoding,
         uploadCompression,
-        uploadGzipEngine
+        uploadGzipEngine,
+        browserPostprocessBenchmark: !!browserPostprocessBenchmarkCheckbox?.checked
     };
 }
 
@@ -598,6 +602,7 @@ async function uploadGeneratedZipArtifact() {
         return;
     }
 
+    const artifact = latestGeneratedZipArtifact;
     const overwriteExisting = isOverwriteExistingWorkoutsEnabled();
 
     renderBackendUploadState(buildBackendUploadPendingMarkup());
@@ -620,25 +625,83 @@ async function uploadGeneratedZipArtifact() {
             setProcessingProgress(100, tr("uploadPage.woaBackendProcessingDetail", "Upload finished, waiting for backend response"));
         };
 
-        if (latestGeneratedZipArtifact.uploadMode === "raw") {
+        if (artifact.uploadMode === "raw") {
             payload = await uploadGeneratedRawBlob(
-                latestGeneratedZipArtifact.blob,
-                latestGeneratedZipArtifact.fileName,
-                latestGeneratedZipArtifact.uploadUrl,
+                artifact.blob,
+                artifact.fileName,
+                artifact.uploadUrl,
                 overwriteExisting,
                 handleProgress,
-                handleUploadComplete
+                handleUploadComplete,
+                {
+                    browserLocalPostprocess: !!artifact.browserPostprocessBlob,
+                    browserGpsSegmentBestEfforts: !!artifact.browserGpsBestEffortsBlob
+                }
             );
         } else {
             const formData = new FormData();
-            formData.append("file", latestGeneratedZipArtifact.blob, latestGeneratedZipArtifact.fileName);
+            formData.append("file", artifact.blob, artifact.fileName);
             formData.append("overwriteExisting", overwriteExisting ? "1" : "0");
+            formData.append("browserLocalPostprocess", artifact.browserPostprocessBlob ? "1" : "0");
+            formData.append("browserGpsSegmentBestEfforts", artifact.browserGpsBestEffortsBlob ? "1" : "0");
             payload = await uploadGeneratedZipFormData(
                 formData,
-                latestGeneratedZipArtifact.uploadUrl,
+                artifact.uploadUrl,
                 handleProgress,
                 handleUploadComplete
             );
+        }
+
+        let browserPostprocessPayload = null;
+        let browserGpsBestEffortsPayload = null;
+        if (artifact.browserPostprocessBlob) {
+            setProcessingLabel("Browser postprocessing");
+            setPhase("Storing browser postprocessing");
+            setProcessingProgress(0, `Preparing ${formatBytes(artifact.browserPostprocessBlob.size)}`);
+            try {
+                browserPostprocessPayload = await uploadGeneratedRawBlob(
+                    artifact.browserPostprocessBlob,
+                    "workout-local-postprocess.wpp1.gz",
+                    "/api/uploads/workout-local-postprocess",
+                    false,
+                    ({ loaded, total, percent }) => {
+                        setProcessingProgress(percent, total > 0
+                            ? `${formatBytes(loaded)} / ${formatBytes(total)}`
+                            : formatBytes(loaded));
+                    },
+                    () => {
+                        setProcessingProgress(100, "Upload finished, storing segments");
+                    }
+                );
+            } catch (error) {
+                throw new Error(
+                    `Workouts imported, but browser postprocessing failed: ${error?.message || String(error)}`,
+                    { cause: error }
+                );
+            }
+        }
+
+        if (artifact.browserGpsBestEffortsBlob) {
+            setProcessingLabel("Browser GPS segment best efforts");
+            setPhase("Storing GPS segment matches");
+            setProcessingProgress(0, `Preparing ${formatBytes(artifact.browserGpsBestEffortsBlob.size)}`);
+            try {
+                browserGpsBestEffortsPayload = await uploadGeneratedRawBlob(
+                    artifact.browserGpsBestEffortsBlob,
+                    "workout-gps-best-efforts.gbe1.gz",
+                    "/api/uploads/workout-gps-segment-best-efforts",
+                    false,
+                    ({ loaded, total, percent }) => setProcessingProgress(percent, total > 0
+                        ? `${formatBytes(loaded)} / ${formatBytes(total)}`
+                        : formatBytes(loaded)),
+                    () => setProcessingProgress(100, "Upload finished, storing GPS segment matches")
+                );
+            } catch (error) {
+                throw new Error(
+                    `Workouts imported, but browser GPS segment postprocessing failed: ${error?.message || String(error)}`,
+                    { cause: error }
+                );
+            }
         }
 
         setProcessingLabel(tr("uploadPage.woaCompletedLabel", "Completed"));
@@ -653,6 +716,18 @@ async function uploadGeneratedZipArtifact() {
                     ZIP entries seen: ${escapeHtml(String(payload.totalEntries || 0))}<br>
                     Backend elapsed: ${escapeHtml(formatMs(payload.elapsedMs))}<br>
                     HTTP roundtrip: ${escapeHtml(formatMs(payload.httpElapsedMs))}
+                    ${browserPostprocessPayload
+                        ? `<br>Browser postprocessing workouts: ${escapeHtml(String(browserPostprocessPayload.workoutCount || 0))}<br>
+                           Browser postprocessing segments: ${escapeHtml(String(browserPostprocessPayload.insertedSegmentCount || 0))}<br>
+                           Browser postprocessing backend: ${escapeHtml(formatMs(browserPostprocessPayload.totalMs))}<br>
+                           Browser postprocessing HTTP: ${escapeHtml(formatMs(browserPostprocessPayload.httpElapsedMs))}`
+                        : ""}
+                    ${browserGpsBestEffortsPayload
+                        ? `<br>Browser GPS best-efforts workouts: ${escapeHtml(String(browserGpsBestEffortsPayload.workoutCount || 0))}<br>
+                           Browser GPS best-efforts matches: ${escapeHtml(String(browserGpsBestEffortsPayload.insertedMatchCount || 0))}<br>
+                           Browser GPS best-efforts backend: ${escapeHtml(formatMs(browserGpsBestEffortsPayload.totalMs))}<br>
+                           Browser GPS best-efforts HTTP: ${escapeHtml(formatMs(browserGpsBestEffortsPayload.httpElapsedMs))}`
+                        : ""}
                 </div>
             </div>
         `);
@@ -727,6 +802,11 @@ function renderCompletedContainerMarkup({
                     : `Output container is streamed directly to the backend.`
                 }<br>
                 GPS coordinate encoding: ${escapeHtml(String(stats.gpsCoordinateEncoding || "bitmap-columnar"))}
+                ${stats.browserPostprocess
+                    ? `<br>Browser postprocessing (${escapeHtml(String(stats.browserPostprocess.format || "WPP1"))}): ${escapeHtml(String(stats.browserPostprocess.workoutCount || 0))} workouts / ${escapeHtml(String(stats.browserPostprocess.segmentCount || 0))} segments<br>
+                       Browser postprocessing raw: ${escapeHtml(formatBytes(Number(stats.browserPostprocess.rawBytes || 0)))}<br>
+                       Browser postprocessing gzip: ${escapeHtml(formatBytes(Number(stats.browserPostprocess.gzipBytes || 0)))} (${escapeHtml(String(stats.browserPostprocess.compressionEngine || "gzip"))})`
+                    : ""}
             </div>
             ${skippedExistingMarkup}
             ${skippedTooShortMarkup}
@@ -734,6 +814,15 @@ function renderCompletedContainerMarkup({
             <div class="small mb-3">
                 Average parse FIT: ${escapeHtml(formatMs(timings.parseMs))}<br>
                 Average build WOA1: ${escapeHtml(formatMs(timings.buildWoaMs))}<br>
+                ${stats.browserPostprocess
+                    ? `Browser postprocessing detect CPU: ${escapeHtml(formatMs(stats.browserPostprocess.detectCpuMs))} (${escapeHtml(formatMs(stats.browserPostprocess.detectAverageMs))} average)<br>
+                       Browser postprocessing encode: ${escapeHtml(formatMs(stats.browserPostprocess.encodeMs))}<br>
+                       Browser postprocessing gzip: ${escapeHtml(formatMs(stats.browserPostprocess.compressMs))}<br>`
+                    : ""}
+                ${stats.browserPostprocess?.gpsSegmentBenchmark
+                    ? `GPS-Segment-Best-Efforts Browser CPU: ${escapeHtml(formatMs(stats.browserPostprocess.gpsSegmentBenchmark.cpuMs))}<br>
+                       GPS-Segment-Best-Efforts: ${escapeHtml(String(stats.browserPostprocess.gpsSegmentBenchmark.workoutCount || 0))} workouts / ${escapeHtml(String(stats.browserPostprocess.gpsSegmentBenchmark.candidateCount || 0))} candidates / ${escapeHtml(String(stats.browserPostprocess.gpsSegmentBenchmark.matchCount || 0))} matches<br>`
+                    : ""}
                 ${buildWorkoutStreamStatLines(timings.workoutStreamStats) ? `${buildWorkoutStreamStatLines(timings.workoutStreamStats)}<br>` : ""}
                 ${buildTimingLines(timings.buildWoaStepsMs) ? `${buildTimingLines(timings.buildWoaStepsMs)}<br>` : ""}
                 ${Number.isFinite(Number(timings.containerBuildMs)) && Number(timings.containerBuildMs) > 0
@@ -748,8 +837,14 @@ function renderCompletedContainerMarkup({
     `;
 }
 
-function setLatestGeneratedZipArtifactSingle(blob, fileName, uploadUrl = "/api/uploads/woa-zip", uploadMode = "form-data") {
-    latestGeneratedZipArtifact = { blob, fileName, uploadUrl, uploadMode };
+function setLatestGeneratedZipArtifactSingle(
+    blob,
+    fileName,
+    uploadUrl = "/api/uploads/woa-zip",
+    uploadMode = "form-data",
+    options = {}
+) {
+    latestGeneratedZipArtifact = { blob, fileName, uploadUrl, uploadMode, ...options };
 }
 
 async function fetchExistingWorkoutStartTimes() {
@@ -774,6 +869,29 @@ async function fetchExistingWorkoutStartTimes() {
     return Array.isArray(payload.startTimes)
         ? payload.startTimes.filter((value) => typeof value === "string" && value)
         : [];
+}
+
+async function fetchBrowserGpsSegmentDefinitions() {
+    const startedAt = performance.now();
+    const response = await fetch("/api/uploads/browser-gps-segment-definitions", {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" }
+    });
+    const responseText = await response.text();
+    let payload = {};
+    try {
+        payload = responseText ? JSON.parse(responseText) : {};
+    } catch {
+        payload = {};
+    }
+    if (!response.ok) {
+        throw new Error(payload?.error || `GPS segment definitions failed (${response.status})`);
+    }
+    return {
+        segments: Array.isArray(payload.segments) ? payload.segments : [],
+        fetchMs: performance.now() - startedAt,
+        transferBytes: new TextEncoder().encode(responseText).byteLength
+    };
 }
 
 function uploadGeneratedZipFormData(formData, uploadUrl, onProgress, onUploadComplete) {
@@ -838,7 +956,7 @@ function uploadGeneratedZipFormData(formData, uploadUrl, onProgress, onUploadCom
     });
 }
 
-function uploadGeneratedRawBlob(blob, fileName, uploadUrl, overwriteExisting, onProgress, onUploadComplete) {
+function uploadGeneratedRawBlob(blob, fileName, uploadUrl, overwriteExisting, onProgress, onUploadComplete, options = {}) {
     return new Promise((resolve, reject) => {
         const request = new XMLHttpRequest();
         const startedAt = performance.now();
@@ -854,6 +972,12 @@ function uploadGeneratedRawBlob(blob, fileName, uploadUrl, overwriteExisting, on
         );
         if (overwriteExisting) {
             request.setRequestHeader("X-Overwrite-Existing", "1");
+        }
+        if (options.browserLocalPostprocess) {
+            request.setRequestHeader("X-Browser-Local-Postprocess", "1");
+        }
+        if (options.browserGpsSegmentBestEfforts) {
+            request.setRequestHeader("X-Browser-Gps-Segment-Best-Efforts", "1");
         }
 
         request.upload.addEventListener("progress", (event) => {
@@ -1039,6 +1163,14 @@ async function handleConvertSubmit(event) {
             const fetchExistingStartedAt = performance.now();
             existingStartTimes = await fetchExistingWorkoutStartTimes();
             startupTimings.fetchExistingStartTimesMs = performance.now() - fetchExistingStartedAt;
+        }
+        if (encodingOptions.browserPostprocessBenchmark) {
+            setPhase("Loading GPS segment definitions");
+            const gpsSegmentDefinitions = await fetchBrowserGpsSegmentDefinitions();
+            encodingOptions.browserGpsSegmentDefinitions = gpsSegmentDefinitions.segments;
+            startupTimings.fetchGpsSegmentDefinitionsMs = gpsSegmentDefinitions.fetchMs;
+            startupTimings.gpsSegmentDefinitionsBytes = gpsSegmentDefinitions.transferBytes;
+            startupTimings.gpsSegmentDefinitionCount = gpsSegmentDefinitions.segments.length;
         }
         setPhase(tr("uploadPage.woaPhaseStartingWorker", "Starting worker"));
         setProcessingProgress(5, tr("uploadPage.woaWorkerBootstrapped", "Worker bootstrapped"));
@@ -1369,6 +1501,26 @@ async function handleConvertSubmit(event) {
                 const stats = data.stats || {};
                 const containerBytes = data.bytes instanceof ArrayBuffer ? data.bytes : new ArrayBuffer(0);
                 const containerBlob = new Blob([containerBytes], { type: "application/octet-stream" });
+                const browserPostprocessBytes = data.browserPostprocessBytes instanceof ArrayBuffer
+                    ? data.browserPostprocessBytes
+                    : null;
+                const browserPostprocessCoversAllEntries = Number(stats.browserPostprocess?.workoutCount || 0)
+                    === Number(stats.convertedEntries || 0) + Number(stats.passedThroughEntries || 0);
+                const browserPostprocessBlob = browserPostprocessBytes && browserPostprocessCoversAllEntries
+                    ? new Blob([browserPostprocessBytes], { type: "application/gzip" })
+                    : null;
+                const browserGpsBestEffortsBytes = data.browserGpsBestEffortsBytes instanceof ArrayBuffer
+                    ? data.browserGpsBestEffortsBytes
+                    : null;
+                const browserGpsBestEffortsBlob = browserGpsBestEffortsBytes && browserPostprocessCoversAllEntries
+                    ? new Blob([browserGpsBestEffortsBytes], { type: "application/gzip" })
+                    : null;
+                if (browserPostprocessBytes && !browserPostprocessCoversAllEntries) {
+                    console.warn("[upload-postprocess] browser payload does not cover all output entries; using server postprocessing", {
+                        browserWorkoutCount: Number(stats.browserPostprocess?.workoutCount || 0),
+                        outputEntryCount: Number(stats.convertedEntries || 0) + Number(stats.passedThroughEntries || 0)
+                    });
+                }
                 const shouldUploadGeneratedContainer = Number(stats.convertedEntries || 0) > 0 && containerBlob.size > 0;
                 traceMark("upload.submit.end", {
                     reason: shouldUploadGeneratedContainer ? "completed-container-upload" : "completed-container-no-upload"
@@ -1389,7 +1541,8 @@ async function handleConvertSubmit(event) {
                         containerBlob,
                         data.outputFileName || "output.woat.gz",
                         "/api/uploads/woa-container",
-                        "raw"
+                        "raw",
+                        { browserPostprocessBlob, browserGpsBestEffortsBlob }
                     );
                 }
                 const skipped = Array.isArray(data.skipped) ? data.skipped : [];
@@ -1451,6 +1604,11 @@ async function handleConvertSubmit(event) {
                             Source ZIP size: ${escapeHtml(formatBytes(Number(stats.sourceZipBytes || 0)))}<br>
                             Output container size: ${escapeHtml(formatBytes(Number(stats.outputContainerBytes || 0)))} (${escapeHtml(compressionRatio)}% of source ZIP, ${containerCompressionDetail})
                             <br>GPS coordinate encoding: ${escapeHtml(String(stats.gpsCoordinateEncoding || "bitmap-columnar"))}
+                            ${stats.browserPostprocess
+                                ? `<br>Browser postprocessing (${escapeHtml(String(stats.browserPostprocess.format || "WPP1"))}): ${escapeHtml(String(stats.browserPostprocess.workoutCount || 0))} workouts / ${escapeHtml(String(stats.browserPostprocess.segmentCount || 0))} segments<br>
+                                   Browser postprocessing raw: ${escapeHtml(formatBytes(Number(stats.browserPostprocess.rawBytes || 0)))}<br>
+                                   Browser postprocessing gzip: ${escapeHtml(formatBytes(Number(stats.browserPostprocess.gzipBytes || 0)))} (${escapeHtml(String(stats.browserPostprocess.compressionEngine || "gzip"))})`
+                                : ""}
                         </div>
                         ${skippedExistingMarkup}
                         ${skippedTooShortMarkup}
@@ -1458,6 +1616,18 @@ async function handleConvertSubmit(event) {
                         <div class="small mb-3">
                             Average parse FIT: ${escapeHtml(formatMs(timings.parseMs))}<br>
                             Average build WOA1: ${escapeHtml(formatMs(timings.buildWoaMs))}<br>
+                            ${stats.browserPostprocess
+                                ? `Browser postprocessing detect CPU: ${escapeHtml(formatMs(stats.browserPostprocess.detectCpuMs))} (${escapeHtml(formatMs(stats.browserPostprocess.detectAverageMs))} average)<br>
+                                   Browser postprocessing encode: ${escapeHtml(formatMs(stats.browserPostprocess.encodeMs))}<br>
+                                   Browser postprocessing gzip: ${escapeHtml(formatMs(stats.browserPostprocess.compressMs))}<br>`
+                                : ""}
+                            ${stats.browserPostprocess?.gpsSegmentBenchmark
+                                ? `GPS-Segment-Best-Efforts Browser CPU: ${escapeHtml(formatMs(stats.browserPostprocess.gpsSegmentBenchmark.cpuMs))}<br>
+                                   GPS-Segment-Best-Efforts: ${escapeHtml(String(stats.browserPostprocess.gpsSegmentBenchmark.workoutCount || 0))} workouts / ${escapeHtml(String(stats.browserPostprocess.gpsSegmentBenchmark.candidateCount || 0))} candidates / ${escapeHtml(String(stats.browserPostprocess.gpsSegmentBenchmark.matchCount || 0))} matches<br>
+                                   GPS-Segment-Best-Efforts raw: ${escapeHtml(formatBytes(Number(stats.browserPostprocess.gpsSegmentBenchmark.rawBytes || 0)))}<br>
+                                   GPS-Segment-Best-Efforts gzip: ${escapeHtml(formatBytes(Number(stats.browserPostprocess.gpsSegmentBenchmark.gzipBytes || 0)))}<br>
+                                   GPS-Segment-Best-Efforts encode/gzip: ${escapeHtml(formatMs(stats.browserPostprocess.gpsSegmentBenchmark.encodeMs))} / ${escapeHtml(formatMs(stats.browserPostprocess.gpsSegmentBenchmark.compressMs))}<br>`
+                                : ""}
                             ${buildStartupTimingLines(startupTimings) ? `${buildStartupTimingLines(startupTimings)}<br>` : ""}
                             ${buildWorkoutStreamStatLines(timings.workoutStreamStats) ? `${buildWorkoutStreamStatLines(timings.workoutStreamStats)}<br>` : ""}
                             ${buildTimingLines(timings.buildWoaStepsMs) ? `${buildTimingLines(timings.buildWoaStepsMs)}<br>` : ""}

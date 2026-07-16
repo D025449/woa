@@ -13,6 +13,16 @@ import { FileDBService } from "../services/fileDBService.js";
 import pool from "../services/database.js";
 import { decodeWoa1Buffer, decodeWoa1BufferLight, inspectWoa1Header } from "../services/woa1Service.js";
 import { decodeWoaTransportContainer } from "../public/js/woa-transport-container.js";
+import { decodeWorkoutLocalPostprocessTransport } from "../shared/WorkoutLocalPostprocess.js";
+import { decodeBrowserGpsBestEffortsTransport } from "../shared/BrowserGpsBestEffortsTransport.js";
+import {
+  persistWorkoutLocalPostprocess,
+  WorkoutLocalPostprocessValidationError
+} from "../services/workoutLocalPostprocessImportService.js";
+import {
+  BrowserGpsBestEffortsValidationError,
+  persistBrowserGpsBestEfforts
+} from "../services/browserGpsBestEffortsImportService.js";
 import {
   enqueueWorkoutSegmentBestEffortsBulk,
   enqueueWorkoutSegmentPersistenceBulk
@@ -23,6 +33,12 @@ const router = Router();
 const IMPORT_SYNC_PROFILE_LOG = String(process.env.IMPORT_SYNC_PROFILE_LOG || "1").trim() !== "0";
 const IMPORT_DB_BULK_INSERT_SIZE = Math.max(1, Number(process.env.IMPORT_DB_BULK_INSERT_SIZE) || 200);
 const IMPORT_POSTPROCESS_ENQUEUE_BULK_SIZE = 500;
+const BROWSER_POSTPROCESS_MAX_COMPRESSED_BYTES = 5 * 1024 * 1024;
+const BROWSER_POSTPROCESS_MAX_RAW_BYTES = 20 * 1024 * 1024;
+const BROWSER_POSTPROCESS_DB_BATCH_WORKOUTS = Math.max(
+  1,
+  Number(process.env.BROWSER_POSTPROCESS_DB_BATCH_WORKOUTS) || 100
+);
 
 function resolveUploadContainerCompression(req) {
   const explicit = String(
@@ -90,7 +106,9 @@ async function importWoaEntryReaders({
   sourceName,
   uploadedSizeBytes,
   entryReaders,
-  overwriteExisting = false
+  overwriteExisting = false,
+  browserLocalPostprocess = false,
+  browserGpsSegmentBestEfforts = false
 }) {
   const inserted = [];
   const skipped = [];
@@ -251,7 +269,7 @@ async function importWoaEntryReaders({
         });
       }
 
-      const segmentPersistItems = resolvedChunkItems.map((item) => ({
+      const segmentPersistItems = browserLocalPostprocess ? [] : resolvedChunkItems.map((item) => ({
         uid: item.preparedInsert.fileRow.uid,
         workoutId: item.workoutId,
         entryName: item.entryName,
@@ -270,14 +288,17 @@ async function importWoaEntryReaders({
         workoutId: item.workoutId,
         entryName: item.entryName,
         validGps: !!item.validGps,
-        recomputeSegmentsFromDb: true,
+        recomputeSegmentsFromDb: !browserLocalPostprocess,
         hasSegments: false,
-        segmentPayloadPath: null
+        segmentPayloadPath: null,
+        skipSegmentBestEfforts: browserGpsSegmentBestEfforts
       }));
       allPostprocessTargets.push(...chunkTargets);
       allSegmentPersistItems.push(...segmentPersistItems);
       allSimilarityItems.push(...validGpsItems);
-      allSegmentBestEffortsItems.push(...validGpsItems);
+      if (!browserGpsSegmentBestEfforts) {
+        allSegmentBestEffortsItems.push(...validGpsItems);
+      }
     } catch (error) {
       for (const item of chunk) {
         skipped.push({
@@ -286,6 +307,18 @@ async function importWoaEntryReaders({
         });
       }
     }
+  }
+
+  if (browserLocalPostprocess && inserted.length > 0) {
+    await pool.query(`
+      UPDATE workouts
+      SET
+        segment_processing_status = 'processing',
+        segment_processing_error = NULL,
+        segment_processing_updated_at = NOW()
+      WHERE uid = $1
+        AND id = ANY($2::bigint[])
+    `, [userId, inserted.map((item) => item.workoutId)]);
   }
 
   const scheduleStartedAt = Date.now();
@@ -359,6 +392,8 @@ async function importWoaEntryReaders({
       totalEntries: entryReaders.length,
       importedEntries: inserted.length,
       skippedEntries: skipped.length,
+      browserLocalPostprocess,
+      browserGpsSegmentBestEfforts,
       postprocessErrors,
       syncTotalMs: elapsedMs,
       avgPerImportedEntryMs: inserted.length > 0
@@ -417,6 +452,8 @@ async function importWoaEntryReaders({
     totalEntries: entryReaders.length,
     importedEntries: inserted.length,
     skippedEntries: skipped.length,
+    browserLocalPostprocess,
+    browserGpsSegmentBestEfforts,
     postprocessErrors,
     elapsedMs
   });
@@ -428,6 +465,8 @@ async function importWoaEntryReaders({
     postprocessErrorCount: postprocessErrors.length,
     totalEntries: entryReaders.length,
     elapsedMs,
+    browserLocalPostprocess,
+    browserGpsSegmentBestEfforts,
     inserted,
     skipped,
     postprocessErrors
@@ -459,6 +498,47 @@ router.get(
       });
     } catch (err) {
       next(err);
+    }
+  }
+);
+
+router.get(
+  "/browser-gps-segment-definitions",
+  authMiddleware,
+  async (req, res, next) => {
+    try {
+      if (!req.user?.id) return res.status(401).json({ error: "Nicht angemeldet" });
+      const result = await pool.query(`
+        SELECT
+          id,
+          distance,
+          ST_YMin(bounds) AS min_lat,
+          ST_YMax(bounds) AS max_lat,
+          ST_XMin(bounds) AS min_lng,
+          ST_XMax(bounds) AS max_lng,
+          ST_AsGeoJSON(geom)::json AS geom
+        FROM gps_segments
+        WHERE uid = $1
+          AND bounds IS NOT NULL
+          AND geom IS NOT NULL
+        ORDER BY id
+      `, [req.user.id]);
+      return res.json({
+        segments: result.rows.map((row) => ({
+          id: Number(row.id),
+          distance: Number(row.distance) || 0,
+          bounds: {
+            minLat: Number(row.min_lat),
+            maxLat: Number(row.max_lat),
+            minLng: Number(row.min_lng),
+            maxLng: Number(row.max_lng)
+          },
+          track: (Array.isArray(row.geom?.coordinates) ? row.geom.coordinates : [])
+            .map(([lng, lat]) => ({ lat: Number(lat), lng: Number(lng) }))
+        }))
+      });
+    } catch (error) {
+      next(error);
     }
   }
 );
@@ -505,6 +585,8 @@ router.post(
         sourceName: uploadedFile.originalname,
         uploadedSizeBytes: uploadedFile.size,
         overwriteExisting: String(req.body?.overwriteExisting || "0") === "1",
+        browserLocalPostprocess: String(req.body?.browserLocalPostprocess || "0") === "1",
+        browserGpsSegmentBestEfforts: String(req.body?.browserGpsSegmentBestEfforts || "0") === "1",
         entryReaders: woaEntries.map((entry) => ({
           path: entry.path,
           buffer: () => entry.buffer()
@@ -516,6 +598,129 @@ router.post(
     } catch (error) {
       if (uploadedFile?.path) {
         await fs.rm(uploadedFile.path, { force: true }).catch(() => {});
+      }
+      next(error);
+    }
+  }
+);
+
+router.post(
+  "/workout-local-postprocess",
+  authMiddleware,
+  requireActiveAccountWrite,
+  async (req, res, next) => {
+    const startedAt = performance.now();
+    try {
+      if (!req.user?.id) return res.status(401).json({ error: "Nicht angemeldet" });
+      const chunks = [];
+      let compressedByteLength = 0;
+      for await (const chunk of req) {
+        compressedByteLength += chunk.length;
+        if (compressedByteLength > BROWSER_POSTPROCESS_MAX_COMPRESSED_BYTES) {
+          return res.status(413).json({ error: "Postprocessing-Container ist zu groß" });
+        }
+        chunks.push(chunk);
+      }
+      if (compressedByteLength === 0) return res.status(400).json({ error: "Kein Postprocessing-Container hochgeladen" });
+
+      const compressedBytes = Buffer.concat(chunks);
+      const decompressStartedAt = performance.now();
+      let rawBytes;
+      try {
+        rawBytes = gunzipSync(compressedBytes, { maxOutputLength: BROWSER_POSTPROCESS_MAX_RAW_BYTES });
+      } catch (error) {
+        if (error?.code === "ERR_BUFFER_TOO_LARGE") {
+          return res.status(413).json({ error: "Entpackter Postprocessing-Container ist zu groß" });
+        }
+        return res.status(400).json({ error: "Ungültiger Gzip-Postprocessing-Container" });
+      }
+      const decompressMs = performance.now() - decompressStartedAt;
+      const decodeStartedAt = performance.now();
+      let decoded;
+      try {
+        decoded = decodeWorkoutLocalPostprocessTransport(rawBytes);
+      } catch {
+        return res.status(400).json({ error: "Ungültiger WPP1-Postprocessing-Container" });
+      }
+      const decodeMs = performance.now() - decodeStartedAt;
+      const persisted = await persistWorkoutLocalPostprocess({
+        uid: req.user.id,
+        decoded,
+        pool,
+        batchWorkoutCount: BROWSER_POSTPROCESS_DB_BATCH_WORKOUTS
+      });
+      const totalMs = performance.now() - startedAt;
+      const result = {
+        format: "WPP1",
+        compressedBytes: compressedByteLength,
+        rawBytes: rawBytes.byteLength,
+        decompressMs,
+        decodeMs,
+        totalMs,
+        ...persisted
+      };
+      console.log(`[postprocess] browser-local-import.profile ${formatLogPayload({ uid: req.user.id, ...result })}`);
+      return res.status(200).json(result);
+    } catch (error) {
+      if (error instanceof WorkoutLocalPostprocessValidationError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      next(error);
+    }
+  }
+);
+
+router.post(
+  "/workout-gps-segment-best-efforts",
+  authMiddleware,
+  requireActiveAccountWrite,
+  async (req, res, next) => {
+    const startedAt = performance.now();
+    try {
+      if (!req.user?.id) return res.status(401).json({ error: "Nicht angemeldet" });
+      const chunks = [];
+      let compressedByteLength = 0;
+      for await (const chunk of req) {
+        compressedByteLength += chunk.length;
+        if (compressedByteLength > BROWSER_POSTPROCESS_MAX_COMPRESSED_BYTES) {
+          return res.status(413).json({ error: "GPS-Best-Efforts-Container ist zu groß" });
+        }
+        chunks.push(chunk);
+      }
+      if (!compressedByteLength) return res.status(400).json({ error: "Kein GPS-Best-Efforts-Container hochgeladen" });
+
+      const decompressStartedAt = performance.now();
+      let rawBytes;
+      try {
+        rawBytes = gunzipSync(Buffer.concat(chunks), { maxOutputLength: BROWSER_POSTPROCESS_MAX_RAW_BYTES });
+      } catch (error) {
+        if (error?.code === "ERR_BUFFER_TOO_LARGE") return res.status(413).json({ error: "Entpackter GPS-Best-Efforts-Container ist zu groß" });
+        return res.status(400).json({ error: "Ungültiger Gzip-GPS-Best-Efforts-Container" });
+      }
+      const decompressMs = performance.now() - decompressStartedAt;
+      const decodeStartedAt = performance.now();
+      let decoded;
+      try {
+        decoded = decodeBrowserGpsBestEffortsTransport(rawBytes);
+      } catch {
+        return res.status(400).json({ error: "Ungültiger GBE1-GPS-Best-Efforts-Container" });
+      }
+      const decodeMs = performance.now() - decodeStartedAt;
+      const persisted = await persistBrowserGpsBestEfforts({ uid: req.user.id, decoded, pool });
+      const result = {
+        format: "GBE1",
+        compressedBytes: compressedByteLength,
+        rawBytes: rawBytes.byteLength,
+        decompressMs,
+        decodeMs,
+        totalMs: performance.now() - startedAt,
+        ...persisted
+      };
+      console.log(`[postprocess] browser-gps-best-efforts.profile ${formatLogPayload({ uid: req.user.id, ...result })}`);
+      return res.status(200).json(result);
+    } catch (error) {
+      if (error instanceof BrowserGpsBestEffortsValidationError) {
+        return res.status(error.statusCode).json({ error: error.message });
       }
       next(error);
     }
@@ -558,6 +763,8 @@ router.post(
         sourceName: String(req.headers["x-upload-filename"] || (containerCompression === "brotli" ? "upload.woat.br" : "upload.woat.gz")),
         uploadedSizeBytes: compressedBytes.length,
         overwriteExisting: String(req.headers["x-overwrite-existing"] || "0") === "1",
+        browserLocalPostprocess: String(req.headers["x-browser-local-postprocess"] || "0") === "1",
+        browserGpsSegmentBestEfforts: String(req.headers["x-browser-gps-segment-best-efforts"] || "0") === "1",
         entryReaders: woaEntries.map((entry) => ({
           path: entry.name,
           buffer: async () => entry.bytes

@@ -41,3 +41,7 @@ uploads/
 tmp/
 
 psql-login.txt
+
+# Local FIT golden-test fixture (kept outside Git because of its size)
+/sample.fit
+/sample.zip

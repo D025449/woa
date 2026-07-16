@@ -32,3 +32,7 @@ test("fast parser matches golden fixture", async () => {
   const actual = await parseAndNormalize(parseFitBufferFast);
   assert.deepEqual(actual, expected);
 });
+
+test("normalizer removes bytes following a malformed FIT string terminator", () => {
+  assert.equal(normalizeFitPayload("RR\r\u0007o2\u001d"), "RR");
+});

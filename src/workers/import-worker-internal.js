@@ -236,7 +236,9 @@ export async function createApp(options = {}) {
       }
       if (target?.validGps) {
         expected.similarity += 1;
-        expected["segment-best-efforts"] += 1;
+        if (!target?.skipSegmentBestEfforts) {
+          expected["segment-best-efforts"] += 1;
+        }
       }
     }
 
@@ -769,7 +771,7 @@ export async function createApp(options = {}) {
   }
 
   async function enqueueImmediatePostprocessTarget(target, importJobId = null) {
-    const { uid, workoutId, entryName, validGps, hasSegments, segmentPayloadPath, recomputeSegmentsFromDb } = target;
+    const { uid, workoutId, entryName, validGps, hasSegments, segmentPayloadPath, recomputeSegmentsFromDb, skipSegmentBestEfforts } = target;
 
     if (recomputeSegmentsFromDb) {
       await enqueueWorkoutSegmentPersistence({
@@ -798,11 +800,13 @@ export async function createApp(options = {}) {
         importJobId
       });
 
-      await enqueueWorkoutSegmentBestEfforts({
-        uid,
-        workoutId,
-        importJobId
-      });
+      if (!skipSegmentBestEfforts) {
+        await enqueueWorkoutSegmentBestEfforts({
+          uid,
+          workoutId,
+          importJobId
+        });
+      }
     }
   }
 
@@ -846,7 +850,7 @@ export async function createApp(options = {}) {
 
     if (phaseType === "segment-best-efforts") {
       await enqueueWorkoutSegmentBestEffortsBulk(normalizedTargets
-        .filter((target) => target?.validGps)
+        .filter((target) => target?.validGps && !target?.skipSegmentBestEfforts)
         .map((target) => ({
           uid: target.uid,
           workoutId: target.workoutId,

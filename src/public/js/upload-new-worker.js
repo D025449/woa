@@ -1,6 +1,12 @@
 import { applyCompactEncodingOptions, parseFitBufferCompactBrowser } from "./fit-import-compact-browser.js";
 import { createWoa1FileFromCompactAsync } from "./woa-format-compact.js";
 import { encodeWoaTransportContainer } from "./woa-transport-container.js";
+import {
+  detectWorkoutLocalSegmentsCompact,
+  encodeWorkoutLocalPostprocessTransport
+} from "../../shared/WorkoutLocalPostprocess.js";
+import { benchmarkGpsSegmentBestEfforts } from "../../shared/BrowserGpsSegmentMatcher.js";
+import { encodeBrowserGpsBestEffortsTransport } from "../../shared/BrowserGpsBestEffortsTransport.js";
 import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../../shared/gpsSampling.js";
 import { gzipSync, unzipSync, zipSync } from "/vendor/fflate/browser.js";
 
@@ -327,6 +333,9 @@ async function convertFitEntriesParallel({
       parseSamplesMs: [],
       buildSamplesMs: [],
       buildTimingSamples: [],
+      browserPostprocessWorkouts: [],
+      browserPostprocessDetectSamplesMs: [],
+      browserGpsSegmentSamples: [],
       speedFallbackWorkoutCount: 0,
       speedFallbackRecordCount: 0,
       totalRecordCount: 0,
@@ -350,6 +359,9 @@ async function convertFitEntriesParallel({
   const parseSamplesMs = [];
   const buildSamplesMs = [];
   const buildTimingSamples = [];
+  const browserPostprocessWorkouts = [];
+  const browserPostprocessDetectSamplesMs = [];
+  const browserGpsSegmentSamples = [];
   let speedFallbackWorkoutCount = 0;
   let speedFallbackRecordCount = 0;
   let totalRecordCount = 0;
@@ -360,6 +372,17 @@ async function convertFitEntriesParallel({
   const startedAt = nowMs();
   let firstDispatchAt = null;
   let firstResultAt = null;
+
+  for (const worker of workers) {
+    worker.postMessage({
+      type: "configure-gps-segment-benchmark",
+      segmentDefinitions: Array.isArray(encodingOptions.browserGpsSegmentDefinitions)
+        ? encodingOptions.browserGpsSegmentDefinitions
+        : []
+    });
+  }
+  const taskEncodingOptions = { ...encodingOptions };
+  delete taskEncodingOptions.browserGpsSegmentDefinitions;
 
   const dispatchTask = (worker, taskIndex) => {
     const entry = fitEntries[taskIndex];
@@ -377,7 +400,7 @@ async function convertFitEntriesParallel({
         entry.bytes.byteOffset + entry.bytes.byteLength
       ),
       existingStartTimes,
-      encodingOptions
+      encodingOptions: taskEncodingOptions
     });
   };
 
@@ -438,8 +461,16 @@ async function convertFitEntriesParallel({
             completedEntries.push({
               entryName: data.entryName,
               woaBytes: new Uint8Array(data.woaBytes),
-              startTime: data.startTime
+              startTime: data.startTime,
+              browserPostprocess: data.browserPostprocess || null
             });
+            if (data.browserPostprocess) {
+              browserPostprocessWorkouts.push(data.browserPostprocess);
+              browserPostprocessDetectSamplesMs.push(Number(data.browserPostprocess.detectMs || 0));
+            }
+            if (data.browserGpsSegmentBenchmark) {
+              browserGpsSegmentSamples.push(data.browserGpsSegmentBenchmark);
+            }
             parseSamplesMs.push(Number(data.timings?.parseMs || 0));
             buildSamplesMs.push(Number(data.timings?.buildWoaMs || 0));
             buildTimingSamples.push(data.timings?.buildWoaStepsMs || {});
@@ -497,6 +528,9 @@ async function convertFitEntriesParallel({
     parseSamplesMs,
     buildSamplesMs,
     buildTimingSamples,
+    browserPostprocessWorkouts,
+    browserPostprocessDetectSamplesMs,
+    browserGpsSegmentSamples,
     speedFallbackWorkoutCount,
     speedFallbackRecordCount,
     totalRecordCount,
@@ -802,6 +836,9 @@ async function convertMixedEntriesToWoaZip({
   const buildSamplesMs = [];
   const gzipSamplesMs = [];
   const buildTimingSamples = [];
+  const browserPostprocessWorkouts = [];
+  const browserPostprocessDetectSamplesMs = [];
+  const browserGpsSegmentSamples = [];
   let speedFallbackWorkoutCount = 0;
   let speedFallbackRecordCount = 0;
   const skippedEntries = [];
@@ -851,6 +888,9 @@ async function convertMixedEntriesToWoaZip({
     parseSamplesMs.push(...parallelResult.parseSamplesMs);
     buildSamplesMs.push(...parallelResult.buildSamplesMs);
     buildTimingSamples.push(...parallelResult.buildTimingSamples);
+    browserPostprocessWorkouts.push(...parallelResult.browserPostprocessWorkouts);
+    browserPostprocessDetectSamplesMs.push(...parallelResult.browserPostprocessDetectSamplesMs);
+    browserGpsSegmentSamples.push(...parallelResult.browserGpsSegmentSamples);
     speedFallbackWorkoutCount += Number(parallelResult.speedFallbackWorkoutCount || 0);
     speedFallbackRecordCount += Number(parallelResult.speedFallbackRecordCount || 0);
     totalRecordCount += Number(parallelResult.totalRecordCount || 0);
@@ -898,11 +938,38 @@ async function convertMixedEntriesToWoaZip({
         }
 
         const buildStartedAt = nowMs();
-        const { result } = await createWoaFromParsed(parsed, fitEntry.name, encodingOptions);
+        const { adjustedParsed, result } = await createWoaFromParsed(parsed, fitEntry.name, encodingOptions);
         buildSamplesMs.push(nowMs() - buildStartedAt);
         buildTimingSamples.push(result.timings || {});
         speedFallbackWorkoutCount += Number(result.stats?.workoutStream?.usesSpeedFallback ? 1 : 0);
         speedFallbackRecordCount += Number(result.stats?.workoutStream?.speedFallbackRecordCount || 0);
+        if (encodingOptions.browserPostprocessBenchmark) {
+          const postprocessStartedAt = nowMs();
+          const segments = detectWorkoutLocalSegmentsCompact(adjustedParsed.compactRecords);
+          browserPostprocessWorkouts.push({
+            startTimeSec: Number(adjustedParsed.compactRecords?.baseTimestampSec || 0),
+            recordCount: Number(adjustedParsed.compactRecords?.recordCount || 0),
+            segments
+          });
+          browserPostprocessDetectSamplesMs.push(nowMs() - postprocessStartedAt);
+          if (result.gpsTrack?.bbox) {
+            const gpsSegmentStartedAt = nowMs();
+            const benchmark = benchmarkGpsSegmentBestEfforts(
+              result.gpsTrack,
+              Array.isArray(encodingOptions.browserGpsSegmentDefinitions)
+                ? encodingOptions.browserGpsSegmentDefinitions
+                : [],
+              adjustedParsed.compactRecords
+            );
+            browserGpsSegmentSamples.push({
+              startTimeSec: Number(adjustedParsed.compactRecords?.baseTimestampSec || 0),
+              cpuMs: nowMs() - gpsSegmentStartedAt,
+              candidateCount: benchmark.candidateCount,
+              matchCount: benchmark.matches.length,
+              matches: benchmark.matches
+            });
+          }
+        }
 
         const outputEntry = {
           name: createUniqueEntryName(fitEntry.name.replace(/\.fit$/i, ".woa1"), usedOutputNames),
@@ -1027,6 +1094,52 @@ async function convertMixedEntriesToWoaZip({
       ? resolveGzipEngine(encodingOptions)
       : "compression-stream";
     const containerBuildMs = nowMs() - containerBuildStartedAt;
+    let browserPostprocessStats = null;
+    let compressedPostprocessBytes = null;
+    let compressedGpsBestEffortsBytes = null;
+    if (encodingOptions.browserPostprocessBenchmark) {
+      const encodeStartedAt = nowMs();
+      const rawPostprocessBytes = encodeWorkoutLocalPostprocessTransport(browserPostprocessWorkouts);
+      const encodeMs = nowMs() - encodeStartedAt;
+      const compressStartedAt = nowMs();
+      compressedPostprocessBytes = canUseCompressionStream("gzip")
+        ? await compressWithCompressionStream(rawPostprocessBytes, "gzip")
+        : gzipSync(rawPostprocessBytes, { level: CUSTOM_CONTAINER_GZIP_LEVEL });
+      const compressMs = nowMs() - compressStartedAt;
+      browserPostprocessStats = {
+        format: "WPP1",
+        workoutCount: browserPostprocessWorkouts.length,
+        segmentCount: browserPostprocessWorkouts.reduce((sum, workout) => sum + workout.segments.length, 0),
+        rawBytes: rawPostprocessBytes.byteLength,
+        gzipBytes: compressedPostprocessBytes.byteLength,
+        detectCpuMs: browserPostprocessDetectSamplesMs.reduce((sum, value) => sum + value, 0),
+        detectAverageMs: average(browserPostprocessDetectSamplesMs),
+        encodeMs,
+        compressMs,
+        compressionEngine: canUseCompressionStream("gzip") ? "compression-stream" : "fflate"
+      };
+      browserPostprocessStats.gpsSegmentBenchmark = {
+        workoutCount: browserGpsSegmentSamples.length,
+        cpuMs: browserGpsSegmentSamples.reduce((sum, sample) => sum + Number(sample.cpuMs || 0), 0),
+        candidateCount: browserGpsSegmentSamples.reduce((sum, sample) => sum + Number(sample.candidateCount || 0), 0),
+        matchCount: browserGpsSegmentSamples.reduce((sum, sample) => sum + Number(sample.matchCount || 0), 0)
+      };
+      const gpsEncodeStartedAt = nowMs();
+      const rawGpsBestEffortsBytes = encodeBrowserGpsBestEffortsTransport(browserGpsSegmentSamples);
+      const gpsEncodeMs = nowMs() - gpsEncodeStartedAt;
+      const gpsCompressStartedAt = nowMs();
+      compressedGpsBestEffortsBytes = canUseCompressionStream("gzip")
+        ? await compressWithCompressionStream(rawGpsBestEffortsBytes, "gzip")
+        : gzipSync(rawGpsBestEffortsBytes, { level: CUSTOM_CONTAINER_GZIP_LEVEL });
+      Object.assign(browserPostprocessStats.gpsSegmentBenchmark, {
+        format: "GBE1",
+        rawBytes: rawGpsBestEffortsBytes.byteLength,
+        gzipBytes: compressedGpsBestEffortsBytes.byteLength,
+        encodeMs: gpsEncodeMs,
+        compressMs: nowMs() - gpsCompressStartedAt,
+        compressionEngine: canUseCompressionStream("gzip") ? "compression-stream" : "fflate"
+      });
+    }
     const totalElapsedMs = nowMs() - startedAt;
 
     self.postMessage({
@@ -1034,6 +1147,8 @@ async function convertMixedEntriesToWoaZip({
       fileName,
       outputFileName: fileName.replace(/\.zip$/i, containerCodec === "brotli" ? ".woat.br" : ".woat.gz"),
       bytes: compressedContainerBytes.buffer,
+      browserPostprocessBytes: compressedPostprocessBytes?.buffer || null,
+      browserGpsBestEffortsBytes: compressedGpsBestEffortsBytes?.buffer || null,
       stats: {
         fitEntries: sortedFitEntries.length,
         woaEntries: sortedWoaEntries.length,
@@ -1053,7 +1168,8 @@ async function convertMixedEntriesToWoaZip({
           || encodingOptions?.gpsCoordinateEncoding === "tiered-int8"
           ? encodingOptions.gpsCoordinateEncoding
           : "bitmap-columnar",
-        containerGzipLevel: CUSTOM_CONTAINER_GZIP_LEVEL
+        containerGzipLevel: CUSTOM_CONTAINER_GZIP_LEVEL,
+        browserPostprocess: browserPostprocessStats
       },
       skipped: skippedEntries,
       skippedExisting: skippedExistingEntries,
@@ -1071,7 +1187,11 @@ async function convertMixedEntriesToWoaZip({
         containerBuildMs,
         totalMs: totalElapsedMs
       }
-    }, [compressedContainerBytes.buffer]);
+    }, [
+      compressedContainerBytes.buffer,
+      ...(compressedPostprocessBytes ? [compressedPostprocessBytes.buffer] : []),
+      ...(compressedGpsBestEffortsBytes ? [compressedGpsBestEffortsBytes.buffer] : [])
+    ]);
     return;
   }
 

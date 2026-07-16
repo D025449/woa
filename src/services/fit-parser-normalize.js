@@ -16,6 +16,18 @@ export function normalizeFitPayload(input) {
     return input.toISOString();
   }
 
+  if (typeof input === "string") {
+    let terminatorIndex = -1;
+    for (let index = 0; index < input.length; index += 1) {
+      const code = input.charCodeAt(index);
+      if (code <= 0x1f || code === 0x7f) {
+        terminatorIndex = index;
+        break;
+      }
+    }
+    return terminatorIndex >= 0 ? input.slice(0, terminatorIndex) : input;
+  }
+
   if (Array.isArray(input)) {
     return input.map((value) => normalizeFitPayload(value));
   }

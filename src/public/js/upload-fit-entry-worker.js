@@ -1,10 +1,13 @@
 import { applyCompactEncodingOptions, parseFitBufferCompactBrowser } from "./fit-import-compact-browser.js";
 import { createWoa1FileFromCompactAsync } from "./woa-format-compact.js";
 import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../../shared/gpsSampling.js";
+import { detectWorkoutLocalSegmentsCompact } from "../../shared/WorkoutLocalPostprocess.js";
+import { benchmarkGpsSegmentBestEfforts } from "../../shared/BrowserGpsSegmentMatcher.js";
 import { gzipSync } from "/vendor/fflate/browser.js";
 
 const MIN_WORKOUT_RECORD_COUNT = 300;
 const PER_FILE_GZIP_LEVEL = 4;
+let browserGpsSegmentDefinitions = [];
 
 function canUseCompressionStream(format) {
   if (typeof CompressionStream === "undefined") {
@@ -114,6 +117,12 @@ function isTooShortWorkout(parsed) {
 }
 
 self.addEventListener("message", async (event) => {
+  if (event.data?.type === "configure-gps-segment-benchmark") {
+    browserGpsSegmentDefinitions = Array.isArray(event.data.segmentDefinitions)
+      ? event.data.segmentDefinitions
+      : [];
+    return;
+  }
   const {
     taskId,
     entryName,
@@ -156,6 +165,33 @@ self.addEventListener("message", async (event) => {
     const buildStartedAt = nowMs();
     const { adjustedParsed, result } = await createWoaFromParsed(parsed, entryName, encodingOptions);
     const buildWoaMs = nowMs() - buildStartedAt;
+    let browserPostprocess = null;
+    if (encodingOptions.browserPostprocessBenchmark) {
+      const postprocessStartedAt = nowMs();
+      const segments = detectWorkoutLocalSegmentsCompact(adjustedParsed.compactRecords);
+      browserPostprocess = {
+        startTimeSec: Number(adjustedParsed.compactRecords?.baseTimestampSec || 0),
+        recordCount: Number(adjustedParsed.compactRecords?.recordCount || 0),
+        segments,
+        detectMs: nowMs() - postprocessStartedAt
+      };
+    }
+    let browserGpsSegmentBenchmark = null;
+    if (encodingOptions.browserPostprocessBenchmark && result.gpsTrack?.bbox) {
+      const gpsSegmentStartedAt = nowMs();
+      const benchmark = benchmarkGpsSegmentBestEfforts(
+        result.gpsTrack,
+        browserGpsSegmentDefinitions,
+        adjustedParsed.compactRecords
+      );
+      browserGpsSegmentBenchmark = {
+        startTimeSec: Number(adjustedParsed.compactRecords?.baseTimestampSec || 0),
+        cpuMs: nowMs() - gpsSegmentStartedAt,
+        candidateCount: benchmark.candidateCount,
+        matchCount: benchmark.matches.length,
+        matches: benchmark.matches
+      };
+    }
 
     self.postMessage({
       type: "fit-entry-result",
@@ -172,6 +208,8 @@ self.addEventListener("message", async (event) => {
         buildWoaStepsMs: result.timings || {}
       },
       workoutStreamStats: result.stats?.workoutStream || {},
+      browserPostprocess,
+      browserGpsSegmentBenchmark,
       sessionsCount: getParsedSessionCount(adjustedParsed)
     }, [result.bytes.buffer]);
   } catch (error) {
