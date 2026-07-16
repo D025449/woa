@@ -235,7 +235,9 @@ export async function createApp(options = {}) {
         expected["segment-persist"] += 1;
       }
       if (target?.validGps) {
-        expected.similarity += 1;
+        if (!target?.skipSimilarity) {
+          expected.similarity += 1;
+        }
         if (!target?.skipSegmentBestEfforts) {
           expected["segment-best-efforts"] += 1;
         }
@@ -746,7 +748,8 @@ export async function createApp(options = {}) {
     validGps = false,
     hasSegments = false,
     segmentPayloadPath = null,
-    recomputeSegmentsFromDb = false
+    recomputeSegmentsFromDb = false,
+    skipSimilarity = false
   }) {
     return {
       uid,
@@ -755,7 +758,8 @@ export async function createApp(options = {}) {
       validGps: !!validGps,
       hasSegments: !!hasSegments,
       segmentPayloadPath,
-      recomputeSegmentsFromDb: !!recomputeSegmentsFromDb
+      recomputeSegmentsFromDb: !!recomputeSegmentsFromDb,
+      skipSimilarity: !!skipSimilarity
     };
   }
 
@@ -771,7 +775,7 @@ export async function createApp(options = {}) {
   }
 
   async function enqueueImmediatePostprocessTarget(target, importJobId = null) {
-    const { uid, workoutId, entryName, validGps, hasSegments, segmentPayloadPath, recomputeSegmentsFromDb, skipSegmentBestEfforts } = target;
+    const { uid, workoutId, entryName, validGps, hasSegments, segmentPayloadPath, recomputeSegmentsFromDb, skipSegmentBestEfforts, skipSimilarity } = target;
 
     if (recomputeSegmentsFromDb) {
       await enqueueWorkoutSegmentPersistence({
@@ -794,11 +798,13 @@ export async function createApp(options = {}) {
     }
 
     if (validGps) {
-      await enqueueWorkoutSimilarityClassification({
-        uid,
-        workoutId,
-        importJobId
-      });
+      if (!skipSimilarity) {
+        await enqueueWorkoutSimilarityClassification({
+          uid,
+          workoutId,
+          importJobId
+        });
+      }
 
       if (!skipSegmentBestEfforts) {
         await enqueueWorkoutSegmentBestEfforts({
@@ -865,7 +871,7 @@ export async function createApp(options = {}) {
 
     if (phaseType === "similarity") {
       await enqueueWorkoutSimilarityClassificationBulk(normalizedTargets
-        .filter((target) => target?.validGps)
+        .filter((target) => target?.validGps && !target?.skipSimilarity)
         .map((target) => ({
           uid: target.uid,
           workoutId: target.workoutId,

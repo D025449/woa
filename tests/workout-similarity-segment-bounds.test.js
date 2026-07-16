@@ -53,3 +53,34 @@ test("projected segment bounds preserve route match results", () => {
     assert.equal(ratio(sampled, bounded, { useProportionalHint: false }), ratio(sampled, plain));
   }
 });
+
+test("on-demand similarity coalesces concurrent refreshes but not later requests", async () => {
+  const originalClassify = WorkoutSimilarityService.classifySimilarGpsWorkoutsForWorkout;
+  WorkoutSimilarityService.activeRefreshes.clear();
+  let calls = 0;
+  let release;
+
+  try {
+    WorkoutSimilarityService.classifySimilarGpsWorkoutsForWorkout = async () => {
+      calls += 1;
+      await new Promise((resolve) => {
+        release = resolve;
+      });
+      return { edges: [], profile: { candidateCount: 0 } };
+    };
+
+    const first = WorkoutSimilarityService.refreshSimilarityForWorkout(42, 7);
+    const concurrent = WorkoutSimilarityService.refreshSimilarityForWorkout(42, 7);
+    assert.equal(calls, 1);
+    release();
+    await Promise.all([first, concurrent]);
+
+    const later = WorkoutSimilarityService.refreshSimilarityForWorkout(42, 7);
+    assert.equal(calls, 2);
+    release();
+    await later;
+  } finally {
+    WorkoutSimilarityService.classifySimilarGpsWorkoutsForWorkout = originalClassify;
+    WorkoutSimilarityService.activeRefreshes.clear();
+  }
+});

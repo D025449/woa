@@ -27,7 +27,6 @@ import {
   enqueueWorkoutSegmentBestEffortsBulk,
   enqueueWorkoutSegmentPersistenceBulk
 } from "../services/segment-best-efforts-service.js";
-import { enqueueWorkoutSimilarityClassificationBulk } from "../services/workout-similarity-job-service.js";
 
 const router = Router();
 const IMPORT_SYNC_PROFILE_LOG = String(process.env.IMPORT_SYNC_PROFILE_LOG || "1").trim() !== "0";
@@ -125,7 +124,6 @@ async function importWoaEntryReaders({
   const profile = createImportProfile();
   const allPostprocessTargets = [];
   const allSegmentPersistItems = [];
-  const allSimilarityItems = [];
   const allSegmentBestEffortsItems = [];
 
   const enqueueInLargeBulks = async (items, bulkSize, enqueueFn) => {
@@ -291,11 +289,11 @@ async function importWoaEntryReaders({
         recomputeSegmentsFromDb: !browserLocalPostprocess,
         hasSegments: false,
         segmentPayloadPath: null,
-        skipSegmentBestEfforts: browserGpsSegmentBestEfforts
+        skipSegmentBestEfforts: browserGpsSegmentBestEfforts,
+        skipSimilarity: true
       }));
       allPostprocessTargets.push(...chunkTargets);
       allSegmentPersistItems.push(...segmentPersistItems);
-      allSimilarityItems.push(...validGpsItems);
       if (!browserGpsSegmentBestEfforts) {
         allSegmentBestEffortsItems.push(...validGpsItems);
       }
@@ -341,23 +339,6 @@ async function importWoaEntryReaders({
     });
   } finally {
     profile.scheduleSegmentPersistenceMs += Date.now() - persistStartedAt;
-  }
-
-  const similarityStartedAt = Date.now();
-  try {
-    await enqueueInLargeBulks(
-      allSimilarityItems,
-      IMPORT_POSTPROCESS_ENQUEUE_BULK_SIZE,
-      enqueueWorkoutSimilarityClassificationBulk
-    );
-  } catch (error) {
-    postprocessErrors.push({
-      phase: "similarity",
-      affectedCount: allSimilarityItems.length,
-      error: error instanceof Error ? error.message : String(error)
-    });
-  } finally {
-    profile.scheduleSimilarityMs += Date.now() - similarityStartedAt;
   }
 
   const segmentBestEffortsStartedAt = Date.now();

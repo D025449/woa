@@ -5,6 +5,7 @@ import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "
 
 export default class WorkoutSimilarityService {
   static MATCH_TYPE_GPS_ROUTE = "gps_route";
+  static activeRefreshes = new Map();
   static DEBUG = String(process.env.SIMILARITY_DEBUG || "").trim() === "1";
 
   static debug(message, payload = {}) {
@@ -793,6 +794,25 @@ export default class WorkoutSimilarityService {
     return persistedEdges;
   }
 
+  static async refreshSimilarityForWorkout(workoutId, uid) {
+    const key = `${uid}:${workoutId}`;
+    const existing = this.activeRefreshes.get(key);
+    if (existing) return existing;
+
+    const refresh = this.classifySimilarGpsWorkoutsForWorkout(workoutId, uid, {
+      rebuildMode: "full",
+      includeProfile: true
+    });
+    this.activeRefreshes.set(key, refresh);
+    try {
+      return await refresh;
+    } finally {
+      if (this.activeRefreshes.get(key) === refresh) {
+        this.activeRefreshes.delete(key);
+      }
+    }
+  }
+
   static async classifySimilarGpsWorkoutsBatch(sourceWorkoutIds, uid, options = {}) {
     const sourceIds = [...new Set((Array.isArray(sourceWorkoutIds) ? sourceWorkoutIds : [])
       .map(Number)
@@ -1004,7 +1024,6 @@ export default class WorkoutSimilarityService {
       );
     }
     const persistEdgeMs = Date.now() - persistEdgesStartedAt;
-
     const batchSize = sourceIds.length;
     const sharedLoadMs = candidateMetadataMs + loadTrackRowsMs + decodeTrackMs;
     const cacheReuseRatio = trackRowsById.size > 0

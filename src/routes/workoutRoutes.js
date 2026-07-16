@@ -658,11 +658,27 @@ router.get("/:id/similarity", authMiddleware, async (req, res) => {
       });
     }
 
+    const refreshStartedAt = performance.now();
+    const refresh = await WorkoutSimilarityService.refreshSimilarityForWorkout(workoutId, uid);
+    const refreshMs = performance.now() - refreshStartedAt;
+    const clusterStartedAt = performance.now();
     const edges = await WorkoutDBService.getSimilarityClusterForWorkout(
       workoutId,
       uid,
       WorkoutSimilarityService.MATCH_TYPE_GPS_ROUTE
     );
+    const clusterMs = performance.now() - clusterStartedAt;
+
+    console.log("[similarity] on-demand.profile", {
+      uid: String(uid),
+      workoutId,
+      directMatchCount: Array.isArray(refresh?.edges) ? refresh.edges.length : 0,
+      clusterCount: Array.isArray(edges) ? edges.length : 0,
+      refreshMs: Number(refreshMs.toFixed(2)),
+      clusterMs: Number(clusterMs.toFixed(2)),
+      totalMs: Number((refreshMs + clusterMs).toFixed(2)),
+      profile: refresh?.profile || {}
+    });
 
     return res.json({
       ok: true,
