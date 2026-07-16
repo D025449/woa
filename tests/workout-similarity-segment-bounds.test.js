@@ -49,5 +49,7 @@ test("projected segment bounds preserve route match results", () => {
 
     assert.equal(ratio(sampled, bounded, options), ratio(sampled, plain, options));
     assert.equal(ratio(sampled, bounded), ratio(sampled, plain));
+    assert.equal(ratio(sampled, bounded, { ...options, useProportionalHint: false }), ratio(sampled, plain, options));
+    assert.equal(ratio(sampled, bounded, { useProportionalHint: false }), ratio(sampled, plain));
   }
 });

@@ -338,6 +338,28 @@ export default class WorkoutSimilarityService {
       && maxXs?.length === minXs.length
       && minYs?.length === minXs.length
       && maxYs?.length === minXs.length;
+    const useProportionalHint = options.useProportionalHint !== false;
+
+    const measureSegmentDistanceSquared = (px, py, segmentIndex) => {
+      const ax = polylineXs[segmentIndex];
+      const ay = polylineYs[segmentIndex];
+      const bx = polylineXs[segmentIndex + 1];
+      const by = polylineYs[segmentIndex + 1];
+      const dx = bx - ax;
+      const dy = by - ay;
+      if (dx === 0 && dy === 0) {
+        const ddx = px - ax;
+        const ddy = py - ay;
+        return ddx * ddx + ddy * ddy;
+      }
+      const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
+      const clamped = t < 0 ? 0 : (t > 1 ? 1 : t);
+      const projX = ax + clamped * dx;
+      const projY = ay + clamped * dy;
+      const ddx = px - projX;
+      const ddy = py - projY;
+      return ddx * ddx + ddy * ddy;
+    };
 
     let matched = 0;
     for (let pointIndex = 0; pointIndex < sampledXs.length; pointIndex += 1) {
@@ -345,7 +367,14 @@ export default class WorkoutSimilarityService {
       const py = sampledYs[pointIndex];
       let minDistanceSquared = Infinity;
 
-      for (let segmentIndex = 0; segmentIndex < polylineXs.length - 1; segmentIndex += 1) {
+      const segmentCount = polylineXs.length - 1;
+      const hintCenter = useProportionalHint && sampledXs.length > 1
+        ? Math.round((pointIndex / (sampledXs.length - 1)) * (segmentCount - 1))
+        : -1;
+      const hintStart = hintCenter >= 0 ? Math.max(0, hintCenter - 16) : 0;
+      const hintEnd = hintCenter >= 0 ? Math.min(segmentCount, hintCenter + 17) : 0;
+      let matchedWithinHint = false;
+      for (let segmentIndex = hintStart; segmentIndex < hintEnd; segmentIndex += 1) {
         if (
           hasSegmentBounds
           && (
@@ -357,32 +386,32 @@ export default class WorkoutSimilarityService {
         ) {
           continue;
         }
-        const ax = polylineXs[segmentIndex];
-        const ay = polylineYs[segmentIndex];
-        const bx = polylineXs[segmentIndex + 1];
-        const by = polylineYs[segmentIndex + 1];
-        const dx = bx - ax;
-        const dy = by - ay;
-
-        let distanceSquared;
-        if (dx === 0 && dy === 0) {
-          const ddx = px - ax;
-          const ddy = py - ay;
-          distanceSquared = ddx * ddx + ddy * ddy;
-        } else {
-          const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
-          const clamped = t < 0 ? 0 : (t > 1 ? 1 : t);
-          const projX = ax + clamped * dx;
-          const projY = ay + clamped * dy;
-          const ddx = px - projX;
-          const ddy = py - projY;
-          distanceSquared = ddx * ddx + ddy * ddy;
+        const distanceSquared = measureSegmentDistanceSquared(px, py, segmentIndex);
+        if (distanceSquared < minDistanceSquared) minDistanceSquared = distanceSquared;
+        if (minDistanceSquared <= maxDistanceSquared) {
+          matchedWithinHint = true;
+          break;
         }
+      }
 
-        if (distanceSquared < minDistanceSquared) {
-          minDistanceSquared = distanceSquared;
-          if (minDistanceSquared <= maxDistanceSquared) {
-            break;
+      if (!matchedWithinHint) {
+        for (let segmentIndex = 0; segmentIndex < segmentCount; segmentIndex += 1) {
+          if (segmentIndex >= hintStart && segmentIndex < hintEnd) continue;
+          if (
+            hasSegmentBounds
+            && (
+              px < minXs[segmentIndex] - searchRadius
+              || px > maxXs[segmentIndex] + searchRadius
+              || py < minYs[segmentIndex] - searchRadius
+              || py > maxYs[segmentIndex] + searchRadius
+            )
+          ) {
+            continue;
+          }
+          const distanceSquared = measureSegmentDistanceSquared(px, py, segmentIndex);
+          if (distanceSquared < minDistanceSquared) {
+            minDistanceSquared = distanceSquared;
+            if (minDistanceSquared <= maxDistanceSquared) break;
           }
         }
       }
