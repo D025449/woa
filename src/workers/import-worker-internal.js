@@ -52,6 +52,15 @@ import {
   getThumbnailTempDir
 } from "../config/storagePaths.js";
 import pool from "../services/database.js";
+import {
+  deleteWoaBundleUpload,
+  listExpiredWoaBundleUploads,
+  listRecoverableWoaBundleUploads
+} from "../db/woa-bundle-uploads-repo.js";
+import {
+  enqueueWoaBundleRecovery,
+  WOA_BUNDLE_RECOVERY_JOB
+} from "../services/woaBundleRecoveryJobService.js";
 
 export async function createApp(options = {}) {
   const IMPORT_BATCH_SIZE = 10;
@@ -72,6 +81,15 @@ export async function createApp(options = {}) {
   const IMPORT_POSTPROCESS_PROFILE_EVERY = Math.max(1, Number(process.env.IMPORT_POSTPROCESS_PROFILE_EVERY) || 25);
   const IMPORT_SYNC_PROFILE_LOG = String(process.env.IMPORT_SYNC_PROFILE_LOG || "1").trim() !== "0";
   const SEGMENTS_RECOMPUTE_FROM_DB = String(process.env.SEGMENTS_RECOMPUTE_FROM_DB || "").trim() === "1";
+  const WOA_BUNDLE_RECOVERY_ENABLED = String(process.env.WOA_BUNDLE_RECOVERY_ENABLED || "0").trim() === "1";
+  const WOA_BUNDLE_RECOVERY_SWEEP_MS = Math.max(
+    30_000,
+    Number(process.env.WOA_BUNDLE_RECOVERY_SWEEP_MS) || 60_000
+  );
+  const WOA_BUNDLE_RECOVERY_RETENTION_HOURS = Math.max(
+    1,
+    Number(process.env.WOA_BUNDLE_RECOVERY_RETENTION_HOURS) || 24
+  );
   const {
     enableImportWorker = true,
     enableImportBatchWorker = true,
@@ -92,6 +110,9 @@ export async function createApp(options = {}) {
     IMPORT_POSTPROCESS_PROFILE_EVERY,
     IMPORT_SYNC_PROFILE_LOG,
     SEGMENTS_RECOMPUTE_FROM_DB,
+    WOA_BUNDLE_RECOVERY_ENABLED,
+    WOA_BUNDLE_RECOVERY_SWEEP_MS,
+    WOA_BUNDLE_RECOVERY_RETENTION_HOURS,
     IMPORT_QUEUE_CONCURRENCY,
     IMPORT_BATCH_WORKER_CONCURRENCY,
     IMPORT_DB_BULK_INSERT_SIZE,
@@ -2737,9 +2758,41 @@ export async function createApp(options = {}) {
   }
 
   if (enableImportWorker) {
+    const enqueueRecoverableWoaBundles = async () => {
+      if (!WOA_BUNDLE_RECOVERY_ENABLED) return;
+      const recoverable = await listRecoverableWoaBundleUploads(100);
+      await Promise.all(recoverable.map((bundle) => enqueueWoaBundleRecovery({
+        uid: bundle.uid,
+        uploadId: bundle.uploadId
+      })));
+      if (recoverable.length > 0) {
+        console.log("[import] woa-bundle.recovery.enqueued", { count: recoverable.length });
+      }
+
+      const expired = await listExpiredWoaBundleUploads(WOA_BUNDLE_RECOVERY_RETENTION_HOURS, 100);
+      for (const bundle of expired) {
+        await Promise.all([
+          bundle.workoutsPath,
+          bundle.workoutPostprocessPath,
+          bundle.gpsBestEffortsPath
+        ].filter(Boolean).map((filePath) => fs.promises.rm(filePath, { force: true }).catch(() => {})));
+        await deleteWoaBundleUpload(bundle.uid, bundle.uploadId);
+      }
+      if (expired.length > 0) {
+        console.log("[import] woa-bundle.recovery.cleaned", { count: expired.length });
+      }
+    };
+
     const worker = new Worker(
       "fit-imports",
       async (job) => {
+        if (job.data?.type === WOA_BUNDLE_RECOVERY_JOB) {
+          const { uid, uploadId } = job.data;
+          if (!uid || !uploadId) throw new Error("WOA bundle recovery job is missing uid or uploadId");
+          const { recoverWoaBundleUpload } = await import("../routes/woaUploads.js");
+          return recoverWoaBundleUpload({ uid, uploadId });
+        }
+
         const {
           jobId,
           shareMode = "private",
@@ -2763,9 +2816,19 @@ export async function createApp(options = {}) {
 
     worker.on("ready", () => {
       console.log("Import worker is ready");
+      enqueueRecoverableWoaBundles().catch((error) => {
+        console.error("[import] woa-bundle.recovery.sweep-failed", { error: error.message });
+      });
     });
 
     worker.on("completed", (job) => {
+      if (job.data?.type === WOA_BUNDLE_RECOVERY_JOB) {
+        console.log("[import] woa-bundle.recovery.queue-job.completed", {
+          queueJobId: job.id,
+          uploadId: job.data?.uploadId
+        });
+        return;
+      }
       logImportEvent("queue-job.completed", {
         queueJobId: job.id,
         importJobId: job.data?.jobId
@@ -2773,6 +2836,14 @@ export async function createApp(options = {}) {
     });
 
     worker.on("failed", (job, error) => {
+      if (job?.data?.type === WOA_BUNDLE_RECOVERY_JOB) {
+        console.error("[import] woa-bundle.recovery.queue-job.failed", {
+          queueJobId: job?.id,
+          uploadId: job?.data?.uploadId,
+          error: error.message
+        });
+        return;
+      }
       console.error("[import] queue-job.failed", {
         queueJobId: job?.id,
         importJobId: job?.data?.jobId,
@@ -2783,6 +2854,15 @@ export async function createApp(options = {}) {
     worker.on("error", (error) => {
       console.error("Import worker error", error);
     });
+
+    if (WOA_BUNDLE_RECOVERY_ENABLED) {
+      const recoverySweep = setInterval(() => {
+        enqueueRecoverableWoaBundles().catch((error) => {
+          console.error("[import] woa-bundle.recovery.sweep-failed", { error: error.message });
+        });
+      }, WOA_BUNDLE_RECOVERY_SWEEP_MS);
+      recoverySweep.unref();
+    }
   }
 
   if (enableImportBatchWorker) {

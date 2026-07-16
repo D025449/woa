@@ -652,6 +652,15 @@ async function uploadGeneratedZipArtifact() {
                 handleProgress,
                 handleUploadComplete
             );
+            if (payload.recoveryQueued && payload.uploadId) {
+                const recoveryStartedAt = performance.now();
+                const recovered = await waitForWoaBundleRecovery(payload.uploadId);
+                payload = {
+                    ...recovered,
+                    httpElapsedMs: payload.httpElapsedMs,
+                    recoveryWaitMs: performance.now() - recoveryStartedAt
+                };
+            }
         } else if (artifact.uploadMode === "raw") {
             payload = await uploadGeneratedRawBlob(
                 artifact.blob,
@@ -696,6 +705,12 @@ async function uploadGeneratedZipArtifact() {
                     HTTP roundtrip: ${escapeHtml(formatMs(payload.httpElapsedMs))}
                     ${Number.isFinite(Number(payload.bundleElapsedMs))
                         ? `<br>Bundle backend total: ${escapeHtml(formatMs(payload.bundleElapsedMs))}`
+                        : ""}
+                    ${Number.isFinite(Number(payload.recoveryOverheadMs))
+                        ? `<br>Bundle recovery overhead: ${escapeHtml(formatMs(payload.recoveryOverheadMs))}`
+                        : ""}
+                    ${Number.isFinite(Number(payload.recoveryWaitMs))
+                        ? `<br>Bundle recovery wait: ${escapeHtml(formatMs(payload.recoveryWaitMs))}`
                         : ""}
                     ${browserPostprocessPayload
                         ? `<br>Browser postprocessing workouts: ${escapeHtml(String(browserPostprocessPayload.workoutCount || 0))}<br>
@@ -933,6 +948,24 @@ function uploadGeneratedZipFormData(formData, uploadUrl, onProgress, onUploadCom
 
         request.send(formData);
     });
+}
+
+async function waitForWoaBundleRecovery(uploadId, timeoutMs = 5 * 60 * 1000) {
+    const startedAt = performance.now();
+    while (performance.now() - startedAt < timeoutMs) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const response = await fetch(`/api/uploads/woa-bundle/${encodeURIComponent(uploadId)}/status`, {
+            credentials: "same-origin",
+            headers: { Accept: "application/json" }
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(payload?.error || `WOA bundle recovery status failed (${response.status})`);
+        }
+        setPhase(`Backend recovery: ${payload.phase || payload.status || "processing"}`);
+        if (payload.status === "completed") return payload;
+    }
+    throw new Error("WOA bundle recovery timed out");
 }
 
 function uploadGeneratedRawBlob(blob, fileName, uploadUrl, overwriteExisting, onProgress, onUploadComplete, options = {}) {

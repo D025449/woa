@@ -1,6 +1,7 @@
 import { runMigrations, loadEnvForMigrations, assertRequiredDbEnv } from "./migrate-internal.js";
 
 const APP_TABLES = [
+  "woa_bundle_uploads",
   "group_invite_sender_dismissals",
   "group_feed_event_dismissals",
   "group_feed_event_groups",

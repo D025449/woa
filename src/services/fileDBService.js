@@ -2043,12 +2043,12 @@ END,
 )`;
   }
 
-  static async findExistingWorkoutsByStartTimes(uid, startTimes = []) {
+  static async findExistingWorkoutsByStartTimes(uid, startTimes = [], queryable = pool) {
     if (!uid || !Array.isArray(startTimes) || startTimes.length === 0) {
       return new Map();
     }
 
-    const result = await pool.query(
+    const result = await queryable.query(
       `
       SELECT id, uid, start_time
       FROM workouts
@@ -2064,7 +2064,7 @@ END,
     ]));
   }
 
-  static async deleteExistingWorkoutsByStartTimes(uid, startTimes = []) {
+  static async deleteExistingWorkoutsByStartTimes(uid, startTimes = [], queryable = pool) {
     const normalizedStartTimes = [...new Set(
       (Array.isArray(startTimes) ? startTimes : [])
         .filter((value) => value != null)
@@ -2080,7 +2080,7 @@ END,
       };
     }
 
-    const result = await pool.query(
+    const result = await queryable.query(
       `
       DELETE FROM workouts
       WHERE uid = $1
@@ -2116,17 +2116,24 @@ END,
       params.push(...FileDBService.buildPreparedInsertParams(preparedItems[index]));
     }
 
-    if (options?.overwriteExisting) {
-      const deleteResult = await FileDBService.deleteExistingWorkoutsByStartTimes(
-        preparedItems[0]?.fileRow?.uid,
-        preparedItems.map((item) => item?.fileRow?.start_time)
-      );
-      timing.mark("delete-existing-workout-rows", {
-        deletedCount: deleteResult.rowCount
-      });
-    }
+    const transactionalOverwrite = !!options?.overwriteExisting && !!options?.transactionalOverwrite;
+    const client = transactionalOverwrite ? await pool.connect() : null;
+    const queryable = client || pool;
+    try {
+      if (transactionalOverwrite) await client.query("BEGIN");
 
-    const result = await pool.query(
+      if (options?.overwriteExisting) {
+        const deleteResult = await FileDBService.deleteExistingWorkoutsByStartTimes(
+          preparedItems[0]?.fileRow?.uid,
+          preparedItems.map((item) => item?.fileRow?.start_time),
+          queryable
+        );
+        timing.mark("delete-existing-workout-rows", {
+          deletedCount: deleteResult.rowCount
+        });
+      }
+
+      const result = await queryable.query(
       `
 INSERT INTO workouts (
   uid,
@@ -2173,32 +2180,40 @@ ON CONFLICT (uid, start_time)
 DO NOTHING
 RETURNING id, uid, start_time;
       `,
-      params
-    );
-    timing.mark("insert-workout-rows", {
-      insertedCount: result.rowCount
-    });
+        params
+      );
+      timing.mark("insert-workout-rows", {
+        insertedCount: result.rowCount
+      });
 
-    const insertedRows = Array.isArray(result.rows) ? result.rows : [];
-    const startTimes = preparedItems.map((item) => item.fileRow.start_time);
-    const existingRowsByKey = await FileDBService.findExistingWorkoutsByStartTimes(
-      preparedItems[0]?.fileRow?.uid,
-      startTimes
-    );
-    timing.mark("load-existing-rows", {
-      resolvedCount: existingRowsByKey.size
-    });
+      const insertedRows = Array.isArray(result.rows) ? result.rows : [];
+      const startTimes = preparedItems.map((item) => item.fileRow.start_time);
+      const existingRowsByKey = await FileDBService.findExistingWorkoutsByStartTimes(
+        preparedItems[0]?.fileRow?.uid,
+        startTimes,
+        queryable
+      );
+      timing.mark("load-existing-rows", {
+        resolvedCount: existingRowsByKey.size
+      });
 
-    return {
-      insertedRows,
-      existingRowsByKey,
-      timingSteps: Array.isArray(timing?.steps)
-        ? timing.steps.map((step) => ({
-            label: step.label,
-            stepMs: Number(step.stepMs || 0)
-          }))
-        : []
-    };
+      if (transactionalOverwrite) await client.query("COMMIT");
+      return {
+        insertedRows,
+        existingRowsByKey,
+        timingSteps: Array.isArray(timing?.steps)
+          ? timing.steps.map((step) => ({
+              label: step.label,
+              stepMs: Number(step.stepMs || 0)
+            }))
+          : []
+      };
+    } catch (error) {
+      if (transactionalOverwrite) await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client?.release();
+    }
   }
 
   static async insertFile(fileRow, segments, gps_track, workoutObject) {
