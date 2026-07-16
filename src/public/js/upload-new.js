@@ -3,7 +3,6 @@ const fileInput = document.getElementById("file");
 const filePickerButton = document.getElementById("filePickerButton");
 const filePickerLabel = document.getElementById("filePickerLabel");
 const overwriteExistingWorkoutsCheckbox = document.getElementById("overwriteExistingWorkouts");
-const browserPostprocessBenchmarkCheckbox = document.getElementById("browserPostprocessBenchmark");
 const submitButton = document.getElementById("submitButton");
 const response = document.getElementById("response");
 const statusArea = document.getElementById("statusArea");
@@ -23,6 +22,12 @@ let currentDeviceProfile = window.getDeviceProfile?.() || window.__DEVICE_PROFIL
 let prewarmedUploadWorker = null;
 let pendingZipPreparations = new Map();
 let isUploadSubmitting = false;
+
+window.addEventListener("beforeunload", (event) => {
+    if (!isUploadSubmitting) return;
+    event.preventDefault();
+    event.returnValue = "";
+});
 
 function traceMark(name, detail = null) {
     try {
@@ -523,7 +528,7 @@ function getEncodingOptions() {
         gpsCoordinateEncoding,
         uploadCompression,
         uploadGzipEngine,
-        browserPostprocessBenchmark: !!browserPostprocessBenchmarkCheckbox?.checked
+        browserPostprocessBenchmark: true
     };
 }
 
@@ -597,6 +602,13 @@ function buildBackendUploadPendingMarkup() {
     `;
 }
 
+function createUploadId() {
+    if (typeof globalThis.crypto?.randomUUID === "function") {
+        return globalThis.crypto.randomUUID();
+    }
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 async function uploadGeneratedZipArtifact() {
     if (!latestGeneratedZipArtifact?.blob || !latestGeneratedZipArtifact?.fileName) {
         return;
@@ -625,7 +637,22 @@ async function uploadGeneratedZipArtifact() {
             setProcessingProgress(100, tr("uploadPage.woaBackendProcessingDetail", "Upload finished, waiting for backend response"));
         };
 
-        if (artifact.uploadMode === "raw") {
+        if (artifact.uploadMode === "raw" && artifact.browserPostprocessBlob && artifact.browserGpsBestEffortsBlob) {
+            const formData = new FormData();
+            const uploadId = createUploadId();
+            formData.append("uploadId", uploadId);
+            formData.append("overwriteExisting", overwriteExisting ? "1" : "0");
+            formData.append("workoutsCodec", artifact.fileName.toLowerCase().endsWith(".br") ? "brotli" : "gzip");
+            formData.append("workouts", artifact.blob, artifact.fileName);
+            formData.append("workoutPostprocess", artifact.browserPostprocessBlob, "workout-local-postprocess.wpp1.gz");
+            formData.append("gpsBestEfforts", artifact.browserGpsBestEffortsBlob, "workout-gps-best-efforts.gbe1.gz");
+            payload = await uploadGeneratedZipFormData(
+                formData,
+                "/api/uploads/woa-bundle",
+                handleProgress,
+                handleUploadComplete
+            );
+        } else if (artifact.uploadMode === "raw") {
             payload = await uploadGeneratedRawBlob(
                 artifact.blob,
                 artifact.fileName,
@@ -652,57 +679,8 @@ async function uploadGeneratedZipArtifact() {
             );
         }
 
-        let browserPostprocessPayload = null;
-        let browserGpsBestEffortsPayload = null;
-        if (artifact.browserPostprocessBlob) {
-            setProcessingLabel("Browser postprocessing");
-            setPhase("Storing browser postprocessing");
-            setProcessingProgress(0, `Preparing ${formatBytes(artifact.browserPostprocessBlob.size)}`);
-            try {
-                browserPostprocessPayload = await uploadGeneratedRawBlob(
-                    artifact.browserPostprocessBlob,
-                    "workout-local-postprocess.wpp1.gz",
-                    "/api/uploads/workout-local-postprocess",
-                    false,
-                    ({ loaded, total, percent }) => {
-                        setProcessingProgress(percent, total > 0
-                            ? `${formatBytes(loaded)} / ${formatBytes(total)}`
-                            : formatBytes(loaded));
-                    },
-                    () => {
-                        setProcessingProgress(100, "Upload finished, storing segments");
-                    }
-                );
-            } catch (error) {
-                throw new Error(
-                    `Workouts imported, but browser postprocessing failed: ${error?.message || String(error)}`,
-                    { cause: error }
-                );
-            }
-        }
-
-        if (artifact.browserGpsBestEffortsBlob) {
-            setProcessingLabel("Browser GPS segment best efforts");
-            setPhase("Storing GPS segment matches");
-            setProcessingProgress(0, `Preparing ${formatBytes(artifact.browserGpsBestEffortsBlob.size)}`);
-            try {
-                browserGpsBestEffortsPayload = await uploadGeneratedRawBlob(
-                    artifact.browserGpsBestEffortsBlob,
-                    "workout-gps-best-efforts.gbe1.gz",
-                    "/api/uploads/workout-gps-segment-best-efforts",
-                    false,
-                    ({ loaded, total, percent }) => setProcessingProgress(percent, total > 0
-                        ? `${formatBytes(loaded)} / ${formatBytes(total)}`
-                        : formatBytes(loaded)),
-                    () => setProcessingProgress(100, "Upload finished, storing GPS segment matches")
-                );
-            } catch (error) {
-                throw new Error(
-                    `Workouts imported, but browser GPS segment postprocessing failed: ${error?.message || String(error)}`,
-                    { cause: error }
-                );
-            }
-        }
+        const browserPostprocessPayload = payload.browserPostprocess || null;
+        const browserGpsBestEffortsPayload = payload.browserGpsBestEfforts || null;
 
         setProcessingLabel(tr("uploadPage.woaCompletedLabel", "Completed"));
         setPhase(tr("uploadPage.woaPhaseCompleted", "Completed"));
@@ -716,17 +694,18 @@ async function uploadGeneratedZipArtifact() {
                     ZIP entries seen: ${escapeHtml(String(payload.totalEntries || 0))}<br>
                     Backend elapsed: ${escapeHtml(formatMs(payload.elapsedMs))}<br>
                     HTTP roundtrip: ${escapeHtml(formatMs(payload.httpElapsedMs))}
+                    ${Number.isFinite(Number(payload.bundleElapsedMs))
+                        ? `<br>Bundle backend total: ${escapeHtml(formatMs(payload.bundleElapsedMs))}`
+                        : ""}
                     ${browserPostprocessPayload
                         ? `<br>Browser postprocessing workouts: ${escapeHtml(String(browserPostprocessPayload.workoutCount || 0))}<br>
                            Browser postprocessing segments: ${escapeHtml(String(browserPostprocessPayload.insertedSegmentCount || 0))}<br>
-                           Browser postprocessing backend: ${escapeHtml(formatMs(browserPostprocessPayload.totalMs))}<br>
-                           Browser postprocessing HTTP: ${escapeHtml(formatMs(browserPostprocessPayload.httpElapsedMs))}`
+                           Browser postprocessing backend: ${escapeHtml(formatMs(browserPostprocessPayload.totalMs))}`
                         : ""}
                     ${browserGpsBestEffortsPayload
                         ? `<br>Browser GPS best-efforts workouts: ${escapeHtml(String(browserGpsBestEffortsPayload.workoutCount || 0))}<br>
                            Browser GPS best-efforts matches: ${escapeHtml(String(browserGpsBestEffortsPayload.insertedMatchCount || 0))}<br>
-                           Browser GPS best-efforts backend: ${escapeHtml(formatMs(browserGpsBestEffortsPayload.totalMs))}<br>
-                           Browser GPS best-efforts HTTP: ${escapeHtml(formatMs(browserGpsBestEffortsPayload.httpElapsedMs))}`
+                           Browser GPS best-efforts backend: ${escapeHtml(formatMs(browserGpsBestEffortsPayload.totalMs))}`
                         : ""}
                 </div>
             </div>

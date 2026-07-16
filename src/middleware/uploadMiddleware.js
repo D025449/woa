@@ -23,8 +23,8 @@ const storage = multer.diskStorage({
 function fileFilter(_req, file, cb) {
   const ext = path.extname(file.originalname).toLowerCase();
 
-  if (ext !== ".fit" && ext !== ".zip" && ext !== ".gz" && ext !== ".woat") {
-    cb(new Error("Nur .zip, .fit, .gz oder .woat Dateien sind erlaubt"));
+  if (ext !== ".fit" && ext !== ".zip" && ext !== ".gz" && ext !== ".br" && ext !== ".woat") {
+    cb(new Error("Nur .zip, .fit, .gz, .br oder .woat Dateien sind erlaubt"));
     return;
   }
 

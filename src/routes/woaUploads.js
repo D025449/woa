@@ -525,6 +525,151 @@ router.get(
 );
 
 router.post(
+  "/woa-bundle",
+  authMiddleware,
+  requireActiveAccountWrite,
+  uploadMiddleware.fields([
+    { name: "workouts", maxCount: 1 },
+    { name: "workoutPostprocess", maxCount: 1 },
+    { name: "gpsBestEfforts", maxCount: 1 }
+  ]),
+  async (req, res, next) => {
+    const startedAt = performance.now();
+    const uploadedFiles = Object.values(req.files || {}).flat().filter(Boolean);
+    const cleanup = async () => {
+      await Promise.all(uploadedFiles.map((file) => fs.rm(file.path, { force: true }).catch(() => {})));
+    };
+
+    try {
+      if (!req.user?.id) return res.status(401).json({ error: "Nicht angemeldet" });
+      const workoutsFile = req.files?.workouts?.[0];
+      const postprocessFile = req.files?.workoutPostprocess?.[0];
+      const gpsBestEffortsFile = req.files?.gpsBestEfforts?.[0];
+      if (!workoutsFile || !postprocessFile || !gpsBestEffortsFile) {
+        return res.status(400).json({ error: "WOA-Bundle benötigt Workouts, WPP1 und GBE1" });
+      }
+
+      const [compressedWorkouts, compressedPostprocess, compressedGpsBestEfforts] = await Promise.all([
+        fs.readFile(workoutsFile.path),
+        fs.readFile(postprocessFile.path),
+        fs.readFile(gpsBestEffortsFile.path)
+      ]);
+      if (compressedPostprocess.length > BROWSER_POSTPROCESS_MAX_COMPRESSED_BYTES
+        || compressedGpsBestEfforts.length > BROWSER_POSTPROCESS_MAX_COMPRESSED_BYTES) {
+        return res.status(413).json({ error: "Browser-Postprocessing-Container ist zu groß" });
+      }
+
+      const workoutCompression = String(req.body?.workoutsCodec || "gzip").trim().toLowerCase() === "brotli"
+        ? "brotli"
+        : "gzip";
+      const inflatedWorkouts = decompressUploadContainer(compressedWorkouts, workoutCompression);
+      const decodedContainer = decodeWoaTransportContainer(inflatedWorkouts);
+      const woaEntries = decodedContainer.entries.filter((entry) =>
+        String(entry?.name || "").toLowerCase().endsWith(".woa1")
+      );
+      if (woaEntries.length === 0) {
+        return res.status(400).json({ error: "Container enthält keine .woa1 Dateien" });
+      }
+
+      let decodedPostprocess;
+      let decodedGpsBestEfforts;
+      try {
+        const rawPostprocess = gunzipSync(compressedPostprocess, { maxOutputLength: BROWSER_POSTPROCESS_MAX_RAW_BYTES });
+        const rawGpsBestEfforts = gunzipSync(compressedGpsBestEfforts, { maxOutputLength: BROWSER_POSTPROCESS_MAX_RAW_BYTES });
+        decodedPostprocess = {
+          rawBytes: rawPostprocess.byteLength,
+          value: decodeWorkoutLocalPostprocessTransport(rawPostprocess)
+        };
+        decodedGpsBestEfforts = {
+          rawBytes: rawGpsBestEfforts.byteLength,
+          value: decodeBrowserGpsBestEffortsTransport(rawGpsBestEfforts)
+        };
+      } catch (error) {
+        if (error?.code === "ERR_BUFFER_TOO_LARGE") {
+          return res.status(413).json({ error: "Entpackter Browser-Postprocessing-Container ist zu groß" });
+        }
+        return res.status(400).json({ error: "Ungültiger WPP1- oder GBE1-Container" });
+      }
+
+      const importStartedAt = performance.now();
+      const importResult = await importWoaEntryReaders({
+        userId: req.user.id,
+        sourceName: workoutsFile.originalname,
+        uploadedSizeBytes: compressedWorkouts.length,
+        overwriteExisting: String(req.body?.overwriteExisting || "0") === "1",
+        browserLocalPostprocess: true,
+        browserGpsSegmentBestEfforts: true,
+        entryReaders: woaEntries.map((entry) => ({
+          path: entry.name,
+          buffer: async () => entry.bytes
+        }))
+      });
+      const importMs = performance.now() - importStartedAt;
+
+      const postprocessStartedAt = performance.now();
+      const persistedPostprocess = await persistWorkoutLocalPostprocess({
+        uid: req.user.id,
+        decoded: decodedPostprocess.value,
+        pool,
+        batchWorkoutCount: BROWSER_POSTPROCESS_DB_BATCH_WORKOUTS
+      });
+      const postprocessResult = {
+        format: "WPP1",
+        compressedBytes: compressedPostprocess.length,
+        rawBytes: decodedPostprocess.rawBytes,
+        totalMs: performance.now() - postprocessStartedAt,
+        ...persistedPostprocess
+      };
+      console.log(`[postprocess] browser-local-import.profile ${formatLogPayload({ uid: req.user.id, ...postprocessResult })}`);
+
+      const gpsBestEffortsStartedAt = performance.now();
+      const persistedGpsBestEfforts = await persistBrowserGpsBestEfforts({
+        uid: req.user.id,
+        decoded: decodedGpsBestEfforts.value,
+        pool
+      });
+      const gpsBestEffortsResult = {
+        format: "GBE1",
+        compressedBytes: compressedGpsBestEfforts.length,
+        rawBytes: decodedGpsBestEfforts.rawBytes,
+        totalMs: performance.now() - gpsBestEffortsStartedAt,
+        ...persistedGpsBestEfforts
+      };
+      console.log(`[postprocess] browser-gps-best-efforts.profile ${formatLogPayload({ uid: req.user.id, ...gpsBestEffortsResult })}`);
+
+      const bundleElapsedMs = performance.now() - startedAt;
+      console.log(`[import] woa-bundle.profile ${formatLogPayload({
+        uploadId: String(req.body?.uploadId || ""),
+        uid: req.user.id,
+        workoutsBytes: compressedWorkouts.length,
+        workoutPostprocessBytes: compressedPostprocess.length,
+        gpsBestEffortsBytes: compressedGpsBestEfforts.length,
+        importMs,
+        workoutPostprocessMs: postprocessResult.totalMs,
+        gpsBestEffortsMs: gpsBestEffortsResult.totalMs,
+        totalMs: bundleElapsedMs
+      })}`);
+
+      return res.status(200).json({
+        ...importResult,
+        uploadId: String(req.body?.uploadId || ""),
+        bundleElapsedMs,
+        browserPostprocess: postprocessResult,
+        browserGpsBestEfforts: gpsBestEffortsResult
+      });
+    } catch (error) {
+      if (error instanceof WorkoutLocalPostprocessValidationError
+        || error instanceof BrowserGpsBestEffortsValidationError) {
+        return res.status(error.statusCode).json({ error: error.message });
+      }
+      next(error);
+    } finally {
+      await cleanup();
+    }
+  }
+);
+
+router.post(
   "/woa-zip",
   authMiddleware,
   requireActiveAccountWrite,
