@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/index.js",
     "worker": "node src/workers/import-worker.js",
+    "deploy:prod": "./release-prod.sh",
     "migrate": "node src/migrate.js",
     "account-deletion:sweep": "node src/scripts/run-account-deletion-sweep.js",
     "db:rebuild": "node src/db-rebuild.js",
