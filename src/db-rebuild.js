@@ -31,9 +31,11 @@ async function resetAppSchema() {
   try {
     await client.query("BEGIN");
 
-    await client.query("DROP EXTENSION IF EXISTS postgis_tiger_geocoder;");
-    await client.query("DROP EXTENSION IF EXISTS postgis_topology;");
-    await client.query("DROP EXTENSION IF EXISTS postgis;");
+    // The old schema contains geometry columns owned by PostGIS. CASCADE is
+    // intentional here because the complete public schema is rebuilt below.
+    await client.query("DROP EXTENSION IF EXISTS postgis_tiger_geocoder CASCADE;");
+    await client.query("DROP EXTENSION IF EXISTS postgis_topology CASCADE;");
+    await client.query("DROP EXTENSION IF EXISTS postgis CASCADE;");
     await client.query("DROP SCHEMA IF EXISTS public CASCADE;");
     await client.query("CREATE SCHEMA public AUTHORIZATION CURRENT_USER;");
     await client.query("GRANT USAGE ON SCHEMA public TO PUBLIC;");

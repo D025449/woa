@@ -17,7 +17,8 @@ NODE_ENV=production npm run db:rebuild -- --confirm <DB_NAME>
 
 The command performs these steps:
 
-1. Removes installed PostGIS-related extensions if present.
+1. Removes installed PostGIS-related extensions with `CASCADE`, including old
+   geometry columns that depend on them.
 2. Drops the complete `public` schema with all contained objects.
 3. Creates a fresh `public` schema.
 4. Replays all scratch migrations.
