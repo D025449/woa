@@ -1,3 +1,8 @@
+import {
+    GPS_SEGMENT_ENDPOINT_MAX_DISTANCE_METERS,
+    validatesGpsSegmentRoute
+} from "../shared/GpsSegmentRouteValidator.js";
+
 export default class SegmentMatcher {
     static getPointProgress(point, fallbackIndex = 0) {
         if (point?.sampleOffset != null && Number.isFinite(Number(point.sampleOffset))) {
@@ -138,11 +143,13 @@ export default class SegmentMatcher {
 
                 if (dx === 0 && dy === 0) continue;
 
-                const t =
+                const rawInterpolation =
                     ((point.lng - a.lng) * dx + (point.lat - a.lat) * dy) /
                     (dx * dx + dy * dy);
 
-                if (t < 0 || t > 1) continue;
+                // The nearest point can be a polyline vertex when both adjacent
+                // unbounded projections fall outside their line segments.
+                const t = Math.max(0, Math.min(1, rawInterpolation));
 
                 const proj = {
                     lng: a.lng + t * dx,
@@ -237,47 +244,9 @@ export default class SegmentMatcher {
     // 🔥 VALIDATION (Polyline!)
     // -----------------------------
     static validateSegment(workoutSegments, segment, startCandidate, endCandidate, maxDist) {
-        if (!Array.isArray(workoutSegments) || !workoutSegments.length) {
-            return false;
-        }
-        if (startCandidate?.segmentIndex !== endCandidate?.segmentIndex) {
-            return false;
-        }
-
-        const workout = workoutSegments[startCandidate.segmentIndex];
-        const startIdx = startCandidate.index;
-        const endIdx = endCandidate.index;
-        if (endIdx < startIdx) {
-            return false;
-        }
-
-        const checkPoints = [
-            segment[Math.floor(segment.length * 0.25)],
-            segment[Math.floor(segment.length * 0.5)],
-            segment[Math.floor(segment.length * 0.75)]
-        ];
-
-        for (const sp of checkPoints) {
-
-            let found = false;
-
-            for (let i = startIdx; i <= endIdx; i++) {
-
-                const dist = this.pointToPolylineDistance(
-                    sp,
-                    [workout[i], workout[Math.min(i + 1, workout.length - 1)]]
-                );
-
-                if (dist < maxDist) {
-                    found = true;
-                    break;
-                }
-            }
-
-            if (!found) return false;
-        }
-
-        return true;
+        return validatesGpsSegmentRoute(workoutSegments, segment, startCandidate, endCandidate, {
+            maxDistance: maxDist
+        });
     }
 
     // -----------------------------
@@ -294,7 +263,7 @@ export default class SegmentMatcher {
         const segment = segmentObj.track;
         const segmentId = segmentObj.id;
 
-        const MAX_DIST = options.maxDist ?? 20;
+        const MAX_DIST = options.maxDist ?? GPS_SEGMENT_ENDPOINT_MAX_DISTANCE_METERS;
 
         const matches = [];
         let lastEndCandidate = {
@@ -326,7 +295,7 @@ export default class SegmentMatcher {
                 continue;
             }
             const endCandidate = endCandidates[0];
-            if (this.validateSegment(workoutSegments, segment, startCandidate, endCandidate, MAX_DIST)) {
+            if (this.validateSegment(workoutSegments, segment, startCandidate, endCandidate)) {
                 const startOffset = Math.floor(startCandidate.progress * downsamplingFactor);
                 const endOffset = Math.ceil(endCandidate.progress * downsamplingFactor);
 

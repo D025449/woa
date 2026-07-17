@@ -1,21 +1,13 @@
-const EARTH_RADIUS_METERS = 6371000;
-const DEG_TO_RAD = Math.PI / 180;
+import {
+  GPS_SEGMENT_ENDPOINT_MAX_DISTANCE_METERS,
+  gpsDistanceMeters,
+  validatesGpsSegmentRoute
+} from "./GpsSegmentRouteValidator.js";
 
 function pointProgress(point, fallbackIndex) {
   if (Number.isFinite(Number(point?.sampleOffset))) return Number(point.sampleOffset);
   if (Number.isFinite(Number(point?.slotIndex))) return Number(point.slotIndex);
   return fallbackIndex;
-}
-
-function distanceMeters(left, right) {
-  const lat1 = Number(left.lat) * DEG_TO_RAD;
-  const lat2 = Number(right.lat) * DEG_TO_RAD;
-  const deltaLat = (Number(right.lat) - Number(left.lat)) * DEG_TO_RAD;
-  const deltaLng = (Number(right.lng) - Number(left.lng)) * DEG_TO_RAD;
-  const sinLat = Math.sin(deltaLat / 2);
-  const sinLng = Math.sin(deltaLng / 2);
-  const a = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng;
-  return 2 * EARTH_RADIUS_METERS * Math.asin(Math.sqrt(a));
 }
 
 function normalizeTrackSegments(gpsTrack) {
@@ -43,15 +35,17 @@ function findProjectionCandidates(point, trackSegments, maxDistance, startProgre
       const deltaLng = right.lng - left.lng;
       const deltaLat = right.lat - left.lat;
       if (deltaLng === 0 && deltaLat === 0) continue;
-      const interpolation = (
+      const rawInterpolation = (
         ((point.lng - left.lng) * deltaLng) + ((point.lat - left.lat) * deltaLat)
       ) / ((deltaLng * deltaLng) + (deltaLat * deltaLat));
-      if (interpolation < 0 || interpolation > 1) continue;
+      // Clamp to the finite track edge so turns and track boundaries remain
+      // valid proximity candidates.
+      const interpolation = Math.max(0, Math.min(1, rawInterpolation));
       const projected = {
         lng: left.lng + interpolation * deltaLng,
         lat: left.lat + interpolation * deltaLat
       };
-      const distance = distanceMeters(point, projected);
+      const distance = gpsDistanceMeters(point, projected);
       if (distance >= maxDistance) continue;
       results.push({
         segmentIndex,
@@ -62,34 +56,6 @@ function findProjectionCandidates(point, trackSegments, maxDistance, startProgre
     }
   }
   return results;
-}
-
-function pointToLineDistance(point, left, right) {
-  const deltaLng = right.lng - left.lng;
-  const deltaLat = right.lat - left.lat;
-  if (deltaLng === 0 && deltaLat === 0) return distanceMeters(point, left);
-  const raw = (
-    ((point.lng - left.lng) * deltaLng) + ((point.lat - left.lat) * deltaLat)
-  ) / ((deltaLng * deltaLng) + (deltaLat * deltaLat));
-  const interpolation = Math.max(0, Math.min(1, raw));
-  return distanceMeters(point, {
-    lng: left.lng + interpolation * deltaLng,
-    lat: left.lat + interpolation * deltaLat
-  });
-}
-
-function validatesRoute(trackSegments, segmentTrack, start, end, maxDistance) {
-  if (start.segmentIndex !== end.segmentIndex || end.index < start.index) return false;
-  const workoutTrack = trackSegments[start.segmentIndex];
-  const checks = [0.25, 0.5, 0.75].map((ratio) => segmentTrack[Math.floor(segmentTrack.length * ratio)]);
-  return checks.every((point) => {
-    for (let index = start.index; index <= end.index; index += 1) {
-      if (pointToLineDistance(point, workoutTrack[index], workoutTrack[Math.min(index + 1, workoutTrack.length - 1)]) < maxDistance) {
-        return true;
-      }
-    }
-    return false;
-  });
 }
 
 function boundsOverlap(left, right) {
@@ -136,12 +102,24 @@ export function benchmarkGpsSegmentBestEfforts(gpsTrack, segmentDefinitions = []
   for (const segment of candidates) {
     const segmentTrack = Array.isArray(segment?.track) ? segment.track : [];
     if (segmentTrack.length < 2) continue;
-    const starts = findProjectionCandidates(segmentTrack[0], trackSegments, 20, 0, 100);
+    const starts = findProjectionCandidates(
+      segmentTrack[0],
+      trackSegments,
+      GPS_SEGMENT_ENDPOINT_MAX_DISTANCE_METERS,
+      0,
+      100
+    );
     let lastEndProgress = -1;
     for (const start of starts) {
       if (start.progress <= lastEndProgress) continue;
-      const ends = findProjectionCandidates(segmentTrack[segmentTrack.length - 1], trackSegments, 20, start.progress, 1);
-      if (!ends.length || !validatesRoute(trackSegments, segmentTrack, start, ends[0], 20)) continue;
+      const ends = findProjectionCandidates(
+        segmentTrack[segmentTrack.length - 1],
+        trackSegments,
+        GPS_SEGMENT_ENDPOINT_MAX_DISTANCE_METERS,
+        start.progress,
+        1
+      );
+      if (!ends.length || !validatesGpsSegmentRoute(trackSegments, segmentTrack, start, ends[0])) continue;
       const startOffset = Math.floor(start.progress * sampleRate);
       const endOffset = Math.ceil(ends[0].progress * sampleRate);
       if (endOffset <= startOffset) continue;
