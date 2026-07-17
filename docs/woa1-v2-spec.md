@@ -292,9 +292,11 @@ Current insert columns:
 - `year_quarter`
 - `year_month`
 - `year_week`
-- `bounds`
-- `track_start`
-- `track_end`
+- `gps_bounds`
+- `track_start_lat`
+- `track_start_lng`
+- `track_end_lat`
+- `track_end_lng`
 - `points_count`
 - `sampleRateGPS`
 - `gps_track_blob`
@@ -308,10 +310,9 @@ Current insert columns:
 Only these values should still be backend-owned:
 
 - `uid`
-- SQL geometry wrappers
-  - `bounds = ST_MakeEnvelope(...)`
-  - `track_start = ST_GeomFromText(...)`
-  - `track_end = ST_GeomFromText(...)`
+- Native PostgreSQL spatial values derived from `meta`
+  - `gps_bounds = box(point(maxLng, maxLat), point(minLng, minLat))`
+  - numeric start and end coordinates
 
 The coordinate values themselves come from `meta`.
 

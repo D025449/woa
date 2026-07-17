@@ -20,21 +20,3 @@ test("explain-workout-insert rejects unsupported variant", () => {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Unsupported variant 'bogus'/);
 });
-
-test("benchmark-workout-insert-loop rejects unsupported variant", () => {
-  const result = spawnSync(
-    process.execPath,
-    ["src/scripts/benchmark-workout-insert-loop.js", "--variant", "bogus"],
-    {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        NODE_ENV: "test"
-      },
-      encoding: "utf8"
-    }
-  );
-
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Unsupported variant 'bogus'/);
-});

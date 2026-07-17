@@ -3,6 +3,8 @@ import pgPromise from "pg-promise";
 import WorkoutSharingService from "./workoutSharingService.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
 import Workout from "../shared/Workout.js";
+import { toPostgresBox } from "../shared/postgresSpatial.js";
+import SegmentTrackBlobService from "./segmentTrackBlobService.js";
 
 const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
@@ -143,9 +145,7 @@ class FileDBService {
 
 
 static async getMatchingWorkoutCandidates(sids, uid) {
-  const USE_BOUNDS_ONLY_SEGMENT_CANDIDATES = true;
-
-  const spatialFilter = `s.bounds && w.bounds`;
+  const spatialFilter = `s.gps_bounds && w.gps_bounds`;
 
   const sql = `
     SELECT
@@ -154,7 +154,8 @@ static async getMatchingWorkoutCandidates(sids, uid) {
       w.gps_track_blob,
       w.gps_track_blob_codec,
       s.id as sid,
-      ST_AsGeoJSON(s.geom)::json AS sgeom
+      s.track_blob,
+      s.track_blob_codec
     FROM gps_segments s
     JOIN workouts w
       ON w.uid = $2
@@ -171,13 +172,20 @@ static async getMatchingWorkoutCandidates(sids, uid) {
   );
 
   return Promise.all(result.rows.map(async (row) => {
-    const decoded = await GpsTrackBlobService.decodeRowTrack({
+    const [decoded, segmentTrack] = await Promise.all([
+      GpsTrackBlobService.decodeRowTrack({
       gps_track_blob: row.gps_track_blob,
       gps_track_blob_codec: row.gps_track_blob_codec
-    });
+      }),
+      SegmentTrackBlobService.decodeRow(row)
+    ]);
     return {
       ...row,
-      wgeom: decoded.geoJson
+      wgeom: decoded.geoJson,
+      sgeom: {
+        type: "LineString",
+        coordinates: segmentTrack.points.map((point) => [point.lng, point.lat])
+      }
     };
   }));
 }
@@ -199,14 +207,14 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
           INNER JOIN gps_segment_group_shares sgs
             ON sgs.group_id = wgs.group_id
           WHERE wgs.workout_id = w.id
-            AND sgs.segment_id = $6
+            AND sgs.segment_id = $3
         )
       )
-      AND w.bounds && ST_MakeEnvelope($2, $3, $4, $5, 4326)
+      AND w.gps_bounds && $2::box
       AND NOT EXISTS (
         SELECT 1
         FROM gps_segment_best_efforts sbe
-        WHERE sbe.sid = $6
+        WHERE sbe.sid = $3
           AND sbe.wid = w.id
       )
   `;
@@ -215,39 +223,13 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     sql,
     [
       uid,
-      bounds.minLng,
-      bounds.minLat,
-      bounds.maxLng,
-      bounds.maxLat,
+      toPostgresBox(bounds),
       segmentId
     ]
   );
 
   return result.rows;
 }
-
-
-
-
-  static async getTrack(wid, uid) {
-
-
-    const sql = `SELECT
-      id,
-      ST_AsGeoJSON(geom)::json AS geom
-    FROM files
-    WHERE
-      uid = $2
-      AND id = $1`
-
-    const result = await pool.query(
-      sql,
-      [wid, uid]
-    );
-
-    return result.rows;
-  }
-
 
 
 
@@ -1709,13 +1691,11 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
           gps_track.longitudesQ[points_count - 1] / gps_track.quantizationScale
         ] : gps_track.track[points_count - 1])
       : null;
-    const trackStartGeom = firstTrackPoint
-      ? `POINT(${firstTrackPoint[1]} ${firstTrackPoint[0]})`
-      : null;
-    const trackEndGeom = lastTrackPoint
-      ? `POINT(${lastTrackPoint[1]} ${lastTrackPoint[0]})`
-      : null;
-    timing.mark("build-geometry-wkt");
+    const trackStartLat = firstTrackPoint ? Number(firstTrackPoint[0]) : null;
+    const trackStartLng = firstTrackPoint ? Number(firstTrackPoint[1]) : null;
+    const trackEndLat = lastTrackPoint ? Number(lastTrackPoint[0]) : null;
+    const trackEndLng = lastTrackPoint ? Number(lastTrackPoint[1]) : null;
+    timing.mark("build-spatial-metadata");
 
     const compressedGpsTrackBlob = options?.gpsTrackBytes
       ? await Workout.compress(Buffer.from(options.gpsTrackBytes), LEGACY_GPS_TRACK_BLOB_CODEC)
@@ -1752,8 +1732,10 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       compressedGpsTrackBlob,
       streamCodec: LEGACY_WORKOUT_STREAM_CODEC,
       gpsTrackBlobCodec: LEGACY_GPS_TRACK_BLOB_CODEC,
-      trackStartGeom,
-      trackEndGeom,
+      trackStartLat,
+      trackStartLng,
+      trackEndLat,
+      trackEndLng,
       points_count,
       sampleRateGPS,
       gpsSource,
@@ -1834,12 +1816,10 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       throw new Error("WOA persistedRow is missing GPS geometry metadata");
     }
 
-    const trackStartGeom = validGps
-      ? `POINT(${Number(trackStart.lng)} ${Number(trackStart.lat)})`
-      : null;
-    const trackEndGeom = validGps
-      ? `POINT(${Number(trackEnd.lng)} ${Number(trackEnd.lat)})`
-      : null;
+    const trackStartLat = validGps ? Number(trackStart.lat) : null;
+    const trackStartLng = validGps ? Number(trackStart.lng) : null;
+    const trackEndLat = validGps ? Number(trackEnd.lat) : null;
+    const trackEndLng = validGps ? Number(trackEnd.lng) : null;
     const workoutStreamStoredBytes = FileDBService.toBufferView(options.workoutStreamStoredBytes);
     const gpsTrackStoredBytes = FileDBService.toBufferView(options.gpsTrackStoredBytes);
     const workoutStreamStoredLength = workoutStreamStoredBytes?.length || 0;
@@ -1863,8 +1843,10 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       compressedGpsTrackBlob: gpsTrackStoredBytes,
       streamCodec: String(persistedRow.stream_codec || "gzip"),
       gpsTrackBlobCodec: String(persistedRow.gps_track_blob_codec || "gzip"),
-      trackStartGeom,
-      trackEndGeom,
+      trackStartLat,
+      trackStartLng,
+      trackEndLat,
+      trackEndLng,
       points_count,
       sampleRateGPS,
       gpsSource: fileRow.gps_source,
@@ -1924,8 +1906,10 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       compressedGpsTrackBlob,
       streamCodec,
       gpsTrackBlobCodec,
-      trackStartGeom,
-      trackEndGeom,
+      trackStartLat,
+      trackStartLng,
+      trackEndLat,
+      trackEndLng,
       points_count,
       sampleRateGPS,
       gpsSource
@@ -1988,12 +1972,11 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       year_quarter,
       year_month,
       year_week,
-      gps_track?.bbox?.minLng ?? null,
-      gps_track?.bbox?.minLat ?? null,
-      gps_track?.bbox?.maxLng ?? null,
-      gps_track?.bbox?.maxLat ?? null,
-      trackStartGeom,
-      trackEndGeom,
+      fileRow.validGps ? toPostgresBox(gps_track?.bbox) : null,
+      trackStartLat,
+      trackStartLng,
+      trackEndLat,
+      trackEndLng,
       points_count,
       sampleRateGPS,
       compressedGpsTrackBlob,
@@ -2005,41 +1988,25 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
   }
 
   static buildWorkoutInsertValuesClause(rowIndex) {
-    const offset = rowIndex * 40;
+    const offset = rowIndex * 39;
     const p = (index) => `$${offset + index}`;
     return `(
   ${p(1)},${p(2)},
   ${p(3)},${p(4)},${p(5)},${p(6)},${p(7)},${p(8)},${p(9)},${p(10)},
   ${p(11)},${p(12)},${p(13)},${p(14)},${p(15)},${p(16)},${p(17)},${p(18)},
   ${p(19)},${p(20)},${p(21)},${p(22)},${p(23)},${p(24)},${p(25)},${p(26)},${p(27)},
-CASE
-  WHEN ${p(21)} = true
-  THEN ST_MakeEnvelope(
-    ${p(28)}::float8,
-    ${p(29)}::float8,
-    ${p(30)}::float8,
-    ${p(31)}::float8,
-    4326
-  )
-  ELSE NULL
-END,
-CASE
-  WHEN ${p(21)} = true
-  THEN ST_GeomFromText(${p(32)}, 4326)
-  ELSE NULL
-END,
-CASE
-  WHEN ${p(21)} = true
-  THEN ST_GeomFromText(${p(33)}, 4326)
-  ELSE NULL
-END,
+  ${p(28)}::box,
+  ${p(29)},
+  ${p(30)},
+  ${p(31)},
+  ${p(32)},
+  ${p(33)},
   ${p(34)},
   ${p(35)},
   ${p(36)},
   ${p(37)},
   ${p(38)},
-  ${p(39)},
-  ${p(40)}
+  ${p(39)}
 )`;
   }
 
@@ -2163,9 +2130,11 @@ INSERT INTO workouts (
   year_quarter,
   year_month,
   year_week,
-  bounds,
-  track_start,
-  track_end,
+  gps_bounds,
+  track_start_lat,
+  track_start_lng,
+  track_end_lat,
+  track_end_lng,
   points_count,
   sampleRateGPS,
   gps_track_blob,
@@ -2257,9 +2226,11 @@ INSERT INTO workouts (
   year_quarter,
   year_month,
   year_week,
-  bounds,
-  track_start,
-  track_end,
+  gps_bounds,
+  track_start_lat,
+  track_start_lng,
+  track_end_lat,
+  track_end_lng,
   points_count,
   sampleRateGPS,
   gps_track_blob,
@@ -2273,34 +2244,18 @@ VALUES (
   $3,$4,$5,$6,$7,$8,$9,$10,
   $11,$12,$13,$14,$15,$16,$17,$18,
   $19,$20,$21,$22,$23,$24,$25,$26,$27,
-CASE 
-  WHEN $21 = true
-  THEN ST_MakeEnvelope(
-    $28::float8,
-    $29::float8,
-    $30::float8,
-    $31::float8,
-    4326
-  )
-  ELSE NULL
-END,
-CASE 
-  WHEN $21 = true
-  THEN ST_GeomFromText($32, 4326)
-  ELSE NULL
-END,
-CASE
-  WHEN $21 = true
-  THEN ST_GeomFromText($33, 4326)
-  ELSE NULL
-END,
+  $28::box,
+  $29,
+  $30,
+  $31,
+  $32,
+  $33,
   $34,
   $35,
   $36,
   $37,
   $38,
-  $39,
-  $40
+  $39
 )
 ON CONFLICT (uid, start_time)
 DO NOTHING

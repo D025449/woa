@@ -1,10 +1,6 @@
 BEGIN;
-CREATE EXTENSION IF NOT EXISTS postgis;
 
 DROP TABLE IF EXISTS workouts CASCADE;
-
-
-DROP INDEX IF EXISTS idx_files_geom;
 
 CREATE TABLE workouts (
     id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -56,9 +52,11 @@ CREATE TABLE workouts (
     gps_track_blob       BYTEA,
     gps_track_blob_codec TEXT,
 
-    bounds               geometry(POLYGON, 4326),
-    track_start          geometry(POINT, 4326),
-    track_end            geometry(POINT, 4326),
+    gps_bounds           box,
+    track_start_lat      DOUBLE PRECISION,
+    track_start_lng      DOUBLE PRECISION,
+    track_end_lat        DOUBLE PRECISION,
+    track_end_lng        DOUBLE PRECISION,
 
     CONSTRAINT uq_user_start_time2 UNIQUE (uid, start_time),
     CONSTRAINT fk_user2 FOREIGN KEY (uid)
@@ -76,21 +74,13 @@ CREATE TABLE workouts (
 
 CREATE INDEX IF NOT EXISTS idx_files_bounds
 ON workouts
-USING GIST (bounds);
+USING GIST (gps_bounds);
 
-CREATE INDEX IF NOT EXISTS idx_workouts_track_start_geography
+CREATE INDEX IF NOT EXISTS idx_workouts_track_start_coordinates
 ON workouts
-USING GIST ((track_start::geography));
-
--- CREATE INDEX IF NOT EXISTS idx_files_geom
--- ON workouts
--- USING GIST (geom);
+  (uid, track_start_lat, track_start_lng);
 
 CREATE INDEX IF NOT EXISTS idx_workouts_uid
 ON workouts (uid);
-
--- CREATE INDEX IF NOT EXISTS idx_workouts_geom_geography
--- ON workouts
--- USING GIST ((geom::geography));
 
 COMMIT;

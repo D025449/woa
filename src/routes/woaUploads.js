@@ -11,6 +11,8 @@ import uploadMiddleware from "../middleware/uploadMiddleware.js";
 import { appendImportJobPostprocessTargets, createImportJob, updateImportJob } from "../db/import-jobs-repo.js";
 import { FileDBService } from "../services/fileDBService.js";
 import pool from "../services/database.js";
+import SegmentTrackBlobService from "../services/segmentTrackBlobService.js";
+import { parsePostgresBox } from "../shared/postgresSpatial.js";
 import { decodeWoa1Buffer, decodeWoa1BufferLight, inspectWoa1Header } from "../services/woa1Service.js";
 import { decodeWoaTransportContainer } from "../public/js/woa-transport-container.js";
 import { decodeWorkoutLocalPostprocessTransport } from "../shared/WorkoutLocalPostprocess.js";
@@ -703,30 +705,29 @@ router.get(
         SELECT
           id,
           distance,
-          ST_YMin(bounds) AS min_lat,
-          ST_YMax(bounds) AS max_lat,
-          ST_XMin(bounds) AS min_lng,
-          ST_XMax(bounds) AS max_lng,
-          ST_AsGeoJSON(geom)::json AS geom
+          gps_bounds::text AS gps_bounds_text,
+          track_blob,
+          track_blob_codec
         FROM gps_segments
         WHERE uid = $1
-          AND bounds IS NOT NULL
-          AND geom IS NOT NULL
+          AND gps_bounds IS NOT NULL
+          AND track_blob IS NOT NULL
         ORDER BY id
       `, [req.user.id]);
-      return res.json({
-        segments: result.rows.map((row) => ({
+      const segments = await Promise.all(result.rows.map(async (row) => {
+        const [bounds, decoded] = await Promise.all([
+          parsePostgresBox(row.gps_bounds_text),
+          SegmentTrackBlobService.decodeRow(row)
+        ]);
+        return {
           id: Number(row.id),
           distance: Number(row.distance) || 0,
-          bounds: {
-            minLat: Number(row.min_lat),
-            maxLat: Number(row.max_lat),
-            minLng: Number(row.min_lng),
-            maxLng: Number(row.max_lng)
-          },
-          track: (Array.isArray(row.geom?.coordinates) ? row.geom.coordinates : [])
-            .map(([lng, lat]) => ({ lat: Number(lat), lng: Number(lng) }))
-        }))
+          bounds,
+          track: decoded.points
+        };
+      }));
+      return res.json({
+        segments
       });
     } catch (error) {
       next(error);

@@ -42,7 +42,7 @@ function getVariantConfig(variant) {
     case "full":
       return {
         name: "full",
-        description: "Current insert with bounds, track_start, track_end, gps_track_blob, full stream"
+        description: "Current insert with box bounds, numeric endpoints, gps_track_blob, full stream"
       };
     case "no-geom":
       return {
@@ -114,12 +114,11 @@ async function loadSourceRows({ workoutId, userId, limit }) {
       w.gps_track_blob,
       w.stream,
       w.gps_source,
-      ST_XMin(w.bounds) AS min_lng,
-      ST_YMin(w.bounds) AS min_lat,
-      ST_XMax(w.bounds) AS max_lng,
-      ST_YMax(w.bounds) AS max_lat,
-      ST_AsText(w.track_start) AS track_start_wkt,
-      ST_AsText(w.track_end) AS track_end_wkt,
+      w.gps_bounds::text AS gps_bounds_text,
+      w.track_start_lat,
+      w.track_start_lng,
+      w.track_end_lat,
+      w.track_end_lng,
       octet_length(w.stream) AS stream_bytes
     FROM workouts w
     ${whereClause}
@@ -139,12 +138,7 @@ function shiftDate(value, repetitionIndex) {
 
 function buildInsertParams(row, variant, repetitionIndex) {
   const validGps = variant === "no-geom" ? false : row.validgps;
-  const trackStartWkt = variant === "no-geom" ? null : row.track_start_wkt;
-  const trackEndWkt = variant === "no-geom" ? null : row.track_end_wkt;
-  const minLng = variant === "no-geom" ? null : row.min_lng;
-  const minLat = variant === "no-geom" ? null : row.min_lat;
-  const maxLng = variant === "no-geom" ? null : row.max_lng;
-  const maxLat = variant === "no-geom" ? null : row.max_lat;
+  const gpsBounds = variant === "no-geom" ? null : row.gps_bounds_text;
   const gpsTrackBlob = variant === "no-geom" ? null : row.gps_track_blob;
   const stream = variant === "tiny-stream"
     ? Buffer.alloc(Math.min(256, row.stream.length), 0)
@@ -178,12 +172,11 @@ function buildInsertParams(row, variant, repetitionIndex) {
     row.year_quarter,
     row.year_month,
     row.year_week,
-    minLng,
-    minLat,
-    maxLng,
-    maxLat,
-    trackStartWkt,
-    trackEndWkt,
+    gpsBounds,
+    variant === "no-geom" ? null : row.track_start_lat,
+    variant === "no-geom" ? null : row.track_start_lng,
+    variant === "no-geom" ? null : row.track_end_lat,
+    variant === "no-geom" ? null : row.track_end_lng,
     row.points_count,
     row.samplerategps,
     gpsTrackBlob,
@@ -221,9 +214,11 @@ INSERT INTO workouts (
   year_quarter,
   year_month,
   year_week,
-  bounds,
-  track_start,
-  track_end,
+  gps_bounds,
+  track_start_lat,
+  track_start_lng,
+  track_end_lat,
+  track_end_lng,
   points_count,
   sampleRateGPS,
   gps_track_blob,
@@ -235,32 +230,16 @@ VALUES (
   $3,$4,$5,$6,$7,$8,$9,$10,
   $11,$12,$13,$14,$15,$16,$17,$18,
   $19,$20,$21,$22,$23,$24,$25,$26,$27,
-CASE
-  WHEN $21 = true
-  THEN ST_MakeEnvelope(
-    $28::float8,
-    $29::float8,
-    $30::float8,
-    $31::float8,
-    4326
-  )
-  ELSE NULL
-END,
-CASE
-  WHEN $21 = true
-  THEN ST_GeomFromText($32, 4326)
-  ELSE NULL
-END,
-CASE
-  WHEN $21 = true
-  THEN ST_GeomFromText($33, 4326)
-  ELSE NULL
-END,
+  $28::box,
+  $29,
+  $30,
+  $31,
+  $32,
+  $33,
   $34,
   $35,
   $36,
-  $37,
-  $38
+  $37
 )
 ON CONFLICT (uid, start_time)
 DO NOTHING

@@ -1,47 +1,29 @@
 import { runMigrations, loadEnvForMigrations, assertRequiredDbEnv } from "./migrate-internal.js";
 
-const APP_TABLES = [
-  "woa_bundle_uploads",
-  "group_invite_sender_dismissals",
-  "group_feed_event_dismissals",
-  "group_feed_event_groups",
-  "group_feed_events",
-  "gps_segment_best_efforts",
-  "gps_segment_group_shares",
-  "workout_group_shares",
-  "group_invites",
-  "group_members",
-  "groups",
-  "workout_segments",
-  "gps_segments",
-  "workouts",
-  "user_memberships",
-  "payment_webhook_events",
-  "payment_orders",
-  "account_plans",
-  "user_profiles",
-  "import_jobs",
-  "users"
-];
+function getConfirmedDatabaseName() {
+  const args = process.argv.slice(2);
+  const confirmIndex = args.indexOf("--confirm");
+  if (confirmIndex >= 0 && args[confirmIndex + 1]) {
+    return String(args[confirmIndex + 1]).trim();
+  }
+  return String(process.env.DB_REBUILD_CONFIRM || "").trim();
+}
 
-const APP_VIEWS = [
-  "v_gps_segment_best_efforts",
-  "v_workouts_with_best_efforts"
-];
-
-const APP_FUNCTIONS = [
-  "set_updated_at()",
-  "get_ftp_by_period2(BIGINT, TEXT)",
-  "get_cp_best_efforts(TEXT, INT[], BIGINT)"
-];
-
-function quoteIdentifier(value) {
-  return `"${String(value).replace(/"/g, "\"\"")}"`;
+function assertRebuildConfirmed() {
+  const databaseName = String(process.env.DB_NAME || "").trim();
+  const confirmedName = getConfirmedDatabaseName();
+  if (!databaseName || confirmedName !== databaseName) {
+    throw new Error(
+      `Database rebuild requires --confirm ${databaseName || "<DB_NAME>"} `
+      + "or DB_REBUILD_CONFIRM with the exact database name."
+    );
+  }
 }
 
 async function resetAppSchema() {
   loadEnvForMigrations();
   assertRequiredDbEnv();
+  assertRebuildConfirmed();
 
   const { default: pool } = await import("./services/database.js");
   const client = await pool.connect();
@@ -49,19 +31,12 @@ async function resetAppSchema() {
   try {
     await client.query("BEGIN");
 
-    await client.query("CREATE EXTENSION IF NOT EXISTS postgis;");
-
-    for (const viewName of APP_VIEWS) {
-      await client.query(`DROP VIEW IF EXISTS ${quoteIdentifier(viewName)} CASCADE;`);
-    }
-
-    for (const tableName of APP_TABLES) {
-      await client.query(`DROP TABLE IF EXISTS ${quoteIdentifier(tableName)} CASCADE;`);
-    }
-
-    for (const fnSignature of APP_FUNCTIONS) {
-      await client.query(`DROP FUNCTION IF EXISTS ${fnSignature} CASCADE;`);
-    }
+    await client.query("DROP EXTENSION IF EXISTS postgis_tiger_geocoder;");
+    await client.query("DROP EXTENSION IF EXISTS postgis_topology;");
+    await client.query("DROP EXTENSION IF EXISTS postgis;");
+    await client.query("DROP SCHEMA IF EXISTS public CASCADE;");
+    await client.query("CREATE SCHEMA public AUTHORIZATION CURRENT_USER;");
+    await client.query("GRANT USAGE ON SCHEMA public TO PUBLIC;");
 
     await client.query("COMMIT");
     console.log("App schema reset complete.");

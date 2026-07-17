@@ -6,6 +6,7 @@ import WorkoutSharingService from "./workoutSharingService.js";
 import ElevationService from "./ElevationService.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
 import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../shared/gpsSampling.js";
+import { toPostgresBox } from "../shared/postgresSpatial.js";
 
 function haversineMeters(a, b) {
   const toRad = (value) => (value * Math.PI) / 180;
@@ -302,10 +303,10 @@ export default class WorkoutDBService {
   static async ensureSimilarityPerformanceIndexes() {
     await pool.query("DROP INDEX IF EXISTS idx_workouts_track_start");
     await pool.query("DROP INDEX IF EXISTS idx_workouts_track_end");
+    await pool.query("DROP INDEX IF EXISTS idx_workouts_track_start_geography");
     await pool.query(`
-      CREATE INDEX IF NOT EXISTS idx_workouts_track_start_geography
-      ON workouts
-      USING GIST ((track_start::geography))
+      CREATE INDEX IF NOT EXISTS idx_workouts_track_start_coordinates
+      ON workouts (uid, track_start_lat, track_start_lng)
     `);
   }
 
@@ -316,9 +317,11 @@ export default class WorkoutDBService {
         FROM workouts
         WHERE uid = $1
           AND validgps = true
-          AND bounds IS NOT NULL
-          AND track_start IS NOT NULL
-          AND track_end IS NOT NULL
+          AND gps_bounds IS NOT NULL
+          AND track_start_lat IS NOT NULL
+          AND track_start_lng IS NOT NULL
+          AND track_end_lat IS NOT NULL
+          AND track_end_lng IS NOT NULL
         ORDER BY start_time DESC NULLS LAST, id DESC
       `,
       [uid]
@@ -355,17 +358,21 @@ export default class WorkoutDBService {
           w.uid,
           w.total_distance,
           w.total_ascent,
-          w.bounds,
-          w.track_start,
-          w.track_end
+          w.gps_bounds,
+          w.track_start_lat,
+          w.track_start_lng,
+          w.track_end_lat,
+          w.track_end_lng
         FROM workouts w
         WHERE
           w.id = $1
           AND w.uid = $2
           AND w.validgps = true
-          AND w.bounds IS NOT NULL
-          AND w.track_start IS NOT NULL
-          AND w.track_end IS NOT NULL
+          AND w.gps_bounds IS NOT NULL
+          AND w.track_start_lat IS NOT NULL
+          AND w.track_start_lng IS NOT NULL
+          AND w.track_end_lat IS NOT NULL
+          AND w.track_end_lng IS NOT NULL
       )
       SELECT
         w.id,
@@ -375,8 +382,14 @@ export default class WorkoutDBService {
         w.samplerategps,
         w.gps_track_blob,
         w.gps_track_blob_codec,
-        ST_Distance(w.track_start::geography, s.track_start::geography) AS start_distance_m,
-        ST_Distance(w.track_end::geography, s.track_end::geography) AS end_distance_m,
+        w.track_start_lat,
+        w.track_start_lng,
+        w.track_end_lat,
+        w.track_end_lng,
+        s.track_start_lat AS source_start_lat,
+        s.track_start_lng AS source_start_lng,
+        s.track_end_lat AS source_end_lat,
+        s.track_end_lng AS source_end_lng,
         ABS(w.total_distance - s.total_distance) / NULLIF(s.total_distance, 0) AS distance_delta_ratio,
         ABS(COALESCE(w.total_ascent, 0) - COALESCE(s.total_ascent, 0)) / NULLIF(GREATEST(COALESCE(s.total_ascent, 0), 1), 0) AS ascent_delta_ratio
       FROM workouts w
@@ -394,15 +407,21 @@ export default class WorkoutDBService {
             AND existing.workout_id_b = GREATEST(s.id, w.id)
         )` : ""}
         AND w.validgps = true
-        AND w.bounds IS NOT NULL
-        AND w.track_start IS NOT NULL
-        AND w.track_end IS NOT NULL
-        AND s.bounds && w.bounds
+        AND w.gps_bounds IS NOT NULL
+        AND w.track_start_lat IS NOT NULL
+        AND w.track_start_lng IS NOT NULL
+        AND w.track_end_lat IS NOT NULL
+        AND w.track_end_lng IS NOT NULL
+        AND s.gps_bounds && w.gps_bounds
         AND w.total_distance BETWEEN s.total_distance * (1::double precision - $3::double precision) AND s.total_distance * (1::double precision + $3::double precision)
         AND COALESCE(w.total_ascent, 0) BETWEEN COALESCE(s.total_ascent, 0) * (1::double precision - $4::double precision) AND COALESCE(s.total_ascent, 0) * (1::double precision + $4::double precision)
-        AND ST_DWithin(w.track_start::geography, s.track_start::geography, $5::double precision)
-        AND ST_DWithin(w.track_end::geography, s.track_end::geography, $6::double precision)
-      ORDER BY start_distance_m ASC, end_distance_m ASC, w.id ASC;
+        AND ABS(w.track_start_lat - s.track_start_lat) <= $5::double precision / 110000.0
+        AND ABS(w.track_start_lng - s.track_start_lng) <= $5::double precision
+          / (110000.0 * GREATEST(0.01, ABS(COS(RADIANS(s.track_start_lat)))))
+        AND ABS(w.track_end_lat - s.track_end_lat) <= $6::double precision / 110000.0
+        AND ABS(w.track_end_lng - s.track_end_lng) <= $6::double precision
+          / (110000.0 * GREATEST(0.01, ABS(COS(RADIANS(s.track_end_lat)))))
+      ORDER BY w.id ASC;
     `;
 
     const params = [
@@ -419,8 +438,23 @@ export default class WorkoutDBService {
     }
 
     const result = await pool.query(sql, params);
+    const exactRows = result.rows.map((row) => ({
+      ...row,
+      start_distance_m: haversineMeters(
+        { lat: Number(row.source_start_lat), lng: Number(row.source_start_lng) },
+        { lat: Number(row.track_start_lat), lng: Number(row.track_start_lng) }
+      ),
+      end_distance_m: haversineMeters(
+        { lat: Number(row.source_end_lat), lng: Number(row.source_end_lng) },
+        { lat: Number(row.track_end_lat), lng: Number(row.track_end_lng) }
+      )
+    })).filter((row) => row.start_distance_m <= effectiveStartRadiusMeters
+      && row.end_distance_m <= effectiveEndRadiusMeters)
+      .sort((left, right) => left.start_distance_m - right.start_distance_m
+        || left.end_distance_m - right.end_distance_m
+        || Number(left.id) - Number(right.id));
 
-    return Promise.all(result.rows.map((row) => hydrateTrackRow(row, {
+    return Promise.all(exactRows.map((row) => hydrateTrackRow(row, {
       includeGeoJson: false
     })));
   }
@@ -464,17 +498,21 @@ export default class WorkoutDBService {
             w.uid,
             w.total_distance,
             w.total_ascent,
-            w.bounds,
-            w.track_start,
-            w.track_end,
+            w.gps_bounds,
+            w.track_start_lat,
+            w.track_start_lng,
+            w.track_end_lat,
+            w.track_end_lng,
             requested_sources.source_order
           FROM workouts w
           JOIN requested_sources ON requested_sources.id = w.id
           WHERE w.uid = $2
             AND w.validgps = true
-            AND w.bounds IS NOT NULL
-            AND w.track_start IS NOT NULL
-            AND w.track_end IS NOT NULL
+            AND w.gps_bounds IS NOT NULL
+            AND w.track_start_lat IS NOT NULL
+            AND w.track_start_lng IS NOT NULL
+            AND w.track_end_lat IS NOT NULL
+            AND w.track_end_lng IS NOT NULL
         )
         SELECT
           s.id AS source_workout_id,
@@ -482,8 +520,14 @@ export default class WorkoutDBService {
           w.total_distance,
           w.total_ascent,
           w.samplerategps,
-          ST_Distance(w.track_start::geography, s.track_start::geography) AS start_distance_m,
-          ST_Distance(w.track_end::geography, s.track_end::geography) AS end_distance_m,
+          w.track_start_lat,
+          w.track_start_lng,
+          w.track_end_lat,
+          w.track_end_lng,
+          s.track_start_lat AS source_start_lat,
+          s.track_start_lng AS source_start_lng,
+          s.track_end_lat AS source_end_lat,
+          s.track_end_lng AS source_end_lng,
           ABS(w.total_distance - s.total_distance) / NULLIF(s.total_distance, 0) AS distance_delta_ratio,
           ABS(COALESCE(w.total_ascent, 0) - COALESCE(s.total_ascent, 0))
             / NULLIF(GREATEST(COALESCE(s.total_ascent, 0), 1), 0) AS ascent_delta_ratio
@@ -492,16 +536,22 @@ export default class WorkoutDBService {
           ON w.uid = s.uid
           AND w.id <> s.id
           AND w.validgps = true
-          AND w.bounds IS NOT NULL
-          AND w.track_start IS NOT NULL
-          AND w.track_end IS NOT NULL
-          AND s.bounds && w.bounds
+          AND w.gps_bounds IS NOT NULL
+          AND w.track_start_lat IS NOT NULL
+          AND w.track_start_lng IS NOT NULL
+          AND w.track_end_lat IS NOT NULL
+          AND w.track_end_lng IS NOT NULL
+          AND s.gps_bounds && w.gps_bounds
           AND w.total_distance BETWEEN s.total_distance * (1::double precision - $3::double precision)
             AND s.total_distance * (1::double precision + $3::double precision)
           AND COALESCE(w.total_ascent, 0) BETWEEN COALESCE(s.total_ascent, 0) * (1::double precision - $4::double precision)
             AND COALESCE(s.total_ascent, 0) * (1::double precision + $4::double precision)
-          AND ST_DWithin(w.track_start::geography, s.track_start::geography, $5::double precision)
-          AND ST_DWithin(w.track_end::geography, s.track_end::geography, $6::double precision)
+          AND ABS(w.track_start_lat - s.track_start_lat) <= $5::double precision / 110000.0
+          AND ABS(w.track_start_lng - s.track_start_lng) <= $5::double precision
+            / (110000.0 * GREATEST(0.01, ABS(COS(RADIANS(s.track_start_lat)))))
+          AND ABS(w.track_end_lat - s.track_end_lat) <= $6::double precision / 110000.0
+          AND ABS(w.track_end_lng - s.track_end_lng) <= $6::double precision
+            / (110000.0 * GREATEST(0.01, ABS(COS(RADIANS(s.track_end_lat)))))
         WHERE (
           $7::text IS NULL
           OR NOT EXISTS (
@@ -513,7 +563,7 @@ export default class WorkoutDBService {
               AND existing.workout_id_b = GREATEST(s.id, w.id)
           )
         )
-        ORDER BY s.id, start_distance_m, end_distance_m, w.id
+        ORDER BY s.id, w.id
       `,
       [
         sourceIds,
@@ -527,12 +577,32 @@ export default class WorkoutDBService {
     );
 
     const candidatesBySourceId = new Map(sourceIds.map((sourceId) => [sourceId, []]));
-    for (const row of result.rows) {
+    for (const rawRow of result.rows) {
+      const row = {
+        ...rawRow,
+        start_distance_m: haversineMeters(
+          { lat: Number(rawRow.source_start_lat), lng: Number(rawRow.source_start_lng) },
+          { lat: Number(rawRow.track_start_lat), lng: Number(rawRow.track_start_lng) }
+        ),
+        end_distance_m: haversineMeters(
+          { lat: Number(rawRow.source_end_lat), lng: Number(rawRow.source_end_lng) },
+          { lat: Number(rawRow.track_end_lat), lng: Number(rawRow.track_end_lng) }
+        )
+      };
+      if (row.start_distance_m > effectiveStartRadiusMeters
+        || row.end_distance_m > effectiveEndRadiusMeters) {
+        continue;
+      }
       const sourceId = Number(row.source_workout_id);
       const candidates = candidatesBySourceId.get(sourceId);
       if (candidates) {
         candidates.push(row);
       }
+    }
+    for (const candidates of candidatesBySourceId.values()) {
+      candidates.sort((left, right) => left.start_distance_m - right.start_distance_m
+        || left.end_distance_m - right.end_distance_m
+        || Number(left.id) - Number(right.id));
     }
     return candidatesBySourceId;
   }
@@ -1396,8 +1466,6 @@ export default class WorkoutDBService {
     const pointsCount = normalizedTrack.length;
     const firstPoint = normalizedTrack[0];
     const lastPoint = normalizedTrack[normalizedTrack.length - 1];
-    const trackStartGeom = `POINT(${firstPoint.lng} ${firstPoint.lat})`;
-    const trackEndGeom = `POINT(${lastPoint.lng} ${lastPoint.lat})`;
     const normalizedLookupPoints = Array.isArray(lookupPoints)
       ? lookupPoints
           .map((point) => ({
@@ -1427,16 +1495,18 @@ export default class WorkoutDBService {
         validgps = true,
         points_count = $3,
         samplerategps = $4,
-        bounds = ST_MakeEnvelope($5::float8, $6::float8, $7::float8, $8::float8, 4326),
-        track_start = ST_GeomFromText($9, 4326),
-        track_end = ST_GeomFromText($10, 4326),
-        gps_track_blob = $11::bytea,
+        gps_bounds = $5::box,
+        track_start_lat = $6::float8,
+        track_start_lng = $7::float8,
+        track_end_lat = $8::float8,
+        track_end_lng = $9::float8,
+        gps_track_blob = $10::bytea,
         gps_track_blob_codec = 'brotli',
         gps_source = 'manual_lookup',
-        manual_gps_lookup_points = $12::jsonb,
-        stream = COALESCE($13::bytea, stream),
-        total_ascent = COALESCE($14::float8, total_ascent),
-        total_descent = COALESCE($15::float8, total_descent)
+        manual_gps_lookup_points = $11::jsonb,
+        stream = COALESCE($12::bytea, stream),
+        total_ascent = COALESCE($13::float8, total_ascent),
+        total_descent = COALESCE($14::float8, total_descent)
        WHERE id = $1
          AND uid = $2
        RETURNING
@@ -1452,12 +1522,11 @@ export default class WorkoutDBService {
         uid,
         pointsCount,
         sampleRateGps,
-        bbox.minLng,
-        bbox.minLat,
-        bbox.maxLng,
-        bbox.maxLat,
-        trackStartGeom,
-        trackEndGeom,
+        toPostgresBox(bbox),
+        firstPoint.lat,
+        firstPoint.lng,
+        lastPoint.lat,
+        lastPoint.lng,
         gpsTrackBlob,
         JSON.stringify(normalizedLookupPoints),
         streamBuffer,

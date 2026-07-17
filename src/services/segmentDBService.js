@@ -5,10 +5,28 @@ import SegmentMatcher from "./SegmentMatcher.js";
 import WorkoutDBService from "./workoutDBService.js";
 import CollaborationDBService from "./collaborationDBService.js";
 import WorkoutSharingService from "./workoutSharingService.js";
+import SegmentTrackBlobService from "./segmentTrackBlobService.js";
+import { parsePostgresBox, toPostgresBox } from "../shared/postgresSpatial.js";
 
 
 
 export default class SegmentDBService {
+
+  static async hydrateSegmentTrackRow(row) {
+    if (!row) return row;
+    const decoded = await SegmentTrackBlobService.decodeRow(row);
+    const bbox = parsePostgresBox(row.gps_bounds_text ?? row.gps_bounds) ?? decoded.bbox;
+    const coordinates = decoded.points.map((point) => [point.lng, point.lat]);
+    return {
+      ...row,
+      geom: { type: "LineString", coordinates },
+      geom_geojson: { type: "LineString", coordinates },
+      min_lat: bbox?.minLat ?? null,
+      max_lat: bbox?.maxLat ?? null,
+      min_lng: bbox?.minLng ?? null,
+      max_lng: bbox?.maxLng ?? null
+    };
+  }
 
   static async getSegmentDistanceMap(segmentIds = []) {
     const normalizedIds = [...new Set(
@@ -374,31 +392,33 @@ export default class SegmentDBService {
     const includeExistingBestEfforts = options?.includeExistingBestEfforts === true;
     const sql = `SELECT
       s.id,
-      ST_AsGeoJSON(s.geom)::json AS geom
+      s.track_blob,
+      s.track_blob_codec,
+      s.gps_bounds::text AS gps_bounds_text
       FROM gps_segments s
       WHERE
         (
           s.uid = $1
           OR (
-            $6::bigint IS NOT NULL
+            $3::bigint IS NOT NULL
             AND EXISTS (
               SELECT 1
               FROM gps_segment_group_shares sgs
               INNER JOIN workout_group_shares wgs
                 ON wgs.group_id = sgs.group_id
               WHERE sgs.segment_id = s.id
-                AND wgs.workout_id = $6
+                AND wgs.workout_id = $3
             )
           )
         )
-        AND s.bounds && ST_MakeEnvelope($2, $3, $4, $5, 4326)
+        AND s.gps_bounds && $2::box
         AND (
-          $6::bigint IS NULL
-          OR $7::boolean = true
+          $3::bigint IS NULL
+          OR $4::boolean = true
           OR NOT EXISTS (
             SELECT 1
             FROM gps_segment_best_efforts sbe
-            WHERE sbe.wid = $6
+            WHERE sbe.wid = $3
               AND sbe.sid = s.id
           )
         );`;
@@ -406,15 +426,12 @@ export default class SegmentDBService {
     const result = await pool.query(
       sql,
       [uid,
-      bounds.minLng,
-      bounds.minLat,
-      bounds.maxLng,
-      bounds.maxLat,
+      toPostgresBox(bounds),
       workoutId,
       includeExistingBestEfforts]
     );
 
-    return result.rows;
+    return Promise.all(result.rows.map((row) => SegmentDBService.hydrateSegmentTrackRow(row)));
   }
 
   static async getMatchingSegmentCandidateIdsForWorkoutsBulk(uid, workoutIds, options = {}) {
@@ -429,19 +446,19 @@ export default class SegmentDBService {
 
     const result = await pool.query(`
       WITH source_workouts AS (
-        SELECT id, uid, bounds
+        SELECT id, uid, gps_bounds
         FROM workouts
         WHERE uid = $1
           AND id = ANY($2::bigint[])
           AND validgps = true
-          AND bounds IS NOT NULL
+          AND gps_bounds IS NOT NULL
       )
       SELECT
         w.id AS workout_id,
         s.id AS segment_id
       FROM source_workouts w
       JOIN gps_segments s
-        ON s.bounds && w.bounds
+        ON s.gps_bounds && w.gps_bounds
         AND (
           s.uid = $1
           OR EXISTS (
@@ -488,11 +505,14 @@ export default class SegmentDBService {
       SELECT
         id,
         distance,
-        ST_AsGeoJSON(geom)::json AS geom
+        track_blob,
+        track_blob_codec,
+        gps_bounds::text AS gps_bounds_text
       FROM gps_segments
       WHERE id = ANY($1::bigint[])
     `, [normalizedIds]);
-    return new Map(result.rows.map((row) => [Number(row.id), {
+    const rows = await Promise.all(result.rows.map((row) => SegmentDBService.hydrateSegmentTrackRow(row)));
+    return new Map(rows.map((row) => [Number(row.id), {
       id: Number(row.id),
       distance: Number(row.distance) || 0,
       geom: row.geom
@@ -525,11 +545,9 @@ export default class SegmentDBService {
         )::int AS share_group_count,
         owner.display_name AS owner_display_name,
         owner.email AS owner_email,
-        ST_AsGeoJSON(s.geom)::json AS geom_geojson,
-        ST_YMin(s.bounds) AS min_lat,
-        ST_YMax(s.bounds) AS max_lat,
-        ST_XMin(s.bounds) AS min_lng,
-        ST_XMax(s.bounds) AS max_lng
+        s.track_blob,
+        s.track_blob_codec,
+        s.gps_bounds::text AS gps_bounds_text
       FROM gps_segments s
       LEFT JOIN users owner
         ON owner.id = s.uid
@@ -547,7 +565,8 @@ export default class SegmentDBService {
         )
     `, [segmentId, uid]);
 
-    return result.rows[0] ? SegmentDBService.mapSegment(result.rows[0]) : null;
+    if (!result.rows[0]) return null;
+    return SegmentDBService.mapSegment(await SegmentDBService.hydrateSegmentTrackRow(result.rows[0]));
   }
 
   static async getSegmentSharing(uid, segmentId) {
@@ -780,28 +799,6 @@ export default class SegmentDBService {
       client.release();
     }
   }
-
-  /*
-  static async getMatchingSegmentCandidates(wid, uid) {
-    const sql = `SELECT
-      s.id,
-      ST_AsGeoJSON(s.geom)::json AS geom
-      FROM gps_segments s
-      JOIN workouts w
-        ON w.id = $1
-        AND w.uid = $2
-      WHERE
-        s.uid = $2
-        AND s.bounds && w.bounds;`;
-
-    const result = await pool.query(
-      sql,
-      [wid, uid]
-    );
-
-    return result.rows;
-  }
-  */
 
   static async getGPSSegmentByWorkout(uid, wid){
     await WorkoutSharingService.getAccessibleWorkout(uid, wid);
@@ -1083,11 +1080,9 @@ export default class SegmentDBService {
     )::int AS share_group_count,
     owner.display_name AS owner_display_name,
     owner.email AS owner_email,
-    ST_AsGeoJSON(s.geom)::json AS geom_geojson,
-    ST_YMin(s.bounds) AS min_lat,
-    ST_YMax(s.bounds) AS max_lat,
-    ST_XMin(s.bounds) AS min_lng,
-    ST_XMax(s.bounds) AS max_lng
+    s.track_blob,
+    s.track_blob_codec,
+    s.gps_bounds::text AS gps_bounds_text
   FROM gps_segments s
   LEFT JOIN users owner
     ON owner.id = s.uid
@@ -1096,19 +1091,19 @@ export default class SegmentDBService {
       $2::int[] IS NULL
       OR NOT (s.id = ANY($2))
     )
-    AND s.bounds && ST_MakeEnvelope($3, $4, $5, $6, 4326)
+    AND s.gps_bounds && $3::box
   ORDER BY s.created_at DESC
-  LIMIT $7
+  LIMIT $4
 `, [
       uid,
       excludeIds,
-      bounds.minLng,
-      bounds.minLat,
-      bounds.maxLng,
-      bounds.maxLat,
+      toPostgresBox(bounds),
       limit
     ]);
 
+    result.rows = await Promise.all(
+      result.rows.map((row) => SegmentDBService.hydrateSegmentTrackRow(row))
+    );
     return result;
 
 
@@ -1317,7 +1312,7 @@ export default class SegmentDBService {
       WHERE w.id = $1
         AND w.uid = $2
         AND s.uid <> $2
-        AND s.bounds && w.bounds
+        AND s.gps_bounds && w.gps_bounds
     `, [workoutId, workoutOwnerId, normalizedGroupIds]);
 
     return result.rows.map((row) => ({
@@ -1601,7 +1596,9 @@ export default class SegmentDBService {
     const altitudes = [];
     const bestEffortsStatuses = [];
 
-    const wkts = [];
+    const boundsBoxes = [];
+    const trackBlobs = [];
+    const trackBlobCodecs = [];
 
     for (const seg of segments) {
       ids.push(seg.id);
@@ -1628,11 +1625,15 @@ export default class SegmentDBService {
 
       pointCounts.push(seg.track.length);
 
-      const coords = seg.track
-        .map(p => `${p.lng} ${p.lat}`)
-        .join(", ");
-
-      wkts.push(`LINESTRING(${coords})`);
+      const bbox = seg.track.reduce((acc, point) => ({
+        minLat: Math.min(acc.minLat, Number(point.lat)),
+        maxLat: Math.max(acc.maxLat, Number(point.lat)),
+        minLng: Math.min(acc.minLng, Number(point.lng)),
+        maxLng: Math.max(acc.maxLng, Number(point.lng))
+      }), { minLat: Infinity, maxLat: -Infinity, minLng: Infinity, maxLng: -Infinity });
+      boundsBoxes.push(toPostgresBox(bbox));
+      trackBlobs.push(await SegmentTrackBlobService.encode(seg.track, { codec: "brotli" }));
+      trackBlobCodecs.push("brotli");
     }
 
     const query = `
@@ -1656,8 +1657,9 @@ export default class SegmentDBService {
       altitudes,
       best_efforts_status,
 
-      bounds,
-      geom
+      gps_bounds,
+      track_blob,
+      track_blob_codec
     )
     SELECT
       u.uid,
@@ -1679,8 +1681,9 @@ export default class SegmentDBService {
       u.altitudes,
       u.best_efforts_status,
 
-      ST_Envelope(ST_GeomFromText(u.wkt, 4326)),
-      ST_GeomFromText(u.wkt, 4326)
+      u.gps_bounds,
+      u.track_blob,
+      u.track_blob_codec
 
     FROM UNNEST(
       $1::int[],
@@ -1701,7 +1704,9 @@ export default class SegmentDBService {
       $13::int[],
       $14::jsonb[],
       $15::text[],
-      $16::text[]
+      $16::box[],
+      $17::bytea[],
+      $18::text[]
     ) AS u(
       uid,
       distance,
@@ -1721,8 +1726,9 @@ export default class SegmentDBService {
       points_count,
       altitudes,
       best_efforts_status,
-
-      wkt
+      gps_bounds,
+      track_blob,
+      track_blob_codec
     )
     ON CONFLICT (id) DO NOTHING
     RETURNING 
@@ -1742,11 +1748,9 @@ export default class SegmentDBService {
     altitudes,
     points_count,
     best_efforts_status,
-    ST_AsGeoJSON(geom)::json AS geom_geojson,
-    ST_YMin(bounds) AS min_lat,
-    ST_YMax(bounds) AS max_lat,
-    ST_XMin(bounds) AS min_lng,
-    ST_XMax(bounds) AS max_lng;
+    track_blob,
+    track_blob_codec,
+    gps_bounds::text AS gps_bounds_text;
   `;
 
     const values = [
@@ -1768,12 +1772,13 @@ export default class SegmentDBService {
       pointCounts,
       altitudes,
       bestEffortsStatuses,
-
-      wkts
+      boundsBoxes,
+      trackBlobs,
+      trackBlobCodecs
     ];
 
     const result = await pool.query(query, values);
-    return result.rows;
+    return Promise.all(result.rows.map((row) => SegmentDBService.hydrateSegmentTrackRow(row)));
   }
 
 
