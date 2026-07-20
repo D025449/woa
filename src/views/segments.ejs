@@ -154,7 +154,11 @@
                         aria-label="<%= t('segmentsPage.workspaceSplitterAria') %>">
                     </div>
 
-                    <aside class="segments-surface ui-surface ui-surface--gradient segments-workspace-panel segments-detail-surface">
+                    <aside id="segment-detail-surface" class="segments-surface ui-surface ui-surface--gradient segments-workspace-panel segments-detail-surface" data-sheet-state="peek">
+                        <button id="segment-detail-sheet-toggle" class="segments-detail-sheet-toggle" type="button"
+                            aria-label="<%= t('segmentsPage.insightsTitle') %>" aria-expanded="false">
+                            <span class="segments-detail-sheet-toggle__handle" aria-hidden="true"></span>
+                        </button>
                         <div class="segments-section-header ui-section-header">
                             <div>
                                 <span class="segments-eyebrow ui-eyebrow"><%= t("segmentsPage.insightsEyebrow") %></span>

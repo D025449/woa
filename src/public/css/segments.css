@@ -6,6 +6,31 @@ body.segments-page {
     color: var(--ui-page-text);
 }
 
+body.segments-page.has-fixed-app-topbar .segments-hero.ui-hero {
+    border-color: #258be5;
+    background: linear-gradient(112deg, #2f98f7 0%, #2d91eb 58%, #2587df 100%);
+    color: #ffffff;
+}
+
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-title,
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-kicker,
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-subtitle,
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-quick-access__label {
+    color: #ffffff;
+}
+
+body.segments-page.has-fixed-app-topbar .segments-hero .ui-hero__art {
+    border-color: rgba(255, 255, 255, 0.42);
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+}
+
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-quick-access__chip {
+    border-color: rgba(255, 255, 255, 0.34);
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+}
+
 @media (min-width: 992px) {
     .segments-hero {
         align-items: center;
@@ -346,19 +371,17 @@ body.segments-page {
 }
 
 .segments-workspace {
-    --segments-map-width: 1fr;
-    display: grid;
-    grid-template-columns: minmax(320px, var(--segments-map-width)) 0.5rem minmax(0, 1fr);
-    column-gap: 0.5rem;
-    row-gap: 1.5rem;
-    align-items: start;
+    position: relative;
+    display: block;
+    height: clamp(580px, calc(100vh - 9.4rem), 920px);
     min-width: 0;
     width: 100%;
+    overflow: hidden;
+    border-radius: 0.45rem;
 }
 
 .segments-shell--client .segments-workspace {
     height: var(--segments-client-height);
-    align-items: stretch;
 }
 
 .segments-workspace-panel {
@@ -375,6 +398,10 @@ body.segments-page {
     cursor: col-resize;
     user-select: none;
     touch-action: none;
+}
+
+.segments-workspace > .segments-splitter {
+    display: none !important;
 }
 
 .segments-splitter::before {
@@ -399,8 +426,24 @@ body.segments-page {
 }
 
 .segments-detail-surface {
-    width: 100%;
-    justify-self: stretch;
+    position: absolute;
+    z-index: 35;
+    top: 4.75rem;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    width: clamp(380px, 35vw, 520px);
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+    border: 1px solid rgba(116, 135, 151, 0.28);
+    border-radius: 0.65rem;
+    background: rgba(251, 251, 249, 0.42) !important;
+    box-shadow: 0 20px 48px rgba(31, 50, 64, 0.16);
+    backdrop-filter: blur(7px) saturate(108%);
+}
+
+.segments-detail-sheet-toggle {
+    display: none;
 }
 
 .segments-shell--client .segments-map-body {
@@ -409,6 +452,7 @@ body.segments-page {
 }
 
 .segments-map-panel {
+    height: 100%;
     overflow: visible;
 }
 
@@ -428,6 +472,13 @@ body.segments-page {
     overflow: hidden;
     border-bottom-left-radius: 1.5rem;
     border-bottom-right-radius: 1.5rem;
+}
+
+.segments-detail-surface > .segments-section-header {
+    flex: 0 0 auto;
+    border-top-left-radius: 0.65rem;
+    border-top-right-radius: 0.65rem;
+    background: rgba(248, 249, 247, 0.32);
 }
 
 .segments-map-body .leaflet-container,
@@ -921,6 +972,20 @@ body.segments-page {
     min-width: 0;
 }
 
+.segments-detail-surface .segments-detail-grid {
+    flex: 1 1 auto;
+    min-height: 0;
+    grid-template-rows: minmax(150px, 0.65fr) minmax(0, 1.35fr);
+    gap: 0.55rem;
+    padding: 0.55rem;
+}
+
+.segments-detail-surface .segments-panel {
+    border-radius: 0.45rem;
+    background: rgba(255, 255, 255, 0.24);
+    padding: 0.75rem;
+}
+
 .segments-shell--client .segments-detail-grid {
     flex: 1 1 auto;
     min-height: 0;
@@ -1306,7 +1371,10 @@ body.segments-page {
     }
 
     .segments-workspace {
-        grid-template-columns: 1fr;
+        height: calc(100dvh - 8.8rem);
+        min-height: 34rem;
+        overflow: hidden;
+        border-radius: 0.45rem;
     }
 
     .segments-splitter {
@@ -1426,6 +1494,101 @@ body.segments-page {
     }
 
     #workout-map {
-        height: 305px !important;
+        height: 100% !important;
+        min-height: 0 !important;
+    }
+
+    .segments-map-panel {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+
+    .segments-map-body {
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+
+    .segments-detail-surface {
+        top: auto;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        max-width: none;
+        height: 52%;
+        border-width: 1px 0 0;
+        border-radius: 0.85rem 0.85rem 0 0;
+        background: rgba(252, 252, 250, 0.68) !important;
+        box-shadow: 0 -16px 38px rgba(31, 50, 64, 0.2);
+        backdrop-filter: blur(10px) saturate(112%);
+        transition: height 220ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .segments-detail-surface[data-sheet-state="peek"] {
+        height: 5.65rem;
+    }
+
+    .segments-detail-surface[data-sheet-state="half"] {
+        height: 52%;
+    }
+
+    .segments-detail-surface[data-sheet-state="full"] {
+        height: 88%;
+    }
+
+    .segments-detail-sheet-toggle {
+        display: grid;
+        flex: 0 0 1.65rem;
+        width: 100%;
+        place-items: center;
+        padding: 0;
+        border: 0;
+        border-radius: 0.85rem 0.85rem 0 0;
+        background: transparent;
+        cursor: pointer;
+        touch-action: manipulation;
+    }
+
+    .segments-detail-sheet-toggle__handle {
+        display: block;
+        width: 2.8rem;
+        height: 0.24rem;
+        border-radius: 999px;
+        background: rgba(75, 94, 107, 0.34);
+    }
+
+    .segments-detail-surface[data-sheet-state="full"] .segments-detail-sheet-toggle__handle {
+        background: #2f98f7;
+    }
+
+    .segments-detail-surface > .segments-section-header {
+        flex: 0 0 auto;
+        padding-top: 0.25rem;
+        background: transparent;
+    }
+
+    .segments-detail-surface .segments-detail-grid {
+        flex: 1 1 auto;
+        min-height: 0;
+        grid-template-rows: 12.5rem minmax(16rem, 1fr);
+        overflow: auto;
+        overscroll-behavior: contain;
+        padding: 0.45rem 0.55rem 0.75rem;
+    }
+
+    .segments-detail-surface[data-sheet-state="peek"] .segments-detail-grid {
+        visibility: hidden;
+        pointer-events: none;
+    }
+
+    .segments-detail-surface .segments-panel {
+        padding: 0.65rem;
+    }
+
+    .segments-detail-surface .segments-panel-header {
+        margin-bottom: 0.45rem;
     }
 }

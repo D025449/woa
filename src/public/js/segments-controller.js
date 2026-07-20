@@ -34,6 +34,12 @@ export default class Controller {
     this.heroElement = document.querySelector(".segments-hero");
     this.workspaceElement = document.getElementById("segments-workspace");
     this.splitterElement = document.getElementById("segments-splitter");
+    this.detailSurfaceElement = document.getElementById("segment-detail-surface");
+    this.detailSheetToggleButton = document.getElementById("segment-detail-sheet-toggle");
+    const storedDetailSheetState = this.uiState.get("segmentDetailSheetState", "peek");
+    this.detailSheetState = ["peek", "half", "full"].includes(storedDetailSheetState)
+      ? storedDetailSheetState
+      : "peek";
     this.layoutMeasureRaf = null;
     this.layoutObserver = null;
     this.mapWidthPx = this.uiState.get("segmentsMapWidthPx", null);
@@ -168,6 +174,7 @@ export default class Controller {
     window.addEventListener("resize", () => this.onResize());
     this.initLayoutObservers();
     this.registerSplitterEvents();
+    this.registerDetailSheetEvents();
     this.deleteButton?.addEventListener("click", () => this.deleteSelectedSegment());
     this.favoriteToggleButton?.addEventListener("click", () => this.toggleSelectedSegmentFavorite());
     this.favoriteFilterButton?.addEventListener("click", async () => {
@@ -260,12 +267,44 @@ export default class Controller {
     this.nextSegmentButton?.addEventListener("click", async () => {
       await this.openRelativeSegment(1);
     });
+    this.syncDetailSheetState();
   }
 
   onResize() {
     this.scheduleDesktopLayoutMeasure();
     this.applyMapWidth();
+    this.syncDetailSheetState();
     this.scheduleChildResizes();
+  }
+
+  registerDetailSheetEvents() {
+    this.detailSheetToggleButton?.addEventListener("click", () => {
+      const states = ["peek", "half", "full"];
+      const currentIndex = states.indexOf(this.detailSheetState);
+      const nextState = states[(currentIndex + 1) % states.length];
+      this.setDetailSheetState(nextState);
+    });
+  }
+
+  setDetailSheetState(state, { persist = true } = {}) {
+    const normalizedState = ["peek", "half", "full"].includes(state) ? state : "peek";
+    this.detailSheetState = normalizedState;
+    if (persist) {
+      this.uiState.set("segmentDetailSheetState", normalizedState);
+    }
+    this.syncDetailSheetState();
+    this.scheduleChildResizes();
+  }
+
+  syncDetailSheetState() {
+    if (!this.detailSurfaceElement) {
+      return;
+    }
+
+    const isMobile = window.matchMedia("(max-width: 991.98px)").matches;
+    const state = isMobile ? this.detailSheetState : "full";
+    this.detailSurfaceElement.dataset.sheetState = state;
+    this.detailSheetToggleButton?.setAttribute("aria-expanded", state === "full" ? "true" : "false");
   }
 
   async handleSegmentOpen(e, segment) {
@@ -533,6 +572,9 @@ export default class Controller {
     this.updateBestEffortsScopeUi();
     this.loadSelectedSegmentSharing();
     this.updateDetailNavigation();
+    if (window.matchMedia("(max-width: 991.98px)").matches && this.detailSheetState === "peek") {
+      this.setDetailSheetState("half", { persist: false });
+    }
   }
 
   refreshSelectedSegmentHeader() {
@@ -605,6 +647,9 @@ export default class Controller {
     this.updateFavoriteUi();
     this.updateBestEffortsScopeUi();
     this.updateDetailNavigation();
+    if (window.matchMedia("(max-width: 991.98px)").matches) {
+      this.setDetailSheetState("peek", { persist: false });
+    }
   }
 
   updateDeleteButton() {

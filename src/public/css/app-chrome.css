@@ -210,7 +210,9 @@
     }
 
     body.has-fixed-app-topbar .ui-hero.ui-hero--compact,
-    body.has-fixed-app-topbar .dashboard-hero {
+    body.has-fixed-app-topbar .dashboard-hero,
+    body.has-fixed-app-topbar .home-hero,
+    body.has-fixed-app-topbar .coaching-hero {
         flex-direction: row;
         align-items: center;
         min-height: 4.4rem;
@@ -218,18 +220,25 @@
     }
 
     body.has-fixed-app-topbar .ui-hero--compact .ui-hero__kicker,
-    body.has-fixed-app-topbar .ui-hero--compact .ui-hero__subtitle {
+    body.has-fixed-app-topbar .ui-hero--compact .ui-hero__subtitle,
+    body.has-fixed-app-topbar .home-kicker,
+    body.has-fixed-app-topbar .home-subtitle,
+    body.has-fixed-app-topbar .coaching-kicker,
+    body.has-fixed-app-topbar .coaching-subtitle {
         display: none;
     }
 
     body.has-fixed-app-topbar .ui-hero--compact .ui-hero__title,
-    body.has-fixed-app-topbar .dashboard-title {
+    body.has-fixed-app-topbar .dashboard-title,
+    body.has-fixed-app-topbar .home-title,
+    body.has-fixed-app-topbar .coaching-title {
         font-size: 1.28rem;
         line-height: 1;
     }
 
     body.has-fixed-app-topbar .ui-hero--compact .ui-hero__art,
-    body.has-fixed-app-topbar .dashboard-hero .ui-hero__art {
+    body.has-fixed-app-topbar .dashboard-hero .ui-hero__art,
+    body.has-fixed-app-topbar .coaching-hero .ui-hero__art {
         width: 2.75rem;
         height: 2.75rem;
         margin-left: auto;
@@ -237,7 +246,8 @@
     }
 
     body.has-fixed-app-topbar .ui-hero--compact .ui-hero__art svg,
-    body.has-fixed-app-topbar .dashboard-hero .ui-hero__art svg {
+    body.has-fixed-app-topbar .dashboard-hero .ui-hero__art svg,
+    body.has-fixed-app-topbar .coaching-hero .ui-hero__art svg {
         width: 1.7rem;
         height: 1.7rem;
     }
@@ -265,21 +275,42 @@ body.has-fixed-app-topbar .upload-shell {
 }
 
 body.has-fixed-app-topbar .ui-hero.ui-hero--compact,
-body.has-fixed-app-topbar .dashboard-hero {
+body.has-fixed-app-topbar .dashboard-hero,
+body.has-fixed-app-topbar .home-hero,
+body.has-fixed-app-topbar .coaching-hero {
     align-items: center;
     min-height: 3.75rem;
     padding: 0.5rem 0.7rem;
 }
 
+body.has-fixed-app-topbar .ui-hero--compact .ui-hero__kicker,
+body.has-fixed-app-topbar .ui-hero--compact .ui-hero__subtitle,
+body.has-fixed-app-topbar .home-kicker,
+body.has-fixed-app-topbar .home-subtitle,
+body.has-fixed-app-topbar .coaching-kicker,
+body.has-fixed-app-topbar .coaching-subtitle {
+    display: none;
+}
+
+body.has-fixed-app-topbar .ui-hero--compact .ui-hero__title,
+body.has-fixed-app-topbar .dashboard-title,
+body.has-fixed-app-topbar .home-title,
+body.has-fixed-app-topbar .coaching-title {
+    font-size: clamp(1.08rem, 1.4vw, 1.32rem);
+    line-height: 1;
+}
+
 body.has-fixed-app-topbar .ui-hero--compact .ui-hero__art,
-body.has-fixed-app-topbar .dashboard-hero .ui-hero__art {
+body.has-fixed-app-topbar .dashboard-hero .ui-hero__art,
+body.has-fixed-app-topbar .coaching-hero .ui-hero__art {
     width: 2.6rem;
     height: 2.6rem;
     border-radius: 0.5rem;
 }
 
 body.has-fixed-app-topbar .ui-hero--compact .ui-hero__art svg,
-body.has-fixed-app-topbar .dashboard-hero .ui-hero__art svg {
+body.has-fixed-app-topbar .dashboard-hero .ui-hero__art svg,
+body.has-fixed-app-topbar .coaching-hero .ui-hero__art svg {
     width: 1.6rem;
     height: 1.6rem;
 }
@@ -287,11 +318,11 @@ body.has-fixed-app-topbar .dashboard-hero .ui-hero__art svg {
 body.has-fixed-app-topbar .ui-hero,
 body.has-fixed-app-topbar .dashboard-hero,
 body.has-fixed-app-topbar .home-hero,
-body.has-fixed-app-topbar .coaching-hero,
-body.has-fixed-app-topbar .sudoku-hero {
-    border: 1px solid var(--ui-border-color-soft);
-    border-radius: var(--ui-radius-lg);
-    background: var(--ui-bg-hero-overlay), var(--ui-bg-hero-accent);
+body.has-fixed-app-topbar .coaching-hero {
+    border: 1px solid #258be5;
+    border-radius: 0.55rem;
+    background: linear-gradient(112deg, #2f98f7 0%, #2d91eb 58%, #2587df 100%);
+    color: #ffffff;
     box-shadow: none;
 }
 
@@ -299,18 +330,44 @@ body.has-fixed-app-topbar .ui-hero__title,
 body.has-fixed-app-topbar .dashboard-title,
 body.has-fixed-app-topbar .home-title,
 body.has-fixed-app-topbar .coaching-title,
-body.has-fixed-app-topbar .sudoku-hero__title,
 body.has-fixed-app-topbar .profile-title {
-    font-family: var(--ui-font-display);
-    font-weight: 600;
-    color: var(--ui-text-strong);
+    font-family: var(--ui-font-sans);
+    font-weight: 700;
+    color: #ffffff;
 }
 
 body.has-fixed-app-topbar .ui-hero__kicker,
 body.has-fixed-app-topbar .home-kicker,
-body.has-fixed-app-topbar .coaching-kicker,
-body.has-fixed-app-topbar .sudoku-hero__kicker {
-    color: var(--ui-brand-success);
+body.has-fixed-app-topbar .coaching-kicker {
+    color: rgba(255, 255, 255, 0.82);
+}
+
+body.has-fixed-app-topbar .ui-hero__subtitle,
+body.has-fixed-app-topbar .home-subtitle,
+body.has-fixed-app-topbar .coaching-subtitle {
+    color: rgba(255, 255, 255, 0.88);
+}
+
+body.has-fixed-app-topbar .ui-hero .ui-hero__art,
+body.has-fixed-app-topbar .dashboard-hero .ui-hero__art,
+body.has-fixed-app-topbar .coaching-hero .ui-hero__art {
+    border-color: rgba(255, 255, 255, 0.42);
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+    box-shadow: none;
+}
+
+body.has-fixed-app-topbar .dashboard-quick-access__label,
+body.has-fixed-app-topbar .segments-quick-access__label {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+body.has-fixed-app-topbar .dashboard-quick-access__chip,
+body.has-fixed-app-topbar .segments-quick-access__chip,
+body.has-fixed-app-topbar .dashboard-hero-status {
+    border-color: rgba(255, 255, 255, 0.34);
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
 }
 
 body.has-fixed-app-topbar .ui-surface,
