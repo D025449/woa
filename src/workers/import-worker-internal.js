@@ -1027,44 +1027,6 @@ export async function createApp(options = {}) {
     }
   }
 
-  async function processWorkoutSimilarityRebuildJob(job) {
-    const uid = job.data?.uid;
-    const mode = String(job.data?.mode || "delta").trim().toLowerCase() === "full"
-      ? "full"
-      : "delta";
-    if (!uid) {
-      throw new Error("Workout similarity rebuild job is missing uid");
-    }
-
-    await job.updateProgress({
-      progressPercent: 0,
-      workoutCount: 0,
-      processedWorkouts: 0,
-      edgeCount: 0
-    });
-
-    const result = await WorkoutSimilarityService.classifySimilarGpsWorkoutsForUser(uid, {
-      rebuildMode: mode,
-      onProgress: async (progress) => {
-        await job.updateProgress(progress);
-      }
-    });
-
-    await job.updateProgress({
-      progressPercent: 100,
-      workoutCount: Number(result?.workoutCount || 0),
-      processedWorkouts: Number(result?.processedWorkouts || 0),
-      edgeCount: Number(result?.edgeCount || 0)
-    });
-
-    return {
-      progressPercent: 100,
-      workoutCount: Number(result?.workoutCount || 0),
-      processedWorkouts: Number(result?.processedWorkouts || 0),
-      edgeCount: Number(result?.edgeCount || 0)
-    };
-  }
-
   async function processWorkoutSimilarityClassificationJob(job) {
     const uid = job.data?.uid;
     const workoutId = Number(job.data?.workoutId);
@@ -3016,7 +2978,7 @@ export async function createApp(options = {}) {
           return await processWorkoutSimilarityClassificationBatchJob(job);
         }
 
-        return await processWorkoutSimilarityRebuildJob(job);
+        throw new Error(`Unsupported workout similarity job: ${job.name}`);
       },
       {
         connection: redisConnection,

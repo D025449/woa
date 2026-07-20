@@ -9,8 +9,6 @@ import Utils from "../../shared/Utils.js";
 import confirmModal from "./confirm-modal.js";
 
 export default class Controller {
-  static SIMILARITY_REBUILD_POLL_MS = 1200;
-
   constructor() {
     this.t = createTranslator("dashboardNewPage");
     this.libraryT = createTranslator("dashboardNewPage.library");
@@ -275,38 +273,6 @@ export default class Controller {
         if (String(workout?.id) === String(this.currentWorkoutId)) {
           this.renderSimilarWorkouts(result?.edges || [], workout);
         }
-        return result;
-      },
-      onSimilarityRebuild: async (mode = "delta") => {
-        const normalizedMode = String(mode || "delta").trim().toLowerCase() === "full"
-          ? "full"
-          : "delta";
-        const started = await WorkoutService.rebuildSimilarWorkouts(normalizedMode);
-        if (!started?.jobId) {
-          return started;
-        }
-
-        this.setHeroStatus(this.t(
-          normalizedMode === "full"
-            ? "messages.similarWorkoutsRebuildStartedFull"
-            : "messages.similarWorkoutsRebuildStartedDelta"
-        ));
-        const result = await this.waitForSimilarityRebuildJob(started.jobId);
-        this.clearHeroStatus();
-        this.showToast(this.t(
-          normalizedMode === "full"
-            ? "messages.similarWorkoutsRebuiltFull"
-            : "messages.similarWorkoutsRebuiltDelta",
-          {
-          workouts: Number(result?.workoutCount || 0),
-          edges: Number(result?.edgeCount || 0)
-          }
-        ));
-
-        if (this.chartView?.currentWorkout) {
-          await this.loadSimilarWorkouts(this.chartView.currentWorkout);
-        }
-
         return result;
       },
       onFavoriteChange: (favoriteIds) => {
@@ -1115,53 +1081,6 @@ export default class Controller {
 
     this.heroStatusElement.textContent = "";
     this.heroStatusElement.hidden = true;
-  }
-
-  async waitForSimilarityRebuildJob(jobId) {
-    let lastKnownProgress = null;
-
-    while (true) {
-      const job = await WorkoutService.getSimilarityRebuildJob(jobId);
-      if (!job) {
-        this.clearHeroStatus();
-        throw new Error("Similarity rebuild job not found");
-      }
-
-      if (job.status === "completed") {
-        return job;
-      }
-
-      if (job.status === "failed") {
-        this.clearHeroStatus();
-        throw new Error(job.errorMessage || "Similarity rebuild failed");
-      }
-
-      const currentProgress = {
-        processedWorkouts: Number(job.processedWorkouts || 0),
-        workoutCount: Number(job.workoutCount || 0),
-        progressPercent: Number(job.progressPercent || 0)
-      };
-
-      const hasMeaningfulProgress =
-        currentProgress.workoutCount > 0 ||
-        currentProgress.processedWorkouts > 0 ||
-        currentProgress.progressPercent > 0;
-
-      if (hasMeaningfulProgress) {
-        lastKnownProgress = currentProgress;
-      }
-
-      const progressToRender = lastKnownProgress || currentProgress;
-      this.setHeroStatus(this.t("messages.similarWorkoutsRebuildProgress", {
-        processed: progressToRender.processedWorkouts,
-        workouts: progressToRender.workoutCount,
-        percent: progressToRender.progressPercent
-      }));
-
-      await new Promise((resolve) => {
-        window.setTimeout(resolve, Controller.SIMILARITY_REBUILD_POLL_MS);
-      });
-    }
   }
 
   onResize() {

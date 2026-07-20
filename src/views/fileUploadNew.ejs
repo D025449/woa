@@ -29,6 +29,12 @@
                         <%= t("uploadPage.woaHeroSubtitle") %>
                     </p>
                 </div>
+                <div class="ui-hero__art" aria-hidden="true">
+                    <svg viewBox="0 0 64 64" fill="none">
+                        <path d="M18 42.5h28a8 8 0 0 0 1.2-15.9A15.5 15.5 0 0 0 17.8 23 10 10 0 0 0 18 42.5Z" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" />
+                        <path d="M32 37V20M25.5 26.5 32 20l6.5 6.5" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                </div>
             </section>
 
             <section class="upload-stage ui-surface ui-surface--gradient">
@@ -50,11 +56,19 @@
                                 <div class="upload-form-stack">
                                     <form id="uploadForm">
                                         <div class="mb-3">
-                                            <label for="file" class="form-label"><%= t("uploadPage.woaSelectFiles") %></label>
-                                            <input type="file" class="d-none" id="file" name="files" accept=".fit,.zip" multiple required>
-                                            <div class="d-flex align-items-center gap-2">
-                                                <button type="button" id="filePickerButton" class="btn btn-outline-secondary btn-sm"><%= t("uploadPage.chooseFiles") %></button>
-                                                <span id="filePickerLabel" class="small text-muted"><%= t("uploadPage.noFilesSelected") %></span>
+                                            <input type="file" class="d-none" id="file" name="files" accept=".fit,.zip" multiple>
+                                            <div id="uploadDropzone" class="upload-dropzone" role="button" tabindex="0"
+                                                aria-describedby="filePickerLabel">
+                                                <span class="upload-dropzone__icon" aria-hidden="true">
+                                                    <svg viewBox="0 0 24 24" fill="none">
+                                                        <path d="M4.5 18.5h15a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-7l-2-2h-6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
+                                                        <path d="M12 16V9m0 0-3 3m3-3 3 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                                                    </svg>
+                                                </span>
+                                                <strong id="uploadDropzoneTitle" class="upload-dropzone__title"><%= t("uploadPage.woaSelectFiles") %></strong>
+                                                <span id="uploadDropzoneOr" class="upload-dropzone__or"><%= t("uploadPage.chooseFiles") %></span>
+                                                <button type="button" id="filePickerButton" class="btn upload-dropzone__button"><%= t("uploadPage.chooseFiles") %></button>
+                                                <span id="filePickerLabel" class="upload-dropzone__summary"><%= t("uploadPage.noFilesSelected") %></span>
                                             </div>
                                         </div>
 
@@ -112,6 +126,36 @@
                                         <div id="processingDetailText" class="small text-muted mt-1"></div>
                                     </div>
                                 </div>
+                            </div>
+
+                            <div class="upload-guidance-panel h-100" aria-label="<%= t('uploadPage.chipFlowValue') %>">
+                                <div class="upload-guidance-head">
+                                    <span class="upload-eyebrow ui-eyebrow"><%= t("uploadPage.chipFlow") %></span>
+                                    <h3 class="upload-guidance-title"><%= t("uploadPage.chipFlowValue") %></h3>
+                                </div>
+                                <ol class="upload-guidance-steps">
+                                    <li>
+                                        <span class="upload-guidance-number">1</span>
+                                        <span>
+                                            <strong><%= t("uploadPage.woaRead") %></strong>
+                                            <small><%= t("uploadPage.woaPhaseReadingSources") %></small>
+                                        </span>
+                                    </li>
+                                    <li>
+                                        <span class="upload-guidance-number">2</span>
+                                        <span>
+                                            <strong><%= t("uploadPage.woaConvert") %></strong>
+                                            <small><%= t("uploadPage.woaParsingFitDetail") %></small>
+                                        </span>
+                                    </li>
+                                    <li>
+                                        <span class="upload-guidance-number">3</span>
+                                        <span>
+                                            <strong><%= t("uploadPage.woaUploadAndStore") %></strong>
+                                            <small><%= t("uploadPage.woaBackendUploadTrackedInProgress") %></small>
+                                        </span>
+                                    </li>
+                                </ol>
                             </div>
                         </div>
                     </div>

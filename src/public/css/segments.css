@@ -6,6 +6,41 @@ body.segments-page {
     color: var(--ui-page-text);
 }
 
+@media (min-width: 992px) {
+    .segments-hero {
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.72rem 1rem;
+    }
+
+    .segments-kicker,
+    .segments-subtitle {
+        display: none;
+    }
+
+    .segments-hero.ui-hero--compact .segments-title {
+        font-size: clamp(1.08rem, 1.4vw, 1.32rem);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        line-height: 1;
+    }
+
+    .segments-quick-access {
+        margin-top: 0.48rem;
+    }
+
+    .segments-hero .ui-hero__art {
+        width: 3rem;
+        height: 3rem;
+        border-radius: 0.9rem;
+    }
+
+    .segments-hero .ui-hero__art svg {
+        width: 1.95rem;
+        height: 1.95rem;
+    }
+}
+
 .dashboard-toast {
     border-radius: 1rem;
     border: 1px solid var(--ui-warning-border);
@@ -1097,26 +1132,32 @@ body.segments-page {
 
 .segments-best-efforts-cards {
     display: grid;
-    gap: 0.8rem;
+    gap: 0;
     align-content: start;
     min-height: 0;
     max-height: 100%;
     overflow: auto;
-    padding-right: 0.15rem;
+    padding: 0 0.15rem 0 0;
 }
 
 .segments-best-effort-card {
-    border: 1px solid color-mix(in srgb, var(--ui-card-border-soft) 94%, transparent);
-    border-radius: 1rem;
-    background: var(--ui-bg-panel-strong);
-    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.05);
-    padding: 0.85rem 0.95rem;
+    border: 0;
+    border-bottom: 1px solid var(--ui-divider-color);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    padding: 0.72rem 0.65rem;
+    transition: background 120ms ease;
+}
+
+.segments-best-effort-card:hover {
+    background: var(--ui-bg-subtle-faint);
 }
 
 .segments-best-effort-card__head {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
-    gap: 0.75rem;
+    gap: 0.65rem;
     align-items: start;
 }
 
@@ -1159,7 +1200,7 @@ body.segments-page {
 }
 
 .segments-best-effort-card__stats {
-    margin-top: 0.55rem;
+    margin-top: 0.42rem;
     color: var(--ui-text-default);
     font-size: 0.83rem;
     font-weight: 600;
@@ -1167,7 +1208,7 @@ body.segments-page {
 }
 
 .segments-best-effort-card__owner {
-    margin-top: 0.35rem;
+    margin-top: 0.25rem;
     color: var(--ui-text-muted);
     font-size: 0.78rem;
     line-height: 1.3;

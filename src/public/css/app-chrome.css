@@ -2,26 +2,43 @@
     background: var(--ui-topbar-bg) !important;
     border-bottom: 1px solid var(--ui-topbar-border);
     box-shadow: var(--ui-topbar-shadow);
+    backdrop-filter: blur(18px) saturate(140%);
     z-index: 1080;
 }
 
 .app-topbar .navbar-brand {
     font-weight: 700;
-    letter-spacing: -0.02em;
+    letter-spacing: 0.08em;
+    color: var(--ui-text-strong);
+}
+
+.app-topbar .navbar-brand svg rect {
+    fill: var(--ui-brand-accent);
+    stroke: transparent;
+}
+
+.app-topbar .navbar-brand svg path,
+.app-topbar .navbar-brand svg circle {
     color: var(--ui-text-inverse);
 }
 
 .app-topbar .nav-link {
     color: var(--ui-topbar-link);
     font-weight: 600;
-    padding: 0.35rem 0.25rem;
-    border-bottom: 2px solid transparent;
+    padding: 0.42rem 0.7rem;
+    border: 0;
+    border-radius: 999px;
+    transition: color 140ms ease, background 140ms ease;
 }
 
 .app-topbar .nav-link:hover,
 .app-topbar .nav-link.active {
-    color: var(--ui-text-inverse);
-    border-bottom-color: var(--ui-topbar-link-active);
+    color: var(--ui-text-strong);
+    background: var(--ui-brand-accent-soft);
+}
+
+.app-topbar .nav-link.active {
+    color: var(--ui-topbar-link-active);
 }
 
 .app-topbar-profile {
@@ -33,12 +50,12 @@
     border-radius: 999px;
     border: 1px solid var(--ui-topbar-control-border);
     background: var(--ui-topbar-control-bg);
-    color: var(--ui-text-on-dark);
+    color: var(--ui-brand-accent);
     transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
 .app-topbar-profile:hover {
-    color: var(--ui-text-inverse);
+    color: var(--ui-text-strong);
     background: var(--ui-topbar-control-bg-hover);
     border-color: var(--ui-topbar-control-border-hover);
 }
@@ -99,7 +116,8 @@
 }
 
 .app-topbar-menu[open] .app-topbar-menu__summary {
-    color: var(--ui-text-inverse);
+    color: var(--ui-text-strong);
+    background: var(--ui-brand-accent-soft);
 }
 
 .app-topbar-menu[open] .app-topbar-menu__summary.nav-link::after {
@@ -129,25 +147,342 @@
 }
 
 .app-topbar-dropdown__item:hover,
-.app-topbar-dropdown__item:focus {
+.app-topbar-dropdown__item:focus,
+.app-topbar-dropdown__item.active {
     background: var(--ui-bg-subtle);
     color: var(--ui-text-strong);
 }
 
+.app-topbar-dropdown__item.active {
+    color: var(--ui-brand-accent);
+}
+
+.app-topbar-dropdown__divider {
+    height: 1px;
+    margin: 0.35rem 0.45rem;
+    background: var(--ui-divider-color);
+}
+
 .app-topbar .btn-outline-danger {
-    color: var(--ui-danger-text);
-    border-color: var(--ui-danger-border);
-    background: var(--ui-danger-faint);
+    color: var(--ui-danger-text-dark);
+    border-color: var(--ui-danger-border-soft);
+    background: var(--ui-danger-bg-faint);
 }
 
 .app-topbar .btn-outline-danger:hover {
-    color: var(--ui-danger-text-strong);
-    background: var(--ui-danger-soft);
+    color: var(--ui-danger-text-dark);
+    background: var(--ui-danger-bg);
     border-color: var(--ui-danger-border-strong);
+}
+
+.app-topbar .navbar-toggler {
+    color: var(--ui-text-strong);
+}
+
+.app-topbar .navbar-toggler-icon {
+    filter: none;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='%2333453c' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e");
+}
+
+@media (max-width: 991.98px) {
+    .app-topbar .navbar-collapse {
+        margin-top: 0.5rem;
+        padding: 0.7rem;
+        border: 1px solid var(--ui-card-border-faint);
+        border-radius: var(--ui-radius-md);
+        background: var(--ui-bg-panel-strong);
+        box-shadow: var(--ui-shadow-floating);
+    }
+
+    .app-topbar .nav-link {
+        width: 100%;
+        padding: 0.58rem 0.72rem;
+    }
+
+    .app-topbar-menu .app-topbar-menu__summary.nav-link {
+        display: flex;
+    }
+
+    .app-topbar-dropdown {
+        position: static;
+        margin-top: 0.35rem;
+        box-shadow: none;
+    }
+
+    body.has-fixed-app-topbar .ui-hero.ui-hero--compact,
+    body.has-fixed-app-topbar .dashboard-hero {
+        flex-direction: row;
+        align-items: center;
+        min-height: 4.4rem;
+        padding: 0.65rem 0.75rem;
+    }
+
+    body.has-fixed-app-topbar .ui-hero--compact .ui-hero__kicker,
+    body.has-fixed-app-topbar .ui-hero--compact .ui-hero__subtitle {
+        display: none;
+    }
+
+    body.has-fixed-app-topbar .ui-hero--compact .ui-hero__title,
+    body.has-fixed-app-topbar .dashboard-title {
+        font-size: 1.28rem;
+        line-height: 1;
+    }
+
+    body.has-fixed-app-topbar .ui-hero--compact .ui-hero__art,
+    body.has-fixed-app-topbar .dashboard-hero .ui-hero__art {
+        width: 2.75rem;
+        height: 2.75rem;
+        margin-left: auto;
+        border-radius: 0.7rem;
+    }
+
+    body.has-fixed-app-topbar .ui-hero--compact .ui-hero__art svg,
+    body.has-fixed-app-topbar .dashboard-hero .ui-hero__art svg {
+        width: 1.7rem;
+        height: 1.7rem;
+    }
 }
 
 body.has-fixed-app-topbar {
     padding-top: var(--app-topbar-offset, 78px);
+    background:
+        radial-gradient(circle at 8% 0%, var(--ui-page-accent-start), transparent 26rem),
+        radial-gradient(circle at 92% 4%, var(--ui-page-accent-end), transparent 22rem),
+        var(--ui-page-bg);
+    color: var(--ui-page-text);
+}
+
+body.has-fixed-app-topbar > .container-fluid.py-4,
+body.has-fixed-app-topbar > main.container-fluid.py-4 {
+    padding: 0.375rem 0.5rem 0.5rem !important;
+}
+
+body.has-fixed-app-topbar .ui-page-shell,
+body.has-fixed-app-topbar .dashboard-shell,
+body.has-fixed-app-topbar .segments-shell,
+body.has-fixed-app-topbar .upload-shell {
+    gap: 0.4rem;
+}
+
+body.has-fixed-app-topbar .ui-hero.ui-hero--compact,
+body.has-fixed-app-topbar .dashboard-hero {
+    align-items: center;
+    min-height: 3.75rem;
+    padding: 0.5rem 0.7rem;
+}
+
+body.has-fixed-app-topbar .ui-hero--compact .ui-hero__art,
+body.has-fixed-app-topbar .dashboard-hero .ui-hero__art {
+    width: 2.6rem;
+    height: 2.6rem;
+    border-radius: 0.5rem;
+}
+
+body.has-fixed-app-topbar .ui-hero--compact .ui-hero__art svg,
+body.has-fixed-app-topbar .dashboard-hero .ui-hero__art svg {
+    width: 1.6rem;
+    height: 1.6rem;
+}
+
+body.has-fixed-app-topbar .ui-hero,
+body.has-fixed-app-topbar .dashboard-hero,
+body.has-fixed-app-topbar .home-hero,
+body.has-fixed-app-topbar .coaching-hero,
+body.has-fixed-app-topbar .sudoku-hero {
+    border: 1px solid var(--ui-border-color-soft);
+    border-radius: var(--ui-radius-lg);
+    background: var(--ui-bg-hero-overlay), var(--ui-bg-hero-accent);
+    box-shadow: none;
+}
+
+body.has-fixed-app-topbar .ui-hero__title,
+body.has-fixed-app-topbar .dashboard-title,
+body.has-fixed-app-topbar .home-title,
+body.has-fixed-app-topbar .coaching-title,
+body.has-fixed-app-topbar .sudoku-hero__title,
+body.has-fixed-app-topbar .profile-title {
+    font-family: var(--ui-font-display);
+    font-weight: 600;
+    color: var(--ui-text-strong);
+}
+
+body.has-fixed-app-topbar .ui-hero__kicker,
+body.has-fixed-app-topbar .home-kicker,
+body.has-fixed-app-topbar .coaching-kicker,
+body.has-fixed-app-topbar .sudoku-hero__kicker {
+    color: var(--ui-brand-success);
+}
+
+body.has-fixed-app-topbar .ui-surface,
+body.has-fixed-app-topbar .dashboard-section,
+body.has-fixed-app-topbar .dashboard-surface,
+body.has-fixed-app-topbar .segments-surface,
+body.has-fixed-app-topbar .upload-stage {
+    border-color: var(--ui-border-color-soft);
+    border-radius: var(--ui-radius-lg);
+    background: var(--ui-bg-panel);
+    box-shadow: none;
+}
+
+body.has-fixed-app-topbar .dashboard-master-detail,
+body.has-fixed-app-topbar .segments-workspace {
+    column-gap: 0;
+}
+
+body.has-fixed-app-topbar .dashboard-library-section,
+body.has-fixed-app-topbar .dashboard-detail-panel,
+body.has-fixed-app-topbar .segments-workspace-panel {
+    border-radius: 0.35rem;
+}
+
+body.has-fixed-app-topbar .segments-map-panel > .segments-section-header {
+    border-top-left-radius: 0.35rem;
+    border-top-right-radius: 0.35rem;
+}
+
+body.has-fixed-app-topbar .segments-map-body {
+    border-bottom-left-radius: 0.35rem;
+    border-bottom-right-radius: 0.35rem;
+}
+
+body.has-fixed-app-topbar .dashboard-detail-grid {
+    gap: 0.45rem;
+}
+
+body.has-fixed-app-topbar .workout-library-grid {
+    gap: 0;
+}
+
+body.has-fixed-app-topbar .workout-library-card {
+    border: 0;
+    border-bottom: 1px solid var(--ui-divider-color);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    transform: none;
+}
+
+body.has-fixed-app-topbar .workout-library-card:hover {
+    border-color: var(--ui-divider-color);
+    background: var(--ui-bg-subtle-faint);
+    box-shadow: none;
+    transform: none;
+}
+
+body.has-fixed-app-topbar .workout-library-card.is-selected {
+    margin: 0.25rem 0;
+    border: 1px solid rgba(52, 95, 81, 0.34);
+    border-radius: 0.45rem;
+    background: var(--ui-brand-accent-soft);
+    box-shadow: none;
+    transform: none;
+}
+
+body.has-fixed-app-topbar .workout-library-card__thumb-shell,
+body.has-fixed-app-topbar .workout-library-kpi {
+    border-radius: 0.3rem;
+}
+
+body.has-fixed-app-topbar .upload-form-panel,
+body.has-fixed-app-topbar .upload-status-panel,
+body.has-fixed-app-topbar .upload-guidance-panel {
+    border-radius: 0.35rem;
+}
+
+body.has-fixed-app-topbar .analytics-card,
+body.has-fixed-app-topbar .coaching-card,
+body.has-fixed-app-topbar .groups-card,
+body.has-fixed-app-topbar .profile-card,
+body.has-fixed-app-topbar .home-tile {
+    border-radius: 0.55rem;
+    box-shadow: none;
+}
+
+body.has-fixed-app-topbar .ui-section-header,
+body.has-fixed-app-topbar .dashboard-section-header,
+body.has-fixed-app-topbar .segments-section-header,
+body.has-fixed-app-topbar .upload-stage-header {
+    border-bottom-color: var(--ui-divider-color);
+    background: linear-gradient(180deg, var(--ui-bg-subtle), var(--ui-bg-panel-soft));
+}
+
+body.has-fixed-app-topbar .ui-title,
+body.has-fixed-app-topbar .dashboard-section-title,
+body.has-fixed-app-topbar .segments-section-title,
+body.has-fixed-app-topbar .upload-section-title {
+    font-family: var(--ui-font-display);
+    font-weight: 600;
+    color: var(--ui-text-strong);
+}
+
+body.has-fixed-app-topbar .btn-primary {
+    --bs-btn-bg: var(--ui-brand-accent);
+    --bs-btn-border-color: var(--ui-brand-accent);
+    --bs-btn-hover-bg: #294e43;
+    --bs-btn-hover-border-color: #294e43;
+    --bs-btn-active-bg: #213f36;
+    --bs-btn-active-border-color: #213f36;
+    --bs-btn-disabled-bg: var(--ui-brand-accent);
+    --bs-btn-disabled-border-color: var(--ui-brand-accent);
+}
+
+body.has-fixed-app-topbar .btn-outline-primary {
+    --bs-btn-color: var(--ui-brand-accent);
+    --bs-btn-border-color: rgba(52, 95, 81, 0.38);
+    --bs-btn-hover-bg: var(--ui-brand-accent);
+    --bs-btn-hover-border-color: var(--ui-brand-accent);
+    --bs-btn-active-bg: var(--ui-brand-accent);
+    --bs-btn-active-border-color: var(--ui-brand-accent);
+}
+
+body.has-fixed-app-topbar .btn-outline-secondary {
+    --bs-btn-color: var(--ui-text-body);
+    --bs-btn-border-color: var(--ui-input-border);
+    --bs-btn-hover-color: var(--ui-text-strong);
+    --bs-btn-hover-bg: var(--ui-bg-subtle);
+    --bs-btn-hover-border-color: var(--ui-input-border-strong);
+    --bs-btn-active-color: var(--ui-text-inverse);
+    --bs-btn-active-bg: var(--ui-brand-accent);
+    --bs-btn-active-border-color: var(--ui-brand-accent);
+}
+
+body.has-fixed-app-topbar .form-control,
+body.has-fixed-app-topbar .form-select {
+    border-color: var(--ui-input-border);
+    background-color: var(--ui-bg-input);
+    color: var(--ui-text-default);
+}
+
+body.has-fixed-app-topbar .form-control:focus,
+body.has-fixed-app-topbar .form-select:focus {
+    border-color: rgba(52, 95, 81, 0.55);
+    box-shadow: 0 0 0 0.2rem rgba(52, 95, 81, 0.12);
+}
+
+body.has-fixed-app-topbar .form-check-input:checked {
+    border-color: var(--ui-brand-accent);
+    background-color: var(--ui-brand-accent);
+}
+
+body.has-fixed-app-topbar .tabulator {
+    border-color: var(--ui-border-color-soft);
+    background: transparent;
+    color: var(--ui-text-default);
+}
+
+body.has-fixed-app-topbar .tabulator .tabulator-header,
+body.has-fixed-app-topbar .tabulator .tabulator-tableholder .tabulator-table {
+    background: var(--ui-bg-panel);
+}
+
+body.has-fixed-app-topbar .tabulator-row {
+    border-bottom-color: var(--ui-divider-color);
+    background: var(--ui-bg-panel);
+}
+
+body.has-fixed-app-topbar .tabulator-row:hover,
+body.has-fixed-app-topbar .tabulator-row.tabulator-selected {
+    background: var(--ui-brand-accent-soft);
 }
 
 .app-footer {

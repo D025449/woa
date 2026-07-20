@@ -54,14 +54,14 @@
                         <svg viewBox="0 0 64 64" fill="none">
                             <defs>
                                 <linearGradient id="dashboardHeroWorkoutsGradient" x1="8" y1="50" x2="56" y2="14" gradientUnits="userSpaceOnUse">
-                                    <stop stop-color="#0f766e" />
-                                    <stop offset="1" stop-color="#2563eb" />
+                                    <stop stop-color="#345f51" />
+                                    <stop offset="1" stop-color="#b16f49" />
                                 </linearGradient>
                             </defs>
                             <path d="M10 46C16 37 21 30 28 31C34 32 35 42 42 42C48 42 51 32 54 18" stroke="url(#dashboardHeroWorkoutsGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
                             <path d="M10 51H54" stroke="rgba(148,163,184,0.38)" stroke-width="3" stroke-linecap="round" />
-                            <circle cx="28" cy="31" r="4" fill="#2563eb" />
-                            <circle cx="42" cy="42" r="4" fill="#0f766e" />
+                            <circle cx="28" cy="31" r="4" fill="#b16f49" />
+                            <circle cx="42" cy="42" r="4" fill="#345f51" />
                         </svg>
                     </div>
                 </section>
@@ -266,19 +266,6 @@
                                                 <option value="np"><%= t("dashboardNewPage.sortNp") %></option>
                                             </select>
                                         </div>
-                                        <details class="workout-library-bulk-menu">
-                                            <summary id="workout-library-tools-trigger" class="workout-library-bulk-menu__trigger" aria-label="<%= t('dashboardNewPage.library.toolsMenu') %>">
-                                                <span></span><span></span><span></span>
-                                            </summary>
-                                            <div class="workout-library-bulk-menu__panel">
-                                                <button id="workout-library-similarity-rebuild-delta" class="workout-library-bulk-menu__item" type="button">
-                                                    <%= t("dashboardNewPage.library.rebuildSimilarWorkoutsDelta") %>
-                                                </button>
-                                                <button id="workout-library-similarity-rebuild-full" class="workout-library-bulk-menu__item" type="button">
-                                                    <%= t("dashboardNewPage.library.rebuildSimilarWorkoutsFull") %>
-                                                </button>
-                                            </div>
-                                        </details>
                                     </div>
                                 </div>
 

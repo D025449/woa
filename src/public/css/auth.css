@@ -14,8 +14,8 @@ body.auth-page {
 
 .auth-topbar .navbar-brand {
   font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--ui-text-inverse);
+  letter-spacing: 0.06em;
+  color: var(--ui-text-strong);
 }
 
 .auth-topbar .btn {
@@ -26,15 +26,15 @@ body.auth-page {
 }
 
 .auth-topbar .btn-outline-light {
-  color: var(--ui-text-on-dark);
-  border-color: var(--ui-topbar-control-border);
-  background: var(--ui-topbar-control-bg);
+  color: var(--ui-brand-accent);
+  border-color: rgba(52, 95, 81, 0.48);
+  background: rgba(255, 254, 250, 0.92);
 }
 
 .auth-topbar .btn-outline-light:hover {
   color: var(--ui-text-inverse);
-  background: var(--ui-topbar-control-bg-hover);
-  border-color: var(--ui-topbar-control-border-hover);
+  background: var(--ui-brand-accent);
+  border-color: var(--ui-brand-accent);
 }
 
 .public-topbar-dropdown {

@@ -394,68 +394,6 @@ export default class WorkoutService {
     return await response.json();
   }
 
-  static async rebuildSimilarWorkouts(mode = "delta") {
-    const response = await fetch("/workouts/similarity/rebuild", {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        mode: String(mode || "delta").trim().toLowerCase() === "full" ? "full" : "delta"
-      })
-    });
-
-    if (response.status === 401) {
-      window.location.href = "/login";
-      return null;
-    }
-
-    if (!response.ok) {
-      let message = `Similarity rebuild failed (${response.status})`;
-      try {
-        const result = await response.json();
-        message = result.error || message;
-      } catch {
-        const text = await response.text();
-        if (text) {
-          message = text;
-        }
-      }
-      throw new Error(message);
-    }
-
-    return await response.json();
-  }
-
-  static async getSimilarityRebuildJob(jobId) {
-    const response = await fetch(`/workouts/similarity/rebuild/${jobId}`, {
-      method: "GET",
-      credentials: "include"
-    });
-
-    if (response.status === 401) {
-      window.location.href = "/login";
-      return null;
-    }
-
-    if (!response.ok) {
-      let message = `Similarity rebuild job load failed (${response.status})`;
-      try {
-        const result = await response.json();
-        message = result.error || message;
-      } catch {
-        const text = await response.text();
-        if (text) {
-          message = text;
-        }
-      }
-      throw new Error(message);
-    }
-
-    return await response.json();
-  }
-
   static async saveManualGps(workoutId, points = []) {
     const response = await fetch(`/workouts/${workoutId}/manual-gps`, {
       method: "POST",

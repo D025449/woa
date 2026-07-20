@@ -35,13 +35,7 @@
 
         <div class="collapse navbar-collapse justify-content-end" id="appTopbarNav">
             <div class="d-flex flex-column flex-lg-row align-items-lg-center gap-2 gap-lg-3 mt-3 mt-lg-0 w-100 justify-content-lg-end">
-                <ul class="navbar-nav flex-column flex-lg-row align-items-lg-center gap-lg-2 me-lg-2">
-                    <li class="nav-item">
-                        <a class="nav-link <%= currentPage === 'home' ? 'active' : '' %>" href="/">
-                            <%= tr("common.nav.home") %>
-                        </a>
-                    </li>
-
+                <ul class="navbar-nav flex-column flex-lg-row align-items-lg-center gap-lg-1 me-lg-2">
                     <% if (typeof showDashboardNewLink === "undefined" || showDashboardNewLink !== false) { %>
                         <li class="nav-item">
                             <a class="nav-link <%= currentPage === 'dashboard-new' ? 'active' : '' %>" href="/dashboard-new">
@@ -82,28 +76,26 @@
                         </li>
                     <% } %>
 
-                    <% if (typeof showGroupsLink === "undefined" || showGroupsLink !== false) { %>
-                        <li class="nav-item">
-                            <a class="nav-link <%= currentPage === 'groups' ? 'active' : '' %>" href="/groups">
-                                <%= tr("common.nav.groups") %>
-                            </a>
-                        </li>
-                    <% } %>
-
-                    <% if (typeof showFunLink === "undefined" || showFunLink !== false) { %>
-                        <li class="nav-item">
-                            <a class="nav-link <%= currentPage === 'sudoku' ? 'active' : '' %>" href="/fun/sudoku">
-                                <%= tr("common.nav.sudoku") %>
-                            </a>
-                        </li>
-                    <% } %>
-
                     <li class="nav-item">
-                        <details class="app-topbar-menu">
-                            <summary class="nav-link app-topbar-menu__summary">
-                                <%= tr("common.nav.about") %>
+                        <details class="app-topbar-menu" <%= ['home', 'groups', 'sudoku'].includes(currentPage) ? 'data-active="true"' : '' %>>
+                            <summary class="nav-link app-topbar-menu__summary <%= ['home', 'groups', 'sudoku'].includes(currentPage) ? 'active' : '' %>">
+                                <%= tr("common.nav.more") %>
                             </summary>
                             <div class="app-topbar-dropdown">
+                                <a class="app-topbar-dropdown__item <%= currentPage === 'home' ? 'active' : '' %>" href="/">
+                                    <%= tr("common.nav.home") %>
+                                </a>
+                                <% if (typeof showGroupsLink === "undefined" || showGroupsLink !== false) { %>
+                                    <a class="app-topbar-dropdown__item <%= currentPage === 'groups' ? 'active' : '' %>" href="/groups">
+                                        <%= tr("common.nav.groups") %>
+                                    </a>
+                                <% } %>
+                                <% if (typeof showFunLink === "undefined" || showFunLink !== false) { %>
+                                    <a class="app-topbar-dropdown__item <%= currentPage === 'sudoku' ? 'active' : '' %>" href="/fun/sudoku">
+                                        <%= tr("common.nav.sudoku") %>
+                                    </a>
+                                <% } %>
+                                <div class="app-topbar-dropdown__divider" aria-hidden="true"></div>
                                 <a class="app-topbar-dropdown__item" href="/impressum">
                                     <%= tr("common.footer.legalNotice") %>
                                 </a>
@@ -174,7 +166,7 @@
 
         const updateOffset = () => {
             const height = Math.ceil(topbar.getBoundingClientRect().height);
-            document.documentElement.style.setProperty("--app-topbar-offset", `${height + 12}px`);
+            document.documentElement.style.setProperty("--app-topbar-offset", `${height + 4}px`);
             document.body.classList.add("has-fixed-app-topbar");
         };
 

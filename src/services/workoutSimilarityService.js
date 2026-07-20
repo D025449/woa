@@ -1057,45 +1057,4 @@ export default class WorkoutSimilarityService {
     return results;
   }
 
-  static async classifySimilarGpsWorkoutsForUser(uid, options = {}) {
-    const { onProgress } = options;
-    const rebuildMode = String(options?.rebuildMode || "full").trim().toLowerCase() === "delta"
-      ? "delta"
-      : "full";
-    const workoutIds = await WorkoutDBService.getOwnGpsWorkoutIds(uid);
-    let totalEdges = 0;
-    let processedWorkouts = 0;
-
-    if (rebuildMode === "full") {
-      await WorkoutDBService.deleteSimilarityEdgesForUser(uid, this.MATCH_TYPE_GPS_ROUTE);
-    }
-
-    for (const workoutId of workoutIds) {
-      const edges = await this.classifySimilarGpsWorkoutsForWorkout(workoutId, uid, {
-        ...options,
-        rebuildMode,
-        deleteExistingEdgesPerWorkout: false,
-        onlyHigherWorkoutIds: true
-      });
-      totalEdges += Array.isArray(edges) ? edges.length : 0;
-      processedWorkouts += 1;
-
-      if (typeof onProgress === "function") {
-        await onProgress({
-          workoutCount: workoutIds.length,
-          processedWorkouts,
-          edgeCount: totalEdges,
-          progressPercent: workoutIds.length > 0
-            ? Math.round((processedWorkouts / workoutIds.length) * 100)
-            : 100
-        });
-      }
-    }
-
-    return {
-      workoutCount: workoutIds.length,
-      processedWorkouts,
-      edgeCount: totalEdges
-    };
-  }
 }

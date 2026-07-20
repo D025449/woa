@@ -15,10 +15,6 @@ import WorkoutThumbnailService from "../services/workoutThumbnailService.js";
 import WorkoutSimilarityService from "../services/workoutSimilarityService.js";
 import { fetchBicycleRoute } from "../services/bicycleRoutingService.js";
 import WorkoutOpenV2 from "../shared/WorkoutOpenV2.js";
-import {
-  enqueueWorkoutSimilarityRebuild,
-  getWorkoutSimilarityRebuildJob
-} from "../services/workout-similarity-job-service.js";
 
 const router = express.Router();
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
@@ -693,62 +689,6 @@ router.get("/:id/similarity", authMiddleware, async (req, res) => {
     });
   }
 });
-
-router.post("/similarity/rebuild", authMiddleware, requireActiveAccountWrite, async (req, res) => {
-  try {
-    const uid = req.user?.id;
-    const mode = String(req.body?.mode || "delta").trim().toLowerCase() === "full"
-      ? "full"
-      : "delta";
-    const job = await enqueueWorkoutSimilarityRebuild({ uid, mode });
-
-    return res.status(202).json({
-      ok: true,
-      jobId: job.id,
-      mode,
-      matchType: WorkoutSimilarityService.MATCH_TYPE_GPS_ROUTE,
-      status: "queued"
-    });
-  } catch (err) {
-    console.error("POST /workouts/similarity/rebuild failed:", err);
-    return res.status(err.statusCode || 500).json({
-      error: err.message || "Failed to rebuild workout similarity graph"
-    });
-  }
-});
-
-router.get("/similarity/rebuild/:jobId", authMiddleware, async (req, res) => {
-  try {
-    const uid = req.user?.id;
-    const job = await getWorkoutSimilarityRebuildJob(req.params.jobId);
-
-    if (!job) {
-      return res.status(404).json({ error: "Similarity rebuild job not found" });
-    }
-
-    if (Number(job.uid) !== Number(uid)) {
-      return res.status(403).json({ error: "No access to this similarity rebuild job" });
-    }
-
-    const returnValue = job.returnvalue || null;
-    return res.json({
-      id: job.id,
-      mode: job.mode || "delta",
-      status: job.status,
-      progressPercent: Number(returnValue?.progressPercent ?? job.progressPercent ?? 0),
-      workoutCount: Number(returnValue?.workoutCount ?? job.workoutCount ?? 0),
-      processedWorkouts: Number(returnValue?.processedWorkouts ?? job.processedWorkouts ?? 0),
-      edgeCount: Number(returnValue?.edgeCount ?? job.edgeCount ?? 0),
-      errorMessage: job.errorMessage
-    });
-  } catch (err) {
-    console.error("GET /workouts/similarity/rebuild/:jobId failed:", err);
-    return res.status(err.statusCode || 500).json({
-      error: err.message || "Failed to load similarity rebuild job"
-    });
-  }
-});
-
 
 router.delete("/:id", authMiddleware, requireActiveAccountWrite, async (req, res) => {
   const workoutId = req.params.id;

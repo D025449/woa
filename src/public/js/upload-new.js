@@ -2,6 +2,9 @@ const form = document.getElementById("uploadForm");
 const fileInput = document.getElementById("file");
 const filePickerButton = document.getElementById("filePickerButton");
 const filePickerLabel = document.getElementById("filePickerLabel");
+const uploadDropzone = document.getElementById("uploadDropzone");
+const uploadDropzoneTitle = document.getElementById("uploadDropzoneTitle");
+const uploadDropzoneOr = document.getElementById("uploadDropzoneOr");
 const overwriteExistingWorkoutsCheckbox = document.getElementById("overwriteExistingWorkouts");
 const submitButton = document.getElementById("submitButton");
 const response = document.getElementById("response");
@@ -22,6 +25,7 @@ let currentDeviceProfile = window.getDeviceProfile?.() || window.__DEVICE_PROFIL
 let prewarmedUploadWorker = null;
 let pendingZipPreparations = new Map();
 let isUploadSubmitting = false;
+let selectedUploadFiles = [];
 
 window.addEventListener("beforeunload", (event) => {
     if (!isUploadSubmitting) return;
@@ -65,6 +69,8 @@ initializeClientLayout();
 form?.addEventListener("submit", handleConvertSubmit);
 filePickerButton?.addEventListener("click", () => fileInput?.click());
 fileInput?.addEventListener("change", handleFileSelectionChange);
+initializeUploadDropzone();
+updateFilePickerLabel();
 window.addEventListener("deviceprofilechange", (event) => {
     currentDeviceProfile = event.detail || window.getDeviceProfile?.() || null;
     applyDeviceProfileToUploadShell();
@@ -146,16 +152,109 @@ function applyDeviceProfileToUploadShell() {
 }
 
 function updateFilePickerLabel() {
-    const files = Array.from(fileInput?.files || []);
+    const files = selectedUploadFiles;
+    const germanFallback = String(activeLocale).toLowerCase().startsWith("de");
+    uploadDropzone?.classList.toggle("has-files", files.length > 0);
+    if (uploadDropzoneOr) {
+        uploadDropzoneOr.textContent = tr(
+            "uploadPage.dropFilesOr",
+            germanFallback ? "oder vom Gerät auswählen" : "or choose from this device"
+        );
+    }
     if (files.length === 0) {
-        filePickerLabel.textContent = tr("uploadPage.noFilesSelected", "No file selected");
+        if (uploadDropzoneTitle) {
+            uploadDropzoneTitle.textContent = tr(
+                "uploadPage.dropFilesHere",
+                germanFallback ? "Dateien hier ablegen" : "Drop files here"
+            );
+        }
+        if (filePickerLabel) {
+            filePickerLabel.textContent = tr(
+                "uploadPage.dropFilesHint",
+                germanFallback ? "FIT und ZIP · mehrere Dateien möglich" : "FIT and ZIP · multiple files supported"
+            );
+        }
         return;
+    }
+    if (uploadDropzoneTitle) {
+        uploadDropzoneTitle.textContent = tr(
+            "uploadPage.dropFilesReady",
+            germanFallback ? "Bereit zur Verarbeitung" : "Ready for processing"
+        );
     }
     if (files.length === 1) {
-        filePickerLabel.textContent = files[0].name;
+        if (filePickerLabel) {
+            filePickerLabel.textContent = files[0].name;
+        }
         return;
     }
-    filePickerLabel.textContent = `${files.length} ${tr("uploadPage.woaFilesSelectedSuffix", "files selected")}`;
+    if (filePickerLabel) {
+        filePickerLabel.textContent = `${files.length} ${tr("uploadPage.woaFilesSelectedSuffix", "files selected")}`;
+    }
+}
+
+function initializeUploadDropzone() {
+    if (!uploadDropzone || !fileInput) {
+        return;
+    }
+
+    let dragDepth = 0;
+    const isFileDrag = (event) => Array.from(event.dataTransfer?.types || []).includes("Files");
+
+    uploadDropzone.addEventListener("click", (event) => {
+        if (event.target.closest("button")) {
+            return;
+        }
+        fileInput.click();
+    });
+
+    uploadDropzone.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") {
+            return;
+        }
+        event.preventDefault();
+        fileInput.click();
+    });
+
+    uploadDropzone.addEventListener("dragenter", (event) => {
+        if (!isFileDrag(event)) {
+            return;
+        }
+        event.preventDefault();
+        dragDepth += 1;
+        uploadDropzone.classList.add("is-dragging");
+    });
+
+    uploadDropzone.addEventListener("dragover", (event) => {
+        if (!isFileDrag(event)) {
+            return;
+        }
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+    });
+
+    uploadDropzone.addEventListener("dragleave", () => {
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0) {
+            uploadDropzone.classList.remove("is-dragging");
+        }
+    });
+
+    uploadDropzone.addEventListener("drop", (event) => {
+        if (!isFileDrag(event)) {
+            return;
+        }
+        event.preventDefault();
+        dragDepth = 0;
+        uploadDropzone.classList.remove("is-dragging");
+
+        const droppedFiles = event.dataTransfer?.files;
+        if (!droppedFiles || droppedFiles.length === 0) {
+            return;
+        }
+
+        handleDroppedFiles(droppedFiles);
+    });
 }
 
 function resetPendingZipPreparation() {
@@ -185,7 +284,7 @@ function buildZipPreparationToken(file) {
 function scheduleZipPreparationForSelection() {
     traceMark("upload.reprewarm.begin");
     resetPendingZipPreparation();
-    const files = Array.from(fileInput?.files || []);
+    const files = selectedUploadFiles;
     const zipFiles = files.filter((file) => String(file?.name || "").toLowerCase().endsWith(".zip"));
     if (zipFiles.length === 0) {
         traceMark("upload.reprewarm.end", { zipFileCount: 0 });
@@ -275,6 +374,13 @@ function scheduleZipPreparationForSelection() {
 }
 
 function handleFileSelectionChange() {
+    selectedUploadFiles = Array.from(fileInput?.files || []);
+    updateFilePickerLabel();
+    scheduleZipPreparationForSelection();
+}
+
+function handleDroppedFiles(files) {
+    selectedUploadFiles = Array.from(files || []);
     updateFilePickerLabel();
     scheduleZipPreparationForSelection();
 }
@@ -1050,7 +1156,7 @@ async function handleConvertSubmit(event) {
 
     latestGeneratedZipArtifact = null;
 
-    const files = Array.from(fileInput?.files || []);
+    const files = selectedUploadFiles;
     setResponseMarkup("");
 
     if (files.length === 0) {

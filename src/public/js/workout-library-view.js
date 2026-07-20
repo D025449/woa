@@ -39,9 +39,6 @@ export default class WorkoutLibraryView {
     this.bulkShareApplyButton = document.getElementById(handlers.bulkShareApplyButtonId || "workout-library-bulk-share-apply");
     this.bulkMenu = document.getElementById(handlers.bulkMenuId || "workout-library-bulk-actions-menu");
     this.toolbarDefaultElement = document.getElementById(handlers.toolbarDefaultElementId || "workout-library-toolbar-default");
-    this.toolsTrigger = document.getElementById(handlers.toolsTriggerId || "workout-library-tools-trigger");
-    this.similarityRebuildDeltaButton = document.getElementById(handlers.similarityRebuildDeltaButtonId || "workout-library-similarity-rebuild-delta");
-    this.similarityRebuildFullButton = document.getElementById(handlers.similarityRebuildFullButtonId || "workout-library-similarity-rebuild-full");
 
     this.items = [];
     this.selectedWorkoutId = null;
@@ -244,14 +241,6 @@ export default class WorkoutLibraryView {
 
       this.page += 1;
       await this.fetchPage({ append: true });
-    });
-
-    this.similarityRebuildDeltaButton?.addEventListener("click", async () => {
-      await this.handlers.onSimilarityRebuild?.("delta");
-    });
-
-    this.similarityRebuildFullButton?.addEventListener("click", async () => {
-      await this.handlers.onSimilarityRebuild?.("full");
     });
 
     document.querySelectorAll("[data-search-example]").forEach((element) => {

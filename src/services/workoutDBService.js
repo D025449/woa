@@ -310,26 +310,6 @@ export default class WorkoutDBService {
     `);
   }
 
-  static async getOwnGpsWorkoutIds(uid) {
-    const result = await pool.query(
-      `
-        SELECT id
-        FROM workouts
-        WHERE uid = $1
-          AND validgps = true
-          AND gps_bounds IS NOT NULL
-          AND track_start_lat IS NOT NULL
-          AND track_start_lng IS NOT NULL
-          AND track_end_lat IS NOT NULL
-          AND track_end_lng IS NOT NULL
-        ORDER BY start_time DESC NULLS LAST, id DESC
-      `,
-      [uid]
-    );
-
-    return result.rows.map((row) => Number(row.id)).filter((value) => Number.isFinite(value));
-  }
-
   static async getSimilarRouteCandidates(sourceWorkoutId, uid, options = {}) {
     const {
       distanceToleranceRatio = 0.04,
@@ -926,25 +906,6 @@ export default class WorkoutDBService {
 
     await pool.query(sql, values);
   }
-
-  static async deleteSimilarityEdgesForUser(uid, matchType = null) {
-    const values = [uid];
-    let typeClause = "";
-
-    if (matchType) {
-      values.push(matchType);
-      typeClause = " AND match_type = $2";
-    }
-
-    const sql = `
-      DELETE FROM workout_similarity_edges
-      WHERE uid = $1
-      ${typeClause};
-    `;
-
-    await pool.query(sql, values);
-  }
-
 
   /*static allowedColumns = [
     "start_time",
