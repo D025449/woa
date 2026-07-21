@@ -337,7 +337,6 @@
     "libraryEyebrow": "Workout Library",
     "libraryTitle": "Allenamenti",
     "libraryCopy": "Premium list view with KPI cards instead of a classic table.",
-    "quickRecent": "Recenti",
     "quickFavorites": "Preferiti",
     "library": {
       "failedLoadWorkouts": "Impossibile caricare gli allenamenti ({status})",
@@ -554,7 +553,6 @@
     "bestEffortsPerUserOne": "1/utente",
     "bestEffortsPerUserThree": "3/utente",
     "bestEffortsMyPr": "Solo il mio PR",
-    "quickRecent": "Recenti",
     "quickFavorites": "Preferiti",
     "favoriteToggleTitle": "Attiva/disattiva segmento preferito",
     "favoriteFilterLabel": "Solo preferiti",

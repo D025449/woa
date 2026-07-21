@@ -22,7 +22,8 @@ export default class Controller {
     this.bestEffortsPerUser = this.uiState.get("segmentBestEffortsPerUser", "all");
     this.favoriteOnly = !!this.uiState.get("segmentFavoriteOnly", false);
     this.recentSegmentIds = this.readStoredList("segmentsRecentIds");
-    this.favoriteSegmentIds = this.readStoredList("segmentsFavoriteIds");
+    this.favoriteSegmentIds = [];
+    this.favoriteSegmentsReady = this.loadFavoriteSegmentIds();
     this.focusSegmentId = new URLSearchParams(window.location.search).get("focusSegmentId");
     this.restoredSegmentId = this.uiState.get("selectedSegmentId");
     this.focusApplied = false;
@@ -48,7 +49,6 @@ export default class Controller {
     this.splitterPointerId = null;
     this.detailActionsMenu = document.querySelector(".segments-detail-actions-menu");
     this.quickAccessElement = document.getElementById("segments-quick-access");
-    this.recentSegmentsElement = document.getElementById("segments-recent-list");
     this.favoriteSegmentsElement = document.getElementById("segments-favorite-list");
     this.prevSegmentButton = document.getElementById("segment-prev");
     this.nextSegmentButton = document.getElementById("segment-next");
@@ -169,7 +169,7 @@ export default class Controller {
     this.registerSplitterEvents();
     this.registerDetailSheetEvents();
     this.deleteButton?.addEventListener("click", () => this.deleteSelectedSegment());
-    this.favoriteToggleButton?.addEventListener("click", () => this.toggleSelectedSegmentFavorite());
+    this.favoriteToggleButton?.addEventListener("click", async () => this.toggleSelectedSegmentFavorite());
     this.favoriteFilterButton?.addEventListener("click", async () => {
       await this.toggleFavoriteFilter();
     });
@@ -497,6 +497,7 @@ export default class Controller {
   }
 
   async toggleFavoriteFilter() {
+    await this.favoriteSegmentsReady;
     this.favoriteOnly = !this.favoriteOnly;
     this.uiState.set("segmentFavoriteOnly", this.favoriteOnly);
     this.syncFavoriteFilterButton();
@@ -507,6 +508,7 @@ export default class Controller {
 
     this.mapView.refreshSegments();
     this.renderQuickAccess();
+    await this.mapView.loadSegmentsForViewport(this.mapView.map.getBounds());
   }
 
   isSegmentVisibleInCurrentScope(segment) {
@@ -731,6 +733,33 @@ export default class Controller {
     return this.favoriteSegmentIds.includes(String(segmentId));
   }
 
+  async loadFavoriteSegmentIds() {
+    try {
+      const response = await fetch("/segments/favorites", {
+        method: "GET",
+        credentials: "include"
+      });
+
+      if (response.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(`Favorite segments load failed (${response.status})`);
+      }
+
+      const result = await response.json();
+      this.favoriteSegmentIds = Array.isArray(result.segmentIds)
+        ? result.segmentIds.map((value) => String(value))
+        : [];
+      this.renderQuickAccess();
+      this.updateFavoriteUi();
+    } catch (err) {
+      console.error(err);
+      this.showToast(err?.message || this.t("messages.favoriteLoadFailed"));
+    }
+  }
+
   getRenderableSegments() {
     if (!this.favoriteOnly) {
       return this.mapSegments;
@@ -747,22 +776,48 @@ export default class Controller {
     this.favoriteToggleButton?.setAttribute("aria-pressed", isVisible && this.isFavoriteSegment(segmentId) ? "true" : "false");
   }
 
-  toggleSelectedSegmentFavorite() {
+  async toggleSelectedSegmentFavorite() {
     if (!this.selectedSegment?.id) {
       return;
     }
 
     const segmentId = String(this.selectedSegment.id);
-    if (this.isFavoriteSegment(segmentId)) {
+    const wasFavorite = this.isFavoriteSegment(segmentId);
+    if (wasFavorite) {
       this.favoriteSegmentIds = this.favoriteSegmentIds.filter((value) => value !== segmentId);
     } else {
-      this.favoriteSegmentIds = [segmentId, ...this.favoriteSegmentIds.filter((value) => value !== segmentId)].slice(0, 6);
+      this.favoriteSegmentIds = [segmentId, ...this.favoriteSegmentIds.filter((value) => value !== segmentId)];
     }
 
-    this.writeStoredList("segmentsFavoriteIds", this.favoriteSegmentIds);
+    this.selectedSegment.isFavorite = !wasFavorite;
     this.updateFavoriteUi();
     this.renderQuickAccess();
-    this.showToast(this.isFavoriteSegment(segmentId) ? this.t("messages.favoriteAdded") : this.t("messages.favoriteRemoved"));
+
+    try {
+      await MapSegment.setFavorite(segmentId, !wasFavorite);
+    } catch (err) {
+      if (wasFavorite) {
+        this.favoriteSegmentIds = [segmentId, ...this.favoriteSegmentIds.filter((value) => value !== segmentId)];
+      } else {
+        this.favoriteSegmentIds = this.favoriteSegmentIds.filter((value) => value !== segmentId);
+      }
+      this.selectedSegment.isFavorite = wasFavorite;
+      this.updateFavoriteUi();
+      this.renderQuickAccess();
+      this.showToast(err?.message || "Favorite update failed");
+      return;
+    }
+
+    this.showToast(!wasFavorite ? this.t("messages.favoriteAdded") : this.t("messages.favoriteRemoved"));
+    if (this.favoriteOnly && wasFavorite) {
+      this.clearSelectedSegment();
+      this.mapView.refreshSegments();
+      try {
+        await this.mapView.loadSegmentsForViewport(this.mapView.map.getBounds());
+      } catch (err) {
+        console.error(err);
+      }
+    }
   }
 
   getNavigableSegments() {
@@ -802,22 +857,16 @@ export default class Controller {
   }
 
   renderQuickAccess() {
-    if (!this.quickAccessElement || !this.recentSegmentsElement || !this.favoriteSegmentsElement) {
+    if (!this.quickAccessElement || !this.favoriteSegmentsElement) {
       return;
     }
 
-    const mapById = new Map(this.mapSegments.map((segment) => [String(segment.id), segment]));
-    const recentSegments = this.recentSegmentIds.map((id) => mapById.get(String(id))).filter(Boolean).slice(0, 4);
-    const favoriteSegments = this.favoriteSegmentIds.map((id) => mapById.get(String(id))).filter(Boolean).slice(0, 4);
-
-    this.recentSegmentsElement.innerHTML = recentSegments
-      .map((segment) => `<button class="segments-quick-access__chip" type="button" data-quick-segment-open="${segment.id}">#${segment.id}</button>`)
-      .join("");
+    const favoriteSegments = this.favoriteSegmentIds.slice(0, 4).map((id) => ({ id }));
     this.favoriteSegmentsElement.innerHTML = favoriteSegments
-      .map((segment) => `<button class="segments-quick-access__chip" type="button" data-quick-segment-open="${segment.id}">★ #${segment.id}</button>`)
+      .map((segment) => `<button class="segments-quick-access__link" type="button" data-quick-segment-open="${segment.id}">#${segment.id}</button>`)
       .join("");
 
-    this.quickAccessElement.hidden = recentSegments.length === 0 && favoriteSegments.length === 0;
+    this.quickAccessElement.hidden = favoriteSegments.length === 0;
 
     this.quickAccessElement.querySelectorAll("[data-quick-segment-open]").forEach((element) => {
       element.addEventListener("click", async () => {

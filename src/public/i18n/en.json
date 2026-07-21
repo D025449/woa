@@ -454,7 +454,6 @@
     "similarWorkoutsCopy": "Shows GPS-based matches from your own workout library.",
     "similarWorkoutsEmpty": "No similar GPS-based workouts have been found for this workout yet.",
     "similarWorkoutsCount": "{count} similar workouts found.",
-    "quickRecent": "Recent",
     "quickFavorites": "Favorites",
     "library": {
       "failedLoadWorkouts": "Failed to load workouts ({status})",
@@ -704,7 +703,6 @@
     "bestEffortsPerUserOne": "1/User",
     "bestEffortsPerUserThree": "3/User",
     "bestEffortsMyPr": "Only my PR",
-    "quickRecent": "Recent",
     "quickFavorites": "Favorites",
     "favoriteToggleTitle": "Toggle favorite segment",
     "favoriteFilterLabel": "Favorites only",

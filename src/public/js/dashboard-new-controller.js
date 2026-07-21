@@ -43,7 +43,6 @@ export default class Controller {
       baseLayerMode: "standard"
     });
     this.maptilerApiKey = String(globalThis.__APP_CONFIG?.maptilerApiKey || "").trim();
-    this.recentWorkoutIds = this.readStoredList("dashboardRecentWorkoutIds");
     this.favoriteWorkoutIds = [];
     this.detailCopyElement = document.getElementById("dashboard-detail-copy");
     this.workoutTitleElement = document.getElementById("dashboard-workout-title");
@@ -67,7 +66,6 @@ export default class Controller {
     this.libraryColumn = document.querySelector(".dashboard-library-column");
     this.libraryScrollElement = document.querySelector(".workout-library-scroll");
     this.quickAccessElement = document.getElementById("dashboard-quick-access");
-    this.recentWorkoutsElement = document.getElementById("dashboard-recent-workouts");
     this.favoriteWorkoutsElement = document.getElementById("dashboard-favorite-workouts");
     this.splitterElement = document.getElementById("dashboard-splitter");
     this.shellElement = document.getElementById("dashboard-shell");
@@ -386,7 +384,6 @@ export default class Controller {
 
       this.currentWorkoutId = workout.id;
       this.uiState.set("selectedWorkoutId", workout.id);
-      this.pushRecentWorkout(workout.id);
       this.libraryView.setWorkoutFavoriteState(workout.id, workout.isFavorite);
 
       stepStartedAt = performance.now();
@@ -594,47 +591,20 @@ export default class Controller {
     this.libraryView.setSelectionMode(false);
   }
 
-  readStoredList(key) {
-    try {
-      const raw = localStorage.getItem(key);
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed.map((value) => String(value)) : [];
-    } catch {
-      return [];
-    }
-  }
-
-  writeStoredList(key, values) {
-    localStorage.setItem(key, JSON.stringify((values || []).map((value) => String(value)).slice(0, 8)));
-  }
-
-  pushRecentWorkout(workoutId) {
-    const nextId = String(workoutId);
-    this.recentWorkoutIds = [nextId, ...this.recentWorkoutIds.filter((value) => value !== nextId)].slice(0, 6);
-    this.writeStoredList("dashboardRecentWorkoutIds", this.recentWorkoutIds);
-  }
-
   renderQuickAccess() {
-    if (!this.quickAccessElement || !this.recentWorkoutsElement || !this.favoriteWorkoutsElement) {
+    if (!this.quickAccessElement || !this.favoriteWorkoutsElement) {
       return;
     }
 
-    const recentItems = this.recentWorkoutIds
-      .map((workoutId) => this.libraryView.getWorkoutById(workoutId))
-      .filter(Boolean)
-      .slice(0, 4);
     const favoriteItems = this.favoriteWorkoutIds
       .map((workoutId) => ({ id: workoutId }))
       .slice(0, 4);
 
-    this.recentWorkoutsElement.innerHTML = recentItems
-      .map((workout) => `<button class="dashboard-quick-access__chip" type="button" data-quick-workout-open="${workout.id}">#${workout.id}</button>`)
-      .join("");
     this.favoriteWorkoutsElement.innerHTML = favoriteItems
-      .map((workout) => `<button class="dashboard-quick-access__chip" type="button" data-quick-workout-open="${workout.id}">★ #${workout.id}</button>`)
+      .map((workout) => `<button class="dashboard-quick-access__link" type="button" data-quick-workout-open="${workout.id}">#${workout.id}</button>`)
       .join("");
 
-    this.quickAccessElement.hidden = recentItems.length === 0 && favoriteItems.length === 0;
+    this.quickAccessElement.hidden = favoriteItems.length === 0;
 
     this.quickAccessElement.querySelectorAll("[data-quick-workout-open]").forEach((element) => {
       element.addEventListener("click", async () => {

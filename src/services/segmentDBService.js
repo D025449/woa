@@ -579,6 +579,12 @@ export default class SegmentDBService {
         )::int AS share_group_count,
         owner.display_name AS owner_display_name,
         owner.email AS owner_email,
+        EXISTS (
+          SELECT 1
+          FROM segment_favorites sf
+          WHERE sf.uid = $2
+            AND sf.segment_id = s.id
+        ) AS is_favorite,
         s.track_blob,
         s.track_blob_codec,
         s.gps_bounds::text AS gps_bounds_text
@@ -601,6 +607,28 @@ export default class SegmentDBService {
 
     if (!result.rows[0]) return null;
     return SegmentDBService.mapSegment(await SegmentDBService.hydrateSegmentTrackRow(result.rows[0]));
+  }
+
+  static async getAccessibleSegment(uid, segmentId) {
+    const result = await pool.query(`
+      SELECT s.id, s.uid
+      FROM gps_segments s
+      WHERE s.id = $1
+        AND (
+          s.uid = $2
+          OR EXISTS (
+            SELECT 1
+            FROM gps_segment_group_shares sgs
+            INNER JOIN group_members gm
+              ON gm.group_id = sgs.group_id
+            WHERE sgs.segment_id = s.id
+              AND gm.user_id = $2
+          )
+        )
+      LIMIT 1
+    `, [segmentId, uid]);
+
+    return result.rows[0] || null;
   }
 
   static async getSegmentSharing(uid, segmentId) {
@@ -1055,7 +1083,7 @@ export default class SegmentDBService {
 
 
 
-  static async querySegmentsByBounds(uid, bounds, excludeIds, limit, scope = "mine") {
+  static async querySegmentsByBounds(uid, bounds, excludeIds, limit, scope = "mine", favoritesOnly = false) {
     const normalizedScope = ["mine", "shared", "all"].includes(String(scope).toLowerCase())
       ? String(scope).toLowerCase()
       : "mine";
@@ -1114,6 +1142,12 @@ export default class SegmentDBService {
     )::int AS share_group_count,
     owner.display_name AS owner_display_name,
     owner.email AS owner_email,
+    EXISTS (
+      SELECT 1
+      FROM segment_favorites sf
+      WHERE sf.uid = $1
+        AND sf.segment_id = s.id
+    ) AS is_favorite,
     s.track_blob,
     s.track_blob_codec,
     s.gps_bounds::text AS gps_bounds_text
@@ -1121,6 +1155,15 @@ export default class SegmentDBService {
   LEFT JOIN users owner
     ON owner.id = s.uid
   WHERE (${accessPredicate})
+    AND (
+      $5::boolean = false
+      OR EXISTS (
+        SELECT 1
+        FROM segment_favorites sf_filter
+        WHERE sf_filter.uid = $1
+          AND sf_filter.segment_id = s.id
+      )
+    )
     AND (
       $2::int[] IS NULL
       OR NOT (s.id = ANY($2))
@@ -1132,7 +1175,8 @@ export default class SegmentDBService {
       uid,
       excludeIds,
       toPostgresBox(bounds),
-      limit
+      limit,
+      favoritesOnly
     ]);
 
     result.rows = await Promise.all(
@@ -1840,6 +1884,7 @@ export default class SegmentDBService {
       ascent: row.ascent,
       points_count: row.points_count,
       bestEffortsStatus: row.best_efforts_status,
+      isFavorite: !!row.is_favorite,
       shareGroupCount: Number(row.share_group_count || 0),
 
       start: {

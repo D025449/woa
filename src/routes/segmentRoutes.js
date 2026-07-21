@@ -9,6 +9,7 @@ import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.j
 import MapSegment from "../shared/MapSegment.js"
 
 import SegmentDBService from "../services/segmentDBService.js";
+import SegmentFavoriteService from "../services/segmentFavoriteService.js";
 import ElevationService from "../services/ElevationService.js";
 import { enqueueSegmentBestEfforts } from "../services/segment-best-efforts-service.js";
 import CollaborationDBService from "../services/collaborationDBService.js";
@@ -644,14 +645,60 @@ router.put("/:id/sharing", authMiddleware, requireActiveAccountWrite, async (req
   }
 });
 
+router.get("/favorites", authMiddleware, async (req, res, next) => {
+  try {
+    const segmentIds = await SegmentFavoriteService.listAccessibleIds(req.user.id);
+    res.json({ segmentIds });
+  } catch (err) {
+    console.error("GET /segments/favorites failed:", err);
+    next(err);
+  }
+});
+
+router.put("/:id/favorite", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
+  try {
+    const uid = req.user.id;
+    const segmentId = Number(req.params.id);
+    if (!Number.isInteger(segmentId) || segmentId <= 0) {
+      return res.status(400).json({ error: "Invalid segment id" });
+    }
+
+    const segment = await SegmentDBService.getAccessibleSegment(uid, segmentId);
+    if (!segment) {
+      return res.status(404).json({ error: "Segment not found" });
+    }
+
+    await SegmentFavoriteService.add(uid, segmentId);
+    return res.json({ ok: true, segmentId, isFavorite: true });
+  } catch (err) {
+    console.error("PUT /segments/:id/favorite failed:", err);
+    next(err);
+  }
+});
+
+router.delete("/:id/favorite", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
+  try {
+    const segmentId = Number(req.params.id);
+    if (!Number.isInteger(segmentId) || segmentId <= 0) {
+      return res.status(400).json({ error: "Invalid segment id" });
+    }
+
+    await SegmentFavoriteService.remove(req.user.id, segmentId);
+    return res.json({ ok: true, segmentId, isFavorite: false });
+  } catch (err) {
+    console.error("DELETE /segments/:id/favorite failed:", err);
+    next(err);
+  }
+});
+
 router.post("/query", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const uid = req.user.id
-    const { bounds, excludeIds, scope } = req.body;
+    const { bounds, excludeIds, scope, favoritesOnly } = req.body;
     //const excludeIdsArray = excludeIds;
     const limit = parseInt(req.body.limit) || 100;
 
-    const result = await SegmentDBService.querySegmentsByBounds(uid, bounds, excludeIds, limit, scope);
+    const result = await SegmentDBService.querySegmentsByBounds(uid, bounds, excludeIds, limit, scope, favoritesOnly === true);
 
     const data = result.rows.map(r => SegmentDBService.mapSegment(r));
 

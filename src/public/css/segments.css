@@ -25,9 +25,7 @@ body.segments-page.has-fixed-app-topbar .segments-hero .ui-hero__art {
     color: #ffffff;
 }
 
-body.segments-page.has-fixed-app-topbar .segments-hero .segments-quick-access__chip {
-    border-color: rgba(255, 255, 255, 0.34);
-    background: rgba(255, 255, 255, 0.16);
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-quick-access__link {
     color: #ffffff;
 }
 
@@ -171,29 +169,39 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-scope-toggl
     color: var(--ui-text-muted);
 }
 
-.segments-quick-access__chips {
+.segments-quick-access__links {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.35rem;
+    gap: 0.65rem;
 }
 
-.segments-quick-access__chip {
+.segments-quick-access__link {
+    appearance: none;
     display: inline-flex;
     align-items: center;
-    gap: 0.28rem;
-    padding: 0.24rem 0.55rem;
-    border: 1px solid var(--ui-card-border-soft);
-    border-radius: 999px;
-    background: var(--ui-bg-subtle);
-    color: var(--ui-text-default);
-    font-size: 0.76rem;
-    font-weight: 600;
-    text-decoration: none;
+    padding: 0.08rem 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--ui-accent-strong, #2563eb);
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 700;
+    line-height: 1.2;
+    text-decoration: underline;
+    text-decoration-color: transparent;
+    text-underline-offset: 0.18em;
+    cursor: pointer;
 }
 
-.segments-quick-access__chip:hover {
+.segments-quick-access__link:hover {
     color: var(--ui-text-strong);
-    background: var(--ui-bg-subtle-soft);
+    text-decoration-color: currentColor;
+}
+
+.segments-quick-access__link:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 3px;
 }
 
 .segments-favorite-toggle {
@@ -1428,9 +1436,9 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-scope-toggl
         font-size: 0.62rem;
     }
 
-    .segments-quick-access__chip {
+    .segments-quick-access__link {
         font-size: 0.68rem;
-        padding: 0.18rem 0.45rem;
+        padding: 0.08rem 0;
     }
 
     .segments-hero .ui-hero__art {

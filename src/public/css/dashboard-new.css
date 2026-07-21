@@ -115,29 +115,39 @@ body.dashboard-page {
   color: var(--ui-text-muted);
 }
 
-.dashboard-quick-access__chips {
+.dashboard-quick-access__links {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  gap: 0.65rem;
 }
 
-.dashboard-quick-access__chip {
+.dashboard-quick-access__link {
+  appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 0.28rem;
-  padding: 0.24rem 0.55rem;
-  border: 1px solid var(--ui-card-border-soft);
-  border-radius: 999px;
-  background: var(--ui-bg-subtle);
-  color: var(--ui-text-default);
-  font-size: 0.76rem;
-  font-weight: 600;
-  text-decoration: none;
+  padding: 0.08rem 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ui-accent-strong, #2563eb);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 0.18em;
+  cursor: pointer;
 }
 
-.dashboard-quick-access__chip:hover {
+.dashboard-quick-access__link:hover {
   color: var(--ui-text-strong);
-  background: var(--ui-bg-subtle-soft);
+  text-decoration-color: currentColor;
+}
+
+.dashboard-quick-access__link:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
 }
 
 .dashboard-hero .ui-hero__art {
@@ -2143,9 +2153,9 @@ body.dashboard-page {
     font-size: 0.62rem;
   }
 
-  .dashboard-quick-access__chip {
+  .dashboard-quick-access__link {
     font-size: 0.68rem;
-    padding: 0.18rem 0.45rem;
+    padding: 0.08rem 0;
   }
 
   .dashboard-hero-status {

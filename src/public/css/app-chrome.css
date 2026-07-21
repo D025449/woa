@@ -362,8 +362,11 @@ body.has-fixed-app-topbar .segments-quick-access__label {
     color: rgba(255, 255, 255, 0.8);
 }
 
-body.has-fixed-app-topbar .dashboard-quick-access__chip,
-body.has-fixed-app-topbar .segments-quick-access__chip,
+body.has-fixed-app-topbar .dashboard-quick-access__link,
+body.has-fixed-app-topbar .segments-quick-access__link {
+    color: #ffffff;
+}
+
 body.has-fixed-app-topbar .dashboard-hero-status {
     border-color: rgba(255, 255, 255, 0.34);
     background: rgba(255, 255, 255, 0.16);

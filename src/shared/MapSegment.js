@@ -22,6 +22,7 @@ export default class MapSegment {
 
 
   static async loadSegments(controller, bounds) {
+    await controller.favoriteSegmentsReady;
     /*const params = new URLSearchParams({
       minLat: bounds.getSouth(),
       maxLat: bounds.getNorth(),
@@ -44,7 +45,8 @@ export default class MapSegment {
           maxLng: bounds.getEast()
         },
         excludeIds: (controller.mapSegments || []).filter(f => f.rowstate === 'DB').map(m => m.id),
-        scope: controller.segmentScope || "mine"
+        scope: controller.segmentScope || "mine",
+        favoritesOnly: controller.favoriteOnly === true
         //excludeIds: Array.from(controller.mapSegments.filter(f=>f.rowstate === 'DB').map(m => m.id))
       })
     });
@@ -165,6 +167,31 @@ export default class MapSegment {
 
     if (!res.ok) {
       throw new Error("Failed to load segment");
+    }
+
+    return res.json();
+  }
+
+  static async setFavorite(segmentId, isFavorite) {
+    const res = await fetch(`/segments/${segmentId}/favorite`, {
+      method: isFavorite ? "PUT" : "DELETE",
+      credentials: "include"
+    });
+
+    if (res.status === 401) {
+      window.location.href = "/login";
+      return null;
+    }
+    if (!res.ok) {
+      let message = `Favorite update failed (${res.status})`;
+      try {
+        const result = await res.json();
+        message = result.error || message;
+      } catch {
+        const text = await res.text();
+        if (text) message = text;
+      }
+      throw new Error(message);
     }
 
     return res.json();
