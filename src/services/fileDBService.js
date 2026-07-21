@@ -4,7 +4,6 @@ import WorkoutSharingService from "./workoutSharingService.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
 import Workout from "../shared/Workout.js";
 import { toPostgresBox } from "../shared/postgresSpatial.js";
-import SegmentTrackBlobService from "./segmentTrackBlobService.js";
 
 const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
@@ -144,50 +143,51 @@ class FileDBService {
 
 
 
-static async getMatchingWorkoutCandidates(sids, uid) {
-  const spatialFilter = `s.gps_bounds && w.gps_bounds`;
-
-  const sql = `
+static async getMatchingWorkoutCandidatesForSegments(segmentIds, uid, options = {}) {
+  const includeExistingBestEfforts = options?.includeExistingBestEfforts === true;
+  const result = await pool.query(`
     SELECT
-      w.id as wid,
-      w.samplerategps as wsamplerate,
+      w.id AS wid,
+      w.samplerategps AS wsamplerate,
       w.gps_track_blob,
       w.gps_track_blob_codec,
-      s.id as sid,
-      s.track_blob,
-      s.track_blob_codec
+      ARRAY_AGG(s.id ORDER BY s.id) AS segment_ids
     FROM gps_segments s
     JOIN workouts w
-      ON w.uid = $2
-    WHERE
-      s.uid = $2
-      AND s.id = ANY($1)
-      AND ${spatialFilter}
-      AND NOT EXISTS( SELECT 1 from gps_segment_best_efforts sbe WHERE sbe.wid = w.id and sbe.sid = s.id  )
-  `;
+      ON s.gps_bounds && w.gps_bounds
+      AND (
+        w.uid = $2
+        OR EXISTS (
+          SELECT 1
+          FROM workout_group_shares wgs
+          INNER JOIN gps_segment_group_shares sgs
+            ON sgs.group_id = wgs.group_id
+          WHERE wgs.workout_id = w.id
+            AND sgs.segment_id = s.id
+        )
+      )
+    WHERE s.uid = $2
+      AND s.id = ANY($1::bigint[])
+      AND w.validgps = true
+      AND w.gps_track_blob IS NOT NULL
+      AND (
+        $3::boolean = true
+        OR NOT EXISTS (
+          SELECT 1
+          FROM gps_segment_best_efforts sbe
+          WHERE sbe.wid = w.id
+            AND sbe.sid = s.id
+        )
+      )
+    GROUP BY
+      w.id,
+      w.samplerategps,
+      w.gps_track_blob,
+      w.gps_track_blob_codec
+    ORDER BY w.id
+  `, [segmentIds, uid, includeExistingBestEfforts]);
 
-  const result = await pool.query(
-    sql,
-    [sids, uid] // 👈 wichtig: Array übergeben
-  );
-
-  return Promise.all(result.rows.map(async (row) => {
-    const [decoded, segmentTrack] = await Promise.all([
-      GpsTrackBlobService.decodeRowTrack({
-      gps_track_blob: row.gps_track_blob,
-      gps_track_blob_codec: row.gps_track_blob_codec
-      }),
-      SegmentTrackBlobService.decodeRow(row)
-    ]);
-    return {
-      ...row,
-      wgeom: decoded.geoJson,
-      sgeom: {
-        type: "LineString",
-        coordinates: segmentTrack.points.map((point) => [point.lng, point.lat])
-      }
-    };
-  }));
+  return result.rows;
 }
 
 static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {

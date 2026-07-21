@@ -7,6 +7,7 @@ import CollaborationDBService from "./collaborationDBService.js";
 import WorkoutSharingService from "./workoutSharingService.js";
 import SegmentTrackBlobService from "./segmentTrackBlobService.js";
 import { parsePostgresBox, toPostgresBox } from "../shared/postgresSpatial.js";
+import { matchGpsSegmentBestEfforts } from "../shared/BrowserGpsSegmentMatcher.js";
 
 
 
@@ -515,7 +516,14 @@ export default class SegmentDBService {
     return new Map(rows.map((row) => [Number(row.id), {
       id: Number(row.id),
       distance: Number(row.distance) || 0,
-      geom: row.geom
+      geom: row.geom,
+      track: row.geom.coordinates.map(([lng, lat]) => ({ lat, lng })),
+      bounds: {
+        minLat: Number(row.min_lat),
+        maxLat: Number(row.max_lat),
+        minLng: Number(row.min_lng),
+        maxLng: Number(row.max_lng)
+      }
     }]));
   }
 
@@ -1225,63 +1233,107 @@ export default class SegmentDBService {
     return result;
   }
 
-  static async scanWorkoutsForSegments(uid, segments) {
-    const sids = segments.map(m => m.id);
-    if (sids.length < 1) {
-      return [];
+  static async scanWorkoutsForSegments(uid, segments, options = {}) {
+    const includeProfile = options?.includeProfile === true;
+    const includeExistingBestEfforts = options?.includeExistingBestEfforts === true;
+    const segmentIds = [...new Set((Array.isArray(segments) ? segments : [])
+      .map((segment) => Number(segment?.id ?? segment))
+      .filter((segmentId) => Number.isInteger(segmentId) && segmentId > 0))];
+    const profile = {
+      loadSegmentDefinitionsMs: 0,
+      loadCandidateRowsMs: 0,
+      decodeWorkoutTracksMs: 0,
+      matchSegmentsMs: 0,
+      loadWorkoutObjectsMs: 0,
+      calculateAveragesMs: 0,
+      candidateWorkoutCount: 0,
+      candidatePairCount: 0,
+      matchedWorkoutCount: 0,
+      matchCount: 0,
+      workoutChunkSize: 100
+    };
+    if (segmentIds.length === 0) {
+      return includeProfile ? { matches: [], profile } : [];
     }
 
-    console.time("scanWorkoutsForSegments");
+    const loadSegmentDefinitionsStartedAt = Date.now();
+    const segmentDefinitionsById = await this.loadSegmentMatchDefinitionsBulk(segmentIds);
+    profile.loadSegmentDefinitionsMs = Date.now() - loadSegmentDefinitionsStartedAt;
 
-    const candidates = await FileDBService.getMatchingWorkoutCandidates(sids, uid);
-    //console.log({NumberOfCandidates: candidates.length, sids, wids: candidates.map(m=>m.wid)  });
+    const loadCandidateRowsStartedAt = Date.now();
+    const candidateRows = await FileDBService.getMatchingWorkoutCandidatesForSegments(
+      segmentIds,
+      uid,
+      { includeExistingBestEfforts }
+    );
+    profile.loadCandidateRowsMs = Date.now() - loadCandidateRowsStartedAt;
+    profile.candidateWorkoutCount = candidateRows.length;
+    profile.candidatePairCount = candidateRows.reduce(
+      (total, row) => total + (Array.isArray(row.segment_ids) ? row.segment_ids.length : 0),
+      0
+    );
 
-    const matches = [];
+    const allMatches = [];
+    for (const rows of this.chunkArray(candidateRows, profile.workoutChunkSize)) {
+      const matchesByWorkoutId = new Map();
 
-    candidates.forEach(cand => {
-      const wotrack = {
-        wid: cand.wid,
-        track: cand.wgeom.coordinates.map(([lng, lat]) => ({ lat, lng })),
-        sampleRate: cand.wsamplerate
+      for (const row of rows) {
+        const decodeStartedAt = Date.now();
+        const decodedTrack = await GpsTrackBlobService.decodeRowTrack(row, { includeGeoJson: false });
+        profile.decodeWorkoutTracksMs += Date.now() - decodeStartedAt;
+
+        const candidateSegments = (Array.isArray(row.segment_ids) ? row.segment_ids : [])
+          .map((segmentId) => segmentDefinitionsById.get(Number(segmentId)))
+          .filter(Boolean);
+        if (decodedTrack.points.length === 0 || candidateSegments.length === 0) continue;
+
+        const workoutId = Number(row.wid);
+        const sampleRate = Number(decodedTrack.sampleRateGps) > 0
+          ? Number(decodedTrack.sampleRateGps)
+          : Number(row.wsamplerate) || 1;
+        const matchStartedAt = Date.now();
+        const matches = matchGpsSegmentBestEfforts({
+          track: decodedTrack.points,
+          segments: Array.isArray(decodedTrack.segments) ? decodedTrack.segments : [],
+          bbox: decodedTrack.bbox,
+          sampleRateSeconds: sampleRate
+        }, candidateSegments).matches;
+        profile.matchSegmentsMs += Date.now() - matchStartedAt;
+        if (matches.length > 0) {
+          matchesByWorkoutId.set(workoutId, matches.map((match) => ({
+            workout_id: workoutId,
+            segment_id: Number(match.segmentId),
+            start_offset: Number(match.startOffset),
+            end_offset: Number(match.endOffset)
+          })));
+        }
       }
-      const segLine = cand.sgeom.coordinates.map(([lng, lat]) => ({ lat, lng }));
-      const m = SegmentMatcher.findMatches(wotrack, { id: cand.sid, track: segLine });
-      //console.log({ wid: cand.wdisplay_id, sid: cand.sdisplay_id, segcount: m.length });
-      matches.push(...m);
-    });
 
+      const matchedWorkoutIds = [...matchesByWorkoutId.keys()];
+      if (matchedWorkoutIds.length === 0) continue;
 
-    const uniqueIds = [...new Set(matches.map(w => w.workout_id))];
+      const loadWorkoutObjectsStartedAt = Date.now();
+      const rawWorkoutObjects = await WorkoutDBService.getWorkouts(matchedWorkoutIds);
+      const workoutObjects = new Map(
+        [...rawWorkoutObjects.entries()].map(([workoutId, workout]) => [Number(workoutId), workout])
+      );
+      profile.loadWorkoutObjectsMs += Date.now() - loadWorkoutObjectsStartedAt;
 
-    if (uniqueIds.length > 0) {
-      const chunks = SegmentDBService.chunkArray(uniqueIds, 10);
-
-      const CONCURRENCY = 3; // 🔥 feinjustieren!
-
-      for (let i = 0; i < chunks.length; i += CONCURRENCY) {
-        const batch = chunks.slice(i, i + CONCURRENCY);
-
-        const results = await Promise.all(
-          batch.map(chunk => WorkoutDBService.getWorkouts(chunk))
-        );
-
-        results.forEach((workoutMap, idx) => {
-          const chunk = batch[idx];
-
-          matches.forEach(match => {
-            if (!chunk.includes(match.workout_id)) return;
-
-            const workoutObject = workoutMap.get(match.workout_id);
-            if (!workoutObject) return;
-
-            const avgs = workoutObject.getAverages(match.start_offset, match.end_offset);
-            Object.assign(match, avgs);
-          });
-        });
+      const calculateAveragesStartedAt = Date.now();
+      for (const [workoutId, matches] of matchesByWorkoutId) {
+        const workoutObject = workoutObjects.get(workoutId);
+        if (!workoutObject) continue;
+        for (const match of matches) {
+          Object.assign(match, workoutObject.getAverages(match.start_offset, match.end_offset));
+          allMatches.push(match);
+        }
       }
+      profile.calculateAveragesMs += Date.now() - calculateAveragesStartedAt;
     }
-    console.timeEnd("scanWorkoutsForSegments");
-    return matches;
+
+    profile.matchCount = allMatches.length;
+    profile.matchedWorkoutCount = new Set(allMatches.map((match) => Number(match.workout_id))).size;
+    return includeProfile ? { matches: allMatches, profile } : allMatches;
   }
 
   static async scanWorkoutsForSegment(uid, segment, options = {}) {

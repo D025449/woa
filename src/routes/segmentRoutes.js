@@ -276,12 +276,11 @@ router.post(
       const existingSegments = await SegmentDBService.getOwnedSegmentsForArchive(uid);
       const { accepted, skippedDuplicates } = filterNovelSegments(importedSegments, existingSegments);
       const insertedRows = await SegmentDBService.insertGpsSegmentsBulk(uid, accepted);
-      const segmentIds = [...new Set([
-        ...insertedRows.map((row) => Number(row.id)),
-        ...existingSegments
-          .filter((segment) => segment.bestEffortsStatus !== "completed")
-          .map((segment) => Number(segment.id))
-      ].filter(Number.isInteger))];
+      const segmentIds = [...new Set(
+        insertedRows
+          .map((row) => Number(row.id))
+          .filter(Number.isInteger)
+      )];
 
       if (segmentIds.length > 0) {
         await enqueueSegmentBestEfforts({ uid, segmentIds });
@@ -747,19 +746,26 @@ router.get("/bestefforts/:id/data", authMiddleware, async (req, res, next) => {
     const perUser = req.query.perUser || req.body.perUser || "all";
 
 
-    const result = await SegmentDBService.getBestEffortsBySegment(
-      uid,
-      segmentid,
-      page,
-      size,
-      sort,
-      filters,
-      scope,
-      perUser
-    );
+    const [result, statusRow] = await Promise.all([
+      SegmentDBService.getBestEffortsBySegment(
+        uid,
+        segmentid,
+        page,
+        size,
+        sort,
+        filters,
+        scope,
+        perUser
+      ),
+      SegmentDBService.getBestEffortsStatus(uid, segmentid)
+    ]);
 
 
-    res.json(result);
+    res.json({
+      ...result,
+      best_efforts_status: statusRow?.best_efforts_status ?? null,
+      best_efforts_error: statusRow?.best_efforts_error ?? null
+    });
 
   } catch (err) {
     console.log(err);

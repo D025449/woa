@@ -49,12 +49,12 @@ export default class SegmentBestEffortsCardView {
     await this.loadSegmentBestEfforts(segment, { append: false });
   }
 
-  async loadSegmentBestEfforts(segment, { append = false } = {}) {
+  async loadSegmentBestEfforts(segment, { append = false, showLoading = true } = {}) {
     if (!this.container || !segment?.id) {
       return;
     }
 
-    if (!append) {
+    if (!append && showLoading) {
       this.container.innerHTML = `<div class="segments-best-efforts-empty">${this.t("messages.loading")}</div>`;
       this.updateLoadMore();
     }
@@ -67,6 +67,9 @@ export default class SegmentBestEffortsCardView {
 
       const result = await response.json();
       const rows = Array.isArray(result?.data) ? result.data : [];
+      if (result?.best_efforts_status) {
+        segment.bestEffortsStatus = result.best_efforts_status;
+      }
       if (!append) {
         this.fastestDuration = rows.length ? Number(rows[0]?.duration) : null;
       }
@@ -238,7 +241,10 @@ export default class SegmentBestEffortsCardView {
 
         if (data.status === "completed" || data.status === "failed") {
           this.page = 1;
-          await this.loadSegmentBestEfforts(this.currentSegment, { append: false });
+          await this.loadSegmentBestEfforts(this.currentSegment, {
+            append: false,
+            showLoading: false
+          });
           this.stopBestEffortsPolling();
           return;
         }

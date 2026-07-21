@@ -13,6 +13,11 @@ export const SEGMENT_BEST_EFFORTS_BATCH_SIZE = Math.max(
   Math.floor(Number(process.env.SEGMENT_BEST_EFFORTS_BATCH_SIZE) || 100)
 );
 
+export const SEGMENT_SCAN_BATCH_SIZE = Math.max(
+  1,
+  Math.floor(Number(process.env.SEGMENT_SCAN_BATCH_SIZE) || 32)
+);
+
 function buildQueueOptions(jobId) {
   return {
     attempts: 2,
@@ -180,11 +185,16 @@ export async function enqueueSegmentBestEfforts({ uid, segmentIds }) {
     return null;
   }
 
-  return segmentBestEffortsQueue.addBulk(normalizedSegmentIds.map((segmentId) => ({
+  const segmentIdGroups = [];
+  for (let index = 0; index < normalizedSegmentIds.length; index += SEGMENT_SCAN_BATCH_SIZE) {
+    segmentIdGroups.push(normalizedSegmentIds.slice(index, index + SEGMENT_SCAN_BATCH_SIZE));
+  }
+
+  return segmentBestEffortsQueue.addBulk(segmentIdGroups.map((group) => ({
     name: "process-segment-best-efforts",
     data: {
       uid,
-      segmentIds: [segmentId]
+      segmentIds: group
     },
     opts: {
       attempts: 3,

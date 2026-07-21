@@ -32,6 +32,7 @@ import { enqueueImportBatchJobs } from "../services/import-batch-job-service.js"
 import {
   SEGMENT_BEST_EFFORTS_BATCH_SIZE,
   SEGMENT_PERSIST_BATCH_SIZE,
+  SEGMENT_SCAN_BATCH_SIZE,
   enqueueWorkoutSegmentBestEfforts,
   enqueueWorkoutSegmentBestEffortsBulk,
   enqueueWorkoutSegmentPersistence,
@@ -118,6 +119,7 @@ export async function createApp(options = {}) {
     IMPORT_DB_BULK_INSERT_SIZE,
     SEGMENT_PERSIST_BATCH_SIZE,
     SEGMENT_BEST_EFFORTS_BATCH_SIZE,
+    SEGMENT_SCAN_BATCH_SIZE,
     WORKOUT_SIMILARITY_BATCH_SIZE,
     FIT_PARSER_VARIANT: getFitParserVariant(),
     IMPORT_UPLOAD_TEMP_DIR,
@@ -964,8 +966,50 @@ export async function createApp(options = {}) {
 
   async function processSegmentBestEffortsJob(uid, segmentIds) {
     if (segmentIds.length > 1) {
-      for (const segmentId of segmentIds) {
-        await processSegmentBestEffortsJob(uid, [segmentId]);
+      const startedAt = Date.now();
+      const updateProcessingStatusStartedAt = Date.now();
+      await SegmentDBService.updateBestEffortsStatus(uid, segmentIds, "processing", null);
+      const updateProcessingStatusMs = Date.now() - updateProcessingStatusStartedAt;
+
+      try {
+        const scanWorkoutsStartedAt = Date.now();
+        /** @type {{ matches: any[], profile: any }} */
+        const scanResult = /** @type {any} */ (await SegmentDBService.scanWorkoutsForSegments(
+          uid,
+          segmentIds,
+          { includeProfile: true }
+        ));
+        const scanWorkoutsMs = Date.now() - scanWorkoutsStartedAt;
+
+        const storeBestEffortsStartedAt = Date.now();
+        await SegmentDBService.storeSegmentBestEffortsV2(scanResult.matches);
+        const storeBestEffortsMs = Date.now() - storeBestEffortsStartedAt;
+
+        const updateCompletedStatusStartedAt = Date.now();
+        await SegmentDBService.updateBestEffortsStatus(uid, segmentIds, "completed", null);
+        const updateCompletedStatusMs = Date.now() - updateCompletedStatusStartedAt;
+
+        console.log("[postprocess] new-segment-best-efforts.profile", {
+          uid,
+          segmentIds,
+          mode: "workout-first",
+          totalMs: Date.now() - startedAt,
+          matchCount: scanResult.matches.length,
+          updateProcessingStatusMs,
+          loadSegmentMs: scanResult.profile.loadSegmentDefinitionsMs,
+          scanWorkoutsMs,
+          storeBestEffortsMs,
+          updateCompletedStatusMs,
+          scan: scanResult.profile
+        });
+      } catch (error) {
+        await SegmentDBService.updateBestEffortsStatus(
+          uid,
+          segmentIds,
+          "failed",
+          error.message || "Unknown segment best-effort error"
+        );
+        throw error;
       }
       return;
     }
@@ -989,9 +1033,10 @@ export async function createApp(options = {}) {
       profile.loadSegmentMs = Date.now() - loadSegmentStartedAt;
 
       const scanWorkoutsStartedAt = Date.now();
-      const scanResult = segment
+      /** @type {{ matches: any[], profile: any }} */
+      const scanResult = /** @type {any} */ (segment
         ? await SegmentDBService.scanWorkoutsForSegment(uid, segment, { includeProfile: true })
-        : { matches: [], profile: {} };
+        : { matches: [], profile: {} });
       profile.scanWorkoutsMs = Date.now() - scanWorkoutsStartedAt;
       const matchingEfforts = scanResult.matches;
       const scanProfile = scanResult.profile;

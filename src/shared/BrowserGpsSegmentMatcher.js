@@ -133,3 +133,5 @@ export function benchmarkGpsSegmentBestEfforts(gpsTrack, segmentDefinitions = []
   }
   return { candidateCount: candidates.length, matches };
 }
+
+export const matchGpsSegmentBestEfforts = benchmarkGpsSegmentBestEfforts;
