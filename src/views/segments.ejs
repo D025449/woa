@@ -9,8 +9,6 @@
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
 
-    <script src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
-    <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator_bootstrap5.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
     <link rel="stylesheet" href="/css/ui-system.css">
@@ -58,89 +56,91 @@
                     </div>
 
                     <div class="segments-hero-meta ui-hero__meta">
-                        <div class="ui-hero__art" aria-hidden="true">
-                            <svg viewBox="0 0 64 64" fill="none">
-                                <defs>
-                                    <linearGradient id="segmentsHeroGradient" x1="12" y1="46" x2="52" y2="18" gradientUnits="userSpaceOnUse">
-                                        <stop stop-color="#345f51" />
-                                        <stop offset="1" stop-color="#b16f49" />
-                                    </linearGradient>
-                                </defs>
-                                <path d="M14 46C19 38 22 34 28 34C32 34 35 38 39 38C45 38 48 31 50 20" stroke="url(#segmentsHeroGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
-                                <circle cx="14" cy="46" r="5" fill="#fffefa" stroke="#345f51" stroke-width="3" />
-                                <circle cx="50" cy="20" r="5" fill="#fffefa" stroke="#b16f49" stroke-width="3" />
-                                <path d="M28 48H50" stroke="rgba(148,163,184,0.34)" stroke-width="3" stroke-linecap="round" stroke-dasharray="4 6" />
-                            </svg>
+                        <div id="segments-map-header-toolbar" class="segments-toolbar segments-hero-toolbar ui-toolbar ui-toolbar--end">
+                            <button
+                                id="draw-segment-map-toggle"
+                                class="segments-map-create-toggle"
+                                type="button"
+                                title="<%= t('segmentsPage.btnCreateTitle') %>"
+                                aria-pressed="false">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="6.5" />
+                                    <path d="M12 2.5V5.2" />
+                                    <path d="M12 18.8V21.5" />
+                                    <path d="M2.5 12H5.2" />
+                                    <path d="M18.8 12H21.5" />
+                                </svg>
+                            </button>
+                            <button
+                                id="draw-segment-map-lookup"
+                                class="btn btn-outline-secondary btn-sm d-none segments-map-lookup-inline"
+                                type="button"
+                                disabled
+                                title="<%= t('segmentsPage.lookupTitle') %>">
+                                <%= t("segmentsPage.lookup") %>
+                            </button>
+                            <div id="segments-map-header-toolbar-main" class="segments-map-header-toolbar-main">
+                                <div class="segments-map-scope-toggle" role="group" aria-label="<%= t('segmentsPage.scopeAria') %>">
+                                    <button id="segments-scope-mine" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="mine">
+                                        <%= t("segmentsPage.scopeMine") %>
+                                    </button>
+                                    <button id="segments-scope-shared" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="shared">
+                                        <%= t("segmentsPage.scopeShared") %>
+                                    </button>
+                                    <button id="segments-scope-all" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="all">
+                                        <%= t("segmentsPage.scopeAll") %>
+                                    </button>
+                                </div>
+                                <button id="segments-favorites-filter" class="segments-favorite-filter" type="button" aria-pressed="false" title="<%= t('segmentsPage.favoriteFilterLabel') %>">
+                                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                                        <path d="M10 2.9l2.15 4.36 4.81.7-3.48 3.39.82 4.79L10 14.02 5.7 16.14l.82-4.79L3.04 7.96l4.81-.7L10 2.9z" fill="currentColor"></path>
+                                    </svg>
+                                </button>
+                                <button id="segments-map-3d-toggle" class="btn btn-outline-secondary btn-sm" type="button">
+                                    <%= t("segmentsPage.map3dOpen") %>
+                                </button>
+                                <details id="segments-map-tools-menu" class="segments-map-actions-menu">
+                                    <summary class="segments-map-actions-menu__trigger" aria-label="<%= t('segmentsPage.btnCreate') %> / <%= t('segmentsPage.lookup') %>">
+                                        <span aria-hidden="true">•••</span>
+                                    </summary>
+                                    <div class="segments-map-actions-menu__panel">
+                                        <div class="segments-map-actions-menu__group">
+                                            <div class="segments-map-actions-menu__label"><%= t("segmentsPage.mapStyleLabel") %></div>
+                                            <div id="segments-map-style-slot" class="segments-map-actions-menu__styles"></div>
+                                        </div>
+                                        <div class="segments-map-actions-menu__group segments-map-actions-menu__group--separated">
+                                            <div class="segments-map-actions-menu__label"><%= t("segmentsPage.segmentArchiveLabel") %></div>
+                                            <button id="segments-archive-export" class="segments-map-actions-menu__item segments-map-actions-menu__item--secondary" type="button">
+                                                <span class="segments-map-actions-menu__icon" aria-hidden="true">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                                        <path d="M12 3v12" />
+                                                        <path d="m7.5 10.5 4.5 4.5 4.5-4.5" />
+                                                        <path d="M5 20h14" />
+                                                    </svg>
+                                                </span>
+                                                <span><%= t("segmentsPage.segmentArchiveExport") %></span>
+                                            </button>
+                                            <button id="segments-archive-import" class="segments-map-actions-menu__item segments-map-actions-menu__item--primary" type="button">
+                                                <span class="segments-map-actions-menu__icon" aria-hidden="true">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                                        <path d="M12 16V4" />
+                                                        <path d="m7.5 8.5 4.5-4.5 4.5 4.5" />
+                                                        <path d="M5 20h14" />
+                                                    </svg>
+                                                </span>
+                                                <span><%= t("segmentsPage.segmentArchiveImport") %></span>
+                                            </button>
+                                            <input id="segments-archive-file" type="file" accept=".zip,application/zip" hidden>
+                                        </div>
+                                    </div>
+                                </details>
+                            </div>
                         </div>
                     </div>
                 </section>
 
                 <section id="segments-workspace" class="segments-workspace">
                     <article class="segments-surface ui-surface ui-surface--gradient segments-workspace-panel segments-map-panel">
-                        <div class="segments-section-header ui-section-header">
-                            <div>
-                                <span class="segments-eyebrow ui-eyebrow"><%= t("segmentsPage.mapEyebrow") %></span>
-                                <h2 class="segments-section-title ui-title"><%= t("segmentsPage.mapTitle") %></h2>
-                            </div>
-
-                            <div id="segments-map-header-toolbar" class="segments-toolbar ui-toolbar ui-toolbar--end">
-                                <button
-                                    id="draw-segment-map-toggle"
-                                    class="segments-map-create-toggle"
-                                    type="button"
-                                    title="<%= t('segmentsPage.btnCreateTitle') %>"
-                                    aria-pressed="false">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                                        <circle cx="12" cy="12" r="6.5" />
-                                        <path d="M12 2.5V5.2" />
-                                        <path d="M12 18.8V21.5" />
-                                        <path d="M2.5 12H5.2" />
-                                        <path d="M18.8 12H21.5" />
-                                    </svg>
-                                </button>
-                                <button
-                                    id="draw-segment-map-lookup"
-                                    class="btn btn-outline-secondary btn-sm d-none segments-map-lookup-inline"
-                                    type="button"
-                                    disabled
-                                    title="<%= t('segmentsPage.lookupTitle') %>">
-                                    <%= t("segmentsPage.lookup") %>
-                                </button>
-                                <div id="segments-map-header-toolbar-main" class="segments-map-header-toolbar-main">
-                                    <div class="segments-map-scope-toggle" role="group" aria-label="<%= t('segmentsPage.scopeAria') %>">
-                                        <button id="segments-scope-mine" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="mine">
-                                            <%= t("segmentsPage.scopeMine") %>
-                                        </button>
-                                        <button id="segments-scope-shared" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="shared">
-                                            <%= t("segmentsPage.scopeShared") %>
-                                        </button>
-                                        <button id="segments-scope-all" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="all">
-                                            <%= t("segmentsPage.scopeAll") %>
-                                        </button>
-                                    </div>
-                                    <button id="segments-favorites-filter" class="segments-favorite-filter" type="button" aria-pressed="false" title="<%= t('segmentsPage.favoriteFilterLabel') %>">
-                                        <svg viewBox="0 0 20 20" aria-hidden="true">
-                                            <path d="M10 2.9l2.15 4.36 4.81.7-3.48 3.39.82 4.79L10 14.02 5.7 16.14l.82-4.79L3.04 7.96l4.81-.7L10 2.9z" fill="currentColor"></path>
-                                        </svg>
-                                    </button>
-                                    <button id="segments-map-3d-toggle" class="btn btn-outline-secondary btn-sm" type="button">
-                                        <%= t("segmentsPage.map3dOpen") %>
-                                    </button>
-                                    <details id="segments-map-tools-menu" class="segments-map-actions-menu">
-                                        <summary class="segments-map-actions-menu__trigger" aria-label="<%= t('segmentsPage.btnCreate') %> / <%= t('segmentsPage.lookup') %>">
-                                            <span aria-hidden="true">•••</span>
-                                        </summary>
-                                        <div class="segments-map-actions-menu__panel">
-                                            <div class="segments-map-actions-menu__group">
-                                                <div class="segments-map-actions-menu__label"><%= t("segmentsPage.mapStyleLabel") %></div>
-                                                <div id="segments-map-style-slot" class="segments-map-actions-menu__styles"></div>
-                                            </div>
-                                        </div>
-                                    </details>
-                                </div>
-                            </div>
-                        </div>
-
                         <div class="segments-body segments-map-body">
                             <div id="workout-map"></div>
                         </div>
@@ -161,7 +161,6 @@
                         </button>
                         <div class="segments-section-header ui-section-header">
                             <div>
-                                <span class="segments-eyebrow ui-eyebrow"><%= t("segmentsPage.insightsEyebrow") %></span>
                                 <h2 id="segment-header" class="segments-section-title ui-title"><%= t("segmentsPage.insightsTitle") %></h2>
                             </div>
 
@@ -232,7 +231,7 @@
                                 </div>
                             </div>
 
-                            <div class="segments-panel segments-panel--table">
+                            <div class="segments-panel segments-panel--best-efforts">
                                 <div class="segments-panel-header">
                                     <h3 class="segments-panel-title"><%= t("segmentsPage.bestEffortsTitle") %></h3>
                                     <div class="segments-best-efforts-header-controls">
@@ -242,19 +241,8 @@
                                             </summary>
                                             <div class="segments-best-efforts-menu__panel">
                                                 <div class="segments-best-efforts-menu__group">
-                                                    <div class="segments-best-efforts-menu__label"><%= t("segmentsPage.bestEffortsViewLabel") %></div>
-                                                    <div class="segments-best-efforts-view-toggle ui-toggle-group ui-toggle-group--light" role="group" aria-label="<%= t('segmentsPage.bestEffortsViewAria') %>">
-                                                        <button id="segment-bestefforts-view-table" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-view="table">
-                                                            <%= t("segmentsPage.bestEffortsViewTable") %>
-                                                        </button>
-                                                        <button id="segment-bestefforts-view-cards" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-view="cards">
-                                                            <%= t("segmentsPage.bestEffortsViewCards") %>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                                <div class="segments-best-efforts-menu__group">
                                                     <div class="segments-best-efforts-menu__label"><%= t("segmentsPage.bestEffortsScopeLabel") %></div>
-                                                    <div class="segment-bestefforts-scope-toggle ui-toggle-group ui-toggle-group--light" role="group" aria-label="<%= t('segmentsPage.bestEffortsScopeAria') %>">
+                                                    <div class="segment-bestefforts-scope-toggle ui-toggle-group ui-toggle-group--light is-hidden" role="group" aria-label="<%= t('segmentsPage.bestEffortsScopeAria') %>">
                                                         <button id="segment-bestefforts-scope-mine" class="btn btn-sm btn-outline-secondary" type="button" data-segment-bestefforts-scope="mine">
                                                             <%= t("segmentsPage.bestEffortsScopeMine") %>
                                                         </button>
@@ -289,9 +277,8 @@
                                         </details>
                                     </div>
                                 </div>
-                                <div class="segments-panel-body segments-panel-body--table">
-                                    <div id="segment-table" class="segments-best-efforts-surface"></div>
-                                    <div id="segment-best-efforts-cards" class="segments-best-efforts-cards d-none"></div>
+                                <div class="segments-panel-body segments-panel-body--best-efforts">
+                                    <div id="segment-best-efforts-cards" class="segments-best-efforts-cards"></div>
                                     <div id="segment-best-efforts-load-more" class="segments-best-efforts-load-more d-none">
                                         <button class="btn btn-outline-secondary btn-sm" type="button"><%= t("dashboardNewPage.loadMore") %></button>
                                     </div>

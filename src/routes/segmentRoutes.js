@@ -1,4 +1,5 @@
 import express from "express";
+import multer from "multer";
 
 import authMiddleware from "../middleware/authMiddleware.js";
 import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
@@ -16,8 +17,30 @@ import pool from "../services/database.js";
 
 import { FileDBService } from "../services/fileDBService.js";
 import { fetchBicycleRoute } from "../services/bicycleRoutingService.js";
+import {
+  buildSegmentArchive,
+  decodeSegmentArchive,
+  filterNovelSegments,
+  SEGMENT_ARCHIVE_MAX_BYTES,
+  SegmentArchiveValidationError
+} from "../services/segmentArchiveService.js";
 
 const router = express.Router();
+const segmentArchiveUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: SEGMENT_ARCHIVE_MAX_BYTES,
+    files: 1
+  }
+});
+const receiveSegmentArchive = (req, res, next) => {
+  segmentArchiveUpload.single("archive")(req, res, (error) => {
+    if (error instanceof multer.MulterError) {
+      return res.status(400).json({ error: error.message });
+    }
+    next(error);
+  });
+};
 
 const checkAuth = (req, res, next) => {
   req.isAuthenticated = !!req.session.userInfo;
@@ -218,6 +241,68 @@ function createStepLogger(scope, meta = {}) {
     }
   };
 }
+
+router.get("/archive/export", authMiddleware, async (req, res, next) => {
+  try {
+    const uid = req.user?.id;
+    const segments = await SegmentDBService.getOwnedSegmentsForArchive(uid);
+    const archive = buildSegmentArchive(segments);
+    const date = new Date().toISOString().slice(0, 10);
+
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="woa-segments-${date}.zip"`);
+    res.setHeader("Content-Length", String(archive.byteLength));
+    res.send(archive);
+  } catch (error) {
+    console.error("GET /segments/archive/export failed:", error);
+    next(error);
+  }
+});
+
+router.post(
+  "/archive/import",
+  authMiddleware,
+  requireActiveAccountWrite,
+  receiveSegmentArchive,
+  async (req, res, next) => {
+    try {
+      if (!req.file?.buffer) {
+        throw new SegmentArchiveValidationError("A segment ZIP archive is required");
+      }
+
+      const uid = req.user?.id;
+      const importedSegments = await decodeSegmentArchive(req.file.buffer);
+      const existingSegments = await SegmentDBService.getOwnedSegmentsForArchive(uid);
+      const { accepted, skippedDuplicates } = filterNovelSegments(importedSegments, existingSegments);
+      const insertedRows = await SegmentDBService.insertGpsSegmentsBulk(uid, accepted);
+      const segmentIds = insertedRows.map((row) => Number(row.id)).filter(Number.isInteger);
+
+      if (segmentIds.length > 0) {
+        await enqueueSegmentBestEfforts({ uid, segmentIds });
+      }
+
+      console.log("[segments] archive-import.completed", {
+        uid: String(uid),
+        total: importedSegments.length,
+        imported: insertedRows.length,
+        skippedDuplicates
+      });
+      res.status(201).json({
+        ok: true,
+        total: importedSegments.length,
+        imported: insertedRows.length,
+        skippedDuplicates,
+        segments: insertedRows.map((row) => SegmentDBService.mapSegment(row))
+      });
+    } catch (error) {
+      if (error instanceof SegmentArchiveValidationError || error instanceof multer.MulterError) {
+        return res.status(400).json({ error: error.message });
+      }
+      console.error("POST /segments/archive/import failed:", error);
+      next(error);
+    }
+  }
+);
 
 
 

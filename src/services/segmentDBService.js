@@ -519,6 +519,40 @@ export default class SegmentDBService {
     }]));
   }
 
+  static async getOwnedSegmentsForArchive(uid) {
+    const result = await pool.query(`
+      SELECT
+        s.id,
+        s.uid,
+        s.distance,
+        s.duration,
+        s.start_lat,
+        s.start_lng,
+        s.start_name,
+        s.start_altitude,
+        s.end_lat,
+        s.end_lng,
+        s.end_name,
+        s.end_altitude,
+        s.ascent,
+        s.altitudes,
+        s.points_count,
+        s.best_efforts_status,
+        0::int AS share_group_count,
+        s.track_blob,
+        s.track_blob_codec,
+        s.gps_bounds::text AS gps_bounds_text
+      FROM gps_segments s
+      WHERE s.uid = $1
+      ORDER BY s.id
+    `, [uid]);
+
+    const rows = await Promise.all(
+      result.rows.map((row) => SegmentDBService.hydrateSegmentTrackRow(row))
+    );
+    return rows.map((row) => SegmentDBService.mapSegment(row));
+  }
+
   static async getSegmentById(uid, segmentId) {
     const result = await pool.query(`
       SELECT

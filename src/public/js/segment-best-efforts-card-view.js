@@ -17,6 +17,7 @@ export default class SegmentBestEffortsCardView {
     this.pageSize = handlers.pageSize || 20;
     this.lastPage = 1;
     this.fastestDuration = null;
+    this.lastMatchCount = null;
 
     this.loadMoreButton?.addEventListener("click", async () => {
       if (!this.currentSegment || this.page >= this.lastPage) {
@@ -42,6 +43,7 @@ export default class SegmentBestEffortsCardView {
     this.page = 1;
     this.lastPage = 1;
     this.fastestDuration = null;
+    this.lastMatchCount = null;
     this.updateHeader(segment);
     await this.loadSegmentBestEfforts(segment, { append: false });
   }
@@ -68,6 +70,9 @@ export default class SegmentBestEffortsCardView {
         this.fastestDuration = rows.length ? Number(rows[0]?.duration) : null;
       }
       this.lastPage = result?.last_page || 1;
+      this.lastMatchCount = Number.isFinite(Number(result?.total_records))
+        ? Number(result.total_records)
+        : null;
       this.updateHeader(segment, result?.total_records);
       this.renderRows(rows, { append });
       this.updateLoadMore();
@@ -180,6 +185,7 @@ export default class SegmentBestEffortsCardView {
     this.page = 1;
     this.lastPage = 1;
     this.fastestDuration = null;
+    this.lastMatchCount = null;
     if (this.container) {
       this.container.innerHTML = "";
     }

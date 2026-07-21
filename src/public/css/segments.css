@@ -31,6 +31,73 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-quick-access__c
     color: #ffffff;
 }
 
+.segments-hero {
+    position: relative;
+    z-index: 40;
+    overflow: visible;
+}
+
+.segments-hero:has(.segments-map-actions-menu[open]) {
+    z-index: 60;
+}
+
+.segments-hero-meta {
+    flex: 1 1 auto;
+    align-items: center;
+    min-width: 0;
+}
+
+.segments-hero-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.55rem;
+    width: 100%;
+}
+
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-create-toggle,
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-favorite-filter,
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-actions-menu__trigger,
+body.segments-page.has-fixed-app-topbar .segments-hero #segments-map-3d-toggle,
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-lookup-inline {
+    border-color: rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.14);
+    color: #ffffff;
+}
+
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-create-toggle:hover,
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-favorite-filter:hover,
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-actions-menu__trigger:hover,
+body.segments-page.has-fixed-app-topbar .segments-hero #segments-map-3d-toggle:hover,
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-lookup-inline:hover,
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-create-toggle.is-active,
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-create-toggle[aria-pressed="true"] {
+    border-color: #ffffff;
+    background: #ffffff;
+    color: #176fbe;
+}
+
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-favorite-filter[aria-pressed="true"] {
+    border-color: rgba(255, 255, 255, 0.78);
+    background: rgba(255, 255, 255, 0.92);
+    color: #b45309;
+}
+
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-scope-toggle {
+    border-color: rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.12);
+}
+
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-scope-toggle .btn {
+    color: rgba(255, 255, 255, 0.88);
+}
+
+body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-scope-toggle .btn.active {
+    border-color: #ffffff;
+    background: #ffffff;
+    color: #176fbe;
+}
+
 @media (min-width: 992px) {
     .segments-hero {
         align-items: center;
@@ -428,7 +495,7 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-quick-access__c
 .segments-detail-surface {
     position: absolute;
     z-index: 35;
-    top: 4.75rem;
+    top: 0.75rem;
     right: 0.75rem;
     bottom: 0.75rem;
     width: clamp(380px, 35vw, 520px);
@@ -456,22 +523,11 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-quick-access__c
     overflow: visible;
 }
 
-.segments-map-panel > .segments-section-header {
-    border-top-left-radius: 1.5rem;
-    border-top-right-radius: 1.5rem;
-}
-
-.segments-map-panel > .segments-section-header {
-    position: relative;
-    z-index: 25;
-}
-
 .segments-map-body {
     position: relative;
     z-index: 1;
     overflow: hidden;
-    border-bottom-left-radius: 1.5rem;
-    border-bottom-right-radius: 1.5rem;
+    border-radius: inherit;
 }
 
 .segments-detail-surface > .segments-section-header {
@@ -543,6 +599,12 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-quick-access__c
 .segments-map-actions-menu__group {
     display: grid;
     gap: 0.45rem;
+}
+
+.segments-map-actions-menu__group--separated {
+    margin-top: 0.15rem;
+    padding-top: 0.55rem;
+    border-top: 1px solid var(--ui-card-border-faint);
 }
 
 .segments-map-actions-menu__label {
@@ -812,49 +874,47 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-quick-access__c
 
 .segments-detail-surface > .segments-section-header {
     display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.45rem;
     border-top-left-radius: 1.5rem;
     border-top-right-radius: 1.5rem;
-    padding: 1rem 1.2rem 0.95rem;
+    padding: 0.62rem 0.72rem;
 }
 
 .segments-detail-surface > .segments-section-header > :first-child {
-    flex: 1 1 18rem;
+    flex: 1 1 auto;
     min-width: 0;
 }
 
 .segments-detail-surface > .segments-section-header > .segments-toolbar {
-    flex: 1 1 100%;
+    flex: 0 0 auto;
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    align-items: center;
     justify-content: flex-end;
-    gap: 0.65rem;
+    gap: 0.32rem;
     min-width: 0;
+}
+
+.segments-detail-surface > .segments-section-header:has(.segment-share-inline.is-open) {
+    flex-wrap: wrap;
+}
+
+.segments-detail-surface > .segments-section-header:has(.segment-share-inline.is-open) > .segments-toolbar {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+}
+
+#segment-header {
+    width: 100%;
 }
 
 .segments-detail-heading {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 0.7rem;
+    width: 100%;
     min-width: 0;
-}
-
-.segments-detail-heading__icon {
-    flex: 0 0 auto;
-    width: 2.15rem;
-    height: 2.15rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 0.95rem;
-    background: linear-gradient(135deg, color-mix(in srgb, var(--ui-info-surface) 88%, white), color-mix(in srgb, var(--ui-surface-gradient-end) 86%, white));
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ui-card-border-soft) 82%, transparent);
-}
-
-.segments-detail-heading__icon svg {
-    width: 1.3rem;
-    height: 1.3rem;
 }
 
 .segments-detail-nav {
@@ -867,8 +927,8 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-quick-access__c
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 2rem;
-    height: 2rem;
+    width: 1.8rem;
+    height: 1.8rem;
     padding: 0;
     border: 1px solid var(--ui-card-border-faint);
     border-radius: 999px;
@@ -884,9 +944,11 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-quick-access__c
 }
 
 .segments-detail-heading__copy {
-    display: inline-flex;
+    display: flex;
+    flex: 1 1 auto;
     flex-direction: column;
     min-width: 0;
+    overflow: hidden;
 }
 
 .segments-detail-heading__title {
@@ -901,21 +963,42 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-quick-access__c
 }
 
 .segments-detail-heading__meta {
-    display: block;
-    margin-top: 0.18rem;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: 0.1rem;
+    min-width: 0;
     color: var(--ui-text-muted);
-    font-size: 0.84rem;
+    font-size: 0.76rem;
     font-weight: 600;
-    line-height: 1.3;
+    line-height: 1.2;
     white-space: nowrap;
     overflow: visible;
     position: relative;
 }
 
+.segments-detail-heading__meta-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.segments-detail-surface .segments-favorite-toggle {
+    width: 1.8rem;
+    height: 1.8rem;
+}
+
+.segments-detail-surface .segments-detail-actions-menu__trigger {
+    min-width: 2rem;
+    min-height: 1.8rem;
+    padding: 0.25rem 0.5rem;
+}
+
 .segments-detail-heading__visibility {
     display: inline-flex;
     align-items: center;
-    margin-left: 0.45rem;
+    flex: 0 0 auto;
+    margin-left: 0;
     padding: 0.08rem 0.46rem;
     border: 1px solid var(--ui-chip-border-soft);
     border-radius: 999px;
@@ -1007,17 +1090,17 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-quick-access__c
     flex-direction: column;
 }
 
-.segments-shell--client .segments-panel--table {
+.segments-shell--client .segments-panel--best-efforts {
     display: flex;
     flex-direction: column;
 }
 
-.segments-panel-body--table {
+.segments-panel-body--best-efforts {
     min-height: 0;
     min-width: 0;
 }
 
-.segments-shell--client .segments-panel-body--table {
+.segments-shell--client .segments-panel-body--best-efforts {
     flex: 1 1 auto;
     min-height: 0;
 }
@@ -1178,21 +1261,6 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-quick-access__c
 .segments-shell--client #workout-map {
     height: 100% !important;
     min-height: 0;
-}
-
-#segment-table {
-    min-height: 320px;
-    min-width: 0;
-}
-
-.segments-shell--client #segment-table {
-    height: 100%;
-    min-height: 0;
-}
-
-.segments-shell--client #segment-table .tabulator {
-    width: 100% !important;
-    min-width: 0;
 }
 
 .segments-best-efforts-cards {
@@ -1365,13 +1433,23 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-quick-access__c
         padding: 0.18rem 0.45rem;
     }
 
-    .segments-hero-meta,
     .segments-hero .ui-hero__art {
         display: none;
     }
 
+    .segments-hero-meta {
+        display: flex;
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .segments-hero-toolbar {
+        justify-content: flex-start;
+        gap: 0.4rem;
+    }
+
     .segments-workspace {
-        height: calc(100dvh - 8.8rem);
+        height: calc(100dvh - 11.3rem);
         min-height: 34rem;
         overflow: hidden;
         border-radius: 0.45rem;
@@ -1381,17 +1459,8 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-quick-access__c
         display: none !important;
     }
 
-    .segments-map-panel > .segments-section-header,
     .segments-detail-surface > .segments-section-header {
         padding: 0.8rem 0.85rem 0.75rem;
-    }
-
-    .segments-map-panel > .segments-section-header {
-        align-items: flex-start;
-    }
-
-    .segments-map-panel > .segments-section-header > :first-child {
-        display: none;
     }
 
     #segments-map-header-toolbar,
@@ -1458,25 +1527,6 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-quick-access__c
     .segments-detail-actions-menu__trigger span {
         font-size: 0.66rem;
         letter-spacing: 0.12em;
-    }
-
-    .segments-detail-heading {
-        gap: 0.55rem;
-    }
-
-    .segments-detail-heading__icon {
-        display: none;
-    }
-
-    .segments-detail-heading__icon {
-        width: 1.85rem;
-        height: 1.85rem;
-        border-radius: 0.8rem;
-    }
-
-    .segments-detail-heading__icon svg {
-        width: 1.05rem;
-        height: 1.05rem;
     }
 
     .segments-detail-heading__title {

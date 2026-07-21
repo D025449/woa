@@ -392,14 +392,8 @@ body.has-fixed-app-topbar .segments-workspace-panel {
     border-radius: 0.35rem;
 }
 
-body.has-fixed-app-topbar .segments-map-panel > .segments-section-header {
-    border-top-left-radius: 0.35rem;
-    border-top-right-radius: 0.35rem;
-}
-
 body.has-fixed-app-topbar .segments-map-body {
-    border-bottom-left-radius: 0.35rem;
-    border-bottom-right-radius: 0.35rem;
+    border-radius: 0.35rem;
 }
 
 body.has-fixed-app-topbar .dashboard-detail-grid {

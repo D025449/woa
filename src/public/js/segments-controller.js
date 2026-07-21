@@ -1,5 +1,4 @@
 import MapView from "./segment-map-view.js";
-import TableView from "./segment-table-view.js";
 import SegmentBestEffortsCardView from "./segment-best-efforts-card-view.js";
 import SegmentElevationView from "./segment-elevation-view.js";
 import FlyoverView from "./flyover-view.js";
@@ -20,7 +19,6 @@ export default class Controller {
     this.currentUserId = String(document.body?.dataset?.currentUserId || "");
     this.segmentScope = this.uiState.get("segmentScope", "mine");
     this.bestEffortsScope = this.uiState.get("segmentBestEffortsScope", "mine");
-    this.bestEffortsViewMode = this.uiState.get("segmentBestEffortsViewMode", "table");
     this.bestEffortsPerUser = this.uiState.get("segmentBestEffortsPerUser", "all");
     this.favoriteOnly = !!this.uiState.get("segmentFavoriteOnly", false);
     this.recentSegmentIds = this.readStoredList("segmentsRecentIds");
@@ -55,6 +53,10 @@ export default class Controller {
     this.prevSegmentButton = document.getElementById("segment-prev");
     this.nextSegmentButton = document.getElementById("segment-next");
     this.map3dToggleButton = document.getElementById("segments-map-3d-toggle");
+    this.segmentArchiveExportButton = document.getElementById("segments-archive-export");
+    this.segmentArchiveImportButton = document.getElementById("segments-archive-import");
+    this.segmentArchiveFileInput = document.getElementById("segments-archive-file");
+    this.segmentArchiveBusy = false;
     this.toastElement = document.getElementById("segments-toast");
     this.toastBodyElement = document.getElementById("segments-toast-body");
     this.toast = this.toastElement && globalThis.bootstrap
@@ -103,21 +105,11 @@ export default class Controller {
       resolvePlaybackDurationMs: (segment, points) => this.resolveSegmentFlyoverDurationMs(segment, points)
     });
 
-    this.tableView = new TableView("#segment-table", {
-      currentUserId: this.currentUserId,
-      initialScope: this.bestEffortsScope,
-      initialPerUser: this.bestEffortsPerUser,
-      formatSegmentVisibilityBadge: (segment) => this.formatSegmentVisibilityBadge(segment),
-      onHeaderRendered: () => this.bindSegmentHeaderEvents(),
-      onRowOpen: async () => {},
-      onRowDelete: async (row) => row
-    });
-
     this.cardView = new SegmentBestEffortsCardView("#segment-best-efforts-cards", {
       currentUserId: this.currentUserId,
       initialScope: this.bestEffortsScope,
       initialPerUser: this.bestEffortsPerUser,
-      formatSegmentHeaderMarkup: (...args) => this.tableView.formatSegmentHeaderMarkup(...args),
+      formatSegmentHeaderMarkup: (...args) => this.formatSegmentHeaderMarkup(...args),
       onHeaderRendered: () => this.bindSegmentHeaderEvents()
     });
 
@@ -148,8 +140,10 @@ export default class Controller {
     this.scopeMineButton = document.getElementById("segments-scope-mine");
     this.scopeSharedButton = document.getElementById("segments-scope-shared");
     this.scopeAllButton = document.getElementById("segments-scope-all");
-    this.bestEffortsViewTableButton = document.getElementById("segment-bestefforts-view-table");
-    this.bestEffortsViewCardsButton = document.getElementById("segment-bestefforts-view-cards");
+    this.bestEffortsScopeMineButton = document.getElementById("segment-bestefforts-scope-mine");
+    this.bestEffortsScopeSharedButton = document.getElementById("segment-bestefforts-scope-shared");
+    this.bestEffortsScopeAllButton = document.getElementById("segment-bestefforts-scope-all");
+    this.bestEffortsScopeToggle = document.querySelector(".segment-bestefforts-scope-toggle");
     this.bestEffortsPerUserAllButton = document.getElementById("segment-bestefforts-per-user-all");
     this.bestEffortsPerUserOneButton = document.getElementById("segment-bestefforts-per-user-1");
     this.bestEffortsPerUserThreeButton = document.getElementById("segment-bestefforts-per-user-3");
@@ -162,9 +156,8 @@ export default class Controller {
     this.updateSegmentMeta();
     this.syncScopeButtons();
     this.syncFavoriteFilterButton();
-    this.syncBestEffortsViewButtons();
+    this.syncBestEffortsScopeButtons();
     this.syncBestEffortsPerUserButtons();
-    this.applyBestEffortsViewMode();
   }
 
   // -----------------------------
@@ -181,6 +174,19 @@ export default class Controller {
       await this.toggleFavoriteFilter();
     });
     this.map3dToggleButton?.addEventListener("click", () => this.open3dMap());
+    this.segmentArchiveExportButton?.addEventListener("click", async () => {
+      document.getElementById("segments-map-tools-menu")?.removeAttribute("open");
+      await this.exportSegmentArchive();
+    });
+    this.segmentArchiveImportButton?.addEventListener("click", () => {
+      document.getElementById("segments-map-tools-menu")?.removeAttribute("open");
+      this.segmentArchiveFileInput?.click();
+    });
+    this.segmentArchiveFileInput?.addEventListener("change", async () => {
+      const file = this.segmentArchiveFileInput?.files?.[0];
+      if (this.segmentArchiveFileInput) this.segmentArchiveFileInput.value = "";
+      if (file) await this.importSegmentArchive(file);
+    });
     this.shareToggleButton?.addEventListener("click", () => this.toggleShareInline());
     this.shareModeSelect?.addEventListener("change", () => this.updateShareModeUi());
     this.shareSaveButton?.addEventListener("click", async () => {
@@ -192,16 +198,10 @@ export default class Controller {
         await this.setSegmentScope(scope);
       });
     });
-    [this.tableView.scopeMineButton, this.tableView.scopeSharedButton, this.tableView.scopeAllButton].forEach((button) => {
+    [this.bestEffortsScopeMineButton, this.bestEffortsScopeSharedButton, this.bestEffortsScopeAllButton].forEach((button) => {
       button?.addEventListener("click", async () => {
         const scope = button.dataset.segmentBesteffortsScope || "mine";
         await this.setBestEffortsScope(scope);
-      });
-    });
-    [this.bestEffortsViewTableButton, this.bestEffortsViewCardsButton].forEach((button) => {
-      button?.addEventListener("click", async () => {
-        const mode = button.dataset.segmentBesteffortsView || "table";
-        await this.setBestEffortsViewMode(mode);
       });
     });
     [this.bestEffortsPerUserAllButton, this.bestEffortsPerUserOneButton, this.bestEffortsPerUserThreeButton].forEach((button) => {
@@ -454,16 +454,10 @@ export default class Controller {
     requestAnimationFrame(() => {
       this.mapView.resize();
       this.elevationView.resize();
-      if (this.bestEffortsViewMode === "table") {
-        this.tableView.resize();
-      }
 
       window.setTimeout(() => {
         this.mapView.resize();
         this.elevationView.resize();
-        if (this.bestEffortsViewMode === "table") {
-          this.tableView.resize();
-        }
       }, 60);
     });
   }
@@ -587,11 +581,10 @@ export default class Controller {
       return;
     }
 
-    const activeMatchCount = this.bestEffortsViewMode === "cards"
-      ? this.cardView?.lastMatchCount ?? null
-      : this.tableView?.table?.getDataCount?.("active");
-
-    this.segmentHeader.innerHTML = this.tableView.formatSegmentHeaderMarkup(this.selectedSegment, activeMatchCount);
+    this.segmentHeader.innerHTML = this.formatSegmentHeaderMarkup(
+      this.selectedSegment,
+      this.cardView?.lastMatchCount ?? null
+    );
     this.bindSegmentHeaderEvents();
   }
 
@@ -615,17 +608,9 @@ export default class Controller {
       return;
     }
 
-    this.tableView.setScope(this.bestEffortsScope);
     this.cardView.setScope(this.bestEffortsScope);
-    this.tableView.setPerUserFilter(this.bestEffortsPerUser);
     this.cardView.setPerUserFilter(this.bestEffortsPerUser);
-
-    if (this.bestEffortsViewMode === "cards") {
-      await this.cardView.loadSegment(this.selectedSegment);
-      return;
-    }
-
-    await this.tableView.loadSegment(null, this.selectedSegment);
+    await this.cardView.loadSegment(this.selectedSegment);
   }
 
   clearSelectedSegment() {
@@ -633,7 +618,6 @@ export default class Controller {
     this.selectedSegmentSharing = null;
     this.closeSegmentVisibilityPopover({ render: false });
     this.uiState.remove("selectedSegmentId");
-    this.tableView.clear();
     this.cardView.clear();
     this.elevationView.hide();
     this.flyoverView?.setWorkout(null);
@@ -1050,41 +1034,47 @@ export default class Controller {
       .replaceAll("'", "&#39;");
   }
 
-  updateBestEffortsScopeUi() {
-    const isSharedSegment = Number(this.selectedSegment?.shareGroupCount || 0) > 0;
-    this.tableView?.setScopeVisibility(!!isSharedSegment);
+  formatSegmentHeaderMarkup(segment, matchCount = null) {
+    if (!segment) {
+      return this.escapeHtml(this.t("insightsTitle"));
+    }
+
+    const ownerLabel = segment.ownerDisplayName || segment.ownerEmail || null;
+    const title = `#${segment.id}: ${segment.start.name} - ${segment.end.name}`;
+    const visibilityBadge = this.formatSegmentVisibilityBadge(segment);
+    const meta = [
+      ownerLabel ? `${this.t("table.ownerShort")}: ${ownerLabel}` : null,
+      Number.isFinite(matchCount) ? this.t("table.matches", { count: matchCount }) : null
+    ].filter(Boolean).join(" · ");
+
+    return `
+      <span class="segments-detail-heading">
+        <span class="segments-detail-heading__copy">
+          <span class="segments-detail-heading__title" title="${this.escapeHtml(title)}">${this.escapeHtml(title)}</span>
+          <span class="segments-detail-heading__meta">
+            ${meta ? `<span class="segments-detail-heading__meta-text">${this.escapeHtml(meta)}</span>` : ""}
+            ${visibilityBadge}
+          </span>
+        </span>
+      </span>
+    `;
   }
 
-  syncBestEffortsViewButtons() {
-    this.bestEffortsViewTableButton?.classList.toggle("active", this.bestEffortsViewMode === "table");
-    this.bestEffortsViewCardsButton?.classList.toggle("active", this.bestEffortsViewMode === "cards");
+  updateBestEffortsScopeUi() {
+    const isSharedSegment = Number(this.selectedSegment?.shareGroupCount || 0) > 0;
+    this.bestEffortsScopeToggle?.classList.toggle("is-hidden", !isSharedSegment);
+  }
+
+  syncBestEffortsScopeButtons() {
+    this.bestEffortsScopeMineButton?.classList.toggle("active", this.bestEffortsScope === "mine");
+    this.bestEffortsScopeSharedButton?.classList.toggle("active", this.bestEffortsScope === "shared");
+    this.bestEffortsScopeAllButton?.classList.toggle("active", this.bestEffortsScope === "all");
   }
 
   syncBestEffortsPerUserButtons() {
     this.bestEffortsPerUserAllButton?.classList.toggle("active", this.bestEffortsPerUser === "all");
     this.bestEffortsPerUserOneButton?.classList.toggle("active", this.bestEffortsPerUser === "1");
     this.bestEffortsPerUserThreeButton?.classList.toggle("active", this.bestEffortsPerUser === "3");
-  }
-
-  applyBestEffortsViewMode() {
-    const tableElement = document.getElementById("segment-table");
-    const cardsElement = document.getElementById("segment-best-efforts-cards");
-    tableElement?.classList.toggle("d-none", this.bestEffortsViewMode !== "table");
-    cardsElement?.classList.toggle("d-none", this.bestEffortsViewMode !== "cards");
-  }
-
-  async setBestEffortsViewMode(mode) {
-    const nextMode = mode === "cards" ? "cards" : "table";
-    if (nextMode === this.bestEffortsViewMode) {
-      return;
-    }
-
-    this.bestEffortsViewMode = nextMode;
-    this.uiState.set("segmentBestEffortsViewMode", nextMode);
-    this.syncBestEffortsViewButtons();
-    this.applyBestEffortsViewMode();
-    await this.loadSelectedSegmentBestEfforts();
-    this.scheduleChildResizes();
   }
 
   async setBestEffortsScope(scope) {
@@ -1095,8 +1085,8 @@ export default class Controller {
 
     this.bestEffortsScope = nextScope;
     this.uiState.set("segmentBestEffortsScope", nextScope);
-    this.tableView.setScope(nextScope);
     this.cardView.setScope(nextScope);
+    this.syncBestEffortsScopeButtons();
     await this.loadSelectedSegmentBestEfforts();
   }
 
@@ -1108,7 +1098,6 @@ export default class Controller {
 
     this.bestEffortsPerUser = nextMode;
     this.uiState.set("segmentBestEffortsPerUser", nextMode);
-    this.tableView.setPerUserFilter(nextMode);
     this.cardView.setPerUserFilter(nextMode);
     this.syncBestEffortsPerUserButtons();
     await this.loadSelectedSegmentBestEfforts();
@@ -1119,10 +1108,9 @@ export default class Controller {
     this.bestEffortsPerUser = "1";
     this.uiState.set("segmentBestEffortsScope", "mine");
     this.uiState.set("segmentBestEffortsPerUser", "1");
-    this.tableView.setScope("mine");
     this.cardView.setScope("mine");
-    this.tableView.setPerUserFilter("1");
     this.cardView.setPerUserFilter("1");
+    this.syncBestEffortsScopeButtons();
     this.syncBestEffortsPerUserButtons();
     await this.loadSelectedSegmentBestEfforts();
   }
@@ -1337,6 +1325,74 @@ export default class Controller {
 
     this.toastBodyElement.innerHTML = message;
     this.toast.show();
+  }
+
+  setSegmentArchiveBusy(busy) {
+    this.segmentArchiveBusy = !!busy;
+    if (this.segmentArchiveExportButton) this.segmentArchiveExportButton.disabled = this.segmentArchiveBusy;
+    if (this.segmentArchiveImportButton) this.segmentArchiveImportButton.disabled = this.segmentArchiveBusy;
+  }
+
+  async readApiError(response) {
+    const result = await response.json().catch(() => ({}));
+    return result.error || `${response.status} ${response.statusText}`;
+  }
+
+  async exportSegmentArchive() {
+    if (this.segmentArchiveBusy) return;
+    this.setSegmentArchiveBusy(true);
+    try {
+      const response = await fetch("/segments/archive/export");
+      if (!response.ok) throw new Error(await this.readApiError(response));
+
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || "woa-segments.zip";
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      this.showToast(this.t("messages.segmentArchiveExported"));
+    } catch (error) {
+      console.error("Segment archive export failed", error);
+      window.alert(error.message || this.t("messages.segmentArchiveFailed"));
+    } finally {
+      this.setSegmentArchiveBusy(false);
+    }
+  }
+
+  async importSegmentArchive(file) {
+    if (this.segmentArchiveBusy) return;
+    this.setSegmentArchiveBusy(true);
+    try {
+      const formData = new FormData();
+      formData.append("archive", file);
+      const response = await fetch("/segments/archive/import", {
+        method: "POST",
+        body: formData
+      });
+      if (!response.ok) throw new Error(await this.readApiError(response));
+
+      const result = await response.json();
+      this.clearSelectedSegment();
+      this.mapSegments = [];
+      this.mapView.controller.mapSegments = this.mapSegments;
+      this.mapView.refreshSegments();
+      this.focusApplied = false;
+      await this.mapView.loadSegmentsForViewport(this.mapView.map.getBounds());
+      this.showToast(this.t("messages.segmentArchiveImported", {
+        imported: Number(result.imported || 0),
+        skipped: Number(result.skippedDuplicates || 0)
+      }));
+    } catch (error) {
+      console.error("Segment archive import failed", error);
+      window.alert(error.message || this.t("messages.segmentArchiveFailed"));
+    } finally {
+      this.setSegmentArchiveBusy(false);
+    }
   }
 
   async deleteSelectedSegment() {
