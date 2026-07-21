@@ -175,6 +175,11 @@ export default class WorkoutService {
 
       const workout = {
         id: wid,
+        start_time: meta?.startTime ?? null,
+        total_timer_time: meta?.totalTimerTime == null ? null : Number(meta.totalTimerTime),
+        total_distance: meta?.totalDistance == null ? null : Number(meta.totalDistance),
+        avg_power: meta?.avgPower == null ? null : Number(meta.avgPower),
+        isFavorite: !!meta?.isFavorite,
         workoutObject,
         validGps: !!(meta?.validGps ?? workoutObject.isValidGps()),
         sampleRateGPS: meta?.sampleRateGps ?? 1,
@@ -240,6 +245,34 @@ export default class WorkoutService {
 
     const result = await response.json();
     return result.data;
+  }
+
+  static async setWorkoutFavorite(workoutId, isFavorite) {
+    const response = await fetch(`/workouts/${workoutId}/favorite`, {
+      method: isFavorite ? "PUT" : "DELETE",
+      credentials: "include"
+    });
+
+    if (response.status === 401) {
+      window.location.href = "/login";
+      return null;
+    }
+
+    if (!response.ok) {
+      let message = `Favorite update failed (${response.status})`;
+      try {
+        const result = await response.json();
+        message = result.error || message;
+      } catch {
+        const text = await response.text();
+        if (text) {
+          message = text;
+        }
+      }
+      throw new Error(message);
+    }
+
+    return response.json();
   }
 
   static async updateWorkoutSharing(workoutId, payload) {

@@ -44,7 +44,7 @@ export default class Controller {
     });
     this.maptilerApiKey = String(globalThis.__APP_CONFIG?.maptilerApiKey || "").trim();
     this.recentWorkoutIds = this.readStoredList("dashboardRecentWorkoutIds");
-    this.favoriteWorkoutIds = this.readStoredList("dashboardFavoriteWorkoutIds");
+    this.favoriteWorkoutIds = [];
     this.detailCopyElement = document.getElementById("dashboard-detail-copy");
     this.workoutTitleElement = document.getElementById("dashboard-workout-title");
     this.heroStatusElement = document.getElementById("dashboard-hero-status");
@@ -275,13 +275,18 @@ export default class Controller {
         }
         return result;
       },
-      onFavoriteChange: (favoriteIds) => {
+      onFavoriteChange: async ({ workoutId, isFavorite }) => {
+        await WorkoutService.setWorkoutFavorite(workoutId, isFavorite);
+      },
+      onFavoriteIdsChange: (favoriteIds) => {
         this.favoriteWorkoutIds = Array.isArray(favoriteIds) ? favoriteIds : [];
-        this.writeStoredList("dashboardFavoriteWorkoutIds", this.favoriteWorkoutIds);
         this.renderQuickAccess();
       },
       onFavoriteToggle: ({ isFavorite }) => {
         this.showToast(isFavorite ? this.t("messages.favoriteAdded") : this.t("messages.favoriteRemoved"));
+      },
+      onFavoriteError: (err) => {
+        this.showToast(err?.message || this.t("messages.workoutLibraryLoadFailed"));
       },
       onRendered: ({ append }) => {
         if (!append) {
@@ -368,10 +373,10 @@ export default class Controller {
 
       stepStartedAt = performance.now();
       Object.assign(workout, {
-        start_time: workoutMeta.start_time ?? null,
-        total_timer_time: workoutMeta.total_timer_time ?? null,
-        total_distance: workoutMeta.total_distance ?? null,
-        avg_power: workoutMeta.avg_power ?? null,
+        start_time: workout.start_time ?? workoutMeta.start_time ?? null,
+        total_timer_time: workout.total_timer_time ?? workoutMeta.total_timer_time ?? null,
+        total_distance: workout.total_distance ?? workoutMeta.total_distance ?? null,
+        avg_power: workout.avg_power ?? workoutMeta.avg_power ?? null,
         segmentProcessingStatus: workout.segmentProcessingStatus ?? workoutMeta.segment_processing_status ?? workoutMeta.segmentProcessingStatus ?? "queued",
         segmentProcessingError: workout.segmentProcessingError ?? workoutMeta.segment_processing_error ?? workoutMeta.segmentProcessingError ?? null,
         segmentProcessingUpdatedAt: workout.segmentProcessingUpdatedAt ?? workoutMeta.segment_processing_updated_at ?? workoutMeta.segmentProcessingUpdatedAt ?? null,
@@ -382,6 +387,7 @@ export default class Controller {
       this.currentWorkoutId = workout.id;
       this.uiState.set("selectedWorkoutId", workout.id);
       this.pushRecentWorkout(workout.id);
+      this.libraryView.setWorkoutFavoriteState(workout.id, workout.isFavorite);
 
       stepStartedAt = performance.now();
       this.chartView.updateWorkout(workout);
@@ -618,8 +624,7 @@ export default class Controller {
       .filter(Boolean)
       .slice(0, 4);
     const favoriteItems = this.favoriteWorkoutIds
-      .map((workoutId) => this.libraryView.getWorkoutById(workoutId))
-      .filter(Boolean)
+      .map((workoutId) => ({ id: workoutId }))
       .slice(0, 4);
 
     this.recentWorkoutsElement.innerHTML = recentItems
@@ -956,9 +961,13 @@ export default class Controller {
       return;
     }
 
-    this.similarWorkoutsPanelElement.classList.add("d-none");
+    this.similarWorkoutsPanelElement.classList.remove("d-none");
     this.similarWorkoutsCopyElement.textContent = this.t("similarWorkoutsCopy");
-    this.similarWorkoutsListElement.innerHTML = "";
+    this.similarWorkoutsListElement.innerHTML = `
+      <div class="dashboard-similar-workouts-empty">
+        ${this.t("similarWorkoutsEmpty")}
+      </div>
+    `;
     this.applyDetailSectionHeights();
   }
 
@@ -996,14 +1005,15 @@ export default class Controller {
       return `
         <button class="dashboard-similar-workout" type="button" data-similar-workout-open="${otherWorkoutId}">
           <span class="dashboard-similar-workout__header">
-            <span class="dashboard-similar-workout__title">${this.libraryT("workoutLabel", { id: otherWorkoutId })}</span>
             <span class="dashboard-similar-workout__score">${scorePercent}</span>
+            <span class="dashboard-similar-workout__identity">
+              <span class="dashboard-similar-workout__title">${this.libraryT("workoutLabel", { id: otherWorkoutId })}</span>
+              <span class="dashboard-similar-workout__meta">${dateLabel}</span>
+            </span>
+            <span class="dashboard-similar-workout__chevron" aria-hidden="true">›</span>
           </span>
-          <span class="dashboard-similar-workout__meta">${dateLabel}</span>
           <span class="dashboard-similar-workout__stats">
-            <span>${distanceLabel}</span>
-            <span>${ascentLabel}</span>
-            <span>${powerLabel}</span>
+            ${distanceLabel} · ${ascentLabel} · ${powerLabel}
           </span>
         </button>
       `;
@@ -1189,7 +1199,8 @@ export default class Controller {
     const observerTargets = [
       document.querySelector(".app-topbar"),
       this.heroElement,
-      this.masterDetailElement
+      this.masterDetailElement,
+      this.detailGridElement
     ].filter(Boolean);
 
     if (!observerTargets.length) {

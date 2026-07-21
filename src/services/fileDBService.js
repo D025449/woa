@@ -526,6 +526,12 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       owner.display_name AS owner_display_name,
       owner.email AS owner_email,
       (workouts.uid = $1)::boolean AS is_owned,
+      EXISTS (
+        SELECT 1
+        FROM workout_favorites wf
+        WHERE wf.uid = $1
+          AND wf.workout_id = workouts.id
+      ) AS is_favorite,
       CASE
         WHEN ${FEATURE_THUMBNAILS_ON_DEMAND ? "TRUE" : "FALSE"}
         THEN TRUE
@@ -548,7 +554,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
   }
 
 
-  static async getWorkoutsByUser(uid, page, size, sort, filter, scope = "mine") {
+  static async getWorkoutsByUser(uid, page, size, sort, filter, scope = "mine", favoritesOnly = false) {
 
     const offset = (page - 1) * size;
 
@@ -592,6 +598,14 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     }
 
     let baseWhere = `WHERE (${accessPredicate})`;
+    if (favoritesOnly) {
+      baseWhere += ` AND EXISTS (
+        SELECT 1
+        FROM workout_favorites wf_filter
+        WHERE wf_filter.uid = $1
+          AND wf_filter.workout_id = workouts.id
+      )`;
+    }
     let sqlParams = [uid, ...params];
     if (whereSQL) {
       const adjustedWhere = FileDBService.qualifySqlColumns(
@@ -658,6 +672,25 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       WHERE uid = $1
     `, [uid]);
     const summaryRow = summaryResult.rows[0] || {};
+    const favoritesResult = await pool.query(`
+      SELECT wf.workout_id
+      FROM workout_favorites wf
+      INNER JOIN workouts w
+        ON w.id = wf.workout_id
+      WHERE wf.uid = $1
+        AND (
+          w.uid = $1
+          OR EXISTS (
+            SELECT 1
+            FROM workout_group_shares wgs
+            INNER JOIN group_members gm
+              ON gm.group_id = wgs.group_id
+            WHERE wgs.workout_id = w.id
+              AND gm.user_id = $1
+          )
+        )
+      ORDER BY wf.created_at DESC
+    `, [uid]);
 
     const enriched_recs = await FileDBService.post_calculations(uid, dataResult.rows, "year");
 
@@ -665,6 +698,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       data: enriched_recs,
       last_page: Math.ceil(totalRecords / size),
       total_records: totalRecords,
+      favorite_workout_ids: favoritesResult.rows.map((row) => String(row.workout_id)),
       own_summary: {
         workout_count: Number(summaryRow.workout_count) || 0,
         total_timer_time: Number(summaryRow.total_timer_time) || 0,

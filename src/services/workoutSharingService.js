@@ -46,7 +46,13 @@ export default class WorkoutSharingService {
         w.uid,
         owner.display_name AS owner_display_name,
         owner.email AS owner_email,
-        (w.uid = $2) AS is_owner
+        (w.uid = $2) AS is_owner,
+        EXISTS (
+          SELECT 1
+          FROM workout_favorites wf
+          WHERE wf.uid = $2
+            AND wf.workout_id = w.id
+        ) AS is_favorite
       FROM workouts w
       INNER JOIN users owner
         ON owner.id = w.uid

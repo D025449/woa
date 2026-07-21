@@ -112,6 +112,7 @@ router.get("/workouts", authMiddleware, async (req, res, next) => {
     const sort = normalizeArrayParam(req.query.sort);
     const filters = normalizeArrayParam(req.query.filter);
     const scope = String(req.query.scope || "mine");
+    const favoritesOnly = ["1", "true"].includes(String(req.query.favoritesOnly || "").toLowerCase());
     const uid = req.user?.id;
 
     const result = await FileDBService.getWorkoutsByUser(
@@ -120,7 +121,8 @@ router.get("/workouts", authMiddleware, async (req, res, next) => {
       size,
       sort,
       filters,
-      scope
+      scope,
+      favoritesOnly
     );
 
 

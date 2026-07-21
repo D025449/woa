@@ -966,6 +966,10 @@ export default class WorkoutDBService {
     const result = await pool.query(
       `SELECT
         id,
+        start_time,
+        total_timer_time,
+        total_distance,
+        avg_power,
         validgps,
         sampleRateGPS,
         gps_source,

@@ -13,6 +13,7 @@ import { enqueueSegmentBestEfforts } from "../services/segment-best-efforts-serv
 import FitExportService from "../services/fitExportService.js";
 import WorkoutThumbnailService from "../services/workoutThumbnailService.js";
 import WorkoutSimilarityService from "../services/workoutSimilarityService.js";
+import WorkoutFavoriteService from "../services/workoutFavoriteService.js";
 import { fetchBicycleRoute } from "../services/bicycleRoutingService.js";
 import WorkoutOpenV2 from "../shared/WorkoutOpenV2.js";
 
@@ -161,6 +162,39 @@ router.get("/:id/sharing", authMiddleware, async (req, res) => {
   }
 });
 
+router.put("/:id/favorite", authMiddleware, requireActiveAccountWrite, async (req, res) => {
+  try {
+    const workoutId = Number(req.params.id);
+    const uid = req.user.id;
+    if (!Number.isInteger(workoutId) || workoutId <= 0) {
+      return res.status(400).json({ error: "Invalid workout id" });
+    }
+
+    await WorkoutSharingService.getAccessibleWorkout(uid, workoutId);
+    await WorkoutFavoriteService.add(uid, workoutId);
+    return res.json({ ok: true, workoutId, isFavorite: true });
+  } catch (err) {
+    console.error("PUT /workouts/:id/favorite failed:", err);
+    return res.status(err.statusCode || 500).json({ error: err.message || "Failed to add workout favorite" });
+  }
+});
+
+router.delete("/:id/favorite", authMiddleware, requireActiveAccountWrite, async (req, res) => {
+  try {
+    const workoutId = Number(req.params.id);
+    const uid = req.user.id;
+    if (!Number.isInteger(workoutId) || workoutId <= 0) {
+      return res.status(400).json({ error: "Invalid workout id" });
+    }
+
+    await WorkoutFavoriteService.remove(uid, workoutId);
+    return res.json({ ok: true, workoutId, isFavorite: false });
+  } catch (err) {
+    console.error("DELETE /workouts/:id/favorite failed:", err);
+    return res.status(500).json({ error: "Failed to remove workout favorite" });
+  }
+});
+
 router.put("/:id/sharing", authMiddleware, requireActiveAccountWrite, async (req, res) => {
   try {
     const workoutId = Number(req.params.id);
@@ -229,6 +263,11 @@ router.get("/:id/open-v2", authMiddleware, async (req, res) => {
     const payload = WorkoutOpenV2.buildPayload({
       meta: {
         workoutId: Number(id),
+        startTime: row.start_time || null,
+        totalTimerTime: row.total_timer_time == null ? null : Number(row.total_timer_time),
+        totalDistance: row.total_distance == null ? null : Number(row.total_distance),
+        avgPower: row.avg_power == null ? null : Number(row.avg_power),
+        isFavorite: !!accessInfo.is_favorite,
         streamCodec: String(row.stream_codec || "brotli"),
         gpsTrackCodec: String(row.gps_track_blob_codec || "brotli"),
         validGps: !!(row?.validgps ?? row?.validGps),

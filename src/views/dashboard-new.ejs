@@ -287,7 +287,7 @@
                         aria-label="<%= t('dashboardNewPage.library.splitterAria') %>">
                     </div>
 
-                    <section id="dashboard-detail-grid" class="dashboard-detail-grid">
+                    <section id="dashboard-detail-grid" class="dashboard-detail-grid has-similar-panel">
                         <div id="dashboard-detail-main-stack" class="dashboard-detail-main-stack">
                             <article id="dashboard-workspace-panel" class="dashboard-surface dashboard-workspace-panel dashboard-detail-panel">
                             <div class="dashboard-section-header">
@@ -419,7 +419,7 @@
                             </aside>
                         </div>
 
-                        <article id="dashboard-similar-workouts-panel" class="dashboard-surface dashboard-detail-panel dashboard-similar-workouts-panel d-none">
+                        <article id="dashboard-similar-workouts-panel" class="dashboard-surface dashboard-detail-panel dashboard-similar-workouts-panel">
                             <div class="dashboard-section-header">
                                 <div>
                                     <span class="dashboard-eyebrow"><%= t("dashboardNewPage.similarWorkoutsEyebrow") %></span>
@@ -428,7 +428,9 @@
                                 </div>
                             </div>
                             <div class="dashboard-surface-body">
-                                <div id="dashboard-similar-workouts-list" class="dashboard-similar-workouts-list"></div>
+                                <div id="dashboard-similar-workouts-list" class="dashboard-similar-workouts-list">
+                                    <div class="dashboard-similar-workouts-empty"><%= t("dashboardNewPage.similarWorkoutsEmpty") %></div>
+                                </div>
                             </div>
                         </article>
                     </section>

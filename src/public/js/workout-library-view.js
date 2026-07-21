@@ -7,6 +7,7 @@ export default class WorkoutLibraryView {
     this.t = createTranslator("dashboardNewPage.library");
     this.pageT = createTranslator("dashboardNewPage");
     this.locale = getCurrentLocale();
+    this.numberFormatters = new Map();
     this.container = document.querySelector(containerSelector);
     this.scrollRoot = this.container?.closest?.(".workout-library-scroll") || null;
     this.handlers = handlers;
@@ -182,7 +183,7 @@ export default class WorkoutLibraryView {
       this.updateFavoriteFilterButton();
       this.handlers.onStateChange?.(this.getState());
       this.renderActiveFilters();
-      this.render();
+      this.reload();
     });
 
     this.selectionModeButton?.addEventListener("click", () => {
@@ -301,9 +302,14 @@ export default class WorkoutLibraryView {
     this.totalRecords = result.total_records || 0;
     this.lastPage = result.last_page || 1;
     this.ownSummary = result.own_summary || null;
+    this.favoriteWorkoutIds = new Set(
+      (result.favorite_workout_ids || []).map((value) => String(value))
+    );
     this.items = append
       ? [...this.items, ...(result.data || [])]
       : (result.data || []);
+
+    this.handlers.onFavoriteIdsChange?.([...this.favoriteWorkoutIds]);
 
     this.renderHeader();
     this.render();
@@ -321,6 +327,7 @@ export default class WorkoutLibraryView {
     params.set("sort", JSON.stringify(this.buildSort()));
     params.set("filter", JSON.stringify(this.buildFilters()));
     params.set("scope", this.scopeValue || "mine");
+    params.set("favoritesOnly", this.favoriteFilterActive ? "1" : "0");
     return `/files/workouts?${params.toString()}`;
   }
 
@@ -373,7 +380,9 @@ export default class WorkoutLibraryView {
     }
 
     if (this.ownSummary) {
-      const countText = this.t("workoutCount", { count: this.ownSummary.workout_count || 0 });
+      const countText = this.t("workoutCount", {
+        count: this.formatNumber(this.ownSummary.workout_count || 0, 0)
+      });
       const parts = [
         countText,
         this.formatAggregateHours(this.ownSummary.total_timer_time),
@@ -384,7 +393,9 @@ export default class WorkoutLibraryView {
       return;
     }
 
-    this.headerElement.textContent = this.t("workoutCount", { count: this.totalRecords });
+    this.headerElement.textContent = this.t("workoutCount", {
+      count: this.formatNumber(this.totalRecords, 0)
+    });
   }
 
   renderActiveFilters() {
@@ -451,7 +462,7 @@ export default class WorkoutLibraryView {
       this.updateFavoriteFilterButton();
       this.handlers.onStateChange?.(this.getState());
       this.renderActiveFilters();
-      this.render();
+      this.reload();
       return;
     }
 
@@ -611,6 +622,20 @@ export default class WorkoutLibraryView {
     return this.items.find((workout) => String(workout.id) === targetId) || null;
   }
 
+  setWorkoutFavoriteState(workoutId, isFavorite) {
+    const key = String(workoutId);
+    const workout = this.items.find((entry) => String(entry.id) === key);
+    if (workout) {
+      workout.is_favorite = !!isFavorite;
+    }
+    if (isFavorite) {
+      this.favoriteWorkoutIds.add(key);
+    } else {
+      this.favoriteWorkoutIds.delete(key);
+    }
+    this.handlers.onFavoriteIdsChange?.([...this.favoriteWorkoutIds]);
+  }
+
   removeWorkout(workoutId) {
     const targetId = String(workoutId);
     const removedWorkout = this.items.find((workout) => String(workout.id) === targetId) || null;
@@ -684,11 +709,7 @@ export default class WorkoutLibraryView {
   }
 
   getRenderableItems() {
-    if (!this.favoriteFilterActive) {
-      return this.items;
-    }
-
-    return this.items.filter((workout) => this.favoriteWorkoutIds.has(String(workout.id)));
+    return this.items;
   }
 
   render() {
@@ -1096,7 +1117,7 @@ export default class WorkoutLibraryView {
           value: this.formatSpeed(workout.avg_speed)
         }
       : null;
-    const isFavorite = this.favoriteWorkoutIds.has(workoutId);
+    const isFavorite = !!workout.is_favorite;
     const isSelectable = this.selectionMode && isOwned;
     const isSelectedForBulk = this.selectedWorkoutIds.has(workoutId);
 
@@ -1281,9 +1302,29 @@ export default class WorkoutLibraryView {
   }
 
   formatDistance(value, fractionDigits = 1) {
-    return Number.isFinite(value)
-      ? `${(Number(value) / 1000).toFixed(fractionDigits)} km`
+    const meters = Number(value);
+    return Number.isFinite(meters)
+      ? `${this.formatNumber(meters / 1000, fractionDigits)} km`
       : this.t("na");
+  }
+
+  formatNumber(value, fractionDigits = 0) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+      return this.t("na");
+    }
+
+    const digits = Math.max(0, Math.floor(Number(fractionDigits) || 0));
+    const cacheKey = `${this.locale || "default"}:${digits}`;
+    if (!this.numberFormatters.has(cacheKey)) {
+      this.numberFormatters.set(cacheKey, new Intl.NumberFormat(this.locale || undefined, {
+        useGrouping: true,
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits
+      }));
+    }
+
+    return this.numberFormatters.get(cacheKey).format(numericValue);
   }
 
   escapeHtml(value) {
@@ -1368,12 +1409,7 @@ export default class WorkoutLibraryView {
   formatAggregateHours(value) {
     const seconds = Number(value) || 0;
     const hours = seconds / 3600;
-    const formatter = new Intl.NumberFormat(this.locale || undefined, {
-      minimumFractionDigits: hours >= 100 ? 0 : 1,
-      maximumFractionDigits: hours >= 100 ? 0 : 1
-    });
-
-    return `${formatter.format(hours)} h`;
+    return `${this.formatNumber(hours, hours >= 100 ? 0 : 1)} h`;
   }
 
   getCompactStat(workout) {
@@ -1439,21 +1475,49 @@ export default class WorkoutLibraryView {
     return summary.join(" · ");
   }
 
-  toggleFavoriteWorkout(workoutId) {
+  async toggleFavoriteWorkout(workoutId) {
     const key = String(workoutId);
-    const isActive = !this.favoriteWorkoutIds.has(key);
-    if (this.favoriteWorkoutIds.has(key)) {
-      this.favoriteWorkoutIds.delete(key);
+    const workout = this.items.find((entry) => String(entry.id) === key);
+    const wasActive = workout ? !!workout.is_favorite : this.favoriteWorkoutIds.has(key);
+    const isActive = !wasActive;
+
+    if (isActive) {
+      this.favoriteWorkoutIds = new Set([key, ...this.favoriteWorkoutIds]);
     } else {
-      this.favoriteWorkoutIds.add(key);
+      this.favoriteWorkoutIds.delete(key);
+    }
+    if (workout) {
+      workout.is_favorite = isActive;
     }
 
-    this.handlers.onFavoriteChange?.([...this.favoriteWorkoutIds]);
-    this.handlers.onFavoriteToggle?.({
-      workoutId: key,
-      isFavorite: isActive
-    });
     this.render();
+
+    try {
+      await this.handlers.onFavoriteChange?.({
+        workoutId: key,
+        isFavorite: isActive
+      });
+      this.handlers.onFavoriteIdsChange?.([...this.favoriteWorkoutIds]);
+      this.handlers.onFavoriteToggle?.({
+        workoutId: key,
+        isFavorite: isActive
+      });
+      if (this.favoriteFilterActive && !isActive) {
+        await this.reload();
+      }
+    } catch (err) {
+      if (wasActive) {
+        this.favoriteWorkoutIds.add(key);
+      } else {
+        this.favoriteWorkoutIds.delete(key);
+      }
+      if (workout) {
+        workout.is_favorite = wasActive;
+      }
+      this.handlers.onFavoriteIdsChange?.([...this.favoriteWorkoutIds]);
+      this.render();
+      this.handlers.onFavoriteError?.(err);
+    }
   }
 
   buildEmptyState() {

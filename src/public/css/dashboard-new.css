@@ -1431,7 +1431,7 @@ body.dashboard-page {
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.8rem;
-  margin-bottom: 0.55rem;
+  margin-bottom: 0.4rem;
 }
 
 .workout-library-card__identity {
@@ -1443,7 +1443,8 @@ body.dashboard-page {
 .workout-library-card__context {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.3rem;
+  gap: 0.38rem;
+  align-items: center;
   position: relative;
 }
 
@@ -1470,40 +1471,43 @@ body.dashboard-page {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.9rem;
-  height: 1.9rem;
-  border: 1px solid var(--ui-card-border-soft);
-  border-radius: 999px;
-  background: var(--ui-bg-subtle);
+  width: 1.35rem;
+  height: 1.35rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--ui-text-muted);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition: color 120ms ease;
 }
 
 .workout-library-card__favorite:hover {
   color: var(--ui-warning-text);
-  background: var(--ui-warning-bg);
-  border-color: var(--ui-warning-border);
 }
 
 .workout-library-card__favorite.is-active {
   color: var(--ui-warning-text);
-  background: var(--ui-warning-bg);
-  border-color: var(--ui-warning-border);
 }
 
 .workout-library-card__context-chip {
   display: inline-flex;
   align-items: center;
-  padding: 0.2rem 0.48rem;
-  border: 1px solid var(--ui-chip-border-soft);
-  border-radius: 999px;
-  background: var(--ui-bg-subtle);
+  gap: 0.38rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--ui-text-muted);
-  font-size: 0.69rem;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.workout-library-card__context-chip + .workout-library-card__context-chip::before {
+  content: "·";
+  color: color-mix(in srgb, var(--ui-text-muted) 58%, transparent);
 }
 
 .workout-library-card__context-chip--button {
@@ -1564,33 +1568,36 @@ body.dashboard-page {
 
 .workout-library-card__kpi-strip {
   display: flex;
-  align-items: stretch;
+  align-items: baseline;
   justify-content: flex-end;
-  gap: 0.45rem;
+  gap: 0.85rem;
   flex-wrap: wrap;
 }
 
 .workout-library-kpi {
-  min-width: 92px;
-  padding: 0.44rem 0.6rem;
-  border: 1px solid var(--ui-card-border-muted);
-  border-radius: var(--ui-card-radius);
-  background: var(--ui-bg-kpi-soft);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.32rem;
 }
 
 .workout-library-kpi__label {
-  display: block;
-  font-size: 0.64rem;
+  display: inline;
+  font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ui-text-muted);
-  margin-bottom: 0.12rem;
+  margin: 0;
 }
 
 .workout-library-kpi__value {
-  display: block;
-  font-size: 0.88rem;
+  display: inline;
+  font-size: 0.86rem;
   font-weight: 700;
   color: var(--ui-text-strong);
   font-variant-numeric: tabular-nums;
@@ -1636,8 +1643,8 @@ body.dashboard-page {
   max-width: 100%;
   aspect-ratio: 16 / 10;
   overflow: hidden;
-  border: 1px solid var(--ui-card-border-soft);
-  border-radius: 1rem;
+  border: 0;
+  border-radius: 0.45rem;
   background: linear-gradient(135deg, rgba(248, 250, 252, 0.98), rgba(226, 232, 240, 0.82));
 }
 
@@ -1650,6 +1657,7 @@ body.dashboard-page {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  transform: scale(1.08);
 }
 
 .workout-library-card__thumb-placeholder {
@@ -1961,13 +1969,13 @@ body.dashboard-page {
 }
 
 .dashboard-similar-workouts-panel .dashboard-surface-body {
-  padding: 1rem 1.1rem 1.15rem;
+  padding: 0 0.8rem 0.65rem;
   overflow: auto;
 }
 
 .dashboard-similar-workouts-list {
   display: grid;
-  gap: 0.75rem;
+  gap: 0;
 }
 
 .dashboard-similar-workouts-empty {
@@ -1982,58 +1990,75 @@ body.dashboard-page {
 
 .dashboard-similar-workout {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.38rem;
   width: 100%;
-  padding: 0.8rem 0.95rem;
-  border: 1px solid var(--ui-card-border-soft);
-  border-radius: 1rem;
-  background: var(--ui-bg-subtle);
+  padding: 0.72rem 0.65rem;
+  border: 0;
+  border-bottom: 1px solid var(--ui-divider-color);
+  border-radius: 0;
+  background: transparent;
   color: var(--ui-text-default);
   text-align: left;
-  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+  transition: background 120ms ease;
 }
 
 .dashboard-similar-workout:hover {
-  border-color: var(--ui-border-color-emphasis);
-  background: var(--ui-bg-subtle-soft);
-  transform: translateY(-1px);
+  background: var(--ui-bg-subtle-faint);
 }
 
 .dashboard-similar-workout__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.65rem;
+}
+
+.dashboard-similar-workout__identity {
+  display: grid;
+  min-width: 0;
 }
 
 .dashboard-similar-workout__title {
-  font-size: 0.92rem;
-  font-weight: 700;
+  overflow: hidden;
   color: var(--ui-text-strong);
-}
-
-.dashboard-similar-workout__score {
-  padding: 0.16rem 0.5rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--ui-info-border-hover) 16%, transparent);
-  color: var(--ui-info-text-strong);
-  font-size: 0.76rem;
+  font-size: 0.9rem;
   font-weight: 800;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dashboard-similar-workout__meta {
-  font-size: 0.78rem;
-  font-weight: 600;
+  margin-top: 0.2rem;
+  overflow: hidden;
   color: var(--ui-text-muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-similar-workout__score {
+  color: var(--ui-info-text);
+  font-size: 0.92rem;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.dashboard-similar-workout__chevron {
+  color: var(--ui-text-strong);
+  font-size: 1.15rem;
+  line-height: 1;
 }
 
 .dashboard-similar-workout__stats {
-  display: flex;
-  gap: 0.7rem;
-  flex-wrap: wrap;
-  font-size: 0.8rem;
-  font-weight: 700;
   color: var(--ui-text-default);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: normal;
 }
 
 .dashboard-mobile-library-toggle {
