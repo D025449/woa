@@ -171,13 +171,22 @@ export async function enqueueSegmentBestEfforts({ uid, segmentIds }) {
     return null;
   }
 
-  return segmentBestEffortsQueue.add(
-    "process-segment-best-efforts",
-    {
+  const normalizedSegmentIds = [...new Set(
+    segmentIds
+      .map((segmentId) => Number(segmentId))
+      .filter((segmentId) => Number.isInteger(segmentId) && segmentId > 0)
+  )];
+  if (normalizedSegmentIds.length === 0) {
+    return null;
+  }
+
+  return segmentBestEffortsQueue.addBulk(normalizedSegmentIds.map((segmentId) => ({
+    name: "process-segment-best-efforts",
+    data: {
       uid,
-      segmentIds
+      segmentIds: [segmentId]
     },
-    {
+    opts: {
       attempts: 3,
       backoff: {
         type: "exponential",
@@ -186,5 +195,5 @@ export async function enqueueSegmentBestEfforts({ uid, segmentIds }) {
       removeOnComplete: 100,
       removeOnFail: 100
     }
-  );
+  })));
 }

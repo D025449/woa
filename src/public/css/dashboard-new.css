@@ -1691,17 +1691,62 @@ body.dashboard-page {
 }
 
 @media (max-width: 640px) {
+  .workout-library-card {
+    padding: 0.65rem 0.65rem 0.65rem 0.8rem;
+  }
+
+  .workout-library-card__head {
+    gap: 0.45rem;
+    margin-bottom: 0.35rem;
+  }
+
+  .workout-library-card__context {
+    gap: 0.22rem 0.3rem;
+  }
+
+  .workout-library-card__kpi-strip {
+    flex: 0 0 auto;
+    gap: 0.45rem;
+  }
+
   .workout-library-card__body-main {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(6.5rem, 38%) minmax(0, 1fr);
+    gap: 0.55rem;
+    align-items: start;
+  }
+
+  .workout-library-card__thumb-shell {
+    width: 100%;
   }
 
   .workout-library-card__body-copy {
-    grid-template-columns: 1fr;
-    gap: 0.55rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.3rem 0.45rem;
+  }
+
+  .workout-library-card__body-copy-group {
+    gap: 0.22rem;
+  }
+
+  .workout-library-stat {
+    min-width: 0;
+    gap: 0.22rem;
+    white-space: nowrap;
+  }
+
+  .workout-library-stat__label {
+    font-size: 0.64rem;
+    letter-spacing: 0.05em;
+  }
+
+  .workout-library-stat__value {
+    font-size: 0.8rem;
   }
 
   .workout-library-actions-menu--inline {
-    justify-self: start;
+    grid-column: 2;
+    justify-self: end;
+    align-self: end;
   }
 }
 

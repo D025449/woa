@@ -963,6 +963,13 @@ export async function createApp(options = {}) {
   }
 
   async function processSegmentBestEffortsJob(uid, segmentIds) {
+    if (segmentIds.length > 1) {
+      for (const segmentId of segmentIds) {
+        await processSegmentBestEffortsJob(uid, [segmentId]);
+      }
+      return;
+    }
+
     const startedAt = Date.now();
     const profile = {
       updateProcessingStatusMs: 0,
@@ -977,28 +984,17 @@ export async function createApp(options = {}) {
     profile.updateProcessingStatusMs = Date.now() - updateProcessingStatusStartedAt;
 
     try {
-      let matchingEfforts;
-      let scanProfile = null;
-      if (segmentIds.length === 1) {
-        const loadSegmentStartedAt = Date.now();
-        const segment = await SegmentDBService.getSegmentById(uid, segmentIds[0]);
-        profile.loadSegmentMs = Date.now() - loadSegmentStartedAt;
+      const loadSegmentStartedAt = Date.now();
+      const segment = await SegmentDBService.getSegmentById(uid, segmentIds[0]);
+      profile.loadSegmentMs = Date.now() - loadSegmentStartedAt;
 
-        const scanWorkoutsStartedAt = Date.now();
-        const scanResult = segment
-          ? await SegmentDBService.scanWorkoutsForSegment(uid, segment, { includeProfile: true })
-          : { matches: [], profile: {} };
-        profile.scanWorkoutsMs = Date.now() - scanWorkoutsStartedAt;
-        matchingEfforts = scanResult.matches;
-        scanProfile = scanResult.profile;
-      } else {
-        const scanWorkoutsStartedAt = Date.now();
-        matchingEfforts = await SegmentDBService.scanWorkoutsForSegments(
-          uid,
-          segmentIds.map((id) => ({ id }))
-        );
-        profile.scanWorkoutsMs = Date.now() - scanWorkoutsStartedAt;
-      }
+      const scanWorkoutsStartedAt = Date.now();
+      const scanResult = segment
+        ? await SegmentDBService.scanWorkoutsForSegment(uid, segment, { includeProfile: true })
+        : { matches: [], profile: {} };
+      profile.scanWorkoutsMs = Date.now() - scanWorkoutsStartedAt;
+      const matchingEfforts = scanResult.matches;
+      const scanProfile = scanResult.profile;
 
       const storeBestEffortsStartedAt = Date.now();
       await SegmentDBService.storeSegmentBestEffortsV2(matchingEfforts);

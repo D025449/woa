@@ -1463,10 +1463,16 @@ export default class Controller {
         await MapSegment.deleteSegment(segment.id);
       }
 
+      const deletedSegmentId = String(segment.id);
+      this.favoriteSegmentIds = this.favoriteSegmentIds.filter((value) => value !== deletedSegmentId);
+      this.recentSegmentIds = this.recentSegmentIds.filter((value) => value !== deletedSegmentId);
+      this.writeStoredList("segmentsRecentIds", this.recentSegmentIds);
+
       this.mapSegments = this.mapSegments.filter((entry) => entry.id !== segment.id);
       this.mapView.controller.mapSegments = this.mapSegments;
       this.mapView.refreshSegments();
       this.clearSelectedSegment();
+      this.renderQuickAccess();
     } catch (err) {
       console.error(err);
       window.alert(this.t("messages.failedDeleteSegment"));

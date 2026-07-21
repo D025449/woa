@@ -276,7 +276,12 @@ router.post(
       const existingSegments = await SegmentDBService.getOwnedSegmentsForArchive(uid);
       const { accepted, skippedDuplicates } = filterNovelSegments(importedSegments, existingSegments);
       const insertedRows = await SegmentDBService.insertGpsSegmentsBulk(uid, accepted);
-      const segmentIds = insertedRows.map((row) => Number(row.id)).filter(Number.isInteger);
+      const segmentIds = [...new Set([
+        ...insertedRows.map((row) => Number(row.id)),
+        ...existingSegments
+          .filter((segment) => segment.bestEffortsStatus !== "completed")
+          .map((segment) => Number(segment.id))
+      ].filter(Number.isInteger))];
 
       if (segmentIds.length > 0) {
         await enqueueSegmentBestEfforts({ uid, segmentIds });
@@ -286,13 +291,15 @@ router.post(
         uid: String(uid),
         total: importedSegments.length,
         imported: insertedRows.length,
-        skippedDuplicates
+        skippedDuplicates,
+        queuedBestEffortScans: segmentIds.length
       });
       res.status(201).json({
         ok: true,
         total: importedSegments.length,
         imported: insertedRows.length,
         skippedDuplicates,
+        queuedBestEffortScans: segmentIds.length,
         segments: insertedRows.map((row) => SegmentDBService.mapSegment(row))
       });
     } catch (error) {
