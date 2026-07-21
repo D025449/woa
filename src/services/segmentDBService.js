@@ -1715,7 +1715,7 @@ export default class SegmentDBService {
       u.altitudes,
       u.best_efforts_status,
 
-      u.gps_bounds,
+      u.gps_bounds::box,
       u.track_blob,
       u.track_blob_codec
 
@@ -1738,7 +1738,7 @@ export default class SegmentDBService {
       $13::int[],
       $14::jsonb[],
       $15::text[],
-      $16::box[],
+      $16::text[],
       $17::bytea[],
       $18::text[]
     ) AS u(
