@@ -244,13 +244,16 @@ export default class MapView {
       });
 
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || this.t("lookupFailed"));
+      }
 
       console.log(this.t("lookupResult"), data);
 
       if (data?.track) {
-        await this.controller.mapSegments.push(data);
+        this.controller.mapSegments.push(data);
         this.renderAllSegments();
-        this.handlers.onSegmentOpen?.({ type: 'end' }, data);
+        await this.handlers.onSegmentOpen?.({ type: "end" }, data);
       }
       this.resetLookupSelection();
 

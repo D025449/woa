@@ -13,6 +13,7 @@ export default class SegmentBestEffortsCardView {
     this.perUserValue = handlers.initialPerUser ?? "all";
     this.pollTimer = null;
     this.pollAttempt = 0;
+    this.pollDeadline = 0;
     this.page = 1;
     this.pageSize = handlers.pageSize || 20;
     this.lastPage = 1;
@@ -77,13 +78,16 @@ export default class SegmentBestEffortsCardView {
       this.renderRows(rows, { append });
       this.updateLoadMore();
 
-      if (this.shouldPollBestEfforts(segment)) {
+      if (this.shouldPollBestEfforts(segment, rows.length)) {
         this.startBestEffortsPolling(segment.id);
       }
     } catch (error) {
       console.error(error);
       this.container.innerHTML = `<div class="segments-best-efforts-empty">${this.t("messages.failedBestEffortsStatus")}</div>`;
       this.updateLoadMore();
+      if (this.shouldPollBestEfforts(segment, 0)) {
+        this.startBestEffortsPolling(segment.id);
+      }
     }
   }
 
@@ -194,16 +198,29 @@ export default class SegmentBestEffortsCardView {
 
   resize() {}
 
-  shouldPollBestEfforts(segment) {
-    return segment?.bestEffortsStatus === "queued" || segment?.bestEffortsStatus === "processing";
+  shouldPollBestEfforts(segment, rowCount = 0) {
+    const status = String(segment?.bestEffortsStatus || "").toLowerCase();
+    return status === "queued"
+      || status === "processing"
+      || (!status && Number(rowCount) === 0);
   }
 
   startBestEffortsPolling(segmentId) {
     this.stopBestEffortsPolling();
     this.pollAttempt = 0;
+    this.pollDeadline = Date.now() + (5 * 60 * 1000);
+
+    const scheduleNext = () => {
+      if (Date.now() >= this.pollDeadline) {
+        this.stopBestEffortsPolling();
+        return;
+      }
+      const delayMs = Math.min(5000, 1000 + (Math.floor(this.pollAttempt / 10) * 500));
+      this.pollTimer = window.setTimeout(tick, delayMs);
+    };
 
     const tick = async () => {
-      if (!this.currentSegment || this.currentSegment.id !== segmentId) {
+      if (!this.currentSegment || String(this.currentSegment.id) !== String(segmentId)) {
         this.stopBestEffortsPolling();
         return;
       }
@@ -226,19 +243,14 @@ export default class SegmentBestEffortsCardView {
           return;
         }
 
-        if (this.pollAttempt >= 20) {
-          this.stopBestEffortsPolling();
-          return;
-        }
-
-        this.pollTimer = window.setTimeout(tick, 1000);
+        scheduleNext();
       } catch (err) {
         console.error(err);
-        this.stopBestEffortsPolling();
+        scheduleNext();
       }
     };
 
-    this.pollTimer = window.setTimeout(tick, 1000);
+    this.pollTimer = window.setTimeout(tick, 250);
   }
 
   stopBestEffortsPolling() {
@@ -246,6 +258,7 @@ export default class SegmentBestEffortsCardView {
       window.clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
+    this.pollDeadline = 0;
   }
 
   formatGapToLeader(duration) {
