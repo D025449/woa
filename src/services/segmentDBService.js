@@ -17,6 +17,9 @@ import {
 const SEGMENT_BEST_EFFORTS_COMPACT_MATCHER = String(
   process.env.SEGMENT_BEST_EFFORTS_COMPACT_MATCHER || "1"
 ).trim() !== "0";
+const SEGMENT_BEST_EFFORTS_DIRECT_AVERAGES = String(
+  process.env.SEGMENT_BEST_EFFORTS_DIRECT_AVERAGES || "1"
+).trim() !== "0";
 
 export default class SegmentDBService {
 
@@ -1277,7 +1280,9 @@ export default class SegmentDBService {
       decompressWorkoutStreamsMs: 0,
       decodeWorkoutStreamsMs: 0,
       workoutStreamCompressedBytes: 0,
-      workoutStreamRawBytes: 0
+      workoutStreamRawBytes: 0,
+      directWorkoutRangeCount: 0,
+      fallbackWorkoutObjectCount: 0
     };
 
     if (workoutIds.length === 0) {
@@ -1289,29 +1294,10 @@ export default class SegmentDBService {
       };
     }
 
-    const metadataStartedAt = performance.now();
-    const metadataResult = await pool.query(`
-      SELECT
-        w.id AS wid,
-        w.uid,
-        w.start_time,
-        owner.display_name AS owner_display_name,
-        owner.email AS owner_email
-      FROM workouts w
-      LEFT JOIN users owner
-        ON owner.id = w.uid
-      WHERE w.id = ANY($1::bigint[])
-    `, [workoutIds]);
-    profile.loadWorkoutMetadataMs = performance.now() - metadataStartedAt;
-    const metadataByWorkoutId = new Map(
-      metadataResult.rows.map((row) => [Number(row.wid), row])
-    );
-
     const workoutObjectsStartedAt = performance.now();
-    const profiledWorkoutObjects = await WorkoutDBService.getWorkoutsWithProfile(workoutIds);
-    const rawWorkoutObjects = profiledWorkoutObjects.workouts;
-    const workoutObjects = new Map(
-      [...rawWorkoutObjects.entries()].map(([workoutId, workout]) => [Number(workoutId), workout])
+    const profiledWorkoutObjects = await WorkoutDBService.getWorkoutRangeAveragesWithProfile(
+      matches,
+      { direct: SEGMENT_BEST_EFFORTS_DIRECT_AVERAGES }
     );
     profile.loadWorkoutObjectsMs = performance.now() - workoutObjectsStartedAt;
     profile.loadWorkoutBlobRowsMs = profiledWorkoutObjects.profile.queryMs;
@@ -1319,19 +1305,22 @@ export default class SegmentDBService {
     profile.decodeWorkoutStreamsMs = profiledWorkoutObjects.profile.decodeWorkoutMs;
     profile.workoutStreamCompressedBytes = profiledWorkoutObjects.profile.compressedBytes;
     profile.workoutStreamRawBytes = profiledWorkoutObjects.profile.rawBytes;
+    profile.directWorkoutRangeCount = profiledWorkoutObjects.profile.directRangeCount;
+    profile.fallbackWorkoutObjectCount = profiledWorkoutObjects.profile.fallbackWorkoutCount;
 
     const segmentDistance = Number((await this.getSegmentDistanceMap([segmentId])).get(Number(segmentId))) || 0;
     const averagesStartedAt = performance.now();
     const data = [];
     for (const match of matches) {
       const workoutId = Number(match.workout_id);
-      const workout = workoutObjects.get(workoutId);
-      const metadata = metadataByWorkoutId.get(workoutId);
-      if (!workout || !metadata) continue;
+      const metadata = profiledWorkoutObjects.metadataByWorkoutId.get(workoutId);
+      const averages = profiledWorkoutObjects.averagesByRange.get(
+        WorkoutDBService.workoutRangeKey(workoutId, match.start_offset, match.end_offset)
+      );
+      if (!averages || !metadata) continue;
 
       const duration = Number(match.end_offset) - Number(match.start_offset);
       if (!Number.isFinite(duration) || duration <= 0) continue;
-      const averages = workout.getAverages(match.start_offset, match.end_offset);
       data.push({
         id: null,
         sid: Number(segmentId),

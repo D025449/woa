@@ -1238,7 +1238,7 @@ function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02AltitudeDelt
   };
 }
 
-function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(compactRecords, { distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE } = {}) {
+export function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(compactRecords, { distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE } = {}) {
   const recordCount = Number(compactRecords.recordCount || 0);
   let hasCompleteDistanceSeries = recordCount > 0;
   for (let index = 0; index < recordCount; index += 1) {

@@ -1597,6 +1597,126 @@ export default class WorkoutDBService {
 
   }
 
+  static workoutRangeKey(workoutId, startOffset, endOffset) {
+    return `${Number(workoutId)}:${Number(startOffset)}:${Number(endOffset)}`;
+  }
+
+  static async getWorkoutRangeAveragesWithProfile(matches, options = {}) {
+    const useDirectAverages = options?.direct !== false;
+    const rangesByWorkoutId = new Map();
+    for (const match of Array.isArray(matches) ? matches : []) {
+      const workoutId = Number(match?.workout_id);
+      if (!Number.isInteger(workoutId) || workoutId <= 0) continue;
+      if (!rangesByWorkoutId.has(workoutId)) rangesByWorkoutId.set(workoutId, []);
+      rangesByWorkoutId.get(workoutId).push({
+        startOffset: Number(match.start_offset),
+        endOffset: Number(match.end_offset)
+      });
+    }
+
+    const workoutIds = [...rangesByWorkoutId.keys()];
+    if (workoutIds.length === 0) {
+      return {
+        metadataByWorkoutId: new Map(),
+        averagesByRange: new Map(),
+        profile: {
+          queryMs: 0,
+          decompressMs: 0,
+          decodeWorkoutMs: 0,
+          rowCount: 0,
+          compressedBytes: 0,
+          rawBytes: 0,
+          directRangeCount: 0,
+          fallbackWorkoutCount: 0
+        }
+      };
+    }
+
+    const queryStartedAt = performance.now();
+    const result = await pool.query(`
+      SELECT
+        w.id,
+        w.uid,
+        w.start_time,
+        w.stream,
+        w.stream_codec,
+        owner.display_name AS owner_display_name,
+        owner.email AS owner_email
+      FROM workouts w
+      LEFT JOIN users owner
+        ON owner.id = w.uid
+      WHERE w.id = ANY($1::bigint[])
+    `, [workoutIds]);
+    const queryMs = performance.now() - queryStartedAt;
+    if (result.rowCount === 0) throw new Error("no workouts found");
+
+    const metadataByWorkoutId = new Map();
+    const averagesByRange = new Map();
+    let decompressMs = 0;
+    let decodeWorkoutMs = 0;
+    let compressedBytes = 0;
+    let rawBytes = 0;
+    let directRangeCount = 0;
+    let fallbackWorkoutCount = 0;
+
+    for (const row of result.rows) {
+      const workoutId = Number(row.id);
+      metadataByWorkoutId.set(workoutId, {
+        uid: Number(row.uid),
+        start_time: row.start_time,
+        owner_display_name: row.owner_display_name,
+        owner_email: row.owner_email
+      });
+      compressedBytes += Number(row.stream?.byteLength ?? row.stream?.length ?? 0);
+
+      const decompressStartedAt = performance.now();
+      const raw = await Workout.decompress(row.stream, row.stream_codec || "brotli");
+      decompressMs += performance.now() - decompressStartedAt;
+      rawBytes += Number(raw?.byteLength ?? raw?.length ?? 0);
+
+      const decodeStartedAt = performance.now();
+      let workoutObject = null;
+      for (const range of rangesByWorkoutId.get(workoutId) || []) {
+        let averages;
+        if (useDirectAverages) {
+          try {
+            averages = Workout.getWst9RangeAverages(raw, range.startOffset, range.endOffset);
+            directRangeCount += 1;
+          } catch (error) {
+            if (!String(error?.message || "").startsWith("Unsupported workout stream block:")) throw error;
+          }
+        }
+        if (!averages) {
+          if (!workoutObject) {
+            workoutObject = Workout.fromBuffer(raw);
+            fallbackWorkoutCount += 1;
+          }
+          averages = workoutObject.getAverages(range.startOffset, range.endOffset);
+        }
+        averagesByRange.set(
+          this.workoutRangeKey(workoutId, range.startOffset, range.endOffset),
+          averages
+        );
+      }
+      decodeWorkoutMs += performance.now() - decodeStartedAt;
+    }
+
+    return {
+      metadataByWorkoutId,
+      averagesByRange,
+      profile: {
+        queryMs,
+        decompressMs,
+        decodeWorkoutMs,
+        rowCount: result.rowCount,
+        compressedBytes,
+        rawBytes,
+        directRangeCount,
+        fallbackWorkoutCount
+      }
+    };
+  }
+
 
 } // class
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";

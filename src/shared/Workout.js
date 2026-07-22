@@ -558,6 +558,164 @@ export default class Workout {
         };
     }
 
+    static getWst9RangeAverages(buffer, start, end) {
+        const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
+        if (magic !== "WST9") {
+            throw new Error(`Unsupported workout stream block: ${magic}`);
+        }
+
+        const recordCount = view.getUint32(4, true);
+        const startIndex = Math.floor(Number(start));
+        const endIndex = Math.floor(Number(end));
+        const duration = Number(end) - Number(start);
+        if (!Number.isFinite(duration)
+            || duration <= 0
+            || startIndex < 0
+            || endIndex >= recordCount) {
+            throw new Error("Invalid range");
+        }
+
+        const lengths = new Uint32Array(6);
+        let headerOffset = 20;
+        for (let index = 0; index < lengths.length; index += 1) {
+            lengths[index] = view.getUint32(headerOffset, true);
+            headerOffset += 4;
+        }
+
+        const powerOffset = headerOffset + lengths[0];
+        const heartRateOffset = powerOffset + lengths[1];
+        const cadenceOffset = heartRateOffset + lengths[2];
+        return {
+            power: this.#getWst9PowerRangeAverage(
+                view,
+                powerOffset,
+                lengths[1],
+                recordCount,
+                start,
+                end
+            ),
+            hr: this.#getWst9Uint8RleRangeAverage(
+                view,
+                heartRateOffset,
+                lengths[2],
+                recordCount,
+                start,
+                end
+            ),
+            cadence: this.#getWst9Uint8RleRangeAverage(
+                view,
+                cadenceOffset,
+                lengths[3],
+                recordCount,
+                start,
+                end
+            )
+        };
+    }
+
+    static #finishWst9RangeAverage(sum, startValue, endValue, start, end) {
+        const startIndex = Math.floor(Number(start));
+        const endIndex = Math.floor(Number(end));
+        const fractionStart = Number(start) - startIndex;
+        const fractionEnd = Number(end) - endIndex;
+        return (
+            sum
+            - (startValue * fractionStart)
+            + (endValue * fractionEnd)
+        ) / (Number(end) - Number(start));
+    }
+
+    static #getWst9PowerRangeAverage(view, offset, blockLength, recordCount, start, end) {
+        const blockEnd = offset + blockLength;
+        const startIndex = Math.floor(Number(start));
+        const endIndex = Math.floor(Number(end));
+        let tokenOffset = offset;
+        let absoluteOffset = offset + 2 + Math.max(0, recordCount - 1);
+        let currentValue = 0;
+        let currentValid = false;
+        let sum = 0;
+        let startValue = 0;
+        let endValue = 0;
+
+        for (let index = 0; index <= endIndex; index += 1) {
+            if (index === 0) {
+                const raw = view.getUint16(tokenOffset, true);
+                tokenOffset += 2;
+                currentValid = raw !== WOA_UINT16_NAN;
+                currentValue = currentValid ? raw : 0;
+            } else {
+                const delta = view.getInt8(tokenOffset);
+                tokenOffset += 1;
+                if (delta === 127) {
+                    if (absoluteOffset + 2 > blockEnd) {
+                        throw new Error("Corrupt WST9 power block: missing absolute fallback value");
+                    }
+                    const raw = view.getUint16(absoluteOffset, true);
+                    absoluteOffset += 2;
+                    currentValid = raw !== WOA_UINT16_NAN;
+                    currentValue = currentValid ? raw : 0;
+                } else if (currentValid) {
+                    currentValue += delta * 4;
+                }
+            }
+
+            if (index === startIndex) startValue = currentValue;
+            if (index > startIndex) sum += currentValue;
+            if (index === endIndex) endValue = currentValue;
+        }
+
+        return this.#finishWst9RangeAverage(sum, startValue, endValue, start, end);
+    }
+
+    static #getWst9Uint8RleRangeAverage(view, offset, blockLength, recordCount, start, end) {
+        const blockEnd = offset + blockLength;
+        const startIndex = Math.floor(Number(start));
+        const endIndex = Math.floor(Number(end));
+        const runCount = view.getUint32(offset, true);
+        const lengthsOffset = offset + 4;
+        const valuesOffset = lengthsOffset + runCount;
+        const tokenOffset = valuesOffset + 1;
+        let absoluteOffset = tokenOffset + Math.max(0, runCount - 1);
+        let currentValue = runCount > 0 ? view.getUint8(valuesOffset) : WOA_UINT8_NAN;
+        let recordIndex = 0;
+        let sum = 0;
+        let startValue = 0;
+        let endValue = 0;
+
+        for (let runIndex = 0; runIndex < runCount && recordIndex < recordCount; runIndex += 1) {
+            if (runIndex > 0) {
+                const token = view.getInt8(tokenOffset + runIndex - 1);
+                if (token === WOA_RLE_DELTA_ESCAPE) {
+                    if (absoluteOffset + 1 > blockEnd) {
+                        throw new Error("Corrupt WST9 uint8 RLE block: missing absolute fallback value");
+                    }
+                    currentValue = view.getUint8(absoluteOffset);
+                    absoluteOffset += 1;
+                } else if (currentValue !== WOA_UINT8_NAN) {
+                    currentValue += token;
+                }
+            }
+
+            const value = currentValue === WOA_UINT8_NAN ? 0 : currentValue;
+            const runLength = view.getUint8(lengthsOffset + runIndex);
+            const runStart = recordIndex;
+            const runEnd = Math.min(recordCount, runStart + runLength);
+            if (startIndex >= runStart && startIndex < runEnd) startValue = value;
+            if (endIndex >= runStart && endIndex < runEnd) endValue = value;
+            const overlapStart = Math.max(runStart, startIndex + 1);
+            const overlapEnd = Math.min(runEnd, endIndex + 1);
+            if (overlapEnd > overlapStart) {
+                sum += (overlapEnd - overlapStart) * value;
+            }
+            recordIndex = runEnd;
+            if (recordIndex > endIndex) break;
+        }
+
+        return this.#finishWst9RangeAverage(sum, startValue, endValue, start, end);
+    }
+
     static #decodeUint8RunLengthDeltaBlock(view, offset, blockLength, recordCount, output) {
         const blockEnd = offset + blockLength;
         const runCount = view.getUint32(offset, true);
