@@ -30,7 +30,10 @@ const router = express.Router();
 const SEGMENT_BEST_EFFORTS_ON_DEMAND = String(
   process.env.SEGMENT_BEST_EFFORTS_ON_DEMAND || "1"
 ).trim() !== "0";
-const SEGMENT_BEST_EFFORTS_ON_DEMAND_LIMIT = 100;
+const SEGMENT_BEST_EFFORTS_ON_DEMAND_LIMIT = Math.min(
+  100,
+  Math.max(1, Math.floor(Number(process.env.SEGMENT_BEST_EFFORTS_ON_DEMAND_LIMIT) || 100))
+);
 const segmentArchiveUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
