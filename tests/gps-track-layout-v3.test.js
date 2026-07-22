@@ -162,7 +162,15 @@ test("compact similarity decode keeps only E5 integer coordinate columns", async
   assert.equal(decoded.pointCount, 4);
   assert.deepEqual([...decoded.latitudesE5], [4813715, 4813716, 4950000, 4950001]);
   assert.deepEqual([...decoded.longitudesE5], [1157612, 1157615, 1250000, 1250001]);
+  assert.equal(decoded.slotIndices, null);
   assert.equal(decoded.byteLength, 32);
+
+  const decodedWithSlots = await GpsTrackBlobService.decodeCompressedCompact(compressed, {
+    codec: "gzip",
+    includeSlotIndices: true
+  });
+  assert.deepEqual([...decodedWithSlots.slotIndices], [0, 1, 3, 4]);
+  assert.equal(decodedWithSlots.byteLength, 48);
 });
 
 test("GPS2 layout v3 keeps isolated invalid slots from forcing a raw track", () => {

@@ -181,7 +181,7 @@ function decodeGpsBitmapColumnarPayload(source, pointCount) {
   };
 }
 
-function decodeGpsBitmapColumnarCompactPayload(source, pointCount) {
+function decodeGpsBitmapColumnarCompactPayload(source, pointCount, options = {}) {
   const headerBytes = 24;
   const bitmapBytes = Math.ceil(pointCount / 8);
   if (source.byteLength < headerBytes + bitmapBytes) {
@@ -200,6 +200,19 @@ function decodeGpsBitmapColumnarCompactPayload(source, pointCount) {
   for (let index = 0; index < pointCount; index += 1) {
     if ((source[headerBytes + (index >> 3)] & (1 << (index & 7))) !== 0) {
       validPointCount += 1;
+    }
+  }
+
+  const slotIndices = options?.includeSlotIndices === true
+    ? new Uint32Array(validPointCount)
+    : null;
+  if (slotIndices) {
+    let slotWriteIndex = 0;
+    for (let index = 0; index < pointCount; index += 1) {
+      if ((source[headerBytes + (index >> 3)] & (1 << (index & 7))) !== 0) {
+        slotIndices[slotWriteIndex] = index;
+        slotWriteIndex += 1;
+      }
     }
   }
 
@@ -252,6 +265,7 @@ function decodeGpsBitmapColumnarCompactPayload(source, pointCount) {
   return {
     latitudesE5: decodeColumn(latitudeStart, longitudeStart),
     longitudesE5: decodeColumn(longitudeStart, source.byteLength),
+    slotIndices,
     validPointCount
   };
 }
@@ -817,7 +831,7 @@ export default class GpsTrackBlobService {
       const sampleRateGps = view.getUint16(6, true) || 1;
       const pointCount = view.getUint32(8, true);
       if (layoutVersion === 5) {
-        const compact = decodeGpsBitmapColumnarCompactPayload(source, pointCount);
+        const compact = decodeGpsBitmapColumnarCompactPayload(source, pointCount, options);
         return {
           layoutVersion,
           sampleRateGps,
@@ -825,7 +839,10 @@ export default class GpsTrackBlobService {
           slotCount: pointCount,
           latitudesE5: compact.latitudesE5,
           longitudesE5: compact.longitudesE5,
-          byteLength: compact.latitudesE5.byteLength + compact.longitudesE5.byteLength
+          slotIndices: compact.slotIndices,
+          byteLength: compact.latitudesE5.byteLength
+            + compact.longitudesE5.byteLength
+            + (compact.slotIndices?.byteLength || 0)
         };
       }
     }
@@ -834,9 +851,17 @@ export default class GpsTrackBlobService {
     const points = Array.isArray(decoded?.points) ? decoded.points : [];
     const latitudesE5 = new Int32Array(points.length);
     const longitudesE5 = new Int32Array(points.length);
+    const slotIndices = options?.includeSlotIndices === true
+      ? new Uint32Array(points.length)
+      : null;
     for (let index = 0; index < points.length; index += 1) {
       latitudesE5[index] = Math.round(Number(points[index]?.lat || 0) * GPS2_E5_COORDINATE_SCALE);
       longitudesE5[index] = Math.round(Number(points[index]?.lng || 0) * GPS2_E5_COORDINATE_SCALE);
+      if (slotIndices) {
+        slotIndices[index] = Number.isInteger(Number(points[index]?.slotIndex))
+          ? Number(points[index].slotIndex)
+          : index;
+      }
     }
 
     return {
@@ -846,7 +871,10 @@ export default class GpsTrackBlobService {
       slotCount: decoded?.slotCount ?? points.length,
       latitudesE5,
       longitudesE5,
-      byteLength: latitudesE5.byteLength + longitudesE5.byteLength
+      slotIndices,
+      byteLength: latitudesE5.byteLength
+        + longitudesE5.byteLength
+        + (slotIndices?.byteLength || 0)
     };
   }
 

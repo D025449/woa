@@ -8,8 +8,15 @@ import WorkoutSharingService from "./workoutSharingService.js";
 import SegmentTrackBlobService from "./segmentTrackBlobService.js";
 import { parsePostgresBox, toPostgresBox } from "../shared/postgresSpatial.js";
 import { matchGpsSegmentBestEfforts } from "../shared/BrowserGpsSegmentMatcher.js";
+import {
+  matchCompactGpsSegmentBestEfforts,
+  prepareCompactGpsSegmentDefinitions
+} from "../shared/CompactGpsSegmentMatcher.js";
 
 
+const SEGMENT_BEST_EFFORTS_COMPACT_MATCHER = String(
+  process.env.SEGMENT_BEST_EFFORTS_COMPACT_MATCHER || "1"
+).trim() !== "0";
 
 export default class SegmentDBService {
 
@@ -1353,6 +1360,9 @@ export default class SegmentDBService {
     const includeExistingBestEfforts = options?.includeExistingBestEfforts === true;
     const includeSharedWorkouts = options?.includeSharedWorkouts !== false;
     const includeMetrics = options?.includeMetrics !== false;
+    const useCompactMatcher = options?.compactMatcher == null
+      ? SEGMENT_BEST_EFFORTS_COMPACT_MATCHER
+      : options.compactMatcher === true;
     const maxMatches = Number.isInteger(Number(options?.maxMatches))
       ? Math.max(1, Number(options.maxMatches))
       : null;
@@ -1371,7 +1381,8 @@ export default class SegmentDBService {
       matchedWorkoutCount: 0,
       rawMatchCount: 0,
       matchCount: 0,
-      workoutChunkSize: 100
+      workoutChunkSize: 100,
+      matcherMode: useCompactMatcher ? "compact-e5" : "object"
     };
     if (segmentIds.length === 0) {
       return includeProfile ? { matches: [], profile } : [];
@@ -1379,6 +1390,10 @@ export default class SegmentDBService {
 
     const loadSegmentDefinitionsStartedAt = Date.now();
     const segmentDefinitionsById = await this.loadSegmentMatchDefinitionsBulk(segmentIds);
+    const compactSegmentDefinitionsById = useCompactMatcher
+      ? new Map(prepareCompactGpsSegmentDefinitions([...segmentDefinitionsById.values()])
+        .map((segment) => [Number(segment.id), segment]))
+      : null;
     profile.loadSegmentDefinitionsMs = Date.now() - loadSegmentDefinitionsStartedAt;
 
     const loadCandidateRowsStartedAt = Date.now();
@@ -1399,26 +1414,39 @@ export default class SegmentDBService {
       const matchesByWorkoutId = new Map();
 
       for (const row of rows) {
+        const workoutId = Number(row.wid);
+        const segmentIdsForWorkout = Array.isArray(row.segment_ids) ? row.segment_ids : [];
+        if (segmentIdsForWorkout.length === 0) continue;
+
         const decodeStartedAt = Date.now();
-        const decodedTrack = await GpsTrackBlobService.decodeRowTrack(row, { includeGeoJson: false });
+        const decodedTrack = useCompactMatcher
+          ? await GpsTrackBlobService.decodeCompressedCompact(row.gps_track_blob, {
+              codec: row.gps_track_blob_codec || "brotli",
+              includeSlotIndices: true
+            })
+          : await GpsTrackBlobService.decodeRowTrack(row, { includeGeoJson: false });
         profile.decodeWorkoutTracksMs += Date.now() - decodeStartedAt;
 
-        const candidateSegments = (Array.isArray(row.segment_ids) ? row.segment_ids : [])
-          .map((segmentId) => segmentDefinitionsById.get(Number(segmentId)))
+        const candidateSegments = segmentIdsForWorkout
+          .map((segmentId) => useCompactMatcher
+            ? compactSegmentDefinitionsById.get(Number(segmentId))
+            : segmentDefinitionsById.get(Number(segmentId)))
           .filter(Boolean);
-        if (decodedTrack.points.length === 0 || candidateSegments.length === 0) continue;
+        if (decodedTrack.pointCount === 0 || candidateSegments.length === 0) continue;
 
-        const workoutId = Number(row.wid);
         const sampleRate = Number(decodedTrack.sampleRateGps) > 0
           ? Number(decodedTrack.sampleRateGps)
           : Number(row.wsamplerate) || 1;
+        decodedTrack.sampleRateGps = sampleRate;
         const matchStartedAt = Date.now();
-        const matches = matchGpsSegmentBestEfforts({
-          track: decodedTrack.points,
-          segments: Array.isArray(decodedTrack.segments) ? decodedTrack.segments : [],
-          bbox: decodedTrack.bbox,
-          sampleRateSeconds: sampleRate
-        }, candidateSegments).matches;
+        const matches = useCompactMatcher
+          ? matchCompactGpsSegmentBestEfforts(decodedTrack, candidateSegments).matches
+          : matchGpsSegmentBestEfforts({
+              track: decodedTrack.points,
+              segments: Array.isArray(decodedTrack.segments) ? decodedTrack.segments : [],
+              bbox: decodedTrack.bbox,
+              sampleRateSeconds: sampleRate
+            }, candidateSegments).matches;
         profile.matchSegmentsMs += Date.now() - matchStartedAt;
         profile.rawMatchCount += matches.length;
         if (matches.length > 0) {
