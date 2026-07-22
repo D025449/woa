@@ -1373,6 +1373,10 @@ export default class SegmentDBService {
       loadSegmentDefinitionsMs: 0,
       loadCandidateRowsMs: 0,
       decodeWorkoutTracksMs: 0,
+      decompressGpsTracksMs: 0,
+      decodeGpsTrackPayloadsMs: 0,
+      gpsTrackCompressedBytes: 0,
+      gpsTrackRawBytes: 0,
       matchSegmentsMs: 0,
       loadWorkoutObjectsMs: 0,
       calculateAveragesMs: 0,
@@ -1410,6 +1414,12 @@ export default class SegmentDBService {
     );
 
     const allMatches = [];
+    const gpsDecodeProfile = {
+      decompressMs: 0,
+      decodeMs: 0,
+      compressedBytes: 0,
+      rawBytes: 0
+    };
     for (const rows of this.chunkArray(candidateRows, profile.workoutChunkSize)) {
       const matchesByWorkoutId = new Map();
 
@@ -1418,14 +1428,15 @@ export default class SegmentDBService {
         const segmentIdsForWorkout = Array.isArray(row.segment_ids) ? row.segment_ids : [];
         if (segmentIdsForWorkout.length === 0) continue;
 
-        const decodeStartedAt = Date.now();
+        const decodeStartedAt = performance.now();
         const decodedTrack = useCompactMatcher
           ? await GpsTrackBlobService.decodeCompressedCompact(row.gps_track_blob, {
               codec: row.gps_track_blob_codec || "brotli",
-              includeSlotIndices: true
+              includeSlotIndices: true,
+              profile: gpsDecodeProfile
             })
           : await GpsTrackBlobService.decodeRowTrack(row, { includeGeoJson: false });
-        profile.decodeWorkoutTracksMs += Date.now() - decodeStartedAt;
+        profile.decodeWorkoutTracksMs += performance.now() - decodeStartedAt;
 
         const candidateSegments = segmentIdsForWorkout
           .map((segmentId) => useCompactMatcher
@@ -1491,6 +1502,10 @@ export default class SegmentDBService {
     }
 
     if (maxMatches) allMatches.sort(this.compareSegmentMatchesByDuration);
+    profile.decompressGpsTracksMs = gpsDecodeProfile.decompressMs;
+    profile.decodeGpsTrackPayloadsMs = gpsDecodeProfile.decodeMs;
+    profile.gpsTrackCompressedBytes = gpsDecodeProfile.compressedBytes;
+    profile.gpsTrackRawBytes = gpsDecodeProfile.rawBytes;
     profile.matchCount = allMatches.length;
     profile.matchedWorkoutCount = new Set(allMatches.map((match) => Number(match.workout_id))).size;
     return includeProfile ? { matches: allMatches, profile } : allMatches;

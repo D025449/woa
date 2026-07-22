@@ -24,6 +24,7 @@ const WOA_INT16_NAN = -0x8000;
 const WOA_INT32_NAN = -0x80000000;
 const WOA_MICRO_DEGREES = 1e7;
 const WOA_DELTA_BLOCK_SIZE = 128;
+let nodeZlibPromise = null;
 
 export default class Workout {
 
@@ -1371,27 +1372,31 @@ export default class Workout {
     // DECOMPRESS
     // =============================
     static async decompress(buffer, codec = DEFAULT_STREAM_CODEC) {
+        const result = await this.decompressBytes(buffer, codec);
+        return result.buffer.slice(
+            result.byteOffset,
+            result.byteOffset + result.byteLength
+        );
+    }
+
+    static async decompressBytes(buffer, codec = DEFAULT_STREAM_CODEC) {
         const normalizedCodec = this.normalizeCodec(codec);
 
         // 🔥 Node fast path
         if (this.isNode()) {
-            const { brotliDecompressSync, gunzipSync } = await import("zlib");
+            nodeZlibPromise ||= import("zlib");
+            const { brotliDecompressSync, gunzipSync } = await nodeZlibPromise;
 
-            const result = normalizedCodec === "gzip"
+            return normalizedCodec === "gzip"
                 ? gunzipSync(buffer)
                 : brotliDecompressSync(buffer);
-
-            return result.buffer.slice(
-                result.byteOffset,
-                result.byteOffset + result.byteLength
-            );
         }
 
         // Browser
         if (typeof DecompressionStream !== "undefined") {
             const ds = new DecompressionStream(normalizedCodec === "gzip" ? "gzip" : "brotli");
             const stream = new Blob([buffer]).stream().pipeThrough(ds);
-            return new Response(stream).arrayBuffer();
+            return new Uint8Array(await new Response(stream).arrayBuffer());
         }
 
         throw new Error("Decompression not supported");
