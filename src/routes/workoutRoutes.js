@@ -255,7 +255,10 @@ router.get("/:id/open-v2", authMiddleware, async (req, res) => {
     const segmentsStartedAt = Date.now();
     const [segmentResult, gpsSegmentResult] = await Promise.all([
       FileDBService.getSegmentsByWorkout(uid, id),
-      SegmentDBService.getGPSSegmentByWorkout(uid, id)
+      SegmentDBService.getGPSSegmentByWorkout(uid, id, {
+        accessInfo,
+        workoutRow: row
+      })
     ]);
     const segmentsMs = Date.now() - segmentsStartedAt;
 
@@ -307,6 +310,15 @@ router.get("/:id/open-v2", authMiddleware, async (req, res) => {
         gpsSegmentCount: Array.isArray(gpsSegmentResult?.rows) ? gpsSegmentResult.rows.length : 0,
         payloadBytes: payload.byteLength,
         totalMs: Date.now() - startedAt
+      });
+    }
+
+    if (gpsSegmentResult?.onDemand) {
+      console.info("[segments] workout-best-efforts.on-demand.profile", {
+        uid: String(uid),
+        workoutId: String(id),
+        totalMs: Number(gpsSegmentResult.profile?.totalMs || 0),
+        profile: gpsSegmentResult.profile
       });
     }
 

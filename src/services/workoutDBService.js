@@ -966,6 +966,7 @@ export default class WorkoutDBService {
     const result = await pool.query(
       `SELECT
         id,
+        uid,
         start_time,
         total_timer_time,
         total_distance,

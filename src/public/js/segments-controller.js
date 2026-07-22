@@ -309,7 +309,10 @@ export default class Controller {
 
   async handleSegmentOpen(e, segment) {
     this.selectSegment(segment);
-    await this.loadSelectedSegmentBestEfforts();
+    await Promise.all([
+      this.loadSelectedSegmentDetails(),
+      this.loadSelectedSegmentBestEfforts()
+    ]);
   }
 
   registerSplitterEvents() {
@@ -553,7 +556,7 @@ export default class Controller {
 
   selectSegment(segment) {
     this.selectedSegment = segment;
-    this.selectedSegmentSharing = null;
+    this.selectedSegmentSharing = segment?.sharing || null;
     this.uiState.set("selectedSegmentId", segment?.id ?? null);
     this.pushRecentSegment(segment?.id);
     this.flyoverView?.setWorkout(segment);
@@ -566,7 +569,9 @@ export default class Controller {
     this.updateFavoriteUi();
     this.renderQuickAccess();
     this.updateBestEffortsScopeUi();
-    this.loadSelectedSegmentSharing();
+    if (this.selectedSegmentSharing) {
+      this.applySelectedSegmentSharing(this.selectedSegmentSharing);
+    }
     this.updateDetailNavigation();
     if (window.matchMedia("(max-width: 991.98px)").matches && this.detailSheetState === "peek") {
       this.setDetailSheetState("half", { persist: false });
@@ -613,6 +618,35 @@ export default class Controller {
     this.cardView.setScope(this.bestEffortsScope);
     this.cardView.setPerUserFilter(this.bestEffortsPerUser);
     await this.cardView.loadSegment(this.selectedSegment);
+  }
+
+  async loadSelectedSegmentDetails() {
+    const selectedId = this.selectedSegment?.id;
+    if (!selectedId || this.selectedSegment?.sharing) {
+      return this.selectedSegment;
+    }
+
+    try {
+      const segment = await MapSegment.getSegmentById(selectedId);
+      if (!segment || String(this.selectedSegment?.id) !== String(selectedId)) {
+        return null;
+      }
+
+      Object.assign(this.selectedSegment, segment);
+      this.selectedSegmentSharing = segment.sharing || null;
+      if (this.selectedSegmentSharing) {
+        this.applySelectedSegmentSharing(this.selectedSegmentSharing);
+      }
+      this.updateShareUi();
+      this.updateSegmentMeta();
+      this.updateFavoriteUi();
+      this.refreshSelectedSegmentHeader();
+      this.updateBestEffortsScopeUi();
+      return this.selectedSegment;
+    } catch (error) {
+      console.error(error);
+      return null;
+    }
   }
 
   clearSelectedSegment() {
@@ -853,7 +887,10 @@ export default class Controller {
     const url = new URL(window.location.href);
     url.searchParams.set("focusSegmentId", String(nextSegment.id));
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
-    await this.loadSelectedSegmentBestEfforts();
+    await Promise.all([
+      this.loadSelectedSegmentDetails(),
+      this.loadSelectedSegmentBestEfforts()
+    ]);
   }
 
   renderQuickAccess() {
@@ -893,7 +930,10 @@ export default class Controller {
         const url = new URL(window.location.href);
         url.searchParams.set("focusSegmentId", String(segment.id));
         window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
-        await this.loadSelectedSegmentBestEfforts();
+        await Promise.all([
+          this.loadSelectedSegmentDetails(),
+          this.loadSelectedSegmentBestEfforts()
+        ]);
       });
     });
   }
@@ -1285,22 +1325,7 @@ export default class Controller {
 
       const result = await response.json();
       const data = result.data || { shareMode: "private", groupIds: [] };
-      this.selectedSegmentSharing = data;
-
-      if (this.shareModeSelect) {
-        this.shareModeSelect.value = data.shareMode || "private";
-      }
-
-      this.renderShareGroupOptions((data.groupIds || []).map((value) => Number(value)));
-      this.updateShareModeUi();
-
-      if (this.shareStatus) {
-      this.shareStatus.textContent = data.shareMode === "groups"
-          ? this.t("messages.groupsActive", { count: (data.groupIds || []).length })
-          : this.t("sharePrivate");
-      }
-      this.refreshSelectedSegmentHeader();
-      this.updateBestEffortsScopeUi();
+      this.applySelectedSegmentSharing(data);
     } catch (error) {
       console.error(error);
       this.selectedSegmentSharing = null;
@@ -1310,6 +1335,29 @@ export default class Controller {
       this.refreshSelectedSegmentHeader();
       this.updateBestEffortsScopeUi();
     }
+  }
+
+  applySelectedSegmentSharing(data) {
+    this.selectedSegmentSharing = data;
+    if (this.selectedSegment) {
+      this.selectedSegment.sharing = data;
+      this.selectedSegment.shareGroupCount = Array.isArray(data?.groupIds) ? data.groupIds.length : 0;
+    }
+
+    if (this.shareModeSelect) {
+      this.shareModeSelect.value = data?.shareMode || "private";
+    }
+
+    this.renderShareGroupOptions((data?.groupIds || []).map((value) => Number(value)));
+    this.updateShareModeUi();
+
+    if (this.shareStatus) {
+      this.shareStatus.textContent = data?.shareMode === "groups"
+        ? this.t("messages.groupsActive", { count: (data.groupIds || []).length })
+        : this.t("sharePrivate");
+    }
+    this.refreshSelectedSegmentHeader();
+    this.updateBestEffortsScopeUi();
   }
 
   async saveSegmentSharing() {
@@ -1350,14 +1398,7 @@ export default class Controller {
       }
 
       const data = result.data || payload;
-      this.selectedSegmentSharing = data;
-      if (this.shareStatus) {
-        this.shareStatus.textContent = data.shareMode === "groups"
-          ? this.t("messages.groupsActive", { count: (data.groupIds || []).length })
-          : this.t("sharePrivate");
-      }
-      this.refreshSelectedSegmentHeader();
-      this.updateBestEffortsScopeUi();
+      this.applySelectedSegmentSharing(data);
       this.showToast(this.t("messages.segmentShareUpdated"));
 
       this.closeShareInline();
@@ -1521,7 +1562,10 @@ export default class Controller {
     this.focusApplied = true;
     this.selectSegment(segment);
     this.mapView.focusSegment(segment);
-    await this.loadSelectedSegmentBestEfforts();
+    await Promise.all([
+      this.loadSelectedSegmentDetails(),
+      this.loadSelectedSegmentBestEfforts()
+    ]);
 
     const nextUrl = new URL(window.location.href);
     nextUrl.searchParams.delete("focusSegmentId");

@@ -6,6 +6,7 @@ import WorkoutDBService from "./workoutDBService.js";
 import CollaborationDBService from "./collaborationDBService.js";
 import WorkoutSharingService from "./workoutSharingService.js";
 import SegmentTrackBlobService from "./segmentTrackBlobService.js";
+import Workout from "../shared/Workout.js";
 import { parsePostgresBox, toPostgresBox } from "../shared/postgresSpatial.js";
 import { matchGpsSegmentBestEfforts } from "../shared/BrowserGpsSegmentMatcher.js";
 import {
@@ -595,6 +596,25 @@ export default class SegmentDBService {
           FROM gps_segment_group_shares sgs
           WHERE sgs.segment_id = s.id
         )::int AS share_group_count,
+        CASE
+          WHEN s.uid = $2 THEN (
+            SELECT COALESCE(
+              json_agg(
+                json_build_object(
+                  'group_id', sgs.group_id,
+                  'group_name', g.name
+                )
+                ORDER BY lower(g.name), sgs.group_id
+              ),
+              '[]'::json
+            )
+            FROM gps_segment_group_shares sgs
+            INNER JOIN groups g
+              ON g.id = sgs.group_id
+            WHERE sgs.segment_id = s.id
+          )
+          ELSE NULL
+        END AS share_groups,
         owner.display_name AS owner_display_name,
         owner.email AS owner_email,
         EXISTS (
@@ -880,9 +900,7 @@ export default class SegmentDBService {
     }
   }
 
-  static async getGPSSegmentByWorkout(uid, wid){
-    await WorkoutSharingService.getAccessibleWorkout(uid, wid);
-
+  static async getPersistedGpsSegmentsByWorkout(wid) {
     const dataQuery = `
     SELECT 
       id, 
@@ -908,6 +926,140 @@ export default class SegmentDBService {
 
     const dataResult = await pool.query(dataQuery, dataParams);
     return dataResult;
+  }
+
+  static async getGPSSegmentByWorkout(uid, wid, options = {}) {
+    const startedAt = performance.now();
+    const accessInfo = options?.accessInfo
+      || await WorkoutSharingService.getAccessibleWorkout(uid, wid);
+    if (!accessInfo?.is_owner) {
+      return this.getPersistedGpsSegmentsByWorkout(wid);
+    }
+
+    const profile = {
+      loadWorkoutRowMs: 0,
+      loadSegmentCandidateIdsMs: 0,
+      loadSegmentDefinitionsMs: 0,
+      decodeWorkoutTrackMs: 0,
+      matchSegmentsMs: 0,
+      decompressWorkoutStreamMs: 0,
+      calculateAveragesMs: 0,
+      candidateCount: 0,
+      matchCount: 0,
+      matcherMode: "compact-e5"
+    };
+    const finish = (rows = []) => {
+      profile.totalMs = performance.now() - startedAt;
+      return { rows, rowCount: rows.length, onDemand: true, profile };
+    };
+
+    let workoutRow = options?.workoutRow || null;
+    if (!workoutRow) {
+      const loadWorkoutRowStartedAt = performance.now();
+      const workoutResult = await pool.query(`
+        SELECT
+          id,
+          uid,
+          start_time,
+          samplerategps,
+          gps_track_blob,
+          gps_track_blob_codec,
+          stream,
+          stream_codec
+        FROM workouts
+        WHERE id = $1
+          AND uid = $2
+        LIMIT 1
+      `, [wid, uid]);
+      profile.loadWorkoutRowMs = performance.now() - loadWorkoutRowStartedAt;
+      workoutRow = workoutResult.rows[0] || null;
+    }
+
+    if (!workoutRow?.gps_track_blob) {
+      return finish();
+    }
+
+    const loadCandidateIdsStartedAt = performance.now();
+    const candidateResult = await this.getMatchingSegmentCandidateIdsForWorkoutsBulk(
+      uid,
+      [Number(wid)],
+      { includeExistingBestEfforts: true }
+    );
+    profile.loadSegmentCandidateIdsMs = performance.now() - loadCandidateIdsStartedAt;
+    const candidateIds = candidateResult.candidatesByWorkoutId.get(Number(wid)) || [];
+    profile.candidateCount = candidateIds.length;
+    if (candidateIds.length === 0) {
+      return finish();
+    }
+
+    const loadDefinitionsStartedAt = performance.now();
+    const definitionsById = await this.loadSegmentMatchDefinitionsBulk(candidateIds);
+    const preparedSegments = prepareCompactGpsSegmentDefinitions([...definitionsById.values()]);
+    profile.loadSegmentDefinitionsMs = performance.now() - loadDefinitionsStartedAt;
+
+    const decodeTrackStartedAt = performance.now();
+    const compactTrack = await GpsTrackBlobService.decodeCompressedCompact(
+      workoutRow.gps_track_blob,
+      {
+        codec: workoutRow.gps_track_blob_codec || "identity",
+        includeSlotIndices: true
+      }
+    );
+    profile.decodeWorkoutTrackMs = performance.now() - decodeTrackStartedAt;
+
+    const matchStartedAt = performance.now();
+    const compactMatches = matchCompactGpsSegmentBestEfforts(compactTrack, preparedSegments).matches;
+    profile.matchSegmentsMs = performance.now() - matchStartedAt;
+    profile.matchCount = compactMatches.length;
+    if (compactMatches.length === 0) {
+      return finish();
+    }
+
+    const decompressStartedAt = performance.now();
+    const rawWorkoutStream = await Workout.decompress(
+      workoutRow.stream,
+      workoutRow.stream_codec || "brotli"
+    );
+    profile.decompressWorkoutStreamMs = performance.now() - decompressStartedAt;
+
+    const averagesStartedAt = performance.now();
+    let workoutObject = null;
+    const rows = compactMatches.map((match) => {
+      let averages;
+      try {
+        averages = Workout.getWst9RangeAverages(
+          rawWorkoutStream,
+          match.startOffset,
+          match.endOffset
+        );
+      } catch (error) {
+        if (!String(error?.message || "").startsWith("Unsupported workout stream block:")) {
+          throw error;
+        }
+        workoutObject ||= Workout.fromBuffer(rawWorkoutStream);
+        averages = workoutObject.getAverages(match.startOffset, match.endOffset);
+      }
+
+      const segmentDefinition = definitionsById.get(Number(match.segmentId));
+      const duration = Number(match.endOffset) - Number(match.startOffset);
+      return {
+        id: null,
+        sid: Number(match.segmentId),
+        wid: Number(wid),
+        uid: Number(workoutRow.uid ?? uid),
+        start_time: workoutRow.start_time || null,
+        duration,
+        start_offset: Number(match.startOffset),
+        end_offset: Number(match.endOffset),
+        avg_power: Math.round(averages?.power ?? 0),
+        avg_heart_rate: Math.round(averages?.hr ?? 0),
+        avg_cadence: Math.round(averages?.cadence ?? 0),
+        avg_speed: this.calculateNormalizedSegmentSpeed(segmentDefinition?.distance, duration)
+      };
+    });
+    profile.calculateAveragesMs = performance.now() - averagesStartedAt;
+
+    return finish(rows);
   }
 
   static async getBestEffortsBySegment(uid, segid, page, size, sort, filter, scope = "mine", perUser = "all") {
@@ -2100,6 +2252,8 @@ export default class SegmentDBService {
 
     }
 
+    const shareGroups = Array.isArray(row.share_groups) ? row.share_groups : null;
+
     return {
 
       id: row.id,
@@ -2113,6 +2267,11 @@ export default class SegmentDBService {
       bestEffortsStatus: row.best_efforts_status,
       isFavorite: !!row.is_favorite,
       shareGroupCount: Number(row.share_group_count || 0),
+      sharing: shareGroups == null ? null : {
+        shareMode: shareGroups.length > 0 ? "groups" : "private",
+        groupIds: shareGroups.map((group) => Number(group.group_id)),
+        groups: shareGroups
+      },
 
       start: {
         lat: row.start_lat,

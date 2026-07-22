@@ -729,6 +729,13 @@ router.get("/workout-gps-seg-best-effort/:id/data", authMiddleware, async (req, 
     const uid = req.user?.id;
 
     const result = await SegmentDBService.getGPSSegmentByWorkout(uid, wid);
+    if (result?.onDemand) {
+      console.info("[segments] workout-best-efforts.on-demand.profile", {
+        uid: String(uid),
+        workoutId: String(wid),
+        profile: result.profile
+      });
+    }
     res.json(result.rows);
 
   } catch (err) {
@@ -741,6 +748,7 @@ router.get("/workout-gps-seg-best-effort/:id/data", authMiddleware, async (req, 
 
 router.get("/bestefforts/:id/data", authMiddleware, async (req, res, next) => {
   try {
+    res.setHeader("Cache-Control", "private, max-age=10, must-revalidate");
     const segmentid = req.params.id;
     const uid = req.user?.id;
 
@@ -817,6 +825,7 @@ router.get("/bestefforts/:id/data", authMiddleware, async (req, res, next) => {
 
 router.get("/:id", authMiddleware, async (req, res, next) => {
   try {
+    res.setHeader("Cache-Control", "private, max-age=60, must-revalidate");
     const segmentId = req.params.id;
     const uid = req.user?.id;
 
