@@ -47,9 +47,9 @@ body {
 }
 
 .legal-note {
-  border-left: 4px solid var(--ui-brand-success);
+  border-left: 4px solid var(--ui-brand-accent);
   padding: 0.9rem 1rem;
-  background: var(--ui-brand-success-faint);
+  background: var(--ui-brand-accent-faint);
   border-radius: 0.9rem;
   color: var(--ui-text-default);
 }

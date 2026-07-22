@@ -66,7 +66,7 @@ body.home-page.has-fixed-app-topbar {
 }
 
 .app-topbar .btn {
-  border-radius: 999px;
+  border-radius: 0.4rem;
   padding-inline: 0.9rem;
   font-weight: 600;
   border-color: var(--ui-card-border-strong);
@@ -91,34 +91,41 @@ body.home-page.has-fixed-app-topbar {
 }
 
 .home-topbar .btn {
-  border-radius: 999px !important;
+  border-radius: 0.4rem !important;
   padding-inline: 0.95rem;
   font-weight: 600;
   border-width: 1px;
 }
 
-.home-topbar .btn-outline-light {
-  color: var(--ui-brand-accent);
-  border-color: rgba(52, 95, 81, 0.48);
-  background: rgba(255, 254, 250, 0.92);
+.home-topbar .home-topbar-action {
+  box-shadow: none;
+  transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
 }
 
-.home-topbar .btn-outline-light:hover {
-  color: var(--ui-text-inverse);
-  background: var(--ui-brand-accent);
-  border-color: var(--ui-brand-accent);
+.home-topbar .home-topbar-action--secondary {
+  color: #176fbe !important;
+  border-color: rgba(37, 135, 223, 0.58) !important;
+  background: #ffffff !important;
 }
 
-.home-topbar .btn-light {
-  color: var(--ui-text-inverse);
-  border-color: var(--ui-brand-accent);
-  background: var(--ui-brand-accent);
+.home-topbar .home-topbar-action--secondary:hover,
+.home-topbar .home-topbar-action--secondary:focus-visible {
+  color: #ffffff !important;
+  border-color: #176fbe !important;
+  background: #176fbe !important;
 }
 
-.home-topbar .btn-light:hover {
-  color: var(--ui-text-inverse);
-  background: #294e43;
-  border-color: #294e43;
+.home-topbar .home-topbar-action--primary {
+  color: #ffffff !important;
+  border-color: #258be5 !important;
+  background: linear-gradient(112deg, #2f98f7 0%, #2d91eb 58%, #2587df 100%) !important;
+}
+
+.home-topbar .home-topbar-action--primary:hover,
+.home-topbar .home-topbar-action--primary:focus-visible {
+  color: #ffffff !important;
+  border-color: #176fbe !important;
+  background: #176fbe !important;
 }
 
 .public-topbar-dropdown {
@@ -197,7 +204,7 @@ body.home-page.has-fixed-app-topbar {
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--ui-brand-success);
+  color: var(--ui-brand-accent);
 }
 
 .home-title {

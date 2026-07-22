@@ -145,6 +145,7 @@ class FileDBService {
 
 static async getMatchingWorkoutCandidatesForSegments(segmentIds, uid, options = {}) {
   const includeExistingBestEfforts = options?.includeExistingBestEfforts === true;
+  const includeSharedWorkouts = options?.includeSharedWorkouts !== false;
   const result = await pool.query(`
     SELECT
       w.id AS wid,
@@ -157,14 +158,14 @@ static async getMatchingWorkoutCandidatesForSegments(segmentIds, uid, options = 
       ON s.gps_bounds && w.gps_bounds
       AND (
         w.uid = $2
-        OR EXISTS (
+        OR ($4::boolean = true AND EXISTS (
           SELECT 1
           FROM workout_group_shares wgs
           INNER JOIN gps_segment_group_shares sgs
             ON sgs.group_id = wgs.group_id
           WHERE wgs.workout_id = w.id
             AND sgs.segment_id = s.id
-        )
+        ))
       )
     WHERE s.uid = $2
       AND s.id = ANY($1::bigint[])
@@ -185,7 +186,7 @@ static async getMatchingWorkoutCandidatesForSegments(segmentIds, uid, options = 
       w.gps_track_blob,
       w.gps_track_blob_codec
     ORDER BY w.id
-  `, [segmentIds, uid, includeExistingBestEfforts]);
+  `, [segmentIds, uid, includeExistingBestEfforts, includeSharedWorkouts]);
 
   return result.rows;
 }

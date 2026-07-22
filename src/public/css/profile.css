@@ -59,7 +59,7 @@ body.profile-page {
 }
 
 .profile-plan-card.is-current {
-  border-color: color-mix(in srgb, var(--ui-brand-success) 40%, transparent);
+  border-color: color-mix(in srgb, var(--ui-brand-accent) 40%, transparent);
   background: var(--ui-info-bg-soft);
 }
 
@@ -74,7 +74,7 @@ body.profile-page {
   margin: 0.35rem 0 0;
   font-size: 0.95rem;
   font-weight: 700;
-  color: var(--ui-brand-success);
+  color: var(--ui-brand-accent);
 }
 
 .profile-plan-copy {

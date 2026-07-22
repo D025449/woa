@@ -232,7 +232,7 @@ body.dashboard-page {
   border-radius: 0.85rem;
   overflow: hidden;
   border: 1px solid var(--ui-card-border-faint);
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(15, 118, 110, 0.12));
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(117, 185, 245, 0.16));
 }
 
 .dashboard-gps-copy-card__thumb img {
@@ -314,7 +314,7 @@ body.dashboard-page {
   overflow: hidden;
   background:
     radial-gradient(circle at top left, rgba(37, 99, 235, 0.12), transparent 38%),
-    radial-gradient(circle at bottom right, rgba(15, 118, 110, 0.12), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(117, 185, 245, 0.16), transparent 34%),
     #dbe7f3;
 }
 
@@ -1417,7 +1417,7 @@ body.dashboard-page {
   position: absolute;
   inset: 0 auto 0 0;
   width: 0.32rem;
-  background: linear-gradient(180deg, var(--ui-brand-accent), var(--ui-brand-success));
+  background: linear-gradient(180deg, var(--ui-brand-accent), #75b9f5);
 }
 
 .workout-library-card--power .workout-library-card__accent {
@@ -1425,7 +1425,7 @@ body.dashboard-page {
 }
 
 .workout-library-card--endurance .workout-library-card__accent {
-  background: linear-gradient(180deg, #0f766e, #0d9488);
+  background: linear-gradient(180deg, #176fbe, #5aa9ee);
 }
 
 .workout-library-card--route .workout-library-card__accent {

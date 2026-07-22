@@ -27,6 +27,10 @@ import {
 } from "../services/segmentArchiveService.js";
 
 const router = express.Router();
+const SEGMENT_BEST_EFFORTS_ON_DEMAND = String(
+  process.env.SEGMENT_BEST_EFFORTS_ON_DEMAND || "1"
+).trim() !== "0";
+const SEGMENT_BEST_EFFORTS_ON_DEMAND_LIMIT = 100;
 const segmentArchiveUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -744,6 +748,41 @@ router.get("/bestefforts/:id/data", authMiddleware, async (req, res, next) => {
     const filters = req.query.filter || [];
     const scope = req.query.scope || req.body.scope || "mine";
     const perUser = req.query.perUser || req.body.perUser || "all";
+
+    const accessibleSegment = SEGMENT_BEST_EFFORTS_ON_DEMAND
+      ? await SegmentDBService.getAccessibleSegment(uid, segmentid)
+      : null;
+    const useOnDemand = SEGMENT_BEST_EFFORTS_ON_DEMAND
+      && Number(accessibleSegment?.uid) === Number(uid)
+      && String(scope).toLowerCase() === "mine"
+      && String(perUser).toLowerCase() === "all";
+
+    if (useOnDemand) {
+      const startedAt = performance.now();
+      const result = await SegmentDBService.materializeOnDemandSegmentBestEfforts(uid, segmentid, {
+        limit: SEGMENT_BEST_EFFORTS_ON_DEMAND_LIMIT
+      });
+      const totalMs = performance.now() - startedAt;
+      console.log("[segments] best-efforts.on-demand.profile", {
+        uid: String(uid),
+        segmentId: String(segmentid),
+        totalMatchCount: result.total_records,
+        returnedMatchCount: result.returned_records,
+        limit: SEGMENT_BEST_EFFORTS_ON_DEMAND_LIMIT,
+        totalMs: Math.round(totalMs * 100) / 100,
+        profile: result.profile
+      });
+      return res.json({
+        data: result.data,
+        last_page: 1,
+        total_records: result.total_records,
+        returned_records: result.returned_records,
+        result_limit: SEGMENT_BEST_EFFORTS_ON_DEMAND_LIMIT,
+        on_demand: true,
+        best_efforts_status: "completed",
+        best_efforts_error: null
+      });
+    }
 
 
     const [result, statusRow] = await Promise.all([

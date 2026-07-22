@@ -145,19 +145,19 @@ body.groups-page {
     inset: 0 auto 0 0;
     width: 0.4rem;
     border-radius: 0 999px 999px 0;
-    background: linear-gradient(180deg, var(--ui-brand-accent), var(--ui-brand-success));
+    background: linear-gradient(180deg, var(--ui-brand-accent), #75b9f5);
 }
 
 .groups-library-card__accent--owner {
-    background: linear-gradient(180deg, var(--ui-brand-accent), var(--ui-brand-success));
+    background: linear-gradient(180deg, var(--ui-brand-accent), #75b9f5);
 }
 
 .groups-library-card__accent--admin {
-    background: linear-gradient(180deg, #0891b2, var(--ui-brand-accent));
+    background: linear-gradient(180deg, #176fbe, var(--ui-brand-accent));
 }
 
 .groups-library-card__accent--member {
-    background: linear-gradient(180deg, var(--ui-brand-success), #14b8a6);
+    background: linear-gradient(180deg, #5aa9ee, #9acdf8);
 }
 
 .groups-library-card__header {
@@ -202,9 +202,9 @@ body.groups-page {
 }
 
 .groups-library-pill--admin {
-    background: rgba(236, 254, 255, 0.95);
-    border: 1px solid rgba(34, 211, 238, 0.28);
-    color: #0f766e;
+    background: rgba(239, 246, 255, 0.95);
+    border: 1px solid rgba(37, 135, 223, 0.28);
+    color: #176fbe;
 }
 
 .groups-library-pill--member {
@@ -255,8 +255,8 @@ body.groups-page {
 }
 
 .groups-library-card__mark--admin {
-    background: rgba(236, 254, 255, 0.95);
-    color: #0f766e;
+    background: rgba(239, 246, 255, 0.95);
+    color: #176fbe;
 }
 
 .groups-library-card__mark--member {

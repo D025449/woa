@@ -14,6 +14,7 @@
     "bench:persistence": "node src/scripts/benchmark-workout-persistence.js",
     "bench:woa-harmonized-persistence": "node src/scripts/benchmark-woa-harmonized-persistence.js",
     "bench:segment-recompute": "node src/scripts/benchmark-segment-recompute.js",
+    "bench:segment-match-only": "node src/scripts/benchmark-segment-match-only.js",
     "bench:fit-typed-arrays": "node src/scripts/benchmark-fit-record-typed-arrays.js",
     "bench:fit-import-path": "node src/scripts/benchmark-fit-import-path.js",
     "bench:fit-woa-file": "node src/scripts/benchmark-fit-woa-file.js",

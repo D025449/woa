@@ -19,7 +19,7 @@ body.auth-page {
 }
 
 .auth-topbar .btn {
-  border-radius: 999px !important;
+  border-radius: 0.4rem !important;
   padding-inline: 0.95rem;
   font-weight: 600;
   border-width: 1px;
@@ -27,7 +27,7 @@ body.auth-page {
 
 .auth-topbar .btn-outline-light {
   color: var(--ui-brand-accent);
-  border-color: rgba(52, 95, 81, 0.48);
+  border-color: rgba(37, 135, 223, 0.48);
   background: rgba(255, 254, 250, 0.92);
 }
 
@@ -81,7 +81,7 @@ body.auth-page {
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--ui-brand-success);
+  color: var(--ui-brand-accent);
 }
 
 .auth-title {

@@ -8,8 +8,8 @@
     <title><%= t("home.title") %></title>
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="/css/ui-system.css">
-    <link rel="stylesheet" href="/css/home.css">
+    <link rel="stylesheet" href="/css/ui-system.css?v=atlas-blue-4">
+    <link rel="stylesheet" href="/css/home.css?v=atlas-blue-5">
 </head>
 
 <body class="home-page">
@@ -47,14 +47,14 @@
                             <svg viewBox="0 0 64 64" fill="none">
                                 <defs>
                                     <linearGradient id="homeTileWorkoutsGradient" x1="8" y1="50" x2="56" y2="14" gradientUnits="userSpaceOnUse">
-                                        <stop stop-color="#0f766e" />
+                                        <stop stop-color="#176fbe" />
                                         <stop offset="1" stop-color="#2563eb" />
                                     </linearGradient>
                                 </defs>
                                 <path d="M10 46C16 37 21 30 28 31C34 32 35 42 42 42C48 42 51 32 54 18" stroke="url(#homeTileWorkoutsGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
                                 <path d="M10 51H54" stroke="rgba(148,163,184,0.38)" stroke-width="3" stroke-linecap="round" />
                                 <circle cx="28" cy="31" r="4" fill="#2563eb" />
-                                <circle cx="42" cy="42" r="4" fill="#0f766e" />
+                                <circle cx="42" cy="42" r="4" fill="#176fbe" />
                             </svg>
                         </span>
                         <span class="home-tile__eyebrow"><%= t("home.tiles.workoutEyebrow") %></span>
@@ -70,12 +70,12 @@
                             <svg viewBox="0 0 64 64" fill="none">
                                 <defs>
                                     <linearGradient id="homeTileSegmentsGradient" x1="12" y1="46" x2="52" y2="18" gradientUnits="userSpaceOnUse">
-                                        <stop stop-color="#0f766e" />
+                                        <stop stop-color="#176fbe" />
                                         <stop offset="1" stop-color="#2563eb" />
                                     </linearGradient>
                                 </defs>
                                 <path d="M14 46C19 38 22 34 28 34C32 34 35 38 39 38C45 38 48 31 50 20" stroke="url(#homeTileSegmentsGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
-                                <circle cx="14" cy="46" r="5" fill="#ffffff" stroke="#0f766e" stroke-width="3" />
+                                <circle cx="14" cy="46" r="5" fill="#ffffff" stroke="#176fbe" stroke-width="3" />
                                 <circle cx="50" cy="20" r="5" fill="#ffffff" stroke="#2563eb" stroke-width="3" />
                                 <path d="M28 48H50" stroke="rgba(148,163,184,0.34)" stroke-width="3" stroke-linecap="round" stroke-dasharray="4 6" />
                             </svg>
@@ -93,7 +93,7 @@
                             <svg viewBox="0 0 64 64" fill="none">
                                 <defs>
                                     <linearGradient id="homeTileAnalyticsGradient" x1="10" y1="50" x2="54" y2="12" gradientUnits="userSpaceOnUse">
-                                        <stop stop-color="#0f766e" />
+                                        <stop stop-color="#176fbe" />
                                         <stop offset="1" stop-color="#2563eb" />
                                     </linearGradient>
                                 </defs>
@@ -117,7 +117,7 @@
                                 <defs>
                                     <linearGradient id="homeTileUploadGradient" x1="18" y1="18" x2="46" y2="48" gradientUnits="userSpaceOnUse">
                                         <stop stop-color="#2563eb" />
-                                        <stop offset="1" stop-color="#0f766e" />
+                                        <stop offset="1" stop-color="#176fbe" />
                                     </linearGradient>
                                 </defs>
                                 <rect x="14" y="37" width="36" height="13" rx="6.5" stroke="rgba(148,163,184,0.38)" stroke-width="3" />
@@ -193,8 +193,8 @@
             <div class="container-fluid px-3 px-xl-4">
                 <span class="navbar-brand"><%= t("home.guest.brand") %></span>
                 <div class="d-flex align-items-center gap-2">
-                    <a class="btn btn-outline-light btn-sm" href="/login"><%= t("home.guest.login") %></a>
-                    <a class="btn btn-light btn-sm" href="/signup"><%= t("home.guest.signUp") %></a>
+                    <a class="btn btn-sm home-topbar-action home-topbar-action--secondary" href="/login"><%= t("home.guest.login") %></a>
+                    <a class="btn btn-sm home-topbar-action home-topbar-action--primary" href="/signup"><%= t("home.guest.signUp") %></a>
                 </div>
             </div>
         </nav>
@@ -226,14 +226,14 @@
                                 <svg viewBox="0 0 64 64" fill="none">
                                     <defs>
                                         <linearGradient id="homeGuestTileWorkoutsGradient" x1="8" y1="50" x2="56" y2="14" gradientUnits="userSpaceOnUse">
-                                            <stop stop-color="#0f766e" />
+                                            <stop stop-color="#176fbe" />
                                             <stop offset="1" stop-color="#2563eb" />
                                         </linearGradient>
                                     </defs>
                                     <path d="M10 46C16 37 21 30 28 31C34 32 35 42 42 42C48 42 51 32 54 18" stroke="url(#homeGuestTileWorkoutsGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
                                     <path d="M10 51H54" stroke="rgba(148,163,184,0.38)" stroke-width="3" stroke-linecap="round" />
                                     <circle cx="28" cy="31" r="4" fill="#2563eb" />
-                                    <circle cx="42" cy="42" r="4" fill="#0f766e" />
+                                    <circle cx="42" cy="42" r="4" fill="#176fbe" />
                                 </svg>
                             </span>
                             <span class="home-tile__eyebrow"><%= t("home.tiles.workoutEyebrow") %></span>
@@ -246,12 +246,12 @@
                                 <svg viewBox="0 0 64 64" fill="none">
                                     <defs>
                                         <linearGradient id="homeGuestTileSegmentsGradient" x1="12" y1="46" x2="52" y2="18" gradientUnits="userSpaceOnUse">
-                                            <stop stop-color="#0f766e" />
+                                            <stop stop-color="#176fbe" />
                                             <stop offset="1" stop-color="#2563eb" />
                                         </linearGradient>
                                     </defs>
                                     <path d="M14 46C19 38 22 34 28 34C32 34 35 38 39 38C45 38 48 31 50 20" stroke="url(#homeGuestTileSegmentsGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
-                                    <circle cx="14" cy="46" r="5" fill="#ffffff" stroke="#0f766e" stroke-width="3" />
+                                    <circle cx="14" cy="46" r="5" fill="#ffffff" stroke="#176fbe" stroke-width="3" />
                                     <circle cx="50" cy="20" r="5" fill="#ffffff" stroke="#2563eb" stroke-width="3" />
                                     <path d="M28 48H50" stroke="rgba(148,163,184,0.34)" stroke-width="3" stroke-linecap="round" stroke-dasharray="4 6" />
                                 </svg>
@@ -266,7 +266,7 @@
                                 <svg viewBox="0 0 64 64" fill="none">
                                     <defs>
                                         <linearGradient id="homeGuestTileAnalyticsGradient" x1="10" y1="50" x2="54" y2="12" gradientUnits="userSpaceOnUse">
-                                            <stop stop-color="#0f766e" />
+                                            <stop stop-color="#176fbe" />
                                             <stop offset="1" stop-color="#2563eb" />
                                         </linearGradient>
                                     </defs>
@@ -287,7 +287,7 @@
                                     <defs>
                                         <linearGradient id="homeGuestTileUploadGradient" x1="18" y1="18" x2="46" y2="48" gradientUnits="userSpaceOnUse">
                                             <stop stop-color="#2563eb" />
-                                            <stop offset="1" stop-color="#0f766e" />
+                                            <stop offset="1" stop-color="#176fbe" />
                                         </linearGradient>
                                     </defs>
                                     <rect x="14" y="37" width="36" height="13" rx="6.5" stroke="rgba(148,163,184,0.38)" stroke-width="3" />
@@ -306,7 +306,7 @@
                                 <svg viewBox="0 0 64 64" fill="none">
                                     <defs>
                                         <linearGradient id="homeGuestTileGroupsGradient" x1="14" y1="46" x2="50" y2="18" gradientUnits="userSpaceOnUse">
-                                            <stop stop-color="#0f766e" />
+                                            <stop stop-color="#176fbe" />
                                             <stop offset="1" stop-color="#2563eb" />
                                         </linearGradient>
                                     </defs>
@@ -328,7 +328,7 @@
                                 <svg viewBox="0 0 64 64" fill="none">
                                     <defs>
                                         <linearGradient id="homeGuestTileFeedGradient" x1="14" y1="46" x2="50" y2="18" gradientUnits="userSpaceOnUse">
-                                            <stop stop-color="#0f766e" />
+                                            <stop stop-color="#176fbe" />
                                             <stop offset="1" stop-color="#2563eb" />
                                         </linearGradient>
                                     </defs>

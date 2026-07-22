@@ -5,8 +5,8 @@
     --sudoku-strong-line: rgba(17, 33, 50, 0.34);
     --sudoku-paper: rgba(255, 255, 255, 0.88);
     --sudoku-paper-strong: rgba(255, 255, 255, 0.96);
-    --sudoku-accent: #0f766e;
-    --sudoku-accent-soft: rgba(15, 118, 110, 0.14);
+    --sudoku-accent: #2587df;
+    --sudoku-accent-soft: rgba(37, 135, 223, 0.14);
     --sudoku-conflict: #b91c1c;
     --sudoku-conflict-soft: rgba(185, 28, 28, 0.14);
     --sudoku-given: #12263f;
@@ -19,7 +19,7 @@ body.sudoku-page {
     color: var(--sudoku-ink);
     background:
         radial-gradient(circle at top left, rgba(37, 99, 235, 0.18), transparent 30%),
-        radial-gradient(circle at right center, rgba(15, 118, 110, 0.16), transparent 32%),
+        radial-gradient(circle at right center, rgba(117, 185, 245, 0.18), transparent 32%),
         linear-gradient(180deg, #f4f7fb 0%, #eef3f8 100%);
 }
 
@@ -342,7 +342,7 @@ body.sudoku-page {
 #sudoku-notes[aria-pressed="true"] {
     background: var(--sudoku-accent-soft);
     color: var(--sudoku-accent);
-    border-color: rgba(15, 118, 110, 0.2);
+    border-color: rgba(37, 135, 223, 0.2);
 }
 
 @media (max-width: 991.98px) {

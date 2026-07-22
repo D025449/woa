@@ -3,23 +3,23 @@
 :root {
   --ui-font-sans: "Instrument Sans", "Avenir Next", sans-serif;
   --ui-font-display: var(--ui-font-sans);
-  --ui-page-bg: linear-gradient(180deg, #f5f3ec 0%, #ebe9df 100%);
-  --ui-page-accent-start: rgba(71, 105, 90, 0.10);
-  --ui-page-accent-end: rgba(177, 111, 73, 0.08);
-  --ui-page-text: #28352f;
+  --ui-page-bg: linear-gradient(180deg, #f5f8fc 0%, #edf2f7 100%);
+  --ui-page-accent-start: rgba(47, 152, 247, 0.10);
+  --ui-page-accent-end: rgba(37, 135, 223, 0.07);
+  --ui-page-text: #263548;
 
-  --ui-brand-accent: #345f51;
-  --ui-brand-accent-soft: rgba(52, 95, 81, 0.08);
-  --ui-brand-accent-faint: rgba(52, 95, 81, 0.035);
+  --ui-brand-accent: #2587df;
+  --ui-brand-accent-soft: rgba(47, 152, 247, 0.11);
+  --ui-brand-accent-faint: rgba(47, 152, 247, 0.055);
   --ui-brand-success: #47705f;
   --ui-brand-success-soft: rgba(71, 112, 95, 0.11);
   --ui-brand-success-faint: rgba(71, 112, 95, 0.065);
   --ui-brand-success-text-strong: #315747;
 
-  --ui-text-strong: #213029;
-  --ui-text-default: #33443c;
-  --ui-text-body: #526159;
-  --ui-text-muted: #718078;
+  --ui-text-strong: #17263a;
+  --ui-text-default: #334155;
+  --ui-text-body: #526277;
+  --ui-text-muted: #718096;
   --ui-text-inverse: #faf9f4;
   --ui-text-on-dark: #e8eee9;
 
@@ -35,10 +35,10 @@
   --ui-card-padding-relaxed: 1rem 1.05rem;
   --ui-card-padding-panel: 1.1rem 1.15rem 1.2rem;
 
-  --ui-border-color-soft: rgba(91, 108, 99, 0.18);
-  --ui-border-color-strong: rgba(91, 108, 99, 0.25);
-  --ui-border-color-emphasis: rgba(91, 108, 99, 0.34);
-  --ui-divider-color: rgba(91, 108, 99, 0.16);
+  --ui-border-color-soft: rgba(100, 116, 139, 0.18);
+  --ui-border-color-strong: rgba(100, 116, 139, 0.25);
+  --ui-border-color-emphasis: rgba(100, 116, 139, 0.34);
+  --ui-divider-color: rgba(100, 116, 139, 0.16);
 
   --ui-border-soft: 1px solid var(--ui-border-color-soft);
   --ui-border-strong: 1px solid var(--ui-border-color-strong);
@@ -64,7 +64,7 @@
   --ui-bg-card-gradient: linear-gradient(180deg, rgba(255, 254, 250, 0.99), rgba(246, 245, 238, 0.98));
   --ui-bg-card-selected-gradient: linear-gradient(180deg, var(--ui-info-bg-strong), rgba(248, 250, 252, 0.98));
   --ui-bg-hero-overlay: linear-gradient(110deg, rgba(255, 254, 250, 0.97), rgba(247, 245, 236, 0.94));
-  --ui-bg-hero-accent: linear-gradient(135deg, var(--ui-brand-accent-faint), rgba(177, 111, 73, 0.06));
+  --ui-bg-hero-accent: linear-gradient(135deg, var(--ui-brand-accent-faint), rgba(37, 135, 223, 0.06));
 
   --ui-shadow-soft: 0 10px 24px rgba(41, 55, 48, 0.045);
   --ui-shadow-md: 0 16px 38px rgba(41, 55, 48, 0.065);
@@ -75,14 +75,14 @@
   --ui-shadow-drawer: 0 28px 60px rgba(41, 55, 48, 0.2);
 
   --ui-topbar-bg: rgba(255, 254, 250, 0.94);
-  --ui-topbar-border: rgba(91, 108, 99, 0.2);
+  --ui-topbar-border: rgba(100, 116, 139, 0.2);
   --ui-topbar-shadow: 0 10px 28px rgba(41, 55, 48, 0.08);
-  --ui-topbar-link: #66736c;
-  --ui-topbar-link-active: #345f51;
-  --ui-topbar-control-bg: rgba(52, 95, 81, 0.06);
-  --ui-topbar-control-bg-hover: rgba(52, 95, 81, 0.12);
-  --ui-topbar-control-border: rgba(52, 95, 81, 0.2);
-  --ui-topbar-control-border-hover: rgba(52, 95, 81, 0.35);
+  --ui-topbar-link: #64748b;
+  --ui-topbar-link-active: #176fbe;
+  --ui-topbar-control-bg: rgba(47, 152, 247, 0.07);
+  --ui-topbar-control-bg-hover: rgba(47, 152, 247, 0.14);
+  --ui-topbar-control-border: rgba(37, 135, 223, 0.22);
+  --ui-topbar-control-border-hover: rgba(37, 135, 223, 0.4);
 
   --ui-danger-soft: rgba(220, 38, 38, 0.28);
   --ui-danger-faint: rgba(127, 29, 29, 0.18);
@@ -126,16 +126,16 @@
   --ui-info-shadow-hover: 0 12px 26px rgba(37, 99, 235, 0.12);
   --ui-info-text: #1d4ed8;
 
-  --ui-input-border: rgba(112, 128, 119, 0.34);
-  --ui-input-border-soft: rgba(112, 128, 119, 0.28);
-  --ui-input-border-strong: rgba(112, 128, 119, 0.42);
-  --ui-chip-border-soft: rgba(91, 108, 99, 0.22);
-  --ui-card-border-soft: rgba(91, 108, 99, 0.17);
-  --ui-card-border-muted: rgba(91, 108, 99, 0.15);
-  --ui-card-divider: rgba(91, 108, 99, 0.14);
-  --ui-card-border-faint: rgba(91, 108, 99, 0.2);
-  --ui-card-border-strong: rgba(91, 108, 99, 0.27);
-  --ui-card-border-dashed: rgba(91, 108, 99, 0.48);
+  --ui-input-border: rgba(100, 116, 139, 0.34);
+  --ui-input-border-soft: rgba(100, 116, 139, 0.28);
+  --ui-input-border-strong: rgba(100, 116, 139, 0.42);
+  --ui-chip-border-soft: rgba(100, 116, 139, 0.22);
+  --ui-card-border-soft: rgba(100, 116, 139, 0.17);
+  --ui-card-border-muted: rgba(100, 116, 139, 0.15);
+  --ui-card-divider: rgba(100, 116, 139, 0.14);
+  --ui-card-border-faint: rgba(100, 116, 139, 0.2);
+  --ui-card-border-strong: rgba(100, 116, 139, 0.27);
+  --ui-card-border-dashed: rgba(100, 116, 139, 0.48);
   --ui-status-neutral-bg: rgba(242, 241, 234, 0.94);
 
   --ui-success-bg: rgba(240, 253, 244, 0.96);
@@ -211,7 +211,7 @@ textarea {
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--ui-brand-success);
+  color: var(--ui-brand-accent);
 }
 
 .ui-hero__title {

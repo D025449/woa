@@ -37,7 +37,7 @@ body.coaching-page {
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--ui-brand-success);
+  color: var(--ui-brand-accent);
 }
 
 .coaching-title {

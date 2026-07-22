@@ -1233,9 +1233,129 @@ export default class SegmentDBService {
     return result;
   }
 
+  static compareSegmentMatchesByDuration(left, right) {
+    const leftDuration = Number(left?.end_offset) - Number(left?.start_offset);
+    const rightDuration = Number(right?.end_offset) - Number(right?.start_offset);
+    return leftDuration - rightDuration
+      || Number(left?.workout_id) - Number(right?.workout_id)
+      || Number(left?.start_offset) - Number(right?.start_offset);
+  }
+
+  static keepFastestSegmentMatches(matches, maxMatches) {
+    if (!Number.isInteger(maxMatches) || maxMatches <= 0 || matches.length <= maxMatches) {
+      return matches;
+    }
+    matches.sort(this.compareSegmentMatchesByDuration);
+    matches.length = maxMatches;
+    return matches;
+  }
+
+  static async materializeOnDemandSegmentBestEfforts(uid, segmentId, options = {}) {
+    const limit = Math.min(100, Math.max(1, Number(options?.limit) || 100));
+    const scanResult = await this.scanWorkoutsForSegments(uid, [segmentId], {
+      includeProfile: true,
+      includeExistingBestEfforts: true,
+      includeSharedWorkouts: false,
+      includeMetrics: false,
+      maxMatches: limit
+    });
+    const matches = scanResult.matches;
+    const workoutIds = [...new Set(matches.map((match) => Number(match.workout_id)))];
+    const profile = {
+      ...scanResult.profile,
+      loadWorkoutMetadataMs: 0,
+      loadWorkoutObjectsMs: 0,
+      calculateAveragesMs: 0
+    };
+
+    if (workoutIds.length === 0) {
+      return {
+        data: [],
+        total_records: scanResult.profile.rawMatchCount,
+        returned_records: 0,
+        profile
+      };
+    }
+
+    const metadataStartedAt = performance.now();
+    const metadataResult = await pool.query(`
+      SELECT
+        w.id AS wid,
+        w.uid,
+        w.start_time,
+        owner.display_name AS owner_display_name,
+        owner.email AS owner_email
+      FROM workouts w
+      LEFT JOIN users owner
+        ON owner.id = w.uid
+      WHERE w.id = ANY($1::bigint[])
+    `, [workoutIds]);
+    profile.loadWorkoutMetadataMs = performance.now() - metadataStartedAt;
+    const metadataByWorkoutId = new Map(
+      metadataResult.rows.map((row) => [Number(row.wid), row])
+    );
+
+    const workoutObjectsStartedAt = performance.now();
+    const rawWorkoutObjects = await WorkoutDBService.getWorkouts(workoutIds);
+    const workoutObjects = new Map(
+      [...rawWorkoutObjects.entries()].map(([workoutId, workout]) => [Number(workoutId), workout])
+    );
+    profile.loadWorkoutObjectsMs = performance.now() - workoutObjectsStartedAt;
+
+    const segmentDistance = Number((await this.getSegmentDistanceMap([segmentId])).get(Number(segmentId))) || 0;
+    const averagesStartedAt = performance.now();
+    const data = [];
+    for (const match of matches) {
+      const workoutId = Number(match.workout_id);
+      const workout = workoutObjects.get(workoutId);
+      const metadata = metadataByWorkoutId.get(workoutId);
+      if (!workout || !metadata) continue;
+
+      const duration = Number(match.end_offset) - Number(match.start_offset);
+      if (!Number.isFinite(duration) || duration <= 0) continue;
+      const averages = workout.getAverages(match.start_offset, match.end_offset);
+      data.push({
+        id: null,
+        sid: Number(segmentId),
+        wid: workoutId,
+        uid: Number(metadata.uid),
+        start_time: metadata.start_time,
+        duration,
+        start_offset: Number(match.start_offset),
+        end_offset: Number(match.end_offset),
+        avg_power: Math.round(averages.power ?? 0),
+        avg_heart_rate: Math.round(averages.hr ?? 0),
+        avg_cadence: Math.round(averages.cadence ?? 0),
+        avg_speed: this.calculateNormalizedSegmentSpeed(segmentDistance, duration),
+        owner_display_name: metadata.owner_display_name,
+        owner_email: metadata.owner_email
+      });
+    }
+    profile.calculateAveragesMs = performance.now() - averagesStartedAt;
+
+    data.sort((left, right) => Number(left.duration) - Number(right.duration)
+      || Number(left.wid) - Number(right.wid)
+      || Number(left.start_offset) - Number(right.start_offset));
+    data.forEach((row, index) => {
+      row.rn = index + 1;
+    });
+
+    return {
+      data,
+      total_records: scanResult.profile.rawMatchCount,
+      returned_records: data.length,
+      profile
+    };
+  }
+
   static async scanWorkoutsForSegments(uid, segments, options = {}) {
     const includeProfile = options?.includeProfile === true;
     const includeExistingBestEfforts = options?.includeExistingBestEfforts === true;
+    const includeSharedWorkouts = options?.includeSharedWorkouts !== false;
+    const includeMetrics = options?.includeMetrics !== false;
+    const maxMatches = Number.isInteger(Number(options?.maxMatches))
+      ? Math.max(1, Number(options.maxMatches))
+      : null;
     const segmentIds = [...new Set((Array.isArray(segments) ? segments : [])
       .map((segment) => Number(segment?.id ?? segment))
       .filter((segmentId) => Number.isInteger(segmentId) && segmentId > 0))];
@@ -1249,6 +1369,7 @@ export default class SegmentDBService {
       candidateWorkoutCount: 0,
       candidatePairCount: 0,
       matchedWorkoutCount: 0,
+      rawMatchCount: 0,
       matchCount: 0,
       workoutChunkSize: 100
     };
@@ -1264,7 +1385,7 @@ export default class SegmentDBService {
     const candidateRows = await FileDBService.getMatchingWorkoutCandidatesForSegments(
       segmentIds,
       uid,
-      { includeExistingBestEfforts }
+      { includeExistingBestEfforts, includeSharedWorkouts }
     );
     profile.loadCandidateRowsMs = Date.now() - loadCandidateRowsStartedAt;
     profile.candidateWorkoutCount = candidateRows.length;
@@ -1299,6 +1420,7 @@ export default class SegmentDBService {
           sampleRateSeconds: sampleRate
         }, candidateSegments).matches;
         profile.matchSegmentsMs += Date.now() - matchStartedAt;
+        profile.rawMatchCount += matches.length;
         if (matches.length > 0) {
           matchesByWorkoutId.set(workoutId, matches.map((match) => ({
             workout_id: workoutId,
@@ -1311,6 +1433,14 @@ export default class SegmentDBService {
 
       const matchedWorkoutIds = [...matchesByWorkoutId.keys()];
       if (matchedWorkoutIds.length === 0) continue;
+
+      if (!includeMetrics) {
+        for (const matches of matchesByWorkoutId.values()) {
+          allMatches.push(...matches);
+        }
+        this.keepFastestSegmentMatches(allMatches, maxMatches);
+        continue;
+      }
 
       const loadWorkoutObjectsStartedAt = Date.now();
       const rawWorkoutObjects = await WorkoutDBService.getWorkouts(matchedWorkoutIds);
@@ -1329,8 +1459,10 @@ export default class SegmentDBService {
         }
       }
       profile.calculateAveragesMs += Date.now() - calculateAveragesStartedAt;
+      this.keepFastestSegmentMatches(allMatches, maxMatches);
     }
 
+    if (maxMatches) allMatches.sort(this.compareSegmentMatchesByDuration);
     profile.matchCount = allMatches.length;
     profile.matchedWorkoutCount = new Set(allMatches.map((match) => Number(match.workout_id))).size;
     return includeProfile ? { matches: allMatches, profile } : allMatches;

@@ -107,7 +107,7 @@ body.upload-page {
   border: 1px solid var(--ui-border-color-soft);
   border-radius: var(--ui-card-radius-panel);
   background:
-    radial-gradient(circle at 88% 10%, rgba(177, 111, 73, 0.10), transparent 12rem),
+    radial-gradient(circle at 88% 10%, rgba(47, 152, 247, 0.10), transparent 12rem),
     linear-gradient(145deg, var(--ui-brand-accent-faint), var(--ui-bg-panel-soft));
 }
 
@@ -306,7 +306,7 @@ body.upload-page {
 
 .upload-dropzone.has-files {
   border-style: solid;
-  border-color: rgba(52, 95, 81, 0.42);
+  border-color: rgba(37, 135, 223, 0.46);
   background: linear-gradient(135deg, var(--ui-brand-accent-soft), var(--ui-bg-panel-soft));
 }
 
@@ -440,10 +440,25 @@ body.upload-page {
 }
 
 .upload-primary-btn {
-  border-radius: 999px;
+  border-radius: 0.4rem;
   padding: 0.85rem 1rem;
   font-weight: 700;
   letter-spacing: 0.01em;
+  border-color: #258be5 !important;
+  background: linear-gradient(112deg, #2f98f7 0%, #2d91eb 58%, #2587df 100%) !important;
+  color: #ffffff !important;
+}
+
+.upload-primary-btn:hover,
+.upload-primary-btn:focus-visible {
+  border-color: #176fbe !important;
+  background: linear-gradient(112deg, #258be5 0%, #2587df 58%, #176fbe 100%) !important;
+  color: #ffffff !important;
+}
+
+.upload-primary-btn:active {
+  border-color: #145d9e !important;
+  background: #145d9e !important;
 }
 
 .upload-form-panel .d-grid {

@@ -27,7 +27,7 @@
     font-weight: 600;
     padding: 0.42rem 0.7rem;
     border: 0;
-    border-radius: 999px;
+    border-radius: 0.4rem;
     transition: color 140ms ease, background 140ms ease;
 }
 
@@ -66,7 +66,7 @@
 }
 
 .app-topbar .btn {
-    border-radius: 999px;
+    border-radius: 0.4rem;
     padding-inline: 0.9rem;
     font-weight: 600;
     border-color: var(--ui-border-color-strong);
@@ -425,7 +425,7 @@ body.has-fixed-app-topbar .workout-library-card:hover {
 
 body.has-fixed-app-topbar .workout-library-card.is-selected {
     margin: 0.25rem 0;
-    border: 1px solid rgba(52, 95, 81, 0.34);
+    border: 1px solid rgba(37, 135, 223, 0.38);
     border-radius: 0.45rem;
     background: var(--ui-brand-accent-soft);
     box-shadow: none;
@@ -472,17 +472,17 @@ body.has-fixed-app-topbar .upload-section-title {
 body.has-fixed-app-topbar .btn-primary {
     --bs-btn-bg: var(--ui-brand-accent);
     --bs-btn-border-color: var(--ui-brand-accent);
-    --bs-btn-hover-bg: #294e43;
-    --bs-btn-hover-border-color: #294e43;
-    --bs-btn-active-bg: #213f36;
-    --bs-btn-active-border-color: #213f36;
+    --bs-btn-hover-bg: #176fbe;
+    --bs-btn-hover-border-color: #176fbe;
+    --bs-btn-active-bg: #145d9e;
+    --bs-btn-active-border-color: #145d9e;
     --bs-btn-disabled-bg: var(--ui-brand-accent);
     --bs-btn-disabled-border-color: var(--ui-brand-accent);
 }
 
 body.has-fixed-app-topbar .btn-outline-primary {
     --bs-btn-color: var(--ui-brand-accent);
-    --bs-btn-border-color: rgba(52, 95, 81, 0.38);
+    --bs-btn-border-color: rgba(37, 135, 223, 0.42);
     --bs-btn-hover-bg: var(--ui-brand-accent);
     --bs-btn-hover-border-color: var(--ui-brand-accent);
     --bs-btn-active-bg: var(--ui-brand-accent);
@@ -509,8 +509,8 @@ body.has-fixed-app-topbar .form-select {
 
 body.has-fixed-app-topbar .form-control:focus,
 body.has-fixed-app-topbar .form-select:focus {
-    border-color: rgba(52, 95, 81, 0.55);
-    box-shadow: 0 0 0 0.2rem rgba(52, 95, 81, 0.12);
+    border-color: rgba(37, 135, 223, 0.58);
+    box-shadow: 0 0 0 0.2rem rgba(47, 152, 247, 0.14);
 }
 
 body.has-fixed-app-topbar .form-check-input:checked {
