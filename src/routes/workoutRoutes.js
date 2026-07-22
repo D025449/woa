@@ -688,6 +688,7 @@ router.post("/:id/similarity/classify", authMiddleware, requireActiveAccountWrit
 
 router.get("/:id/similarity", authMiddleware, async (req, res) => {
   try {
+    res.setHeader("Cache-Control", "private, max-age=60, must-revalidate");
     const workoutId = Number(req.params.id);
     const uid = req.user?.id;
 
