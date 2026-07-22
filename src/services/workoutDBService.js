@@ -1548,23 +1548,52 @@ export default class WorkoutDBService {
   }
 
   static async getWorkouts(ids) {
+    const result = await this.getWorkoutsWithProfile(ids);
+    return result.workouts;
+  }
+
+  static async getWorkoutsWithProfile(ids) {
+    const queryStartedAt = performance.now();
     const result = await pool.query(
       `SELECT id, stream, stream_codec FROM workouts WHERE id = ANY($1::bigint[]);`,
       [ids]
     );
+    const queryMs = performance.now() - queryStartedAt;
 
     if (result.rowCount === 0) {
       throw new Error("no workouts found");
     }
 
     const workoutMap = new Map();
+    let decompressMs = 0;
+    let decodeWorkoutMs = 0;
+    let compressedBytes = 0;
+    let rawBytes = 0;
 
     for (const w of result.rows) {
-      const workoutObject = await Workout.fromCompressedWithCodec(w.stream, w.stream_codec || "brotli");
+      compressedBytes += Number(w.stream?.byteLength ?? w.stream?.length ?? 0);
+      const decompressStartedAt = performance.now();
+      const raw = await Workout.decompress(w.stream, w.stream_codec || "brotli");
+      decompressMs += performance.now() - decompressStartedAt;
+      rawBytes += Number(raw?.byteLength ?? raw?.length ?? 0);
+
+      const decodeStartedAt = performance.now();
+      const workoutObject = Workout.fromBuffer(raw);
+      decodeWorkoutMs += performance.now() - decodeStartedAt;
       workoutMap.set(w.id, workoutObject);
     };
 
-    return workoutMap;
+    return {
+      workouts: workoutMap,
+      profile: {
+        queryMs,
+        decompressMs,
+        decodeWorkoutMs,
+        rowCount: result.rowCount,
+        compressedBytes,
+        rawBytes
+      }
+    };
 
   }
 

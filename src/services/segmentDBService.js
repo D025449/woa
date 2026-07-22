@@ -1272,7 +1272,12 @@ export default class SegmentDBService {
       ...scanResult.profile,
       loadWorkoutMetadataMs: 0,
       loadWorkoutObjectsMs: 0,
-      calculateAveragesMs: 0
+      calculateAveragesMs: 0,
+      loadWorkoutBlobRowsMs: 0,
+      decompressWorkoutStreamsMs: 0,
+      decodeWorkoutStreamsMs: 0,
+      workoutStreamCompressedBytes: 0,
+      workoutStreamRawBytes: 0
     };
 
     if (workoutIds.length === 0) {
@@ -1303,11 +1308,17 @@ export default class SegmentDBService {
     );
 
     const workoutObjectsStartedAt = performance.now();
-    const rawWorkoutObjects = await WorkoutDBService.getWorkouts(workoutIds);
+    const profiledWorkoutObjects = await WorkoutDBService.getWorkoutsWithProfile(workoutIds);
+    const rawWorkoutObjects = profiledWorkoutObjects.workouts;
     const workoutObjects = new Map(
       [...rawWorkoutObjects.entries()].map(([workoutId, workout]) => [Number(workoutId), workout])
     );
     profile.loadWorkoutObjectsMs = performance.now() - workoutObjectsStartedAt;
+    profile.loadWorkoutBlobRowsMs = profiledWorkoutObjects.profile.queryMs;
+    profile.decompressWorkoutStreamsMs = profiledWorkoutObjects.profile.decompressMs;
+    profile.decodeWorkoutStreamsMs = profiledWorkoutObjects.profile.decodeWorkoutMs;
+    profile.workoutStreamCompressedBytes = profiledWorkoutObjects.profile.compressedBytes;
+    profile.workoutStreamRawBytes = profiledWorkoutObjects.profile.rawBytes;
 
     const segmentDistance = Number((await this.getSegmentDistanceMap([segmentId])).get(Number(segmentId))) || 0;
     const averagesStartedAt = performance.now();
