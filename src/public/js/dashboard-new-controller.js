@@ -225,6 +225,7 @@ export default class Controller {
       initialSearch: this.libraryState?.search || "",
       initialSort: this.libraryState?.sort || "newest",
       initialScope: this.libraryState?.scope || "mine",
+      initialWorkoutType: this.libraryState?.workoutType || "all",
       initialFavoriteFilterActive: !!this.libraryState?.favoritesOnly,
       initialFavoriteWorkoutIds: this.favoriteWorkoutIds,
       onWorkoutOpen: async (workoutId) => {

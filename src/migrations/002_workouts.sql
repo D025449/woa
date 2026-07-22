@@ -43,6 +43,7 @@ CREATE TABLE workouts (
     stream_codec         TEXT,
     validGps             BOOLEAN,
     gps_source           TEXT,
+    workout_type         TEXT NOT NULL DEFAULT 'unknown',
     manual_gps_lookup_points JSONB,
     segment_processing_status TEXT NOT NULL DEFAULT 'completed',
     segment_processing_error  TEXT,
@@ -64,6 +65,8 @@ CREATE TABLE workouts (
         ON DELETE CASCADE,
     CONSTRAINT workouts_gps_source_check
         CHECK (gps_source IS NULL OR gps_source IN ('recorded', 'manual_lookup')),
+    CONSTRAINT workouts_workout_type_check
+        CHECK (workout_type IN ('indoor', 'road', 'mountain', 'unknown')),
     CONSTRAINT workouts_stream_codec_check
         CHECK (stream_codec IS NULL OR stream_codec IN ('brotli', 'gzip')),
     CONSTRAINT workouts_gps_track_blob_codec_check
@@ -82,5 +85,8 @@ ON workouts
 
 CREATE INDEX IF NOT EXISTS idx_workouts_uid
 ON workouts (uid);
+
+CREATE INDEX IF NOT EXISTS idx_workouts_uid_type_start_time
+ON workouts (uid, workout_type, start_time DESC);
 
 COMMIT;

@@ -24,6 +24,7 @@ export default class WorkoutLibraryView {
     this.scopeSharedButton = document.getElementById(handlers.scopeSharedButtonId || "workout-library-scope-shared");
     this.scopeAllButton = document.getElementById(handlers.scopeAllButtonId || "workout-library-scope-all");
     this.favoriteFilterButton = document.getElementById(handlers.favoriteFilterButtonId || "workout-library-favorites-filter");
+    this.workoutTypeFilter = document.getElementById(handlers.workoutTypeFilterId || "workout-library-type-filter");
     this.selectionModeButton = document.getElementById(handlers.selectionModeButtonId || "workout-library-selection-toggle");
     this.bulkBarElement = document.getElementById(handlers.bulkBarElementId || "workout-library-bulk-bar");
     this.bulkCountElement = document.getElementById(handlers.bulkCountElementId || "workout-library-bulk-count");
@@ -69,6 +70,9 @@ export default class WorkoutLibraryView {
     this.sortValue = handlers.initialSort ?? "newest";
     this.scopeValue = handlers.initialScope ?? "mine";
     this.favoriteFilterActive = !!handlers.initialFavoriteFilterActive;
+    this.workoutTypeValue = ["indoor", "road", "mountain", "unknown"].includes(handlers.initialWorkoutType)
+      ? handlers.initialWorkoutType
+      : "all";
     this.favoriteWorkoutIds = new Set((handlers.initialFavoriteWorkoutIds || []).map((value) => String(value)));
 
     if (this.searchInput) {
@@ -77,6 +81,9 @@ export default class WorkoutLibraryView {
 
     if (this.sortSelect) {
       this.sortSelect.value = this.sortValue;
+    }
+    if (this.workoutTypeFilter) {
+      this.workoutTypeFilter.value = this.workoutTypeValue;
     }
 
     this.syncSortUi();
@@ -106,6 +113,12 @@ export default class WorkoutLibraryView {
         }
         this.reload();
       }, 220);
+    });
+
+    this.workoutTypeFilter?.addEventListener("change", () => {
+      this.workoutTypeValue = this.workoutTypeFilter?.value || "all";
+      this.handlers.onStateChange?.(this.getState());
+      this.reload();
     });
 
     this.sortSelect?.addEventListener("change", () => {
@@ -363,11 +376,11 @@ export default class WorkoutLibraryView {
 
   buildFilters() {
     const search = (this.searchInput?.value || this.searchInputValue || "").trim();
-    if (!search) {
-      return [];
+    const filters = search ? [{ field: "__search", type: "like", value: search }] : [];
+    if (["indoor", "road", "mountain", "unknown"].includes(this.workoutTypeValue)) {
+      filters.push({ field: "workout_type", type: "=", value: this.workoutTypeValue });
     }
-
-    return [{ field: "__search", type: "like", value: search }];
+    return filters;
   }
 
   shouldWaitForScopedSearchValue(search) {
@@ -419,6 +432,13 @@ export default class WorkoutLibraryView {
       });
     }
 
+    if (this.workoutTypeValue !== "all") {
+      chips.push({
+        type: "workoutType",
+        label: this.pageT(`workoutType${this.workoutTypeValue.charAt(0).toUpperCase()}${this.workoutTypeValue.slice(1)}`)
+      });
+    }
+
     if (chips.length === 0) {
       this.activeFiltersElement.hidden = true;
       this.activeFiltersElement.innerHTML = "";
@@ -464,6 +484,13 @@ export default class WorkoutLibraryView {
       this.renderActiveFilters();
       this.reload();
       return;
+    }
+
+    if (type === "workoutType") {
+      this.workoutTypeValue = "all";
+      if (this.workoutTypeFilter) this.workoutTypeFilter.value = "all";
+      this.handlers.onStateChange?.(this.getState());
+      this.reload();
     }
 
     if (type === "sort") {
@@ -694,7 +721,8 @@ export default class WorkoutLibraryView {
       search: this.searchInput?.value || this.searchInputValue || "",
       sort: this.sortSelect?.value || this.sortValue || "newest",
       scope: this.scopeValue || "mine",
-      favoritesOnly: this.favoriteFilterActive
+      favoritesOnly: this.favoriteFilterActive,
+      workoutType: this.workoutTypeValue
     };
   }
 

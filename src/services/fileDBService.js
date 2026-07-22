@@ -21,7 +21,8 @@ class FileDBService {
     "avg_heart_rate",
     "avg_normalized_power",
     "avg_cadence",
-    "avg_speed"
+    "avg_speed",
+    "workout_type"
   ];
 
   static scopedSearchColumns = {
@@ -40,7 +41,9 @@ class FileDBService {
     np: "avg_normalized_power",
     cadence: "avg_cadence",
     cad: "avg_cadence",
-    speed: "avg_speed"
+    speed: "avg_speed",
+    type: "workout_type",
+    workout: "workout_type"
   };
 
   static normalizeQueryArray(value) {
@@ -124,7 +127,8 @@ class FileDBService {
     "avg_cadence",
     "avg_speed",
     "avg_normalized_power",
-    "total_timer_time"
+    "total_timer_time",
+    "workout_type"
   ];
 
   static numericFields = [
@@ -520,6 +524,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       workouts.avg_cadence,
       workouts.max_cadence,
       workouts.validgps,
+      workouts.workout_type,
       workouts.segment_processing_status,
       workouts.segment_processing_error,
       workouts.segment_processing_updated_at,
@@ -1820,7 +1825,10 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       year_quarter: persistedRow.year_quarter,
       year_month: persistedRow.year_month,
       year_week: persistedRow.year_week,
-      gps_source: persistedRow.gps_source || null
+      gps_source: persistedRow.gps_source || null,
+      workout_type: ["indoor", "road", "mountain", "unknown"].includes(persistedRow.workout_type)
+        ? persistedRow.workout_type
+        : "unknown"
     };
 
     const bounds = persistedRow?.bounds || null;
@@ -1975,7 +1983,8 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       week,
       year_quarter,
       year_month,
-      year_week
+      year_week,
+      workout_type
     } = fileRow;
 
     return [
@@ -2017,12 +2026,13 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       compressedBuffer,
       gpsTrackBlobCodec,
       streamCodec,
-      gpsSource
+      gpsSource,
+      workout_type || "unknown"
     ];
   }
 
   static buildWorkoutInsertValuesClause(rowIndex) {
-    const offset = rowIndex * 39;
+    const offset = rowIndex * 40;
     const p = (index) => `$${offset + index}`;
     return `(
   ${p(1)},${p(2)},
@@ -2040,7 +2050,8 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
   ${p(36)},
   ${p(37)},
   ${p(38)},
-  ${p(39)}
+  ${p(39)},
+  ${p(40)}
 )`;
   }
 
@@ -2175,7 +2186,8 @@ INSERT INTO workouts (
   stream,
   gps_track_blob_codec,
   stream_codec,
-  gps_source
+  gps_source,
+  workout_type
 )
 VALUES
 ${valuesClauses.join(",\n")}
@@ -2271,7 +2283,8 @@ INSERT INTO workouts (
   stream,
   gps_track_blob_codec,
   stream_codec,
-  gps_source
+  gps_source,
+  workout_type
 )
 VALUES (
   $1,$2,
@@ -2289,7 +2302,8 @@ VALUES (
   $36,
   $37,
   $38,
-  $39
+  $39,
+  $40
 )
 ON CONFLICT (uid, start_time)
 DO NOTHING

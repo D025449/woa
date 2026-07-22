@@ -1,4 +1,5 @@
 import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../../shared/gpsSampling.js";
+import { classifyWorkoutType } from "../../shared/WorkoutTypeClassifier.js";
 
 const textEncoder = new TextEncoder();
 const UINT8_NAN = 0xFF;
@@ -1891,7 +1892,7 @@ function derivePersistedRowFromCompact(parsedCompact, gpsTrack, sourceName = "")
   const trackStart = validGps ? (gpsTrack?.startPoint || null) : null;
   const trackEnd = validGps ? (gpsTrack?.endPoint || null) : null;
   const firstSession = sessions[0] || {};
-  return {
+  const persistedRow = {
     source_name: sourceName,
     start_time: aggregated.start_time,
     end_time: aggregated.end_time,
@@ -1928,6 +1929,17 @@ function derivePersistedRowFromCompact(parsedCompact, gpsTrack, sourceName = "")
     stream_codec: DEFAULT_STREAM_CODEC,
     gps_track_blob_codec: DEFAULT_GPS_TRACK_CODEC
   };
+  persistedRow.workout_type = classifyWorkoutType({
+    validGps: persistedRow.validGps,
+    bounds: persistedRow.bounds,
+    totalDistance: persistedRow.total_distance,
+    totalTimerTime: persistedRow.total_timer_time,
+    totalAscent: persistedRow.total_ascent,
+    avgSpeed: persistedRow.avg_speed,
+    avgPower: persistedRow.avg_power,
+    avgCadence: persistedRow.avg_cadence
+  });
+  return persistedRow;
 }
 
 function deriveSummaryFromCompact(parsedCompact, gpsTrack, sourceName = "") {

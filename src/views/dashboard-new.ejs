@@ -184,6 +184,16 @@
                                                 <%= t("dashboardNewPage.filterAll") %>
                                             </button>
                                         </div>
+                                        <select
+                                            id="workout-library-type-filter"
+                                            class="form-select workout-library-select workout-library-type-filter"
+                                            aria-label="<%= t('dashboardNewPage.workoutTypeFilterLabel') %>">
+                                            <option value="all"><%= t("dashboardNewPage.workoutTypeAll") %></option>
+                                            <option value="indoor"><%= t("dashboardNewPage.workoutTypeIndoor") %></option>
+                                            <option value="road"><%= t("dashboardNewPage.workoutTypeRoad") %></option>
+                                            <option value="mountain"><%= t("dashboardNewPage.workoutTypeMountain") %></option>
+                                            <option value="unknown"><%= t("dashboardNewPage.workoutTypeUnknown") %></option>
+                                        </select>
                                         <div class="workout-library-search-wrap">
                                             <input
                                                 id="workout-library-search"

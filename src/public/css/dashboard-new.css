@@ -906,6 +906,11 @@ body.dashboard-page {
   vertical-align: middle;
 }
 
+.workout-library-type-filter {
+  flex-basis: 132px;
+  min-width: 132px;
+}
+
 .workout-library-input {
   flex: 0 1 200px;
   padding-left: 0.85rem;
