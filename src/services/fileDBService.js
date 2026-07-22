@@ -2,13 +2,12 @@ import pool from "./database.js";
 import pgPromise from "pg-promise";
 import WorkoutSharingService from "./workoutSharingService.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
-import Workout from "../shared/Workout.js";
 import { toPostgresBox } from "../shared/postgresSpatial.js";
 
 const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
 const LEGACY_WORKOUT_STREAM_CODEC = "brotli";
-const LEGACY_GPS_TRACK_BLOB_CODEC = "brotli";
+const GPS_TRACK_BLOB_CODEC = "identity";
 
 class FileDBService {
   static searchColumns = [
@@ -1733,16 +1732,16 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     timing.mark("build-spatial-metadata");
 
     const compressedGpsTrackBlob = options?.gpsTrackBytes
-      ? await Workout.compress(Buffer.from(options.gpsTrackBytes), LEGACY_GPS_TRACK_BLOB_CODEC)
+      ? Buffer.from(options.gpsTrackBytes)
       : (gps_track?.latitudesQ && gps_track?.longitudesQ
           ? await GpsTrackBlobService.encodeCompressedFromQuantized(gps_track, {
               sampleRateGps: sampleRateGPS,
               scale: gps_track.quantizationScale,
-              codec: LEGACY_GPS_TRACK_BLOB_CODEC
+              codec: GPS_TRACK_BLOB_CODEC
             })
           : await GpsTrackBlobService.encodeCompressed(gps_track?.track ?? [], {
               sampleRateGps: sampleRateGPS,
-              codec: LEGACY_GPS_TRACK_BLOB_CODEC
+              codec: GPS_TRACK_BLOB_CODEC
             }));
     timing.mark("encode-gps-track-blob", {
       compressedBytes: compressedGpsTrackBlob?.length ?? 0
@@ -1766,7 +1765,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       compressedBuffer,
       compressedGpsTrackBlob,
       streamCodec: LEGACY_WORKOUT_STREAM_CODEC,
-      gpsTrackBlobCodec: LEGACY_GPS_TRACK_BLOB_CODEC,
+      gpsTrackBlobCodec: GPS_TRACK_BLOB_CODEC,
       trackStartLat,
       trackStartLng,
       trackEndLat,
@@ -1877,7 +1876,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       compressedBuffer: workoutStreamStoredBytes,
       compressedGpsTrackBlob: gpsTrackStoredBytes,
       streamCodec: String(persistedRow.stream_codec || "gzip"),
-      gpsTrackBlobCodec: String(persistedRow.gps_track_blob_codec || "gzip"),
+      gpsTrackBlobCodec: String(persistedRow.gps_track_blob_codec || "identity"),
       trackStartLat,
       trackStartLng,
       trackEndLat,

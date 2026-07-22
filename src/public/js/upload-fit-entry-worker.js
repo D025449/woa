@@ -104,9 +104,9 @@ async function createWoaFromParsed(parsed, entryName, encodingOptions) {
       distanceEncoding: "uint8-q05m",
       altitudeEncoding: "rle-delta-q1m",
       streamCodec,
-      gpsTrackBlobCodec: streamCodec,
+      gpsTrackBlobCodec: "identity",
       compressWorkoutStream: (bytes, options = {}) => compressWithCodec(bytes, streamCodec, options, encodingOptions),
-      compressGpsTrack: (bytes, options = {}) => compressWithCodec(bytes, streamCodec, options, encodingOptions)
+      compressGpsTrack: null
     })
   };
 }

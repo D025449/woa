@@ -1106,7 +1106,7 @@ console.log(`File: ${filePath}`);
 console.log(`Repeats: ${options.repeats}`);
 console.log("Format: current compact WOA1 + HR/Cadence dictionary + GPS bitmap/columnar experiments");
 console.log(
-  `Compression: inner=${options.innerCompression}, outer=${options.outerCompression}, ` +
+  `Compression: workout-inner=${options.innerCompression}, gps-inner=identity, outer=${options.outerCompression}, ` +
   `gzipLevel=${options.gzipLevel}, brotliQuality=${options.brotliQuality}\n`
 );
 
@@ -1176,9 +1176,9 @@ for (let run = 1; run <= options.repeats; run += 1) {
       gpsBlockSize: options.gpsBlockSize,
       altitudeEncoding: "rle-delta-q1m",
       streamCodec: options.innerCompression,
-      gpsTrackBlobCodec: options.innerCompression,
+      gpsTrackBlobCodec: "identity",
       compressWorkoutStream: compressInner,
-      compressGpsTrack: compressInner,
+      compressGpsTrack: null,
     });
     woaMs += performance.now() - woaStartedAt;
     workoutRawBytes += Number(woa.meta?.blockBytes?.workout_stream_raw || 0);

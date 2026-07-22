@@ -31,6 +31,6 @@ BEGIN
   ) THEN
     ALTER TABLE workouts
       ADD CONSTRAINT workouts_gps_track_blob_codec_check
-      CHECK (gps_track_blob_codec IS NULL OR gps_track_blob_codec IN ('brotli', 'gzip'));
+      CHECK (gps_track_blob_codec IS NULL OR gps_track_blob_codec IN ('identity', 'brotli', 'gzip'));
   END IF;
 END $$;

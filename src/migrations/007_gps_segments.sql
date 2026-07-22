@@ -36,7 +36,7 @@ CREATE TABLE gps_segments (
   CONSTRAINT altitudes_is_array
     CHECK (jsonb_typeof(altitudes) = 'array'),
   CONSTRAINT gps_segments_track_blob_codec_check
-    CHECK (track_blob_codec IN ('brotli', 'gzip')),
+    CHECK (track_blob_codec IN ('identity', 'brotli', 'gzip')),
   CONSTRAINT fk_user FOREIGN KEY (uid)
         REFERENCES users(id)
         ON DELETE CASCADE

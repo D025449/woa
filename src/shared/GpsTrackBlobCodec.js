@@ -108,14 +108,30 @@ function toGeoJson(points = []) {
   };
 }
 
+function toByteView(bufferLike) {
+  if (bufferLike instanceof Uint8Array) {
+    return bufferLike;
+  }
+  if (ArrayBuffer.isView(bufferLike)) {
+    return new Uint8Array(bufferLike.buffer, bufferLike.byteOffset, bufferLike.byteLength);
+  }
+  return new Uint8Array(bufferLike);
+}
+
 function inferCompressedCodec(bufferLike, fallback = "brotli") {
   if (!bufferLike) {
     return fallback;
   }
 
-  const bytes = bufferLike instanceof Uint8Array
-    ? bufferLike
-    : new Uint8Array(bufferLike);
+  const bytes = toByteView(bufferLike);
+
+  if (bytes.length >= 4
+    && bytes[0] === 0x47
+    && bytes[1] === 0x50
+    && bytes[2] === 0x53
+    && (bytes[3] === 0x31 || bytes[3] === 0x32)) {
+    return "identity";
+  }
 
   if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
     return "gzip";
@@ -503,8 +519,13 @@ export default class GpsTrackBlobCodec {
       };
     }
 
-    const codec = options.codec || inferCompressedCodec(bufferLike, "brotli");
-    const raw = await Workout.decompress(bufferLike, codec);
+    // Prefer the payload signature so stale metadata cannot make raw GPS2
+    // bytes enter the Brotli decoder.
+    const inferredCodec = inferCompressedCodec(bufferLike, null);
+    const codec = String(inferredCodec || options.codec || "brotli").trim().toLowerCase();
+    const raw = codec === "identity"
+      ? toByteView(bufferLike)
+      : await Workout.decompress(bufferLike, codec);
     return this.decodeTrackBuffer(raw, options);
   }
 }

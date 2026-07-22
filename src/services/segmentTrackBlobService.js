@@ -1,6 +1,6 @@
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
 
-const DEFAULT_CODEC = "brotli";
+const DEFAULT_CODEC = "identity";
 
 export default class SegmentTrackBlobService {
   static async encode(track = [], options = {}) {

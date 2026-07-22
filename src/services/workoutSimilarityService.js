@@ -871,7 +871,7 @@ export default class WorkoutSimilarityService {
     let trackCacheBytes = 0;
     for (const [workoutId, row] of trackRowsById) {
       const compactTrack = await GpsTrackBlobService.decodeCompressedCompact(row.gps_track_blob, {
-        codec: row.gps_track_blob_codec || "brotli"
+        codec: row.gps_track_blob_codec || "identity"
       });
       compactTrack.sampleRateGps = normalizeGpsSampleRateSeconds(
         row.samplerategps ?? compactTrack.sampleRateGps,

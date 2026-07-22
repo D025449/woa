@@ -1431,7 +1431,7 @@ export default class SegmentDBService {
         const decodeStartedAt = performance.now();
         const decodedTrack = useCompactMatcher
           ? await GpsTrackBlobService.decodeCompressedCompact(row.gps_track_blob, {
-              codec: row.gps_track_blob_codec || "brotli",
+              codec: row.gps_track_blob_codec || "identity",
               includeSlotIndices: true,
               profile: gpsDecodeProfile
             })
@@ -1937,8 +1937,8 @@ export default class SegmentDBService {
         maxLng: Math.max(acc.maxLng, Number(point.lng))
       }), { minLat: Infinity, maxLat: -Infinity, minLng: Infinity, maxLng: -Infinity });
       boundsBoxes.push(toPostgresBox(bbox));
-      trackBlobs.push(await SegmentTrackBlobService.encode(seg.track, { codec: "brotli" }));
-      trackBlobCodecs.push("brotli");
+      trackBlobs.push(await SegmentTrackBlobService.encode(seg.track, { codec: "identity" }));
+      trackBlobCodecs.push("identity");
     }
 
     const query = `

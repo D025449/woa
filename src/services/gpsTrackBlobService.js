@@ -12,8 +12,7 @@ const GPS2_HEADER_BYTES = 20;
 const DELTA_BLOCK_SIZE = 128;
 const INT32_NAN = -0x80000000;
 const TEXT_DECODER = new TextDecoder();
-const TEXT_ENCODER = new TextEncoder();
-const DEFAULT_GPS_TRACK_BLOB_CODEC = "brotli";
+const DEFAULT_GPS_TRACK_BLOB_CODEC = "identity";
 
 function isFiniteCoordinate(value) {
   return Number.isFinite(Number(value));
@@ -112,11 +111,31 @@ function inferCompressedCodec(bufferLike, fallback = DEFAULT_GPS_TRACK_BLOB_CODE
     ? bufferLike
     : Buffer.from(bufferLike);
 
+  if (bytes.length >= 4
+    && bytes[0] === 0x47
+    && bytes[1] === 0x50
+    && bytes[2] === 0x53
+    && (bytes[3] === 0x31 || bytes[3] === 0x32)) {
+    return "identity";
+  }
+
   if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
     return "gzip";
   }
 
   return fallback;
+}
+
+function normalizeGpsTrackCodec(codec) {
+  const normalized = String(codec || DEFAULT_GPS_TRACK_BLOB_CODEC).trim().toLowerCase();
+  if (normalized === "identity" || normalized === "gzip" || normalized === "brotli") {
+    return normalized;
+  }
+  throw new Error(`Unsupported GPS track codec: ${codec}`);
+}
+
+function toByteView(bufferLike) {
+  return bufferLike instanceof Uint8Array ? bufferLike : new Uint8Array(bufferLike);
 }
 
 function decodeGpsBitmapColumnarPayload(source, pointCount) {
@@ -279,6 +298,74 @@ function decodeGpsBitmapColumnarCompactPayload(source, pointCount, options = {})
     slotIndices,
     validPointCount
   };
+}
+
+function buildGpsBitmapCoordinateColumn(quantized, key) {
+  let payloadBytes = 0;
+  for (let index = 0; index < quantized.length; index += 1) {
+    const current = quantized[index];
+    if (!current) continue;
+    const previous = index > 0 ? quantized[index - 1] : null;
+    if (!previous) {
+      payloadBytes += 4;
+      continue;
+    }
+    const delta = current[key] - previous[key];
+    payloadBytes += delta >= -128 && delta <= 125 ? 1 : delta >= -32768 && delta <= 32767 ? 3 : 5;
+  }
+
+  const bytes = new Uint8Array(payloadBytes);
+  const view = new DataView(bytes.buffer);
+  let offset = 0;
+  for (let index = 0; index < quantized.length; index += 1) {
+    const current = quantized[index];
+    if (!current) continue;
+    const previous = index > 0 ? quantized[index - 1] : null;
+    if (!previous) {
+      view.setInt32(offset, current[key], true);
+      offset += 4;
+      continue;
+    }
+    const delta = current[key] - previous[key];
+    if (delta >= -128 && delta <= 125) {
+      view.setInt8(offset, delta);
+      offset += 1;
+    } else if (delta >= -32768 && delta <= 32767) {
+      view.setUint8(offset, GPS2_TIERED_INT16_MARKER);
+      view.setInt16(offset + 1, delta, true);
+      offset += 3;
+    } else {
+      view.setUint8(offset, GPS2_TIERED_EXTENDED_MARKER);
+      view.setInt32(offset + 1, current[key], true);
+      offset += 5;
+    }
+  }
+  return bytes;
+}
+
+function encodeGps2BitmapColumnar(quantized, sampleRateGps) {
+  const bitmap = new Uint8Array(Math.ceil(quantized.length / 8));
+  for (let index = 0; index < quantized.length; index += 1) {
+    if (quantized[index]) bitmap[index >> 3] |= 1 << (index & 7);
+  }
+  const latitudes = buildGpsBitmapCoordinateColumn(quantized, "lat");
+  const longitudes = buildGpsBitmapCoordinateColumn(quantized, "lng");
+  const buffer = new ArrayBuffer(24 + bitmap.byteLength + latitudes.byteLength + longitudes.byteLength);
+  const bytes = new Uint8Array(buffer);
+  const view = new DataView(buffer);
+  bytes.set([0x47, 0x50, 0x53, 0x32], 0);
+  view.setUint16(4, 5, true);
+  view.setUint16(6, sampleRateGps, true);
+  view.setUint32(8, quantized.length, true);
+  view.setFloat64(12, 0, true);
+  view.setUint32(20, latitudes.byteLength, true);
+  let offset = 24;
+  bytes.set(bitmap, offset);
+  offset += bitmap.byteLength;
+  bytes.set(latitudes, offset);
+  offset += latitudes.byteLength;
+  bytes.set(longitudes, offset);
+  return bytes;
 }
 
 function normalizeTrackPoints(track = []) {
@@ -563,50 +650,11 @@ export default class GpsTrackBlobService {
 
   static encodeTrackBuffer(track = [], options = {}) {
     const points = normalizeTrackPoints(track);
-    const pointCount = points.length;
     const sampleRateGps = Math.max(1, Math.round(Number(options.sampleRateGps) || 1));
-    const buffer = new ArrayBuffer(GPS_TRACK_BLOB_HEADER_BYTES + (pointCount * 8));
-    const view = new DataView(buffer);
-    const latOffset = GPS_TRACK_BLOB_HEADER_BYTES;
-    const lngOffset = latOffset + (pointCount * 4);
-    const lats = new Int32Array(buffer, latOffset, pointCount);
-    const lngs = new Int32Array(buffer, lngOffset, pointCount);
-
-    let minLatQ = 0;
-    let maxLatQ = 0;
-    let minLngQ = 0;
-    let maxLngQ = 0;
-
-    for (let index = 0; index < pointCount; index += 1) {
-      const latQ = Math.round(points[index].lat * GPS_TRACK_BLOB_SCALE);
-      const lngQ = Math.round(points[index].lng * GPS_TRACK_BLOB_SCALE);
-      lats[index] = latQ;
-      lngs[index] = lngQ;
-
-      if (index === 0) {
-        minLatQ = maxLatQ = latQ;
-        minLngQ = maxLngQ = lngQ;
-      } else {
-        if (latQ < minLatQ) minLatQ = latQ;
-        if (latQ > maxLatQ) maxLatQ = latQ;
-        if (lngQ < minLngQ) minLngQ = lngQ;
-        if (lngQ > maxLngQ) maxLngQ = lngQ;
-      }
-    }
-
-    view.setUint8(0, GPS_TRACK_BLOB_VERSION);
-    view.setUint8(1, 0);
-    view.setUint16(2, 0);
-    view.setUint32(4, pointCount);
-    view.setUint16(8, sampleRateGps);
-    view.setUint16(10, 0);
-    view.setUint32(12, GPS_TRACK_BLOB_SCALE);
-    view.setInt32(16, minLatQ);
-    view.setInt32(20, maxLatQ);
-    view.setInt32(24, minLngQ);
-    view.setInt32(28, maxLngQ);
-
-    return Buffer.from(buffer);
+    return encodeGps2BitmapColumnar(points.map((point) => ({
+      lat: Math.round(point.lat * GPS2_E5_COORDINATE_SCALE),
+      lng: Math.round(point.lng * GPS2_E5_COORDINATE_SCALE)
+    })), sampleRateGps);
   }
 
   static encodeTrackBufferFromQuantized(payload = {}, options = {}) {
@@ -619,47 +667,18 @@ export default class GpsTrackBlobService {
     const pointCount = Math.min(latitudesQ.length, longitudesQ.length);
     const sampleRateGps = Math.max(1, Math.round(Number(options.sampleRateGps ?? payload?.sampleRateGps) || 1));
     const scale = Math.max(1, Math.round(Number(options.scale ?? payload?.scale) || GPS_TRACK_BLOB_SCALE));
-    const buffer = new ArrayBuffer(GPS_TRACK_BLOB_HEADER_BYTES + (pointCount * 8));
-    const view = new DataView(buffer);
-    const latOffset = GPS_TRACK_BLOB_HEADER_BYTES;
-    const lngOffset = latOffset + (pointCount * 4);
-    const outLats = new Int32Array(buffer, latOffset, pointCount);
-    const outLngs = new Int32Array(buffer, lngOffset, pointCount);
-
-    outLats.set(latitudesQ.subarray(0, pointCount));
-    outLngs.set(longitudesQ.subarray(0, pointCount));
-
-    let minLatQ = 0;
-    let maxLatQ = 0;
-    let minLngQ = 0;
-    let maxLngQ = 0;
-
-    if (pointCount > 0) {
-      minLatQ = maxLatQ = outLats[0];
-      minLngQ = maxLngQ = outLngs[0];
-      for (let index = 1; index < pointCount; index += 1) {
-        const latQ = outLats[index];
-        const lngQ = outLngs[index];
-        if (latQ < minLatQ) minLatQ = latQ;
-        if (latQ > maxLatQ) maxLatQ = latQ;
-        if (lngQ < minLngQ) minLngQ = lngQ;
-        if (lngQ > maxLngQ) maxLngQ = lngQ;
-      }
+    const quantized = new Array(pointCount);
+    for (let index = 0; index < pointCount; index += 1) {
+      const lat = latitudesQ[index];
+      const lng = longitudesQ[index];
+      quantized[index] = lat === INT32_NAN || lng === INT32_NAN
+        ? null
+        : {
+            lat: Math.round((lat * GPS2_E5_COORDINATE_SCALE) / scale),
+            lng: Math.round((lng * GPS2_E5_COORDINATE_SCALE) / scale)
+          };
     }
-
-    view.setUint8(0, GPS_TRACK_BLOB_VERSION);
-    view.setUint8(1, 0);
-    view.setUint16(2, 0);
-    view.setUint32(4, pointCount);
-    view.setUint16(8, sampleRateGps);
-    view.setUint16(10, 0);
-    view.setUint32(12, scale);
-    view.setInt32(16, minLatQ);
-    view.setInt32(20, maxLatQ);
-    view.setInt32(24, minLngQ);
-    view.setInt32(28, maxLngQ);
-
-    return Buffer.from(buffer);
+    return encodeGps2BitmapColumnar(quantized, sampleRateGps);
   }
 
   static decodeTrackBuffer(bufferLike, options = {}) {
@@ -805,12 +824,14 @@ export default class GpsTrackBlobService {
 
   static async encodeCompressed(track = [], options = {}) {
     const raw = this.encodeTrackBuffer(track, options);
-    return Workout.compress(raw, options.codec || DEFAULT_GPS_TRACK_BLOB_CODEC);
+    const codec = normalizeGpsTrackCodec(options.codec);
+    return codec === "identity" ? toByteView(raw) : Workout.compress(raw, codec);
   }
 
   static async encodeCompressedFromQuantized(payload = {}, options = {}) {
     const raw = this.encodeTrackBufferFromQuantized(payload, options);
-    return Workout.compress(raw, options.codec || DEFAULT_GPS_TRACK_BLOB_CODEC);
+    const codec = normalizeGpsTrackCodec(options.codec);
+    return codec === "identity" ? toByteView(raw) : Workout.compress(raw, codec);
   }
 
   static async decodeCompressed(bufferLike, options = {}) {
@@ -827,15 +848,25 @@ export default class GpsTrackBlobService {
       };
     }
 
-    const raw = await Workout.decompressBytes(bufferLike, options.codec || "brotli");
+    const codec = normalizeGpsTrackCodec(options.codec);
+    const raw = codec === "identity"
+      ? toByteView(bufferLike)
+      : await Workout.decompressBytes(bufferLike, codec);
     return this.decodeTrackBuffer(raw, options);
   }
 
   static async decodeCompressedCompact(bufferLike, options = {}) {
     const compressedBytes = Number(bufferLike?.byteLength ?? bufferLike?.length ?? 0);
-    const decompressStartedAt = performance.now();
-    const raw = await Workout.decompressBytes(bufferLike, options.codec || "brotli");
-    const decompressMs = performance.now() - decompressStartedAt;
+    const codec = normalizeGpsTrackCodec(options.codec);
+    let decompressMs = 0;
+    let raw;
+    if (codec === "identity") {
+      raw = toByteView(bufferLike);
+    } else {
+      const decompressStartedAt = performance.now();
+      raw = await Workout.decompressBytes(bufferLike, codec);
+      decompressMs = performance.now() - decompressStartedAt;
+    }
     const source = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
     const rawBytes = source.byteLength;
     const decodeStartedAt = performance.now();

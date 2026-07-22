@@ -20,7 +20,7 @@ const DELTA_BLOCK_SIZE = 128;
 const DEFAULT_DISTANCE_BLOCK_SIZE = 999999;
 const DEFAULT_GPS_BLOCK_SIZE = 999999;
 const DEFAULT_STREAM_CODEC = "gzip";
-const DEFAULT_GPS_TRACK_CODEC = "gzip";
+const DEFAULT_GPS_TRACK_CODEC = "identity";
 const DEFAULT_STREAM_GZIP_LEVEL = 4;
 const DEFAULT_GPS_GZIP_LEVEL = 4;
 const SESSION_BLOCK_VERSION = 1;
@@ -2033,7 +2033,7 @@ export function createWoa1FileFromCompact(parsedCompact, {
 
   const workoutStreamCodec = compressWorkoutStream ? streamCodec : "identity";
   const gpsTrackCodec = compressGpsTrack ? gpsTrackBlobCodec : "identity";
-  const usesCompressedBlocks = !!(compressWorkoutStream && compressGpsTrack);
+  const usesCompressedBlocks = !!(compressWorkoutStream || compressGpsTrack);
 
   stepStartedAt = nowMs();
   const summary = deriveSummaryFromCompact(parsedCompact, gpsTrack, sourceName);
@@ -2164,7 +2164,7 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
 
   const workoutStreamCodec = compressWorkoutStream ? streamCodec : "identity";
   const gpsTrackCodec = compressGpsTrack ? gpsTrackBlobCodec : "identity";
-  const usesCompressedBlocks = !!(compressWorkoutStream && compressGpsTrack);
+  const usesCompressedBlocks = !!(compressWorkoutStream || compressGpsTrack);
 
   stepStartedAt = nowMs();
   const summary = deriveSummaryFromCompact(parsedCompact, gpsTrack, sourceName);

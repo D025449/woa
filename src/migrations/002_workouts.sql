@@ -67,7 +67,7 @@ CREATE TABLE workouts (
     CONSTRAINT workouts_stream_codec_check
         CHECK (stream_codec IS NULL OR stream_codec IN ('brotli', 'gzip')),
     CONSTRAINT workouts_gps_track_blob_codec_check
-        CHECK (gps_track_blob_codec IS NULL OR gps_track_blob_codec IN ('brotli', 'gzip')),
+        CHECK (gps_track_blob_codec IS NULL OR gps_track_blob_codec IN ('identity', 'brotli', 'gzip')),
     CONSTRAINT chk_workouts_segment_processing_status
         CHECK (segment_processing_status IN ('pending', 'processing', 'completed', 'failed'))
 );

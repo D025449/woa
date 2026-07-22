@@ -1450,7 +1450,7 @@ export default class WorkoutDBService {
       normalizedTrack.map((point) => [point.lat, point.lng]),
       {
         sampleRateGps,
-        codec: "brotli"
+        codec: "identity"
       }
     );
 
@@ -1466,7 +1466,7 @@ export default class WorkoutDBService {
         track_end_lat = $8::float8,
         track_end_lng = $9::float8,
         gps_track_blob = $10::bytea,
-        gps_track_blob_codec = 'brotli',
+        gps_track_blob_codec = 'identity',
         gps_source = 'manual_lookup',
         manual_gps_lookup_points = $11::jsonb,
         stream = COALESCE($12::bytea, stream),
