@@ -629,6 +629,13 @@ router.post("/:id/gps-copy-from", authMiddleware, requireActiveAccountWrite, asy
 });
 
 router.get("/:id/thumbnail", authMiddleware, async (req, res) => {
+  const routeStartedAt = performance.now();
+  const requestStartedAt = Number(req.serverTimingProfile?.requestStartedAt) || routeStartedAt;
+  const sessionLoadedAt = Number(req.serverTimingProfile?.sessionLoadedAt) || routeStartedAt;
+  let accessMs = 0;
+  let thumbnailLookupMs = 0;
+  let generationMs = 0;
+
   try {
     const workoutId = Number(req.params.id);
     const uid = req.user?.id;
@@ -637,11 +644,20 @@ router.get("/:id/thumbnail", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Invalid workout id" });
     }
 
+    let stepStartedAt = performance.now();
     await WorkoutSharingService.getAccessibleWorkout(uid, workoutId);
+    accessMs = performance.now() - stepStartedAt;
+
+    stepStartedAt = performance.now();
     let thumbnail = await WorkoutThumbnailService.getThumbnail(workoutId);
+    thumbnailLookupMs = performance.now() - stepStartedAt;
 
     if (!thumbnail?.content && FEATURE_THUMBNAILS_ON_DEMAND) {
-      thumbnail = await WorkoutThumbnailService.generateThumbnailForWorkout(workoutId);
+      stepStartedAt = performance.now();
+      thumbnail = await WorkoutThumbnailService.generateThumbnailForWorkout(workoutId, {
+        skipExistingCheck: true
+      });
+      generationMs = performance.now() - stepStartedAt;
       if (thumbnail?.generationProfile) {
         console.info("[thumbnail] on-demand.profile", {
           uid: String(uid),
@@ -658,6 +674,23 @@ router.get("/:id/thumbnail", authMiddleware, async (req, res) => {
 
     res.setHeader("Content-Type", thumbnail.mimeType || "image/svg+xml");
     res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
+
+    const responsePreparedAt = performance.now();
+    res.once("finish", () => {
+      console.info("[thumbnail] request.profile", {
+        uid: String(uid),
+        workoutId,
+        cacheHit: generationMs === 0,
+        sessionLoadMs: sessionLoadedAt - requestStartedAt,
+        authGlobalMs: Number(req.serverTimingProfile?.authGlobalMs) || 0,
+        preRouteMs: routeStartedAt - requestStartedAt,
+        accessMs,
+        thumbnailLookupMs,
+        generationMs,
+        responseFinishMs: performance.now() - responsePreparedAt,
+        totalServerMs: performance.now() - requestStartedAt
+      });
+    });
 
     return res.send(thumbnail.content);
   } catch (err) {

@@ -749,7 +749,7 @@ export default class WorkoutThumbnailService {
       .filter(Boolean);
   }
 
-  static async generateThumbnailForWorkout(workoutId) {
+  static async generateThumbnailForWorkout(workoutId, { skipExistingCheck = false } = {}) {
     const normalizedWorkoutId = Number(workoutId);
     if (!Number.isInteger(normalizedWorkoutId) || normalizedWorkoutId <= 0) {
       return null;
@@ -760,9 +760,11 @@ export default class WorkoutThumbnailService {
       return pendingPersistence.thumbnail;
     }
 
-    const existing = await WorkoutThumbnailService.getThumbnail(normalizedWorkoutId);
-    if (existing?.content) {
-      return existing;
+    if (!skipExistingCheck) {
+      const existing = await WorkoutThumbnailService.getThumbnail(normalizedWorkoutId);
+      if (existing?.content) {
+        return existing;
+      }
     }
 
     if (thumbnailGenerationInflight.has(normalizedWorkoutId)) {

@@ -44,13 +44,29 @@ export async function createApp() {
     app.use("/vendor/fflate", express.static(path.join(__dirname, "..", "node_modules", "fflate", "esm")));
     app.use("/vendor/zipjs", express.static(path.join(__dirname, "..", "node_modules", "@zip.js", "zip.js")));
     app.use("/shared", express.static("src/shared"));
+    app.use((req, res, next) => {
+        req.serverTimingProfile = {
+            requestStartedAt: performance.now()
+        };
+        next();
+    });
     const sessionMiddleware = await createSessionMiddleware();
     app.use(sessionMiddleware);
+    app.use((req, res, next) => {
+        req.serverTimingProfile.sessionLoadedAt = performance.now();
+        next();
+    });
     //app.use(createSessionMiddleware());
     app.use(express.urlencoded({ extended: true }));
     app.use(express.json());
     app.use(cookieParser());
-    app.use(authGlobal);
+    app.use((req, res, next) => {
+        const authStartedAt = performance.now();
+        authGlobal(req, res, () => {
+            req.serverTimingProfile.authGlobalMs = performance.now() - authStartedAt;
+            next();
+        });
+    });
     app.use(createI18nMiddleware());
     app.get("/favicon.ico", (req, res) => {
         res.status(204).end();
