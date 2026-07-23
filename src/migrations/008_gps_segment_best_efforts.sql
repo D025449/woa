@@ -34,3 +34,6 @@ CREATE TRIGGER trigger_set_updated_at
 BEFORE UPDATE ON gps_segment_best_efforts
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
+
+CREATE INDEX IF NOT EXISTS idx_gps_segment_best_efforts_wid
+    ON gps_segment_best_efforts (wid);

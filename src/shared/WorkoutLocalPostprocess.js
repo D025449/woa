@@ -1,5 +1,3 @@
-import IntervalDetector from "./IntervalDetector.js";
-
 const UINT8_NAN = 0xff;
 const UINT16_NAN = 0xffff;
 const UINT32_NAN = 0xffffffff;
@@ -45,82 +43,6 @@ function speedMpsAt(compact, index, useDistance) {
   }
   const value = Number(compact.speedsCmS[index]);
   return value === UINT16_NAN ? 0 : value / 100;
-}
-
-function buildAutoInterval(compact, smoothPower, start, end, useDistance) {
-  let sumPower = 0;
-  let sumHeartRate = 0;
-  let sumSpeed = 0;
-  let sumCadence = 0;
-
-  for (let index = start; index < end; index += 1) {
-    sumPower += smoothPower[index];
-    sumHeartRate += heartRateAt(compact, index);
-    sumSpeed += speedMpsAt(compact, index, useDistance);
-    sumCadence += cadenceAt(compact, index);
-  }
-
-  const duration = end - start;
-  const altitudeStart = altitudeMetersAt(compact, start) * 1000;
-  const altitudeEnd = altitudeMetersAt(compact, end - 1) * 1000;
-  return {
-    start,
-    end,
-    duration,
-    avgPower: Math.round(sumPower / duration),
-    avgHeartRate: Math.round(sumHeartRate / duration),
-    avgSpeed: IntervalDetector.round1(sumSpeed / duration),
-    avgCadence: Math.round(sumCadence / duration),
-    altitude_start: altitudeStart,
-    altitude_end: altitudeEnd,
-    altimeters: altitudeEnd - altitudeStart
-  };
-}
-
-function detectAutoSegments(compact) {
-  const recordCount = recordCountOf(compact);
-  const power = new Float32Array(recordCount);
-  for (let index = 0; index < recordCount; index += 1) power[index] = powerAt(compact, index);
-
-  const smoothPower = IntervalDetector.movingAverage(power, 7);
-  const baseline = IntervalDetector.computeBaseline(smoothPower);
-  const enterThreshold = baseline * 1.4;
-  const exitThreshold = baseline * 1.1;
-  const intervals = [];
-  const useDistance = hasCompleteDistanceSeries(compact, recordCount);
-  let state = 0;
-  let start = 0;
-
-  for (let index = 0; index < recordCount; index += 1) {
-    const currentPower = smoothPower[index];
-    if (state === 0) {
-      if (currentPower > enterThreshold) {
-        state = 1;
-        start = index;
-      }
-      continue;
-    }
-    if (currentPower >= exitThreshold) continue;
-
-    const duration = index - start;
-    if (duration >= 20) {
-      const startHeartRate = heartRateAt(compact, start);
-      const endHeartRate = heartRateAt(compact, index - 1);
-      let valid = endHeartRate >= startHeartRate + 5;
-
-      if (valid) {
-        let activeCadenceSamples = 0;
-        for (let sample = start; sample < index; sample += 1) {
-          if (cadenceAt(compact, sample) > 0) activeCadenceSamples += 1;
-        }
-        valid = activeCadenceSamples > duration * 0.5;
-      }
-      if (valid) intervals.push(buildAutoInterval(compact, smoothPower, start, index, useDistance));
-    }
-    state = 0;
-  }
-
-  return IntervalDetector.mergeCloseIntervals(intervals, 10);
 }
 
 function detectBestEffortSegments(compact) {
@@ -170,12 +92,8 @@ function detectBestEffortSegments(compact) {
 }
 
 export function detectWorkoutLocalSegmentsCompact(compact) {
-  const auto = detectAutoSegments(compact);
   const bestEfforts = detectBestEffortSegments(compact);
-  return [
-    ...auto.map((segment) => ({ ...segment, type: 1 })),
-    ...bestEfforts.map((segment) => ({ ...segment, type: 2 }))
-  ];
+  return bestEfforts.map((segment) => ({ ...segment, type: 2 }));
 }
 
 function clampInteger(value, min, max, fallback = 0) {

@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import BestEffortDetector from "../src/shared/BestEffortDetector.js";
-import IntervalDetector from "../src/shared/IntervalDetector.js";
 import {
   detectWorkoutLocalSegmentsCompact,
   decodeWorkoutLocalPostprocessTransport,
@@ -22,7 +21,7 @@ function compactFromRecords(records) {
   };
 }
 
-test("compact workout-local detection matches the current detectors", () => {
+test("compact workout-local detection emits only critical-power best efforts", () => {
   const records = Array.from({ length: 240 }, (_, index) => ({
     power: index >= 80 && index < 150 ? 320 : 100,
     heart_rate: index >= 80 && index < 150 ? 150 + Math.floor((index - 80) / 10) : 110,
@@ -31,20 +30,17 @@ test("compact workout-local detection matches the current detectors", () => {
     altitude: 100 + Math.floor(index / 40),
     distance: index * 8
   }));
-  const expected = [
-    ...IntervalDetector.detect(records).map((segment) => ({ ...segment, type: 1 })),
-    ...BestEffortDetector.detect(records).map((segment) => ({
-      start: segment.start_offset,
-      end: segment.end_offset,
-      duration: segment.duration,
-      avgPower: segment.avgPower,
-      avgHeartRate: segment.avgHeartRate,
-      avgCadence: segment.avgCadence,
-      avgSpeed: segment.avgSpeed,
-      altimeters: segment.altimeters,
-      type: 2
-    }))
-  ];
+  const expected = BestEffortDetector.detect(records).map((segment) => ({
+    start: segment.start_offset,
+    end: segment.end_offset,
+    duration: segment.duration,
+    avgPower: segment.avgPower,
+    avgHeartRate: segment.avgHeartRate,
+    avgCadence: segment.avgCadence,
+    avgSpeed: segment.avgSpeed,
+    altimeters: segment.altimeters,
+    type: 2
+  }));
   const actual = detectWorkoutLocalSegmentsCompact(compactFromRecords(records));
   assert.deepEqual(actual, expected);
 });
