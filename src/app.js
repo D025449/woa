@@ -40,6 +40,9 @@ export async function createApp() {
     app.set("trust proxy", 1);
 
     app.use(express.static(path.join(__dirname, "public")));
+    app.get("/favicon.ico", (req, res) => {
+        res.redirect(308, "/favicon.svg?v=atlas-blue-1");
+    });
     app.use("/vendor", express.static(path.join(__dirname, "..", "vendor")));
     app.use("/vendor/fflate", express.static(path.join(__dirname, "..", "node_modules", "fflate", "esm")));
     app.use("/vendor/zipjs", express.static(path.join(__dirname, "..", "node_modules", "@zip.js", "zip.js")));
@@ -68,9 +71,6 @@ export async function createApp() {
         });
     });
     app.use(createI18nMiddleware());
-    app.get("/favicon.ico", (req, res) => {
-        res.status(204).end();
-    });
     app.use((req, res, next) => {
         res.locals.currentUrl = req.originalUrl;
         res.locals.isFunSudokuEnabled = isFunSudokuEnabled;
