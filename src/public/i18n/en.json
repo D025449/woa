@@ -465,6 +465,7 @@
       "searchHintScopedTitle": "Field search",
       "splitterAria": "Resize workout list and detail area",
       "activeFiltersLabel": "Active",
+      "resultCount": "{count} matches",
       "activeSearch": "Search",
       "activeScope": "Scope",
       "activeScopeShared": "Shared",

@@ -1,11 +1,18 @@
 import pool from "./database.js";
 import Workout from "../shared/Workout.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
+import SegmentDBService from "./segmentDBService.js";
+import {
+  matchCompactGpsSegmentBestEfforts,
+  prepareCompactGpsSegmentDefinitions
+} from "../shared/CompactGpsSegmentMatcher.js";
 
 const SVG_WIDTH = 256;
 const SVG_HEIGHT = 160;
 const SVG_PADDING = 14;
 const POWER_THUMB_STRONG_SMOOTHING_WINDOW = 35;
+const INDOOR_THUMB_SMOOTHING_WINDOW = 15;
+const THUMB_MAX_SERIES_POINTS = 180;
 const thumbnailGenerationInflight = new Map();
 
 function escapeXml(value = "") {
@@ -17,12 +24,18 @@ function escapeXml(value = "") {
     .replace(/'/g, "&apos;");
 }
 
-function createPathFromPoints(points = [], width = SVG_WIDTH, height = SVG_HEIGHT, padding = SVG_PADDING) {
+function createPathFromPoints(
+  points = [],
+  width = SVG_WIDTH,
+  height = SVG_HEIGHT,
+  padding = SVG_PADDING,
+  sharedBounds = null
+) {
   if (!Array.isArray(points) || points.length < 2) {
     return "";
   }
 
-  const bounds = getPointBounds(points);
+  const bounds = sharedBounds || getPointBounds(points);
 
   return points.map((point, index) => {
     const projected = projectPoint(point, bounds, width, height, padding);
@@ -143,6 +156,17 @@ function smoothSeriesCentered(values = [], windowSize = 1) {
   return out;
 }
 
+function downsampleSeries(values = [], maxPoints = THUMB_MAX_SERIES_POINTS) {
+  if (!Array.isArray(values) || values.length <= maxPoints) {
+    return [...values];
+  }
+
+  return Array.from({ length: maxPoints }, (_, index) => {
+    const sourceIndex = Math.round((index / Math.max(1, maxPoints - 1)) * (values.length - 1));
+    return values[sourceIndex];
+  });
+}
+
 function buildSvgShell({ title, bodyMarkup, accent = "#2563eb", showAccentBar = true }) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${SVG_WIDTH}" height="${SVG_HEIGHT}" viewBox="0 0 ${SVG_WIDTH} ${SVG_HEIGHT}" role="img" aria-label="${escapeXml(title)}">
@@ -163,28 +187,31 @@ function buildSvgShell({ title, bodyMarkup, accent = "#2563eb", showAccentBar = 
 }
 
 function normalizeRouteSegments(gpsTrackSegments = null, gpsTrack = null) {
+  const normalizePoint = (point) => {
+    const lat = Array.isArray(point) ? point[0] : point?.lat;
+    const lng = Array.isArray(point) ? point[1] : point?.lng;
+    return {
+      lat: Number(lat),
+      lng: Number(lng)
+    };
+  };
+
   if (Array.isArray(gpsTrackSegments) && gpsTrackSegments.length) {
     return gpsTrackSegments
       .map((segment) => (Array.isArray(segment) ? segment : [])
-        .map(([lat, lng]) => ({
-          lat: Number(lat),
-          lng: Number(lng)
-        }))
+        .map(normalizePoint)
         .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)))
       .filter((segment) => segment.length >= 2);
   }
 
   const fallback = (Array.isArray(gpsTrack) ? gpsTrack : [])
-    .map(([lat, lng]) => ({
-      lat: Number(lat),
-      lng: Number(lng)
-    }))
+    .map(normalizePoint)
     .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
 
   return fallback.length >= 2 ? [fallback] : [];
 }
 
-function buildRouteThumbnail(gpsTrackSegments = null, gpsTrack = null) {
+function buildRouteThumbnail(gpsTrackSegments = null, gpsTrack = null, segmentOverlays = []) {
   const normalizedSegments = normalizeRouteSegments(gpsTrackSegments, gpsTrack);
   const numericTrack = normalizedSegments.flat();
 
@@ -221,11 +248,41 @@ function buildRouteThumbnail(gpsTrackSegments = null, gpsTrack = null) {
       }))
       .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y)))
     .filter((segment) => segment.length >= 2)
-    .map((segment) => `<path d="${createPathFromPoints(segment)}" fill="none" stroke="#dc2626" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`)
+    .map((segment) => `<path d="${createPathFromPoints(
+      segment,
+      SVG_WIDTH,
+      SVG_HEIGHT,
+      SVG_PADDING,
+      bounds
+    )}" fill="none" stroke="#dc2626" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`)
+    .join("");
+  const overlayMarkup = (Array.isArray(segmentOverlays) ? segmentOverlays : [])
+    .flatMap((overlay) => (Array.isArray(overlay?.segments) ? overlay.segments : [])
+      .map((segment) => ({
+        segmenttype: overlay.segmenttype,
+        points: segment
+          .map((point) => ({
+            x: Number(point?.lng) * longitudeScale,
+            y: Number(point?.lat)
+          }))
+          .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
+      })))
+    .filter((overlay) => overlay.points.length >= 2)
+    .map((overlay) => {
+      const isAuto = overlay.segmenttype === "auto";
+      return `<path data-segment-type="${escapeXml(overlay.segmenttype || "manual")}" d="${createPathFromPoints(
+        overlay.points,
+        SVG_WIDTH,
+        SVG_HEIGHT,
+        SVG_PADDING,
+        bounds
+      )}" fill="none" stroke="${isAuto ? "#0000ff" : "#800080"}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>`;
+    })
     .join("");
   const bodyMarkup = `
     <rect x="12" y="12" width="${SVG_WIDTH - 24}" height="${SVG_HEIGHT - 24}" rx="16" fill="#dcfce7"/>
     ${pathMarkup}
+    ${overlayMarkup}
     <circle cx="${startProjected.x.toFixed(2)}" cy="${startProjected.y.toFixed(2)}" r="5" fill="#ffffff" stroke="#16a34a" stroke-width="2"/>
     <circle cx="${endProjected.x.toFixed(2)}" cy="${endProjected.y.toFixed(2)}" r="5.5" fill="#dc2626" stroke="#ffffff" stroke-width="2"/>
   `;
@@ -242,6 +299,55 @@ function buildRouteThumbnail(gpsTrackSegments = null, gpsTrack = null) {
       showAccentBar: false
     })
   };
+}
+
+function buildCompactRouteSegments(compactTrack) {
+  const latitudes = compactTrack?.latitudesE5;
+  const longitudes = compactTrack?.longitudesE5;
+  const slotIndices = compactTrack?.slotIndices;
+  if (!(latitudes instanceof Int32Array)
+    || !(longitudes instanceof Int32Array)
+    || !(slotIndices instanceof Uint32Array)) {
+    return [];
+  }
+
+  const segments = [];
+  let current = null;
+  let previousSlot = -2;
+  for (let index = 0; index < latitudes.length; index += 1) {
+    const slotIndex = Number(slotIndices[index]);
+    if (!current || slotIndex !== previousSlot + 1) {
+      current = [];
+      segments.push(current);
+    }
+    current.push({
+      lat: latitudes[index] / 100000,
+      lng: longitudes[index] / 100000,
+      slotIndex
+    });
+    previousSlot = slotIndex;
+  }
+  return segments.filter((segment) => segment.length >= 2);
+}
+
+function buildCompactSegmentOverlays(compactTrack, ranges = []) {
+  const routeSegments = buildCompactRouteSegments(compactTrack);
+  const sampleRate = Math.max(1, Number(compactTrack?.sampleRateGps) || 1);
+
+  return (Array.isArray(ranges) ? ranges : [])
+    .map((range) => {
+      const startSlot = Math.floor(Number(range.start_offset) / sampleRate);
+      const endSlot = Math.ceil(Number(range.end_offset) / sampleRate);
+      return {
+        segmenttype: range.segmenttype || "manual",
+        segments: routeSegments
+          .map((segment) => segment.filter((point) =>
+            point.slotIndex >= startSlot && point.slotIndex <= endSlot
+          ))
+          .filter((segment) => segment.length >= 2)
+      };
+    })
+    .filter((overlay) => overlay.segments.length > 0);
 }
 
 function buildCompositeProfileThumbnail({ altitudes = [], powers = [] } = {}) {
@@ -298,23 +404,95 @@ function buildCompositeProfileThumbnail({ altitudes = [], powers = [] } = {}) {
   };
 }
 
+function buildMetricProfileThumbnail({
+  powers = [],
+  heartRates = [],
+  cadences = [],
+  kind = "metrics-profile",
+  title = "Workout metrics thumbnail"
+} = {}) {
+  const prepare = (values, smoothingWindow) => downsampleSeries(
+    smoothSeriesCentered(
+      values.map((value) => Number(value)).filter((value) => Number.isFinite(value)),
+      smoothingWindow
+    )
+  );
+  const numericPowers = prepare(powers, POWER_THUMB_STRONG_SMOOTHING_WINDOW);
+  const numericHeartRates = prepare(heartRates, INDOOR_THUMB_SMOOTHING_WINDOW);
+  const numericCadences = prepare(cadences, INDOOR_THUMB_SMOOTHING_WINDOW);
+  const usefulPowers = numericPowers.length >= 2 && numericPowers.some((value) => value > 0);
+  const usefulHeartRates = numericHeartRates.length >= 2 && numericHeartRates.some((value) => value > 0);
+  const usefulCadences = numericCadences.length >= 2 && numericCadences.some((value) => value > 0);
+
+  if (!usefulPowers && !usefulHeartRates && !usefulCadences) {
+    return null;
+  }
+
+  const linePath = (values, minValue, maxValue) => createLinePathFromSeries(values, {
+    width: SVG_WIDTH,
+    height: SVG_HEIGHT - 8,
+    padding: 18,
+    minValue,
+    maxValue
+  });
+  const powerMax = usefulPowers ? Math.max(1, Math.max(...numericPowers) * 1.05) : 1;
+  const heartRateMin = usefulHeartRates ? Math.max(0, Math.min(...numericHeartRates) - 10) : 0;
+  const heartRateMax = usefulHeartRates ? Math.max(heartRateMin + 1, Math.max(...numericHeartRates) + 5) : 1;
+  const cadenceMax = usefulCadences ? Math.max(1, Math.max(...numericCadences) * 1.05) : 1;
+  const bodyMarkup = `
+    <rect x="12" y="12" width="${SVG_WIDTH - 24}" height="${SVG_HEIGHT - 24}" rx="16" fill="#f8fafc"/>
+    <path d="M 18 52 L 238 52 M 18 96 L 238 96" fill="none" stroke="#cbd5e1" stroke-width="1" opacity="0.55"/>
+    ${usefulCadences ? `<path d="${linePath(numericCadences, 0, cadenceMax)}" fill="none" stroke="#f59e0b" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>` : ""}
+    ${usefulHeartRates ? `<path d="${linePath(numericHeartRates, heartRateMin, heartRateMax)}" fill="none" stroke="#16a34a" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>` : ""}
+    ${usefulPowers ? `<path d="${linePath(numericPowers, 0, powerMax)}" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>` : ""}
+    <g font-family="sans-serif" font-size="9" font-weight="600">
+      ${usefulPowers ? '<circle cx="20" cy="20" r="3" fill="#2563eb"/><text x="27" y="23" fill="#2563eb">PWR</text>' : ""}
+      ${usefulHeartRates ? '<circle cx="67" cy="20" r="3" fill="#16a34a"/><text x="74" y="23" fill="#16a34a">HR</text>' : ""}
+      ${usefulCadences ? '<circle cx="105" cy="20" r="3" fill="#f59e0b"/><text x="112" y="23" fill="#b45309">CAD</text>' : ""}
+    </g>
+  `;
+
+  return {
+    kind,
+    mimeType: "image/svg+xml",
+    width: SVG_WIDTH,
+    height: SVG_HEIGHT,
+    content: buildSvgShell({
+      title,
+      bodyMarkup,
+      accent: "#2563eb",
+      showAccentBar: false
+    })
+  };
+}
+
 export default class WorkoutThumbnailService {
   static extractThumbnailSeries(workoutObject = null) {
     if (!workoutObject?.length || workoutObject.length < 2) {
       return {
         altitudes: [],
-        powers: []
+        powers: [],
+        heartRates: [],
+        cadences: []
       };
     }
 
     const altitudes = [];
     const powers = [];
+    const heartRates = [];
+    const cadences = [];
     for (let i = 0; i < workoutObject.length; i++) {
       const altitudeValue = typeof workoutObject.getAltitudeAt === "function"
         ? Number(workoutObject.getAltitudeAt(i))
         : null;
       const powerValue = typeof workoutObject.getPowerAt === "function"
         ? Number(workoutObject.getPowerAt(i))
+        : null;
+      const heartRateValue = typeof workoutObject.getHrAt === "function"
+        ? Number(workoutObject.getHrAt(i))
+        : null;
+      const cadenceValue = typeof workoutObject.getCadenceAt === "function"
+        ? Number(workoutObject.getCadenceAt(i))
         : null;
 
       if (Number.isFinite(altitudeValue)) {
@@ -323,20 +501,63 @@ export default class WorkoutThumbnailService {
       if (Number.isFinite(powerValue)) {
         powers.push(powerValue);
       }
+      if (Number.isFinite(heartRateValue)) {
+        heartRates.push(heartRateValue);
+      }
+      if (Number.isFinite(cadenceValue)) {
+        cadences.push(cadenceValue);
+      }
     }
 
     return {
       altitudes,
-      powers
+      powers,
+      heartRates,
+      cadences
     };
   }
 
-  static createThumbnailPayload({ gpsTrack = null, gpsTrackSegments = null, workoutObject = null, altitudes = null, powers = null } = {}) {
+  static createThumbnailPayload({
+    workoutType = null,
+    gpsTrack = null,
+    gpsTrackSegments = null,
+    segmentOverlays = null,
+    workoutObject = null,
+    altitudes = null,
+    powers = null,
+    heartRates = null,
+    cadences = null
+  } = {}) {
+    if (String(workoutType || "").toLowerCase() === "indoor") {
+      const extracted = workoutObject?.length >= 2
+        ? WorkoutThumbnailService.extractThumbnailSeries(workoutObject)
+        : {};
+      return buildMetricProfileThumbnail({
+        powers: Array.isArray(powers) ? powers : extracted.powers,
+        heartRates: Array.isArray(heartRates) ? heartRates : extracted.heartRates,
+        cadences: Array.isArray(cadences) ? cadences : extracted.cadences,
+        kind: "indoor-profile",
+        title: "Indoor workout profile thumbnail"
+      });
+    }
+
     if ((Array.isArray(gpsTrackSegments) && gpsTrackSegments.length) || (Array.isArray(gpsTrack) && gpsTrack.length >= 2)) {
-      const routeThumb = buildRouteThumbnail(gpsTrackSegments, gpsTrack);
+      const routeThumb = buildRouteThumbnail(gpsTrackSegments, gpsTrack, segmentOverlays);
       if (routeThumb) {
         return routeThumb;
       }
+    }
+
+    const metricSeries = workoutObject?.length >= 2
+      ? WorkoutThumbnailService.extractThumbnailSeries(workoutObject)
+      : {};
+    const metricThumb = buildMetricProfileThumbnail({
+      powers: Array.isArray(powers) ? powers : metricSeries.powers,
+      heartRates: Array.isArray(heartRates) ? heartRates : metricSeries.heartRates,
+      cadences: Array.isArray(cadences) ? cadences : metricSeries.cadences
+    });
+    if (metricThumb) {
+      return metricThumb;
     }
 
     let resolvedAltitudes = Array.isArray(altitudes) ? altitudes : null;
@@ -456,44 +677,129 @@ export default class WorkoutThumbnailService {
     }
 
     const generationPromise = (async () => {
+      const profile = {
+        loadWorkoutMs: 0,
+        loadWorkoutSegmentsMs: 0,
+        loadGpsCandidatesMs: 0,
+        loadGpsDefinitionsMs: 0,
+        decodeGpsTrackMs: 0,
+        matchGpsSegmentsMs: 0,
+        decodeWorkoutStreamMs: 0,
+        renderSvgMs: 0,
+        persistThumbnailMs: 0,
+        workoutSegmentCount: 0,
+        gpsCandidateCount: 0,
+        gpsMatchCount: 0
+      };
+      const totalStartedAt = performance.now();
+      let stepStartedAt = performance.now();
       const result = await pool.query(
         `SELECT
           id,
-          stream,
+          uid,
+          validgps,
+          CASE WHEN validgps THEN NULL ELSE stream END AS stream,
           stream_codec,
           gps_track_blob,
-          gps_track_blob_codec
+          gps_track_blob_codec,
+          workout_type
          FROM workouts
          WHERE id = $1`,
         [normalizedWorkoutId]
       );
+      profile.loadWorkoutMs = performance.now() - stepStartedAt;
 
       if (result.rowCount === 0) {
         return null;
       }
 
       const row = result.rows[0];
-      const workoutObject = row?.stream ? await Workout.fromCompressedWithCodec(row.stream, row?.stream_codec || "brotli") : null;
-      const decodedTrack = await GpsTrackBlobService.decodeRowTrack(row);
-      const gpsTrack = decodedTrack.points.map((point) => [point.lat, point.lng]);
-      const gpsTrackSegments = Array.isArray(decodedTrack.segments)
-        ? decodedTrack.segments.map((segment) => segment.map((point) => [point.lat, point.lng]))
-        : [];
+      let workoutObject = null;
+      let gpsTrackSegments = [];
+      let segmentOverlays = [];
+
+      if (row.validgps && row.gps_track_blob) {
+        const timed = async (profileKey, callback) => {
+          const startedAt = performance.now();
+          const value = await callback();
+          profile[profileKey] = performance.now() - startedAt;
+          return value;
+        };
+        const [compactTrack, workoutSegments, candidateResult] = await Promise.all([
+          timed("decodeGpsTrackMs", () => GpsTrackBlobService.decodeCompressedCompact(
+            row.gps_track_blob,
+            {
+              codec: row.gps_track_blob_codec || "identity",
+              includeSlotIndices: true
+            }
+          )),
+          timed("loadWorkoutSegmentsMs", () => pool.query(`
+            SELECT segmenttype, start_offset, end_offset
+            FROM workout_segments
+            WHERE wid = $1
+              AND uid = $2
+            ORDER BY start_offset, end_offset
+          `, [normalizedWorkoutId, row.uid])),
+          timed("loadGpsCandidatesMs", () =>
+            SegmentDBService.getMatchingSegmentCandidateIdsForWorkoutsBulk(
+              row.uid,
+              [normalizedWorkoutId],
+              { includeExistingBestEfforts: true }
+            ))
+        ]);
+
+        const candidateIds = candidateResult.candidatesByWorkoutId.get(normalizedWorkoutId) || [];
+        profile.workoutSegmentCount = workoutSegments.rows.length;
+        profile.gpsCandidateCount = candidateIds.length;
+
+        const definitionsById = await timed(
+          "loadGpsDefinitionsMs",
+          () => SegmentDBService.loadSegmentMatchDefinitionsBulk(candidateIds)
+        );
+        const preparedSegments = prepareCompactGpsSegmentDefinitions([...definitionsById.values()]);
+        stepStartedAt = performance.now();
+        const gpsMatches = matchCompactGpsSegmentBestEfforts(compactTrack, preparedSegments).matches;
+        profile.matchGpsSegmentsMs = performance.now() - stepStartedAt;
+        profile.gpsMatchCount = gpsMatches.length;
+
+        const ranges = [
+          ...workoutSegments.rows,
+          ...gpsMatches.map((match) => ({
+            segmenttype: "gps",
+            start_offset: match.startOffset,
+            end_offset: match.endOffset
+          }))
+        ];
+        gpsTrackSegments = buildCompactRouteSegments(compactTrack);
+        segmentOverlays = buildCompactSegmentOverlays(compactTrack, ranges);
+      } else if (row?.stream) {
+        stepStartedAt = performance.now();
+        workoutObject = await Workout.fromCompressedWithCodec(row.stream, row?.stream_codec || "brotli");
+        profile.decodeWorkoutStreamMs = performance.now() - stepStartedAt;
+      }
+
+      stepStartedAt = performance.now();
       const payload = WorkoutThumbnailService.createThumbnailPayload({
-        gpsTrack,
+        workoutType: row.workout_type,
         gpsTrackSegments,
+        segmentOverlays,
         workoutObject
       });
+      profile.renderSvgMs = performance.now() - stepStartedAt;
 
       if (!payload) {
         return null;
       }
 
+      stepStartedAt = performance.now();
       const persisted = await WorkoutThumbnailService.upsertThumbnail(normalizedWorkoutId, payload);
+      profile.persistThumbnailMs = performance.now() - stepStartedAt;
+      profile.totalMs = performance.now() - totalStartedAt;
       return persisted
         ? {
             ...persisted,
-            content: payload.content
+            content: payload.content,
+            generationProfile: profile
           }
         : null;
     })();

@@ -348,6 +348,7 @@
       "searchHintScopedTitle": "Pesquisa por campo",
       "splitterAria": "Redimensionar lista de treinos e área de detalhes",
       "activeFiltersLabel": "Ativos",
+      "resultCount": "{count} resultados",
       "activeSearch": "Pesquisa",
       "activeScope": "Scope",
       "activeScopeShared": "Partilhados",

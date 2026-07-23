@@ -3,6 +3,29 @@ import SegmentService from "../../shared/SegmentService.js";
 import Utils from "../../shared/Utils.js";
 import { createTranslator } from "./i18n.js";
 
+const MIN_DISTANCE_AXIS_SPAN_METERS = 100;
+
+export function hasMeaningfulDistanceSeries(
+  workoutObject,
+  minSpanMeters = MIN_DISTANCE_AXIS_SPAN_METERS
+) {
+  if (
+    !workoutObject
+    || typeof workoutObject.hasDistanceSeries !== "function"
+    || !workoutObject.hasDistanceSeries()
+    || typeof workoutObject.getDistanceAt !== "function"
+    || Number(workoutObject.length) < 2
+  ) {
+    return false;
+  }
+
+  const firstDistance = Number(workoutObject.getDistanceAt(0));
+  const lastDistance = Number(workoutObject.getDistanceAt(workoutObject.length - 1));
+  return Number.isFinite(firstDistance)
+    && Number.isFinite(lastDistance)
+    && lastDistance - firstDistance >= Math.max(0, Number(minSpanMeters) || 0);
+}
+
 export default class ChartView {
 
   constructor(containerId, handlers = {}) {
@@ -693,8 +716,7 @@ export default class ChartView {
   }
 
   hasDistanceXAxis() {
-    const obj = this.currentWorkout?.workoutObject;
-    return !!(obj && typeof obj.hasDistanceSeries === "function" && obj.hasDistanceSeries());
+    return hasMeaningfulDistanceSeries(this.currentWorkout?.workoutObject);
   }
 
   getXAxisField() {

@@ -1,5 +1,8 @@
 import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../../shared/gpsSampling.js";
-import { classifyWorkoutType } from "../../shared/WorkoutTypeClassifier.js";
+import {
+  classifyWorkoutTypeWithFitFallback,
+  gpsSpanMeters
+} from "../../shared/WorkoutTypeClassifier.js";
 
 const textEncoder = new TextEncoder();
 const UINT8_NAN = 0xFF;
@@ -1567,6 +1570,7 @@ function buildGpsBitmapColumnarPayload(points) {
 
 export function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = DEFAULT_GPS_SAMPLE_RATE_SECONDS) {
   const MAX_STEP_DISTANCE_METERS = 40;
+  const MAX_FROZEN_GPS_DISTANCE_METERS = 100;
   const MIN_RELOCK_SEQUENCE = 3;
   const MAX_INTERPOLATION_GAP = 8;
   const DEG_TO_RAD = Math.PI / 180;
@@ -1576,8 +1580,10 @@ export function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = 
   const sampleRate = normalizeGpsSampleRateSeconds(sampleRateSeconds, DEFAULT_GPS_SAMPLE_RATE_SECONDS);
   const recordCount = Number(compactRecords?.recordCount || 0);
   const firstTimestampMs = getCompactBaseTimestampMs(compactRecords, recordCount);
+  const rawDistancesQ = compactRecords?.distancesQ;
   const rawLatitudesE6 = compactRecords?.positionLatsE6;
   const rawLongitudesE6 = compactRecords?.positionLongsE6;
+  const maxFrozenGpsDistanceQ = MAX_FROZEN_GPS_DISTANCE_METERS * 2;
 
   function hasRawCoordinateAt(index) {
     const latE6 = rawLatitudesE6?.[index];
@@ -1617,46 +1623,83 @@ export function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = 
 
   const validCoordinates = new Uint8Array(recordCount);
   let lastValidIndex = -1;
-  const relockCandidateIndexes = new Int32Array(MIN_RELOCK_SEQUENCE);
-  let relockCandidateCount = 0;
+  const lockCandidateIndexes = new Int32Array(MIN_RELOCK_SEQUENCE);
+  let lockCandidateCount = 0;
+  let frozenCoordinateRanges = null;
+  let coordinateRunStart = -1;
+  let coordinateRunStartDistanceQ = UINT32_NAN;
+  let coordinateRunLastValidIndex = -1;
+  let coordinateRunFrozen = false;
+  let previousCoordinateIndex = -1;
   for (let i = 0; i < recordCount; i += 1) {
     if (!hasRawCoordinateAt(i)) continue;
 
-    if (lastValidIndex < 0) {
-      validCoordinates[i] = 1;
-      lastValidIndex = i;
-      continue;
-    }
-
-    if (isWithinMaxStep(lastValidIndex, i)) {
-      validCoordinates[i] = 1;
-      lastValidIndex = i;
-      relockCandidateCount = 0;
-      continue;
-    }
-
-    if (relockCandidateCount === 0) {
-      relockCandidateIndexes[0] = i;
-      relockCandidateCount = 1;
-      continue;
-    }
-
-    const previousCandidateIndex = relockCandidateIndexes[relockCandidateCount - 1];
-    if (isWithinMaxStep(previousCandidateIndex, i)) {
-      relockCandidateIndexes[relockCandidateCount] = i;
-      relockCandidateCount += 1;
-    } else {
-      relockCandidateIndexes[0] = i;
-      relockCandidateCount = 1;
-    }
-
-    if (relockCandidateCount >= MIN_RELOCK_SEQUENCE) {
-      for (let candidate = 0; candidate < relockCandidateCount; candidate += 1) {
-        validCoordinates[relockCandidateIndexes[candidate]] = 1;
+    const continuesCoordinateRun = previousCoordinateIndex >= 0
+      && rawLatitudesE6[i] === rawLatitudesE6[previousCoordinateIndex]
+      && rawLongitudesE6[i] === rawLongitudesE6[previousCoordinateIndex];
+    if (!continuesCoordinateRun) {
+      if (coordinateRunFrozen) {
+        (frozenCoordinateRanges ||= []).push([coordinateRunStart, i]);
       }
-      lastValidIndex = relockCandidateIndexes[relockCandidateCount - 1];
-      relockCandidateCount = 0;
+      coordinateRunStart = i;
+      coordinateRunStartDistanceQ = UINT32_NAN;
+      coordinateRunLastValidIndex = lastValidIndex;
+      coordinateRunFrozen = false;
+    } else {
+      const currentDistanceQ = rawDistancesQ?.[i] ?? UINT32_NAN;
+      if (coordinateRunStartDistanceQ === UINT32_NAN) {
+        coordinateRunStartDistanceQ = rawDistancesQ?.[coordinateRunStart] ?? UINT32_NAN;
+      }
+      if (
+        !coordinateRunFrozen
+        && coordinateRunStartDistanceQ !== UINT32_NAN
+        && currentDistanceQ !== UINT32_NAN
+        && currentDistanceQ >= coordinateRunStartDistanceQ + maxFrozenGpsDistanceQ
+      ) {
+        coordinateRunFrozen = true;
+        validCoordinates.fill(0, coordinateRunStart, i);
+        if (lastValidIndex >= coordinateRunStart) {
+          lastValidIndex = coordinateRunLastValidIndex;
+        }
+        lockCandidateCount = 0;
+      }
     }
+    previousCoordinateIndex = i;
+
+    if (coordinateRunFrozen) continue;
+
+    if (lastValidIndex >= 0 && isWithinMaxStep(lastValidIndex, i)) {
+      validCoordinates[i] = 1;
+      lastValidIndex = i;
+      lockCandidateCount = 0;
+      continue;
+    }
+
+    if (lockCandidateCount === 0) {
+      lockCandidateIndexes[0] = i;
+      lockCandidateCount = 1;
+      continue;
+    }
+
+    const previousCandidateIndex = lockCandidateIndexes[lockCandidateCount - 1];
+    if (isWithinMaxStep(previousCandidateIndex, i)) {
+      lockCandidateIndexes[lockCandidateCount] = i;
+      lockCandidateCount += 1;
+    } else {
+      lockCandidateIndexes[0] = i;
+      lockCandidateCount = 1;
+    }
+
+    if (lockCandidateCount >= MIN_RELOCK_SEQUENCE) {
+      for (let candidate = 0; candidate < lockCandidateCount; candidate += 1) {
+        validCoordinates[lockCandidateIndexes[candidate]] = 1;
+      }
+      lastValidIndex = lockCandidateIndexes[lockCandidateCount - 1];
+      lockCandidateCount = 0;
+    }
+  }
+  if (coordinateRunFrozen) {
+    (frozenCoordinateRanges ||= []).push([coordinateRunStart, recordCount]);
   }
 
   let minLat = Infinity;
@@ -1705,10 +1748,17 @@ export function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = 
   }
 
   let index = 0;
+  let frozenRangeIndex = 0;
+  let forcedInvalidSampleRecords = null;
   while (index < recordCount) {
     if (validCoordinates[index]) {
       if (index % sampleRate === 0) {
-        appendValidSlot(index, rawLatitudesE6[index], rawLongitudesE6[index]);
+        if (forcedInvalidSampleRecords?.has(index)) {
+          appendInvalidSlot(index);
+          forcedInvalidSampleRecords.delete(index);
+        } else {
+          appendValidSlot(index, rawLatitudesE6[index], rawLongitudesE6[index]);
+        }
       }
       index += 1;
       continue;
@@ -1719,7 +1769,28 @@ export function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = 
     const gapEnd = index;
     const previousValidIndex = gapStart - 1;
     const nextValidIndex = gapEnd < recordCount ? gapEnd : -1;
-    const canInterpolate = previousValidIndex >= 0 && nextValidIndex >= 0;
+    while (
+      frozenCoordinateRanges
+      && frozenRangeIndex < frozenCoordinateRanges.length
+      && frozenCoordinateRanges[frozenRangeIndex][1] <= gapStart
+    ) {
+      frozenRangeIndex += 1;
+    }
+    const frozenRange = frozenCoordinateRanges?.[frozenRangeIndex];
+    const overlapsFrozenCoordinates = frozenRange
+      && frozenRange[0] < gapEnd
+      && frozenRange[1] > gapStart;
+    let containsRejectedCoordinate = false;
+    for (let gapIndex = gapStart; gapIndex < gapEnd; gapIndex += 1) {
+      if (hasRawCoordinateAt(gapIndex)) {
+        containsRejectedCoordinate = true;
+        break;
+      }
+    }
+    const canInterpolate = !overlapsFrozenCoordinates
+      && !containsRejectedCoordinate
+      && previousValidIndex >= 0
+      && nextValidIndex >= 0;
     const interpolatedEnd = canInterpolate
       ? Math.min(gapEnd, gapStart + MAX_INTERPOLATION_GAP)
       : gapStart;
@@ -1730,12 +1801,22 @@ export function buildReducedGpsTrackCompact(compactRecords, sampleRateSeconds = 
       ? (rawLongitudesE6[previousValidIndex] + rawLongitudesE6[nextValidIndex]) / 2
       : 0;
 
+    let emittedInvalidSlot = false;
     for (let gapIndex = gapStart; gapIndex < gapEnd; gapIndex += 1) {
       if (gapIndex % sampleRate !== 0) continue;
       if (gapIndex < interpolatedEnd) {
         appendValidSlot(gapIndex, interpolatedLatE6, interpolatedLngE6);
       } else {
         appendInvalidSlot(gapIndex);
+        emittedInvalidSlot = true;
+      }
+    }
+
+    // Preserve a rejected sub-sample GPS spike as a break in the reduced track.
+    if (interpolatedEnd < gapEnd && !emittedInvalidSlot) {
+      const nextSampleRecord = Math.ceil(gapEnd / sampleRate) * sampleRate;
+      if (nextSampleRecord < recordCount) {
+        (forcedInvalidSampleRecords ||= new Set()).add(nextSampleRecord);
       }
     }
   }
@@ -1870,15 +1951,190 @@ function aggregateSessions(sessions = []) {
   };
 }
 
+export function deriveElevationTotalsFromCompact(compactRecords = {}) {
+  const altitudes = compactRecords?.altitudesQ;
+  const recordCount = Math.min(Number(compactRecords?.recordCount || 0), Number(altitudes?.length || 0));
+  let previousMeters = null;
+  let ascentMeters = 0;
+  let descentMeters = 0;
+
+  for (let index = 0; index < recordCount; index += 1) {
+    const raw = Number(altitudes[index]);
+    if (!Number.isFinite(raw) || raw === INT16_NAN) {
+      previousMeters = null;
+      continue;
+    }
+
+    const currentMeters = Math.round(raw / 4);
+    if (previousMeters != null) {
+      const deltaMeters = currentMeters - previousMeters;
+      if (Math.abs(deltaMeters) <= 25) {
+        if (deltaMeters > 0) ascentMeters += deltaMeters;
+        else descentMeters -= deltaMeters;
+      }
+    }
+    previousMeters = currentMeters;
+  }
+
+  return {
+    totalAscent: ascentMeters,
+    totalDescent: descentMeters
+  };
+}
+
 function speedMsToKmh(value) {
   if (!Number.isFinite(Number(value))) return 0;
   return Number(value) * 3.6;
+}
+
+function calculateGpsPathDistanceMeters(gpsTrack) {
+  const segments = Array.isArray(gpsTrack?.segments) ? gpsTrack.segments : [];
+  const metersPerDegree = 111_320;
+  let distanceMeters = 0;
+
+  for (const segment of segments) {
+    for (let index = 1; index < segment.length; index += 1) {
+      const previous = segment[index - 1];
+      const current = segment[index];
+      const meanLatitudeRadians = ((previous.lat + current.lat) * 0.5) * Math.PI / 180;
+      const dLatMeters = (current.lat - previous.lat) * metersPerDegree;
+      const dLngMeters = (current.lng - previous.lng) * metersPerDegree * Math.cos(meanLatitudeRadians);
+      distanceMeters += Math.hypot(dLatMeters, dLngMeters);
+    }
+  }
+
+  return distanceMeters;
+}
+
+function deriveDistanceStallMetrics(compactRecords = {}) {
+  const distances = compactRecords?.distancesQ;
+  const powers = compactRecords?.powersW;
+  const cadences = compactRecords?.cadencesRpm;
+  const recordCount = Math.min(
+    Number(compactRecords?.recordCount || 0),
+    Number(distances?.length || 0),
+    Number(powers?.length || 0),
+    Number(cadences?.length || 0)
+  );
+  let movingSeconds = 0;
+  let movingDistanceQ = 0;
+  let activeStallSeconds = 0;
+  let activeStallRun = 0;
+  let longestActiveStallSeconds = 0;
+  let roadClimbMinutes = 0;
+  let longestRoadClimbMinutes = 0;
+  let roadClimbRunMinutes = 0;
+  let roadDescentMinutes = 0;
+  let longestRoadDescentMinutes = 0;
+  let roadDescentRunMinutes = 0;
+  let roadClimbSeen = false;
+  let roadClimbBeforeDescent = false;
+
+  for (let index = 1; index < recordCount; index += 1) {
+    const previousDistance = Number(distances[index - 1]);
+    const currentDistance = Number(distances[index]);
+    if (previousDistance === UINT32_NAN || currentDistance === UINT32_NAN) {
+      activeStallRun = 0;
+      continue;
+    }
+
+    const distanceDeltaQ = currentDistance - previousDistance;
+    if (distanceDeltaQ > 0) {
+      movingSeconds += 1;
+      movingDistanceQ += distanceDeltaQ;
+      activeStallRun = 0;
+      continue;
+    }
+
+    const power = Number(powers[index]);
+    const cadence = Number(cadences[index]);
+    const hasActiveSignal = (power !== UINT16_NAN && power >= 50)
+      || (cadence !== UINT8_NAN && cadence >= 30);
+    if (distanceDeltaQ === 0 && hasActiveSignal) {
+      activeStallSeconds += 1;
+      activeStallRun += 1;
+      longestActiveStallSeconds = Math.max(longestActiveStallSeconds, activeStallRun);
+    } else {
+      activeStallRun = 0;
+    }
+  }
+
+  for (let blockStart = 1; blockStart + 30 <= recordCount; blockStart += 60) {
+    const blockEnd = Math.min(recordCount, blockStart + 60);
+    let distanceDeltaQ = 0;
+    let powerSum = 0;
+    let powerCount = 0;
+    let cadenceSum = 0;
+    let cadenceCount = 0;
+
+    for (let index = blockStart; index < blockEnd; index += 1) {
+      const previousDistance = Number(distances[index - 1]);
+      const currentDistance = Number(distances[index]);
+      if (previousDistance !== UINT32_NAN && currentDistance !== UINT32_NAN) {
+        distanceDeltaQ += Math.max(0, currentDistance - previousDistance);
+      }
+
+      const power = Number(powers[index]);
+      if (power !== UINT16_NAN) {
+        powerSum += power;
+        powerCount += 1;
+      }
+      const cadence = Number(cadences[index]);
+      if (cadence !== UINT8_NAN) {
+        cadenceSum += cadence;
+        cadenceCount += 1;
+      }
+    }
+
+    const sampleCount = blockEnd - blockStart;
+    const averageSpeedKmh = ((distanceDeltaQ * 0.5) / sampleCount) * 3.6;
+    const averagePower = powerCount > 0 ? powerSum / powerCount : 0;
+    const averageCadence = cadenceCount > 0 ? cadenceSum / cadenceCount : 0;
+    const isRoadClimb = averageSpeedKmh <= 18 && averagePower >= 180 && averageCadence >= 40;
+    const isRoadDescent = averageSpeedKmh >= 30 && averagePower <= 120;
+
+    if (isRoadClimb) {
+      roadClimbMinutes += 1;
+      roadClimbRunMinutes += 1;
+      longestRoadClimbMinutes = Math.max(longestRoadClimbMinutes, roadClimbRunMinutes);
+      roadClimbSeen = true;
+    } else {
+      roadClimbRunMinutes = 0;
+    }
+
+    if (isRoadDescent) {
+      roadDescentMinutes += 1;
+      roadDescentRunMinutes += 1;
+      longestRoadDescentMinutes = Math.max(longestRoadDescentMinutes, roadDescentRunMinutes);
+      if (roadClimbSeen) roadClimbBeforeDescent = true;
+    } else {
+      roadDescentRunMinutes = 0;
+    }
+  }
+
+  return {
+    distanceStallActiveRatio: activeStallSeconds / Math.max(1, recordCount - 1),
+    longestActiveDistanceStallSeconds: longestActiveStallSeconds,
+    movingSpeedKmh: movingSeconds > 0
+      ? ((movingDistanceQ * 0.5) / movingSeconds) * 3.6
+      : 0,
+    roadClimbMinutes,
+    longestRoadClimbMinutes,
+    roadDescentMinutes,
+    longestRoadDescentMinutes,
+    roadClimbBeforeDescent
+  };
 }
 
 function derivePersistedRowFromCompact(parsedCompact, gpsTrack, sourceName = "") {
   const sessions = Array.isArray(parsedCompact?.sessions) ? parsedCompact.sessions : [];
   const aggregated = aggregateSessions(sessions);
   if (!aggregated) return null;
+  const needsDerivedAscent = !(Number(aggregated.total_ascent) > 0);
+  const needsDerivedDescent = !(Number(aggregated.total_descent) > 0);
+  const derivedElevation = needsDerivedAscent || needsDerivedDescent
+    ? deriveElevationTotalsFromCompact(parsedCompact?.compactRecords)
+    : null;
   const startDate = new Date(aggregated.start_time);
   const year = startDate.getUTCFullYear();
   const month = startDate.getUTCMonth() + 1;
@@ -1892,6 +2148,11 @@ function derivePersistedRowFromCompact(parsedCompact, gpsTrack, sourceName = "")
   const trackStart = validGps ? (gpsTrack?.startPoint || null) : null;
   const trackEnd = validGps ? (gpsTrack?.endPoint || null) : null;
   const firstSession = sessions[0] || {};
+  const gpsPathDistance = validGps
+    && aggregated.total_distance >= 5_000
+    && gpsSpanMeters(bbox) <= 250
+    ? calculateGpsPathDistanceMeters(gpsTrack)
+    : null;
   const persistedRow = {
     source_name: sourceName,
     start_time: aggregated.start_time,
@@ -1902,8 +2163,8 @@ function derivePersistedRowFromCompact(parsedCompact, gpsTrack, sourceName = "")
     total_cycles: aggregated.total_cycles,
     total_work: aggregated.total_work,
     total_calories: aggregated.total_calories,
-    total_ascent: aggregated.total_ascent,
-    total_descent: aggregated.total_descent,
+    total_ascent: needsDerivedAscent ? derivedElevation.totalAscent : aggregated.total_ascent,
+    total_descent: needsDerivedDescent ? derivedElevation.totalDescent : aggregated.total_descent,
     avg_speed: speedMsToKmh(aggregated.avg_speed),
     max_speed: speedMsToKmh(aggregated.max_speed),
     avg_power: aggregated.avg_power,
@@ -1929,7 +2190,7 @@ function derivePersistedRowFromCompact(parsedCompact, gpsTrack, sourceName = "")
     stream_codec: DEFAULT_STREAM_CODEC,
     gps_track_blob_codec: DEFAULT_GPS_TRACK_CODEC
   };
-  persistedRow.workout_type = classifyWorkoutType({
+  const classificationInput = {
     validGps: persistedRow.validGps,
     bounds: persistedRow.bounds,
     totalDistance: persistedRow.total_distance,
@@ -1937,8 +2198,18 @@ function derivePersistedRowFromCompact(parsedCompact, gpsTrack, sourceName = "")
     totalAscent: persistedRow.total_ascent,
     avgSpeed: persistedRow.avg_speed,
     avgPower: persistedRow.avg_power,
-    avgCadence: persistedRow.avg_cadence
-  });
+    avgCadence: persistedRow.avg_cadence,
+    gpsPathDistance,
+    sport: firstSession?.sport,
+    subSport: firstSession?.sub_sport
+  };
+  persistedRow.workout_type = classifyWorkoutTypeWithFitFallback(classificationInput);
+  if (persistedRow.workout_type === "unknown") {
+    persistedRow.workout_type = classifyWorkoutTypeWithFitFallback({
+      ...classificationInput,
+      ...deriveDistanceStallMetrics(parsedCompact?.compactRecords)
+    });
+  }
   return persistedRow;
 }
 
@@ -1966,8 +2237,8 @@ function deriveSummaryFromCompact(parsedCompact, gpsTrack, sourceName = "") {
     totalCycles: firstSession.total_cycles ?? null,
     totalWork: firstSession.total_work ?? null,
     totalCalories: firstSession.total_calories ?? null,
-    totalAscent: firstSession.total_ascent ?? null,
-    totalDescent: firstSession.total_descent ?? null,
+    totalAscent: persistedRow?.total_ascent ?? firstSession.total_ascent ?? null,
+    totalDescent: persistedRow?.total_descent ?? firstSession.total_descent ?? null,
     avgSpeed: firstSession.avg_speed ?? null,
     maxSpeed: firstSession.max_speed ?? null,
     avgPower: firstSession.avg_power ?? null,
@@ -1981,6 +2252,97 @@ function deriveSummaryFromCompact(parsedCompact, gpsTrack, sourceName = "") {
     startPoint: gpsTrack?.startPoint || null,
     endPoint: gpsTrack?.endPoint || null,
     persistedRow
+  };
+}
+
+function deriveSummaryAndFilterIndoorGps(parsedCompact, gpsTrack, sourceName = "") {
+  const summary = deriveSummaryFromCompact(parsedCompact, gpsTrack, sourceName);
+  if (summary?.persistedRow?.workout_type !== "indoor" || Number(gpsTrack?.pointCount || 0) === 0) {
+    return { gpsTrack, summary };
+  }
+
+  const filteredGpsTrack = {
+    sampleRateSeconds: 1,
+    firstTimestampMs: Number(gpsTrack?.firstTimestampMs) || 0,
+    slotCount: 0,
+    pointCount: 0,
+    bbox: null,
+    startPoint: null,
+    endPoint: null,
+    slots: [],
+    points: [],
+    segments: []
+  };
+
+  summary.pointsCount = 0;
+  summary.sampleRateGps = 1;
+  summary.validGps = false;
+  summary.gpsSource = null;
+  summary.bbox = null;
+  summary.startPoint = null;
+  summary.endPoint = null;
+
+  Object.assign(summary.persistedRow, {
+    validGps: false,
+    points_count: 0,
+    sampleRateGPS: 1,
+    gps_source: null,
+    bounds: null,
+    track_start: null,
+    track_end: null
+  });
+
+  return { gpsTrack: filteredGpsTrack, summary };
+}
+
+function filterStationaryIndoorAltitude(compactRecords, summary) {
+  if (summary?.persistedRow?.workout_type !== "indoor") {
+    return compactRecords;
+  }
+
+  const recordCount = Number(compactRecords?.recordCount || 0);
+  const distances = compactRecords?.distancesQ;
+  const altitudes = compactRecords?.altitudesQ;
+  if (recordCount <= 0 || !distances || !altitudes) {
+    return compactRecords;
+  }
+
+  let minDistanceQ = Infinity;
+  let maxDistanceQ = -Infinity;
+  let minAltitudeQ = Infinity;
+  let maxAltitudeQ = -Infinity;
+  for (let index = 0; index < recordCount; index += 1) {
+    const distanceQ = Number(distances[index]);
+    if (distanceQ !== UINT32_NAN) {
+      minDistanceQ = Math.min(minDistanceQ, distanceQ);
+      maxDistanceQ = Math.max(maxDistanceQ, distanceQ);
+    }
+
+    const altitudeQ = Number(altitudes[index]);
+    if (altitudeQ !== INT16_NAN) {
+      minAltitudeQ = Math.min(minAltitudeQ, altitudeQ);
+      maxAltitudeQ = Math.max(maxAltitudeQ, altitudeQ);
+    }
+  }
+
+  const distanceSpanMeters = Number.isFinite(minDistanceQ) && Number.isFinite(maxDistanceQ)
+    ? (maxDistanceQ - minDistanceQ) * 0.5
+    : 0;
+  const altitudeSpanMeters = Number.isFinite(minAltitudeQ) && Number.isFinite(maxAltitudeQ)
+    ? (maxAltitudeQ - minAltitudeQ) / 4
+    : 0;
+  if (distanceSpanMeters >= 100 || altitudeSpanMeters > 10) {
+    return compactRecords;
+  }
+
+  summary.totalAscent = 0;
+  summary.totalDescent = 0;
+  summary.persistedRow.total_ascent = 0;
+  summary.persistedRow.total_descent = 0;
+
+  return {
+    ...compactRecords,
+    altitudesQ: new Int16Array(recordCount).fill(INT16_NAN)
   };
 }
 
@@ -2011,13 +2373,23 @@ export function createWoa1FileFromCompact(parsedCompact, {
   };
 
   let stepStartedAt = nowMs();
-  const gpsTrack = buildReducedGpsTrackCompact(parsedCompact?.compactRecords || {}, sampleRateSeconds);
+  let gpsTrack = buildReducedGpsTrackCompact(parsedCompact?.compactRecords || {}, sampleRateSeconds);
   timings.buildReducedGpsTrackMs = nowMs() - stepStartedAt;
+
+  stepStartedAt = nowMs();
+  const finalizedGps = deriveSummaryAndFilterIndoorGps(parsedCompact, gpsTrack, sourceName);
+  gpsTrack = finalizedGps.gpsTrack;
+  const summary = finalizedGps.summary;
+  const workoutCompactRecords = filterStationaryIndoorAltitude(
+    parsedCompact?.compactRecords || {},
+    summary
+  );
+  timings.deriveSummaryMs = nowMs() - stepStartedAt;
 
   stepStartedAt = nowMs();
   const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
   const workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(
-    parsedCompact?.compactRecords || {},
+    workoutCompactRecords,
     { distanceBlockSize: normalizedDistanceBlockSize }
   );
   const workoutStreamRawBytes = workoutStreamBlock.bytes;
@@ -2047,9 +2419,6 @@ export function createWoa1FileFromCompact(parsedCompact, {
   const gpsTrackCodec = compressGpsTrack ? gpsTrackBlobCodec : "identity";
   const usesCompressedBlocks = !!(compressWorkoutStream || compressGpsTrack);
 
-  stepStartedAt = nowMs();
-  const summary = deriveSummaryFromCompact(parsedCompact, gpsTrack, sourceName);
-  timings.deriveSummaryMs = nowMs() - stepStartedAt;
   if (summary?.persistedRow) {
     summary.persistedRow.stream_codec = workoutStreamCodec;
     summary.persistedRow.gps_track_blob_codec = gpsTrackCodec;
@@ -2142,13 +2511,23 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
   };
 
   let stepStartedAt = nowMs();
-  const gpsTrack = buildReducedGpsTrackCompact(parsedCompact?.compactRecords || {}, sampleRateSeconds);
+  let gpsTrack = buildReducedGpsTrackCompact(parsedCompact?.compactRecords || {}, sampleRateSeconds);
   timings.buildReducedGpsTrackMs = nowMs() - stepStartedAt;
+
+  stepStartedAt = nowMs();
+  const finalizedGps = deriveSummaryAndFilterIndoorGps(parsedCompact, gpsTrack, sourceName);
+  gpsTrack = finalizedGps.gpsTrack;
+  const summary = finalizedGps.summary;
+  const workoutCompactRecords = filterStationaryIndoorAltitude(
+    parsedCompact?.compactRecords || {},
+    summary
+  );
+  timings.deriveSummaryMs = nowMs() - stepStartedAt;
 
   stepStartedAt = nowMs();
   const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
   const workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(
-    parsedCompact?.compactRecords || {},
+    workoutCompactRecords,
     { distanceBlockSize: normalizedDistanceBlockSize }
   );
   const workoutStreamRawBytes = workoutStreamBlock.bytes;
@@ -2178,9 +2557,6 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
   const gpsTrackCodec = compressGpsTrack ? gpsTrackBlobCodec : "identity";
   const usesCompressedBlocks = !!(compressWorkoutStream || compressGpsTrack);
 
-  stepStartedAt = nowMs();
-  const summary = deriveSummaryFromCompact(parsedCompact, gpsTrack, sourceName);
-  timings.deriveSummaryMs = nowMs() - stepStartedAt;
   if (summary?.persistedRow) {
     summary.persistedRow.stream_codec = workoutStreamCodec;
     summary.persistedRow.gps_track_blob_codec = gpsTrackCodec;

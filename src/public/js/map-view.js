@@ -153,17 +153,16 @@ export default class MapView {
 
       for (let i = 0; i < markAreas.length; i++) {
         const markArea = markAreas[i];
+        const markAreaSegments = this.splitTrackIntoSegments(markArea.currentTrackPoints);
 
-        const latlngs = markArea.currentTrackPoints.map((p) => [p.lat, p.lng]);
-
-        if (latlngs.length === 0) continue;
-
-        L.polyline(latlngs, {
-          color: markArea.segmenttype === 'auto' ? "Blue" : "Purple",
-          pane: 'segmentPane',
-          weight: 4,
-          opacity: 0.9
-        }).addTo(this.trackLayer);
+        for (const segment of markAreaSegments) {
+          L.polyline(segment.map((p) => [p.lat, p.lng]), {
+            color: markArea.segmenttype === 'auto' ? "Blue" : "Purple",
+            pane: 'segmentPane',
+            weight: 4,
+            opacity: 0.9
+          }).addTo(this.trackLayer);
+        }
       }
 
       if (renderedPolylines.length > 0) {
@@ -196,8 +195,7 @@ export default class MapView {
           const startIdx = this.mapSourceIndexToTrackIndex(seg.start_offset, "floor");
           const endIdx = this.mapSourceIndexToTrackIndex(seg.end_offset, "ceil");
           const currentTrackPoints = this.currentTrackPoints
-            .slice(startIdx, endIdx + 1)
-            .filter((point) => this.isValidTrackPoint(point));
+            .slice(startIdx, endIdx + 1);
 
           markAreas.push({
             currentTrackPoints,

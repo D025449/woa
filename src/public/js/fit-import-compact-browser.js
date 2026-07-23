@@ -34,6 +34,8 @@ const SESSION_FIELDS = new Set([
   "swc_lat",
   "swc_long",
   "woa_manual_gps",
+  "sport",
+  "sub_sport",
 ]);
 
 function normalizeExcludeStartTimeSet(excludeStartTimes) {

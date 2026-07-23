@@ -495,6 +495,7 @@ router.post("/:id/manual-gps", authMiddleware, requireActiveAccountWrite, async 
       streamUpdate
     );
     const thumbnailPayload = WorkoutThumbnailService.createThumbnailPayload({
+      workoutType: context.workout_type ?? context.workoutType,
       gpsTrack: altitudeEnrichedTrack.track.map((point) => [point.lat, point.lng]),
       workoutObject: streamUpdate.workoutObject
     });
@@ -599,6 +600,7 @@ router.post("/:id/gps-copy-from", authMiddleware, requireActiveAccountWrite, asy
     );
 
     const thumbnailPayload = WorkoutThumbnailService.createThumbnailPayload({
+      workoutType: targetContext.workout_type ?? targetContext.workoutType,
       gpsTrack: copiedGpsTrack.track.map((point) => [point.lat, point.lng]),
       workoutObject: streamUpdate.workoutObject
     });
@@ -640,6 +642,14 @@ router.get("/:id/thumbnail", authMiddleware, async (req, res) => {
 
     if (!thumbnail?.content && FEATURE_THUMBNAILS_ON_DEMAND) {
       thumbnail = await WorkoutThumbnailService.generateThumbnailForWorkout(workoutId);
+      if (thumbnail?.generationProfile) {
+        console.info("[thumbnail] on-demand.profile", {
+          uid: String(uid),
+          workoutId,
+          kind: thumbnail.kind,
+          ...thumbnail.generationProfile
+        });
+      }
     }
 
     if (!thumbnail?.content) {

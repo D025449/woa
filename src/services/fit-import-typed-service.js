@@ -30,7 +30,9 @@ const SESSION_FIELDS = new Set([
   "nec_long",
   "swc_lat",
   "swc_long",
-  "woa_manual_gps"
+  "woa_manual_gps",
+  "sport",
+  "sub_sport"
 ]);
 
 const RECORD_FIELDS = new Set([

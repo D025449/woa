@@ -348,6 +348,7 @@
       "searchHintScopedTitle": "Ricerca per campo",
       "splitterAria": "Ridimensiona elenco allenamenti e area dettagli",
       "activeFiltersLabel": "Attivi",
+      "resultCount": "{count} risultati",
       "activeSearch": "Ricerca",
       "activeScope": "Scope",
       "activeScopeShared": "Condivisi",

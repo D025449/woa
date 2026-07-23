@@ -54,6 +54,7 @@ export default class WorkoutLibraryView {
     this.pageSize = handlers.pageSize || 24;
     this.lastPage = 1;
     this.totalRecords = 0;
+    this.resultsLoaded = false;
     this.ownSummary = null;
     this.pendingRequestId = 0;
     this.openShareWorkoutId = null;
@@ -284,6 +285,7 @@ export default class WorkoutLibraryView {
     this.page = 1;
     this.lastPage = 1;
     this.items = [];
+    this.resultsLoaded = false;
     this.renderActiveFilters();
     await this.fetchPage({ append: false });
   }
@@ -313,6 +315,7 @@ export default class WorkoutLibraryView {
     }
 
     this.totalRecords = result.total_records || 0;
+    this.resultsLoaded = true;
     this.lastPage = result.last_page || 1;
     this.ownSummary = result.own_summary || null;
     this.favoriteWorkoutIds = new Set(
@@ -325,6 +328,7 @@ export default class WorkoutLibraryView {
     this.handlers.onFavoriteIdsChange?.([...this.favoriteWorkoutIds]);
 
     this.renderHeader();
+    this.renderActiveFilters();
     this.render();
     this.updateLoadMoreButton();
     this.handlers.onRendered?.({
@@ -454,6 +458,11 @@ export default class WorkoutLibraryView {
           <button type="button" class="workout-library-active-filters__remove" data-filter-remove="${chip.type}" aria-label="${this.t("clearFilter")}">×</button>
         </span>
       `).join("")}
+      ${this.resultsLoaded ? `
+        <span class="workout-library-active-filters__result" aria-live="polite">
+          ${this.t("resultCount", { count: this.formatNumber(this.totalRecords, 0) })}
+        </span>
+      ` : ""}
     `;
 
     this.activeFiltersElement.querySelectorAll("[data-filter-remove]").forEach((element) => {
@@ -1148,6 +1157,12 @@ export default class WorkoutLibraryView {
     const isFavorite = !!workout.is_favorite;
     const isSelectable = this.selectionMode && isOwned;
     const isSelectedForBulk = this.selectedWorkoutIds.has(workoutId);
+    const workoutType = ["indoor", "road", "mountain", "unknown"].includes(workout.workout_type)
+      ? workout.workout_type
+      : "unknown";
+    const workoutTypeLabel = this.pageT(
+      `workoutType${workoutType.charAt(0).toUpperCase()}${workoutType.slice(1)}`
+    );
 
     return `
       <article
@@ -1164,6 +1179,7 @@ export default class WorkoutLibraryView {
               <span class="workout-library-card__context-chip">${dayLabel}</span>
               ${timeLabel ? `<span class="workout-library-card__context-chip">${timeLabel}</span>` : ""}
               <span class="workout-library-card__context-chip">${hasValidGps ? this.t("gps") : this.t("noGps")}</span>
+              <span class="workout-library-card__context-chip">${workoutTypeLabel}</span>
               ${isShared ? `
                 <button class="workout-library-card__context-chip workout-library-card__context-chip--button" type="button" data-workout-visibility-toggle="${workoutId}">
                   ${shareTag}

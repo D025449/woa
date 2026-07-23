@@ -348,6 +348,7 @@
       "searchHintScopedTitle": "Recherche par champ",
       "splitterAria": "Redimensionner la liste des entraînements et la zone de détail",
       "activeFiltersLabel": "Actifs",
+      "resultCount": "{count} résultats",
       "activeSearch": "Recherche",
       "activeScope": "Scope",
       "activeScopeShared": "Partagés",

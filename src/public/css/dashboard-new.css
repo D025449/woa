@@ -1353,6 +1353,16 @@ body.dashboard-page {
   cursor: pointer;
 }
 
+.workout-library-active-filters__result {
+  margin-left: auto;
+  padding-left: 0.7rem;
+  border-left: 1px solid var(--ui-card-border-soft);
+  color: var(--ui-text-default);
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .workout-library-grid {
   display: grid;
   gap: 0.85rem;
