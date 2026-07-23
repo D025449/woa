@@ -35,3 +35,41 @@ test("direct WST9 range averages match fully materialized workouts", () => {
     assert.ok(Math.abs(actual.cadence - expected.cadence) < 1e-9);
   }
 });
+
+test("direct WST9 thumbnail series decode only the required columns", () => {
+  const recordCount = 420;
+  const compactRecords = {
+    recordCount,
+    baseTimestampSec: 1_700_000_000,
+    distancesQ: Uint32Array.from({ length: recordCount }, (_, index) => index * 16),
+    powersW: Uint16Array.from({ length: recordCount }, (_, index) => (
+      index % 89 === 0 ? 0xffff : index % 73 === 0 ? 900 : 180 + ((index % 17) * 4)
+    )),
+    heartRatesBpm: Uint8Array.from({ length: recordCount }, (_, index) => (
+      index % 101 === 0 ? 0xff : 120 + (index % 23)
+    )),
+    cadencesRpm: Uint8Array.from({ length: recordCount }, (_, index) => (
+      index % 97 === 0 ? 0xff : 75 + (index % 19)
+    )),
+    speedsCmS: Uint16Array.from({ length: recordCount }, () => 800),
+    altitudesQ: Int16Array.from({ length: recordCount }, (_, index) => index)
+  };
+  const wst9 = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(
+    compactRecords
+  ).bytes;
+  const materialized = Workout.fromBuffer(wst9);
+  const direct = Workout.getWst9ThumbnailSeries(wst9);
+
+  assert.equal(direct.recordCount, recordCount);
+  for (let index = 0; index < recordCount; index += 1) {
+    const expectedPower = materialized.getPowerAt(index);
+    const expectedHr = materialized.getHrAt(index);
+    const expectedCadence = materialized.getCadenceAt(index);
+    assert.equal(Number.isNaN(direct.powers[index]), Number.isNaN(expectedPower));
+    assert.equal(Number.isNaN(direct.heartRates[index]), Number.isNaN(expectedHr));
+    assert.equal(Number.isNaN(direct.cadences[index]), Number.isNaN(expectedCadence));
+    if (Number.isFinite(expectedPower)) assert.equal(direct.powers[index], expectedPower);
+    if (Number.isFinite(expectedHr)) assert.equal(direct.heartRates[index], expectedHr);
+    if (Number.isFinite(expectedCadence)) assert.equal(direct.cadences[index], expectedCadence);
+  }
+});

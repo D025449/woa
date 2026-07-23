@@ -616,6 +616,81 @@ export default class Workout {
         };
     }
 
+    static getWst9ThumbnailSeries(buffer) {
+        const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
+        if (magic !== "WST9") {
+            throw new Error(`Unsupported workout stream block: ${magic}`);
+        }
+
+        const recordCount = view.getUint32(4, true);
+        const lengths = new Uint32Array(6);
+        let headerOffset = 20;
+        for (let index = 0; index < lengths.length; index += 1) {
+            lengths[index] = view.getUint32(headerOffset, true);
+            headerOffset += 4;
+        }
+
+        let offset = headerOffset + lengths[0];
+        const powers = new Float32Array(recordCount);
+        const powerBlockEnd = offset + lengths[1];
+        let tokenOffset = offset;
+        let absoluteOffset = offset + 2 + Math.max(0, recordCount - 1);
+        let currentPower = Number.NaN;
+        for (let index = 0; index < recordCount; index += 1) {
+            if (index === 0) {
+                const raw = view.getUint16(tokenOffset, true);
+                tokenOffset += 2;
+                currentPower = raw === WOA_UINT16_NAN ? Number.NaN : raw;
+            } else {
+                const delta = view.getInt8(tokenOffset);
+                tokenOffset += 1;
+                if (delta === 127) {
+                    if (absoluteOffset + 2 > powerBlockEnd) {
+                        throw new Error("Corrupt WST9 power block: missing absolute fallback value");
+                    }
+                    const raw = view.getUint16(absoluteOffset, true);
+                    absoluteOffset += 2;
+                    currentPower = raw === WOA_UINT16_NAN ? Number.NaN : raw;
+                } else if (Number.isFinite(currentPower)) {
+                    currentPower += delta * 4;
+                }
+            }
+            powers[index] = Number.isFinite(currentPower) ? currentPower : 0;
+        }
+        offset = powerBlockEnd;
+
+        const heartRates = new Float32Array(recordCount);
+        offset = this.#decodeUint8RunLengthDeltaBlock(
+            view,
+            offset,
+            lengths[2],
+            recordCount,
+            heartRates
+        );
+
+        const cadences = new Float32Array(recordCount);
+        this.#decodeUint8RunLengthDeltaBlock(
+            view,
+            offset,
+            lengths[3],
+            recordCount,
+            cadences
+        );
+        for (let index = 0; index < recordCount; index += 1) {
+            if (!Number.isFinite(heartRates[index])) heartRates[index] = 0;
+            if (!Number.isFinite(cadences[index])) cadences[index] = 0;
+        }
+
+        return {
+            recordCount,
+            powers,
+            heartRates,
+            cadences
+        };
+    }
+
     static #finishWst9RangeAverage(sum, startValue, endValue, start, end) {
         const startIndex = Math.floor(Number(start));
         const endIndex = Math.floor(Number(end));

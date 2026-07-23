@@ -13,7 +13,9 @@ const SVG_PADDING = 14;
 const POWER_THUMB_STRONG_SMOOTHING_WINDOW = 35;
 const INDOOR_THUMB_SMOOTHING_WINDOW = 15;
 const THUMB_MAX_SERIES_POINTS = 180;
+const ROUTE_SIMPLIFY_TOLERANCE_PX = 0.5;
 const thumbnailGenerationInflight = new Map();
+const thumbnailPersistenceInflight = new Map();
 
 function escapeXml(value = "") {
   return String(value)
@@ -60,6 +62,63 @@ function projectPoint(point, bounds, width = SVG_WIDTH, height = SVG_HEIGHT, pad
     x: offsetX + ((Number(point.x) - bounds.minX) * scale),
     y: offsetY + (scaledHeight - ((Number(point.y) - bounds.minY) * scale))
   };
+}
+
+function pointToLineDistanceSquared(point, start, end) {
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  if (deltaX === 0 && deltaY === 0) {
+    const x = point.x - start.x;
+    const y = point.y - start.y;
+    return (x * x) + (y * y);
+  }
+
+  const projection = Math.max(0, Math.min(1, (
+    ((point.x - start.x) * deltaX) + ((point.y - start.y) * deltaY)
+  ) / ((deltaX * deltaX) + (deltaY * deltaY))));
+  const projectedX = start.x + (projection * deltaX);
+  const projectedY = start.y + (projection * deltaY);
+  const x = point.x - projectedX;
+  const y = point.y - projectedY;
+  return (x * x) + (y * y);
+}
+
+function simplifyPointsForSvg(points, bounds, tolerancePx = ROUTE_SIMPLIFY_TOLERANCE_PX) {
+  if (!Array.isArray(points) || points.length <= 2) {
+    return Array.isArray(points) ? points : [];
+  }
+
+  const projected = points.map((point) =>
+    projectPoint(point, bounds, SVG_WIDTH, SVG_HEIGHT, SVG_PADDING)
+  );
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1;
+  keep[points.length - 1] = 1;
+  const stack = [[0, points.length - 1]];
+  const toleranceSquared = tolerancePx * tolerancePx;
+
+  while (stack.length > 0) {
+    const [startIndex, endIndex] = stack.pop();
+    let furthestIndex = -1;
+    let furthestDistanceSquared = toleranceSquared;
+    for (let index = startIndex + 1; index < endIndex; index += 1) {
+      const distanceSquared = pointToLineDistanceSquared(
+        projected[index],
+        projected[startIndex],
+        projected[endIndex]
+      );
+      if (distanceSquared > furthestDistanceSquared) {
+        furthestDistanceSquared = distanceSquared;
+        furthestIndex = index;
+      }
+    }
+    if (furthestIndex >= 0) {
+      keep[furthestIndex] = 1;
+      stack.push([startIndex, furthestIndex], [furthestIndex, endIndex]);
+    }
+  }
+
+  return points.filter((_, index) => keep[index] === 1);
 }
 
 function getPointBounds(points = []) {
@@ -240,7 +299,7 @@ function buildRouteThumbnail(gpsTrackSegments = null, gpsTrack = null, segmentOv
   const end = points[points.length - 1];
   const startProjected = projectPoint(start, bounds);
   const endProjected = projectPoint(end, bounds);
-  const pathMarkup = normalizedSegments
+  const projectedRouteSegments = normalizedSegments
     .map((segment) => segment
       .map((point) => ({
         x: point.lng * longitudeScale,
@@ -248,15 +307,20 @@ function buildRouteThumbnail(gpsTrackSegments = null, gpsTrack = null, segmentOv
       }))
       .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y)))
     .filter((segment) => segment.length >= 2)
+    .map((segment) => ({
+      inputPointCount: segment.length,
+      points: simplifyPointsForSvg(segment, bounds)
+    }));
+  const pathMarkup = projectedRouteSegments
     .map((segment) => `<path d="${createPathFromPoints(
-      segment,
+      segment.points,
       SVG_WIDTH,
       SVG_HEIGHT,
       SVG_PADDING,
       bounds
     )}" fill="none" stroke="#dc2626" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`)
     .join("");
-  const overlayMarkup = (Array.isArray(segmentOverlays) ? segmentOverlays : [])
+  const projectedOverlays = (Array.isArray(segmentOverlays) ? segmentOverlays : [])
     .flatMap((overlay) => (Array.isArray(overlay?.segments) ? overlay.segments : [])
       .map((segment) => ({
         segmenttype: overlay.segmenttype,
@@ -268,6 +332,12 @@ function buildRouteThumbnail(gpsTrackSegments = null, gpsTrack = null, segmentOv
           .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
       })))
     .filter((overlay) => overlay.points.length >= 2)
+    .map((overlay) => ({
+      ...overlay,
+      inputPointCount: overlay.points.length,
+      points: simplifyPointsForSvg(overlay.points, bounds)
+    }));
+  const overlayMarkup = projectedOverlays
     .map((overlay) => {
       const isAuto = overlay.segmenttype === "auto";
       return `<path data-segment-type="${escapeXml(overlay.segmenttype || "manual")}" d="${createPathFromPoints(
@@ -292,6 +362,24 @@ function buildRouteThumbnail(gpsTrackSegments = null, gpsTrack = null, segmentOv
     mimeType: "image/svg+xml",
     width: SVG_WIDTH,
     height: SVG_HEIGHT,
+    renderStats: {
+      routeInputPointCount: projectedRouteSegments.reduce(
+        (sum, segment) => sum + segment.inputPointCount,
+        0
+      ),
+      routeRenderedPointCount: projectedRouteSegments.reduce(
+        (sum, segment) => sum + segment.points.length,
+        0
+      ),
+      overlayInputPointCount: projectedOverlays.reduce(
+        (sum, overlay) => sum + overlay.inputPointCount,
+        0
+      ),
+      overlayRenderedPointCount: projectedOverlays.reduce(
+        (sum, overlay) => sum + overlay.points.length,
+        0
+      )
+    },
     content: buildSvgShell({
       title: "Workout route thumbnail",
       bodyMarkup,
@@ -413,7 +501,7 @@ function buildMetricProfileThumbnail({
 } = {}) {
   const prepare = (values, smoothingWindow) => downsampleSeries(
     smoothSeriesCentered(
-      values.map((value) => Number(value)).filter((value) => Number.isFinite(value)),
+      Array.from(values || [], (value) => Number(value)).filter((value) => Number.isFinite(value)),
       smoothingWindow
     )
   );
@@ -667,6 +755,11 @@ export default class WorkoutThumbnailService {
       return null;
     }
 
+    const pendingPersistence = thumbnailPersistenceInflight.get(normalizedWorkoutId);
+    if (pendingPersistence?.thumbnail?.content) {
+      return pendingPersistence.thumbnail;
+    }
+
     const existing = await WorkoutThumbnailService.getThumbnail(normalizedWorkoutId);
     if (existing?.content) {
       return existing;
@@ -684,12 +777,15 @@ export default class WorkoutThumbnailService {
         loadGpsDefinitionsMs: 0,
         decodeGpsTrackMs: 0,
         matchGpsSegmentsMs: 0,
+        decompressWorkoutStreamMs: 0,
         decodeWorkoutStreamMs: 0,
         renderSvgMs: 0,
         persistThumbnailMs: 0,
+        persistThumbnailMode: "write-behind",
         workoutSegmentCount: 0,
         gpsCandidateCount: 0,
-        gpsMatchCount: 0
+        gpsMatchCount: 0,
+        thumbnailSeriesMode: null
       };
       const totalStartedAt = performance.now();
       let stepStartedAt = performance.now();
@@ -774,8 +870,21 @@ export default class WorkoutThumbnailService {
         segmentOverlays = buildCompactSegmentOverlays(compactTrack, ranges);
       } else if (row?.stream) {
         stepStartedAt = performance.now();
-        workoutObject = await Workout.fromCompressedWithCodec(row.stream, row?.stream_codec || "brotli");
+        const rawWorkoutStream = await Workout.decompress(
+          row.stream,
+          row?.stream_codec || "brotli"
+        );
+        profile.decompressWorkoutStreamMs = performance.now() - stepStartedAt;
+        stepStartedAt = performance.now();
+        const series = Workout.getWst9ThumbnailSeries(rawWorkoutStream);
         profile.decodeWorkoutStreamMs = performance.now() - stepStartedAt;
+        profile.thumbnailSeriesMode = "direct-wst9";
+        workoutObject = {
+          length: series.recordCount,
+          getPowerAt: (index) => series.powers[index],
+          getHrAt: (index) => series.heartRates[index],
+          getCadenceAt: (index) => series.cadences[index]
+        };
       }
 
       stepStartedAt = performance.now();
@@ -786,22 +895,55 @@ export default class WorkoutThumbnailService {
         workoutObject
       });
       profile.renderSvgMs = performance.now() - stepStartedAt;
+      if (payload?.renderStats) {
+        Object.assign(profile, payload.renderStats);
+      }
 
       if (!payload) {
         return null;
       }
 
-      stepStartedAt = performance.now();
-      const persisted = await WorkoutThumbnailService.upsertThumbnail(normalizedWorkoutId, payload);
-      profile.persistThumbnailMs = performance.now() - stepStartedAt;
       profile.totalMs = performance.now() - totalStartedAt;
-      return persisted
-        ? {
-            ...persisted,
-            content: payload.content,
-            generationProfile: profile
-          }
-        : null;
+      const thumbnail = {
+        workoutId: normalizedWorkoutId,
+        kind: payload.kind,
+        mimeType: payload.mimeType,
+        width: payload.width,
+        height: payload.height,
+        content: payload.content,
+        generationProfile: profile
+      };
+      const persistStartedAt = performance.now();
+      const persistencePromise = WorkoutThumbnailService.upsertThumbnail(normalizedWorkoutId, payload)
+        .then((persisted) => {
+          console.info("[thumbnail] persist.profile", {
+            workoutId: normalizedWorkoutId,
+            kind: payload.kind,
+            persistThumbnailMs: performance.now() - persistStartedAt,
+            persisted: !!persisted
+          });
+          return persisted;
+        })
+        .catch((error) => {
+          console.error("[thumbnail] persist.failed", {
+            workoutId: normalizedWorkoutId,
+            kind: payload.kind,
+            persistThumbnailMs: performance.now() - persistStartedAt,
+            error: error?.message || String(error)
+          });
+          return null;
+        });
+      const pending = {
+        thumbnail,
+        promise: persistencePromise
+      };
+      thumbnailPersistenceInflight.set(normalizedWorkoutId, pending);
+      void persistencePromise.finally(() => {
+        if (thumbnailPersistenceInflight.get(normalizedWorkoutId) === pending) {
+          thumbnailPersistenceInflight.delete(normalizedWorkoutId);
+        }
+      });
+      return thumbnail;
     })();
 
     thumbnailGenerationInflight.set(normalizedWorkoutId, generationPromise);

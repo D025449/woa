@@ -56,6 +56,21 @@ test("route thumbnail overlays workout and GPS segment ranges in Leaflet colors"
   );
 });
 
+test("route thumbnail removes sub-pixel GPS points while preserving endpoints", () => {
+  const gpsTrack = Array.from({ length: 101 }, (_, index) => [
+    49 + (index / 1000),
+    8 + (index / 1000)
+  ]);
+  const thumbnail = WorkoutThumbnailService.createThumbnailPayload({ gpsTrack });
+
+  assert.equal(thumbnail.renderStats.routeInputPointCount, 101);
+  assert.equal(thumbnail.renderStats.routeRenderedPointCount, 2);
+  assert.match(
+    thumbnail.content,
+    /<path d="M [\d.]+ [\d.]+ L [\d.]+ [\d.]+" fill="none" stroke="#dc2626"/
+  );
+});
+
 test("indoor thumbnail renders power, heart rate, and cadence without altitude or GPS", () => {
   const workoutObject = {
     length: 240,
