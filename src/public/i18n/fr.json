@@ -362,7 +362,7 @@
       "na": "–",
       "shareTagGroups": "Partagé ({count})",
       "sharePrivate": "Privé",
-      "workoutLabel": "W{id}",
+      "workoutLabel": "W-{id}",
       "sharedBy": "Par {owner}",
       "anotherUser": "un autre utilisateur",
       "duration": "Durée",

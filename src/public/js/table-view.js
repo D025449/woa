@@ -69,7 +69,7 @@ export default class TableView {
         width: 72,
         hozAlign: "right",
         headerHozAlign: "right",
-        formatter: (cell) => `<span class="dashboard-table-number">W${cell.getValue()}</span>`
+        formatter: (cell) => `<span class="dashboard-table-number">W-${cell.getValue()}</span>`
       },      
       {
         title: "Workout",

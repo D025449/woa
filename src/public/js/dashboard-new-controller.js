@@ -675,7 +675,7 @@ export default class Controller {
       .slice(0, 4);
 
     this.favoriteWorkoutsElement.innerHTML = favoriteItems
-      .map((workout) => `<button class="dashboard-quick-access__link" type="button" data-quick-workout-open="${workout.id}">W${workout.id}</button>`)
+      .map((workout) => `<button class="dashboard-quick-access__link" type="button" data-quick-workout-open="${workout.id}">W-${workout.id}</button>`)
       .join("");
 
     this.quickAccessElement.hidden = favoriteItems.length === 0;
@@ -820,7 +820,7 @@ export default class Controller {
         <article class="dashboard-gps-copy-card">
           <div class="dashboard-gps-copy-card__thumb">${thumb}</div>
           <div class="dashboard-gps-copy-card__meta">
-            <h3 class="dashboard-gps-copy-card__title">W${candidate.id}</h3>
+            <h3 class="dashboard-gps-copy-card__title">W-${candidate.id}</h3>
             <p class="dashboard-gps-copy-card__copy">${dateLabel}</p>
             <div class="dashboard-gps-copy-card__stats">
               <span class="dashboard-gps-copy-card__chip">${this.libraryT("distance")}: ${this.formatDistance(candidate.total_distance)}</span>

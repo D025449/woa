@@ -163,7 +163,7 @@ export default class SegmentBestEffortsCardView {
             <div class="segments-best-effort-card__duration">${this.escapeHtml(Utils.formatDuration(row.duration))}${this.perUserValue === "1" ? ` <span class="segments-best-efforts-badge">PR</span>` : ""}</div>
             <div class="segments-best-effort-card__meta">${this.escapeHtml(this.formatStart(row))}</div>
           </div>
-          <a class="segments-best-effort-card__workout" href="/dashboard-new?workoutId=${encodeURIComponent(row.wid)}">W${this.escapeHtml(row.wid)}</a>
+          <a class="segments-best-effort-card__workout" href="/dashboard-new?workoutId=${encodeURIComponent(row.wid)}">W-${this.escapeHtml(row.wid)}</a>
         </div>
         <div class="segments-best-effort-card__stats">${this.escapeHtml(meta || this.t("na"))}</div>
         ${ownerLabel ? `<div class="segments-best-effort-card__owner">${this.t("table.ownerShort")}: ${this.escapeHtml(ownerLabel)}</div>` : ""}

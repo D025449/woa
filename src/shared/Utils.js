@@ -31,7 +31,7 @@ export default class Utils {
     static getSegmentDisplayHeading(seg) {
         const title = Utils.getSegmentDisplayTitle(seg);
         const id = Utils.getSegmentDisplayId(seg);
-        return id == null ? title : `${title} · S${id}`;
+        return id == null ? title : `${title} · S-${id}`;
     }
 
     static formatDuration(seconds) {

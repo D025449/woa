@@ -442,7 +442,7 @@ export default class MapView {
     return `
       <div style="min-width: 220px;">
         <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 4px;">${this.t("segment")}</div>
-        <div style="font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 8px;">S${segment.id} · ${distance}</div>
+        <div style="font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 8px;">S-${segment.id} · ${distance}</div>
         <div style="display:flex; justify-content:space-between; gap:12px; margin:2px 0;">
           <span style="color:#64748b;">${this.t("start")}</span>
           <span style="font-weight:600; color:#0f172a; text-align:right;">${startName}</span>

@@ -479,7 +479,7 @@
       "na": "–",
       "shareTagGroups": "Shared ({count})",
       "sharePrivate": "Private",
-      "workoutLabel": "W{id}",
+      "workoutLabel": "W-{id}",
       "sharedBy": "By {owner}",
       "anotherUser": "another user",
       "duration": "Duration",
