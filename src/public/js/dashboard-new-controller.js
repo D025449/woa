@@ -4,10 +4,14 @@ import FlyoverView from "./flyover-view.js";
 import WorkoutService from "./workout-service.js";
 import UIStateManager from "./UIStateManager.js";
 import WorkoutLibraryView from "./workout-library-view.js";
+import ViewPreferenceService from "./view-preference-service.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
 import Utils from "../../shared/Utils.js";
 import { WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION } from "../../shared/SegmentAppearance.js";
 import confirmModal from "./confirm-modal.js";
+
+const WORKOUT_LIBRARY_VIEW_KEY = "workout-library";
+const VIEW_PREFERENCE_SAVE_DELAY_MS = 500;
 
 export default class Controller {
   constructor() {
@@ -46,6 +50,10 @@ export default class Controller {
     });
     this.maptilerApiKey = String(globalThis.__APP_CONFIG?.maptilerApiKey || "").trim();
     this.favoriteWorkoutIds = [];
+    this.viewPreferencesAvailable = false;
+    this.pendingWorkoutLibraryPreferenceState = null;
+    this.viewPreferenceSaveTimer = null;
+    this.viewPreferenceSaveChain = Promise.resolve();
     this.detailCopyElement = document.getElementById("dashboard-detail-copy");
     this.workoutTitleElement = document.getElementById("dashboard-workout-title");
     this.heroStatusElement = document.getElementById("dashboard-hero-status");
@@ -241,6 +249,7 @@ export default class Controller {
       onStateChange: (state) => {
         this.libraryState = state;
         this.uiState.set("workoutLibraryState", state);
+        this.scheduleWorkoutLibraryPreferenceSave(state);
       },
       onWorkoutDelete: async (workout) => {
         await WorkoutService.deleteWorkoutByRow({
@@ -328,7 +337,10 @@ export default class Controller {
 
   async boot() {
     try {
-      await this.loadShareableGroups();
+      await Promise.all([
+        this.loadShareableGroups(),
+        this.restoreWorkoutLibraryPreferences()
+      ]);
       await this.libraryView.initialize();
       this.resetWorkspaceSummary();
       this.scheduleDesktopLayoutMeasure();
@@ -339,6 +351,62 @@ export default class Controller {
       console.error(err);
       this.showToast(this.t("messages.workoutLibraryLoadFailed"));
     }
+  }
+
+  async restoreWorkoutLibraryPreferences() {
+    try {
+      const storedState = await ViewPreferenceService.load(WORKOUT_LIBRARY_VIEW_KEY);
+      this.viewPreferencesAvailable = true;
+      if (!storedState) {
+        return;
+      }
+
+      this.libraryState = {
+        ...this.libraryState,
+        ...storedState
+      };
+      this.uiState.set("workoutLibraryState", this.libraryState);
+      this.libraryView.applyState(this.libraryState);
+    } catch (err) {
+      this.viewPreferencesAvailable = false;
+      console.warn("Workout library preferences remain local for this session:", err);
+    }
+  }
+
+  scheduleWorkoutLibraryPreferenceSave(state) {
+    if (!this.viewPreferencesAvailable) {
+      return;
+    }
+
+    this.pendingWorkoutLibraryPreferenceState = { ...state };
+    clearTimeout(this.viewPreferenceSaveTimer);
+    this.viewPreferenceSaveTimer = setTimeout(() => {
+      this.persistWorkoutLibraryPreferences();
+    }, VIEW_PREFERENCE_SAVE_DELAY_MS);
+  }
+
+  persistWorkoutLibraryPreferences({ keepalive = false } = {}) {
+    const state = this.pendingWorkoutLibraryPreferenceState;
+    if (!state || !this.viewPreferencesAvailable) {
+      return;
+    }
+
+    this.pendingWorkoutLibraryPreferenceState = null;
+    clearTimeout(this.viewPreferenceSaveTimer);
+    this.viewPreferenceSaveTimer = null;
+
+    if (keepalive) {
+      void ViewPreferenceService.save(WORKOUT_LIBRARY_VIEW_KEY, state, { keepalive })
+        .catch((err) => console.warn("Workout library preferences could not be saved:", err));
+      return;
+    }
+
+    this.viewPreferenceSaveChain = this.viewPreferenceSaveChain
+      .catch(() => {})
+      .then(() => ViewPreferenceService.save(WORKOUT_LIBRARY_VIEW_KEY, state))
+      .catch((err) => {
+        console.warn("Workout library preferences could not be saved:", err);
+      });
   }
 
   async openWorkout(workoutId) {

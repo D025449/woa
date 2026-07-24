@@ -11,6 +11,7 @@ import collaborationRoutes from "./routes/collaborationRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
 import paymentsRoutes from "./routes/paymentsRoutes.js";
 import coachingRoutes from "./routes/coachingRoutes.js";
+import viewPreferenceRoutes from "./routes/viewPreferenceRoutes.js";
 
 import { Issuer, generators } from "openid-client";
 import { InitiateAuthCommand } from "@aws-sdk/client-cognito-identity-provider";
@@ -97,6 +98,7 @@ export async function createApp() {
     app.use('/api/profile', profileRoutes);
     app.use('/api/payments', paymentsRoutes);
     app.use('/api/coaching', coachingRoutes);
+    app.use('/api/view-preferences', viewPreferenceRoutes);
 
     app.use('/api/uploads', woaUploadsRouter);
 

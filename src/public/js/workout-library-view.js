@@ -116,6 +116,50 @@ export default class WorkoutLibraryView {
     this.render();
   }
 
+  applyState(state = {}) {
+    const allowedSorts = [
+      "newest",
+      "oldest",
+      "uploaded",
+      "distance",
+      "duration",
+      "calories",
+      "powerload",
+      "power",
+      "np"
+    ];
+    this.searchInputValue = String(state.search ?? "").slice(0, 300);
+    this.sortValue = allowedSorts.includes(state.sort) ? state.sort : "newest";
+    this.scopeValue = ["mine", "shared", "all"].includes(state.scope) ? state.scope : "mine";
+    this.favoriteFilterActive = state.favoritesOnly === true;
+    this.workoutTypeValue = ["indoor", "road", "mountain", "unknown"].includes(state.workoutType)
+      ? state.workoutType
+      : "all";
+    this.gpsFilterValue = ["valid", "invalid"].includes(state.gpsFilter)
+      ? state.gpsFilter
+      : "all";
+
+    if (this.searchInput) {
+      this.searchInput.value = this.searchInputValue;
+    }
+    if (this.sortSelect) {
+      this.sortSelect.value = this.sortValue;
+    }
+    if (this.workoutTypeFilter) {
+      this.workoutTypeFilter.value = this.workoutTypeValue;
+    }
+    if (this.gpsFilter) {
+      this.gpsFilter.value = this.gpsFilterValue;
+    }
+
+    this.syncSortUi();
+    this.syncWorkoutTypeUi();
+    this.syncGpsFilterUi();
+    this.updateScopeButtons();
+    this.updateFavoriteFilterButton();
+    this.renderActiveFilters();
+  }
+
   registerEvents() {
     let searchTimeout;
 
