@@ -429,10 +429,10 @@ export default class MapView {
       || String(entry.segment?.end_name ?? entry.segment?.endName ?? "").trim() !== ""
     );
     const name = hasExplicitName || hasGpsRouteName ? displayTitle : "";
-    const fullText = name ? `#${id} · ${name}` : `#${id}`;
+    const fullText = name ? `S${id} · ${name}` : `S${id}`;
     const estimatedFullWidth = Math.min(190, Math.max(40, fullText.length * 6.6 + 18));
     const showFullText = name && bestMeasurement.length >= Math.max(150, estimatedFullWidth + 24);
-    const text = showFullText ? fullText : `#${id}`;
+    const text = showFullText ? fullText : `S${id}`;
     const width = showFullText ? estimatedFullWidth : Math.max(38, String(id).length * 7 + 22);
 
     return {

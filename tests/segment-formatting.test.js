@@ -11,7 +11,7 @@ test("segment labels include the workout-local segment id", () => {
     duration: 95
   });
 
-  assert.match(label, /^Anstieg · #42\n/);
+  assert.match(label, /^Anstieg · S42\n/);
 });
 
 test("GPS segment labels and tooltips use sid instead of the effort row id", () => {
@@ -23,8 +23,8 @@ test("GPS segment labels and tooltips use sid instead of the effort row id", () 
     avg_power: 250
   };
 
-  assert.match(Utils.formatSegmentLabel(segment), /^GPS Segment · #91\n/);
-  assert.match(Utils.formatSegmentTooltip(segment), /GPS Segment · #91/);
+  assert.match(Utils.formatSegmentLabel(segment), /^GPS Segment · S91\n/);
+  assert.match(Utils.formatSegmentTooltip(segment), /GPS Segment · S91/);
   assert.doesNotMatch(Utils.formatSegmentTooltip(segment), /#9876/);
 });
 
@@ -39,7 +39,7 @@ test("GPS segment headings use persisted start and end names", () => {
 
   assert.equal(
     Utils.getSegmentDisplayHeading(segment),
-    "Bad Urach → Hohenwittlingen · #91"
+    "Bad Urach → Hohenwittlingen · S91"
   );
 });
 

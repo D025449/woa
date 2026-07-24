@@ -900,7 +900,7 @@ export default class Controller {
 
     const favoriteSegments = this.favoriteSegmentIds.slice(0, 4).map((id) => ({ id }));
     this.favoriteSegmentsElement.innerHTML = favoriteSegments
-      .map((segment) => `<button class="segments-quick-access__link" type="button" data-quick-segment-open="${segment.id}">#${segment.id}</button>`)
+      .map((segment) => `<button class="segments-quick-access__link" type="button" data-quick-segment-open="${segment.id}">S${segment.id}</button>`)
       .join("");
 
     this.quickAccessElement.hidden = favoriteSegments.length === 0;
@@ -1129,7 +1129,7 @@ export default class Controller {
     }
 
     const ownerLabel = segment.ownerDisplayName || segment.ownerEmail || null;
-    const title = `#${segment.id}: ${segment.start.name} - ${segment.end.name}`;
+    const title = `S${segment.id}: ${segment.start.name} - ${segment.end.name}`;
     const visibilityBadge = this.formatSegmentVisibilityBadge(segment);
     const meta = [
       ownerLabel ? `${this.t("table.ownerShort")}: ${ownerLabel}` : null,

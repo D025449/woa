@@ -1,4 +1,3 @@
-import Utils from "../../shared/Utils.js";
 import { WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION } from "../../shared/SegmentAppearance.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
 
@@ -1343,11 +1342,8 @@ export default class WorkoutLibraryView {
     const isShareSaving = this.savingShareWorkoutId === workoutId;
     const startedAt = workout.start_time ? new Date(workout.start_time) : null;
     const dayLabel = startedAt
-      ? startedAt.toLocaleDateString(this.locale, { weekday: "short", day: "2-digit", month: "short", year: "numeric" })
+      ? startedAt.toLocaleDateString(this.locale, { dateStyle: "short" })
       : this.t("na");
-    const timeLabel = startedAt
-      ? startedAt.toLocaleTimeString(this.locale, { hour: "2-digit", minute: "2-digit" })
-      : "";
     const shareMode = workout.sharing?.shareMode || (Number(workout.share_group_count) > 0 ? "groups" : "private");
     const shareTag = shareMode === "groups"
       ? this.t("shareTagGroups", { count: Number(workout.share_group_count) || 0 })
@@ -1413,7 +1409,6 @@ export default class WorkoutLibraryView {
             <div class="workout-library-card__context">
               ${isSelectable ? `<label class="workout-library-card__select"><input type="checkbox" data-workout-select="${workoutId}" ${isSelectedForBulk ? "checked" : ""}></label>` : ""}
               <span class="workout-library-card__context-chip">${dayLabel}</span>
-              ${timeLabel ? `<span class="workout-library-card__context-chip">${timeLabel}</span>` : ""}
               <span class="workout-library-card__context-chip">${hasValidGps ? this.t("gps") : this.t("noGps")}</span>
               <span class="workout-library-card__context-chip">${workoutTypeLabel}</span>
               ${isShared ? `
@@ -1447,12 +1442,12 @@ export default class WorkoutLibraryView {
           </div>
           <div class="workout-library-card__kpi-strip">
             <div class="workout-library-kpi">
-              <span class="workout-library-kpi__label">${this.t("duration")}</span>
-              <span class="workout-library-kpi__value">${Utils.formatDuration(workout.total_timer_time)}</span>
+              <span class="workout-library-kpi__label">${this.t("durationShort")}</span>
+              <span class="workout-library-kpi__value">${this.formatCardDuration(workout.total_timer_time)}</span>
             </div>
             <div class="workout-library-kpi">
-              <span class="workout-library-kpi__label">${this.t("distance")}</span>
-              <span class="workout-library-kpi__value">${this.formatDistance(workout.total_distance)}</span>
+              <span class="workout-library-kpi__label">${this.t("distanceShort")}</span>
+              <span class="workout-library-kpi__value">${this.formatCardDistance(workout.total_distance)}</span>
             </div>
           </div>
         </div>
@@ -1587,6 +1582,24 @@ export default class WorkoutLibraryView {
     const meters = Number(value);
     return Number.isFinite(meters)
       ? `${this.formatNumber(meters / 1000, fractionDigits)} km`
+      : this.t("na");
+  }
+
+  formatCardDuration(value) {
+    const totalMinutes = Math.floor(Number(value) / 60);
+    if (!Number.isFinite(totalMinutes) || totalMinutes < 0) {
+      return this.t("na");
+    }
+
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `${hours}:${String(minutes).padStart(2, "0")}`;
+  }
+
+  formatCardDistance(value) {
+    const meters = Number(value);
+    return Number.isFinite(meters)
+      ? this.formatNumber(Math.floor(meters / 1000), 0)
       : this.t("na");
   }
 
