@@ -41,6 +41,31 @@ test("rejects unsupported workout library preference values safely", () => {
   });
 });
 
+test("normalizes persisted segment visibility without accepting extra keys", () => {
+  const state = normalizeWorkoutLibraryState({
+    segmentVisibility: {
+      criticalPower: false,
+      auto: true,
+      manual: false,
+      gps: true,
+      injected: false
+    }
+  });
+
+  assert.deepEqual(state.segmentVisibility, {
+    criticalPower: false,
+    auto: true,
+    manual: false,
+    gps: true
+  });
+});
+
+test("keeps legacy preferences without segment visibility backward compatible", () => {
+  const state = normalizeWorkoutLibraryState({ sort: "duration" });
+
+  assert.equal("segmentVisibility" in state, false);
+});
+
 test("upserts one JSON preference row per user and view", async () => {
   const calls = [];
   const db = {

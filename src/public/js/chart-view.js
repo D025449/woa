@@ -1366,6 +1366,19 @@ export default class ChartView {
     });
   }
 
+  setSegmentVisibility(visibility = {}) {
+    this.segmentVisibility = {
+      ...DEFAULT_SEGMENT_VISIBILITY,
+      ...visibility
+    };
+    this.syncSegmentToggleState();
+
+    if (this.currentWorkout) {
+      this.baseMarkAreas = this.buildMarkAreasForMode(this.currentWorkout);
+      this.applyMarkAreas();
+    }
+  }
+
   syncSmoothingState() {
     this.smoothingButtons.forEach((button, key) => {
       const isActive = key === this.smoothingLevel;

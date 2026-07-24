@@ -216,6 +216,7 @@ export default class Controller {
         this.chartViewState = state;
         this.uiState.set("chartViewState", state);
         this.mapView.setSegmentVisibility(state.segmentVisibility);
+        this.scheduleWorkoutLibraryPreferenceSave(this.libraryState);
       }
     });
 
@@ -367,6 +368,19 @@ export default class Controller {
       };
       this.uiState.set("workoutLibraryState", this.libraryState);
       this.libraryView.applyState(this.libraryState);
+
+      if (storedState.segmentVisibility) {
+        this.chartViewState = {
+          ...this.chartViewState,
+          segmentVisibility: {
+            ...this.chartViewState.segmentVisibility,
+            ...storedState.segmentVisibility
+          }
+        };
+        this.uiState.set("chartViewState", this.chartViewState);
+        this.chartView.setSegmentVisibility(this.chartViewState.segmentVisibility);
+        this.mapView.setSegmentVisibility(this.chartViewState.segmentVisibility);
+      }
     } catch (err) {
       this.viewPreferencesAvailable = false;
       console.warn("Workout library preferences remain local for this session:", err);
@@ -378,7 +392,12 @@ export default class Controller {
       return;
     }
 
-    this.pendingWorkoutLibraryPreferenceState = { ...state };
+    this.pendingWorkoutLibraryPreferenceState = {
+      ...state,
+      segmentVisibility: {
+        ...this.chartViewState.segmentVisibility
+      }
+    };
     clearTimeout(this.viewPreferenceSaveTimer);
     this.viewPreferenceSaveTimer = setTimeout(() => {
       this.persistWorkoutLibraryPreferences();

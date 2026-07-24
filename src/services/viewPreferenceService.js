@@ -15,6 +15,12 @@ const WORKOUT_LIBRARY_SORTS = new Set([
 const WORKOUT_LIBRARY_SCOPES = new Set(["mine", "shared", "all"]);
 const WORKOUT_TYPES = new Set(["all", "indoor", "road", "mountain", "unknown"]);
 const GPS_FILTERS = new Set(["all", "valid", "invalid"]);
+const SEGMENT_VISIBILITY_KEYS = [
+  "criticalPower",
+  "auto",
+  "manual",
+  "gps"
+];
 
 function normalizeEnum(value, allowed, fallback) {
   const normalized = String(value ?? "").trim();
@@ -26,7 +32,7 @@ export function normalizeWorkoutLibraryState(state = {}) {
     ? state
     : {};
 
-  return {
+  const normalized = {
     search: String(source.search ?? "").slice(0, 300),
     sort: normalizeEnum(source.sort, WORKOUT_LIBRARY_SORTS, "newest"),
     scope: normalizeEnum(source.scope, WORKOUT_LIBRARY_SCOPES, "mine"),
@@ -34,6 +40,21 @@ export function normalizeWorkoutLibraryState(state = {}) {
     workoutType: normalizeEnum(source.workoutType, WORKOUT_TYPES, "all"),
     gpsFilter: normalizeEnum(source.gpsFilter, GPS_FILTERS, "all")
   };
+
+  if (
+    source.segmentVisibility
+    && typeof source.segmentVisibility === "object"
+    && !Array.isArray(source.segmentVisibility)
+  ) {
+    normalized.segmentVisibility = Object.fromEntries(
+      SEGMENT_VISIBILITY_KEYS.map((key) => [
+        key,
+        source.segmentVisibility[key] !== false
+      ])
+    );
+  }
+
+  return normalized;
 }
 
 function normalizeViewState(viewKey, state) {
