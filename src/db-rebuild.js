@@ -56,7 +56,7 @@ async function rebuildDatabase() {
     await resetAppSchema();
 
     console.log("Running migrations...");
-    await runMigrations();
+    await runMigrations({ allowExistingSchema: true });
 
     console.log("Database rebuild complete.");
   } catch (err) {

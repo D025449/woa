@@ -54,9 +54,33 @@ async function getPool() {
   return poolInstance;
 }
 
-async function runMigrations() {
+async function assertLegacyMigrationTargetIsEmpty(pool, { allowExistingSchema = false } = {}) {
+  if (allowExistingSchema) {
+    return;
+  }
 
-  // __dirname Ersatz in ESM
+  const result = await pool.query(`
+    SELECT
+      TO_REGCLASS('public.users') AS users,
+      TO_REGCLASS('public.workouts') AS workouts
+  `);
+  const existingRelations = Object.entries(result.rows[0] || {})
+    .filter(([, relation]) => relation !== null)
+    .map(([name]) => name);
+
+  if (existingRelations.length > 0) {
+    throw new Error(
+      "Refusing to replay the legacy migration set against an existing app schema "
+      + `(${existingRelations.join(", ")} already present). The early migrations contain `
+      + "destructive DROP TABLE statements. Use `npm run db:rebuild -- --confirm <DB_NAME>` "
+      + "only for an intentional full rebuild, or execute the required additive migration file directly."
+    );
+  }
+}
+
+async function runMigrations({ allowExistingSchema = false } = {}) {
+  let pool = null;
+
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
 
@@ -64,7 +88,9 @@ async function runMigrations() {
   assertRequiredDbEnv();
 
   try {
-    const pool = await getPool();
+    pool = await getPool();
+    await assertLegacyMigrationTargetIsEmpty(pool, { allowExistingSchema });
+
     const forcedOrder = new Map([
       // import_jobs depends on users.uid FK, so it must run after users
       // and before later import_jobs ALTER migrations.
@@ -97,11 +123,12 @@ async function runMigrations() {
     console.log("Migrations complete.");
   } catch (err) {
     console.error("Migration failed:", err);
-    process.exit(1);
+    throw err;
   } finally {
-    const pool = await getPool();
-    await pool.end();
-    poolInstance = null;
+    if (pool) {
+      await pool.end();
+      poolInstance = null;
+    }
   }
 }
 
@@ -109,4 +136,9 @@ export async function createApp() {
   await runMigrations();
 }
 
-export { runMigrations, loadEnvForMigrations, assertRequiredDbEnv };
+export {
+  runMigrations,
+  loadEnvForMigrations,
+  assertRequiredDbEnv,
+  assertLegacyMigrationTargetIsEmpty
+};
