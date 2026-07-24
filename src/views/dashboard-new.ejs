@@ -47,19 +47,44 @@
                             </div>
                         </div>
                     </div>
-                    <div class="ui-hero__art" aria-hidden="true">
-                        <svg viewBox="0 0 64 64" fill="none">
-                            <defs>
-                                <linearGradient id="dashboardHeroWorkoutsGradient" x1="8" y1="50" x2="56" y2="14" gradientUnits="userSpaceOnUse">
-                                    <stop stop-color="#176fbe" />
-                                    <stop offset="1" stop-color="#75b9f5" />
-                                </linearGradient>
-                            </defs>
-                            <path d="M10 46C16 37 21 30 28 31C34 32 35 42 42 42C48 42 51 32 54 18" stroke="url(#dashboardHeroWorkoutsGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
-                            <path d="M10 51H54" stroke="rgba(148,163,184,0.38)" stroke-width="3" stroke-linecap="round" />
-                            <circle cx="28" cy="31" r="4" fill="#75b9f5" />
-                            <circle cx="42" cy="42" r="4" fill="#176fbe" />
-                        </svg>
+                    <div class="dashboard-hero-meta">
+                        <div class="workout-library-scope-toggle" role="group" aria-label="<%= t('dashboardNewPage.filterAria') %>">
+                            <button
+                                id="workout-library-scope-mine"
+                                class="btn btn-sm btn-outline-secondary active"
+                                type="button"
+                                data-workout-scope="mine">
+                                <%= t("dashboardNewPage.filterMine") %>
+                            </button>
+                            <button
+                                id="workout-library-scope-shared"
+                                class="btn btn-sm btn-outline-secondary"
+                                type="button"
+                                data-workout-scope="shared">
+                                <%= t("dashboardNewPage.filterShared") %>
+                            </button>
+                            <button
+                                id="workout-library-scope-all"
+                                class="btn btn-sm btn-outline-secondary"
+                                type="button"
+                                data-workout-scope="all">
+                                <%= t("dashboardNewPage.filterAll") %>
+                            </button>
+                        </div>
+                        <div class="ui-hero__art" aria-hidden="true">
+                            <svg viewBox="0 0 64 64" fill="none">
+                                <defs>
+                                    <linearGradient id="dashboardHeroWorkoutsGradient" x1="8" y1="50" x2="56" y2="14" gradientUnits="userSpaceOnUse">
+                                        <stop stop-color="#176fbe" />
+                                        <stop offset="1" stop-color="#75b9f5" />
+                                    </linearGradient>
+                                </defs>
+                                <path d="M10 46C16 37 21 30 28 31C34 32 35 42 42 42C48 42 51 32 54 18" stroke="url(#dashboardHeroWorkoutsGradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+                                <path d="M10 51H54" stroke="rgba(148,163,184,0.38)" stroke-width="3" stroke-linecap="round" />
+                                <circle cx="28" cy="31" r="4" fill="#75b9f5" />
+                                <circle cx="42" cy="42" r="4" fill="#176fbe" />
+                            </svg>
+                        </div>
                     </div>
                 </section>
 
@@ -162,39 +187,91 @@
                                                 <path d="M10 2.9l2.15 4.36 4.81.7-3.48 3.39.82 4.79L10 14.02 5.7 16.14l.82-4.79L3.04 7.96l4.81-.7L10 2.9z" fill="currentColor"></path>
                                             </svg>
                                         </button>
-                                        <div class="workout-library-scope-toggle" role="group" aria-label="<%= t('dashboardNewPage.filterAria') %>">
+                                        <div class="workout-library-type">
                                             <button
-                                                id="workout-library-scope-mine"
-                                                class="btn btn-sm btn-outline-secondary active"
+                                                id="workout-library-type-trigger"
+                                                class="workout-library-sort__trigger workout-library-type__trigger"
                                                 type="button"
-                                                data-workout-scope="mine">
-                                                <%= t("dashboardNewPage.filterMine") %>
+                                                aria-haspopup="menu"
+                                                aria-expanded="false"
+                                                aria-label="<%= t('dashboardNewPage.workoutTypeFilterLabel') %>"
+                                                title="<%= t('dashboardNewPage.workoutTypeFilterLabel') %>">
+                                                <span id="workout-library-type-trigger-label" class="visually-hidden"><%= t("dashboardNewPage.workoutTypeAll") %></span>
+                                                <svg class="workout-library-type__icon" viewBox="0 0 20 20" aria-hidden="true">
+                                                    <circle cx="4.5" cy="14.25" r="2.75" fill="none" stroke="currentColor" stroke-width="1.45"></circle>
+                                                    <circle cx="15.5" cy="14.25" r="2.75" fill="none" stroke="currentColor" stroke-width="1.45"></circle>
+                                                    <path d="M4.5 14.25L8.2 8.2h3.25l4.05 6.05M8.2 8.2l3.1 6.05H4.5M10.15 6.2h2.45" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"></path>
+                                                </svg>
+                                                <svg class="workout-library-sort__chevron" viewBox="0 0 20 20" aria-hidden="true">
+                                                    <path d="M5.5 7.5L10 12l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                                                </svg>
                                             </button>
-                                            <button
-                                                id="workout-library-scope-shared"
-                                                class="btn btn-sm btn-outline-secondary"
-                                                type="button"
-                                                data-workout-scope="shared">
-                                                <%= t("dashboardNewPage.filterShared") %>
-                                            </button>
-                                            <button
-                                                id="workout-library-scope-all"
-                                                class="btn btn-sm btn-outline-secondary"
-                                                type="button"
-                                                data-workout-scope="all">
-                                                <%= t("dashboardNewPage.filterAll") %>
-                                            </button>
+                                            <div id="workout-library-type-menu" class="workout-library-sort__menu workout-library-type__menu" hidden>
+                                                <button class="workout-library-sort__option" type="button" data-workout-type-option="all">
+                                                    <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.workoutTypeAll") %></span>
+                                                </button>
+                                                <button class="workout-library-sort__option" type="button" data-workout-type-option="indoor">
+                                                    <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.workoutTypeIndoor") %></span>
+                                                </button>
+                                                <button class="workout-library-sort__option" type="button" data-workout-type-option="road">
+                                                    <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.workoutTypeRoad") %></span>
+                                                </button>
+                                                <button class="workout-library-sort__option" type="button" data-workout-type-option="mountain">
+                                                    <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.workoutTypeMountain") %></span>
+                                                </button>
+                                                <button class="workout-library-sort__option" type="button" data-workout-type-option="unknown">
+                                                    <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.workoutTypeUnknown") %></span>
+                                                </button>
+                                            </div>
+                                            <select
+                                                id="workout-library-type-filter"
+                                                class="form-select workout-library-type__native"
+                                                aria-label="<%= t('dashboardNewPage.workoutTypeFilterLabel') %>">
+                                                <option value="all"><%= t("dashboardNewPage.workoutTypeAll") %></option>
+                                                <option value="indoor"><%= t("dashboardNewPage.workoutTypeIndoor") %></option>
+                                                <option value="road"><%= t("dashboardNewPage.workoutTypeRoad") %></option>
+                                                <option value="mountain"><%= t("dashboardNewPage.workoutTypeMountain") %></option>
+                                                <option value="unknown"><%= t("dashboardNewPage.workoutTypeUnknown") %></option>
+                                            </select>
                                         </div>
-                                        <select
-                                            id="workout-library-type-filter"
-                                            class="form-select workout-library-select workout-library-type-filter"
-                                            aria-label="<%= t('dashboardNewPage.workoutTypeFilterLabel') %>">
-                                            <option value="all"><%= t("dashboardNewPage.workoutTypeAll") %></option>
-                                            <option value="indoor"><%= t("dashboardNewPage.workoutTypeIndoor") %></option>
-                                            <option value="road"><%= t("dashboardNewPage.workoutTypeRoad") %></option>
-                                            <option value="mountain"><%= t("dashboardNewPage.workoutTypeMountain") %></option>
-                                            <option value="unknown"><%= t("dashboardNewPage.workoutTypeUnknown") %></option>
-                                        </select>
+                                        <div class="workout-library-gps-filter">
+                                            <button
+                                                id="workout-library-gps-trigger"
+                                                class="workout-library-sort__trigger workout-library-gps-filter__trigger"
+                                                type="button"
+                                                aria-haspopup="menu"
+                                                aria-expanded="false"
+                                                aria-label="<%= t('dashboardNewPage.gpsFilterLabel') %>"
+                                                title="<%= t('dashboardNewPage.gpsFilterLabel') %>">
+                                                <span id="workout-library-gps-trigger-label" class="visually-hidden"><%= t("dashboardNewPage.gpsFilterAll") %></span>
+                                                <svg class="workout-library-gps-filter__icon" viewBox="0 0 20 20" aria-hidden="true">
+                                                    <path d="M10 17.1s5-4.55 5-9.05A5 5 0 0 0 5 8.05c0 4.5 5 9.05 5 9.05z" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linejoin="round"></path>
+                                                    <circle cx="10" cy="8.05" r="1.75" fill="none" stroke="currentColor" stroke-width="1.45"></circle>
+                                                </svg>
+                                                <svg class="workout-library-sort__chevron" viewBox="0 0 20 20" aria-hidden="true">
+                                                    <path d="M5.5 7.5L10 12l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                                                </svg>
+                                            </button>
+                                            <div id="workout-library-gps-menu" class="workout-library-sort__menu workout-library-gps-filter__menu" hidden>
+                                                <button class="workout-library-sort__option" type="button" data-gps-filter-option="all">
+                                                    <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.gpsFilterAll") %></span>
+                                                </button>
+                                                <button class="workout-library-sort__option" type="button" data-gps-filter-option="valid">
+                                                    <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.gpsFilterValid") %></span>
+                                                </button>
+                                                <button class="workout-library-sort__option" type="button" data-gps-filter-option="invalid">
+                                                    <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.gpsFilterInvalid") %></span>
+                                                </button>
+                                            </div>
+                                            <select
+                                                id="workout-library-gps-filter"
+                                                class="form-select workout-library-gps-filter__native"
+                                                aria-label="<%= t('dashboardNewPage.gpsFilterLabel') %>">
+                                                <option value="all"><%= t("dashboardNewPage.gpsFilterAll") %></option>
+                                                <option value="valid"><%= t("dashboardNewPage.gpsFilterValid") %></option>
+                                                <option value="invalid"><%= t("dashboardNewPage.gpsFilterInvalid") %></option>
+                                            </select>
+                                        </div>
                                         <div class="workout-library-search-wrap">
                                             <input
                                                 id="workout-library-search"
@@ -234,9 +311,19 @@
                                         </div>
                                         <div id="workout-library-active-filters" class="workout-library-active-filters" hidden></div>
                                         <div class="workout-library-sort">
-                                            <button id="workout-library-sort-trigger" class="workout-library-sort__trigger" type="button" aria-haspopup="menu" aria-expanded="false">
-                                                <span id="workout-library-sort-trigger-label"><%= t("dashboardNewPage.sortNewest") %></span>
-                                                <svg viewBox="0 0 20 20" aria-hidden="true">
+                                            <button
+                                                id="workout-library-sort-trigger"
+                                                class="workout-library-sort__trigger"
+                                                type="button"
+                                                aria-haspopup="menu"
+                                                aria-expanded="false"
+                                                aria-label="<%= t('dashboardNewPage.sortNewest') %>"
+                                                title="<%= t('dashboardNewPage.sortNewest') %>">
+                                                <span id="workout-library-sort-trigger-label" class="visually-hidden"><%= t("dashboardNewPage.sortNewest") %></span>
+                                                <svg class="workout-library-sort__icon" viewBox="0 0 20 20" aria-hidden="true">
+                                                    <path d="M3.5 5h8M3.5 9h6M3.5 13h4M14.5 4v11M11.7 12.2l2.8 2.8 2.8-2.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+                                                </svg>
+                                                <svg class="workout-library-sort__chevron" viewBox="0 0 20 20" aria-hidden="true">
                                                     <path d="M5.5 7.5L10 12l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
                                                 </svg>
                                             </button>
@@ -256,6 +343,12 @@
                                                 <button class="workout-library-sort__option" type="button" data-sort-option="duration">
                                                     <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortDuration") %></span>
                                                 </button>
+                                                <button class="workout-library-sort__option" type="button" data-sort-option="calories">
+                                                    <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortCalories") %></span>
+                                                </button>
+                                                <button class="workout-library-sort__option" type="button" data-sort-option="powerload">
+                                                    <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortPowerload") %></span>
+                                                </button>
                                                 <button class="workout-library-sort__option" type="button" data-sort-option="power">
                                                     <span class="workout-library-sort__option-title"><%= t("dashboardNewPage.sortPower") %></span>
                                                 </button>
@@ -269,6 +362,8 @@
                                                 <option value="oldest"><%= t("dashboardNewPage.sortOldest") %></option>
                                                 <option value="distance"><%= t("dashboardNewPage.sortDistance") %></option>
                                                 <option value="duration"><%= t("dashboardNewPage.sortDuration") %></option>
+                                                <option value="calories"><%= t("dashboardNewPage.sortCalories") %></option>
+                                                <option value="powerload"><%= t("dashboardNewPage.sortPowerload") %></option>
                                                 <option value="power"><%= t("dashboardNewPage.sortPower") %></option>
                                                 <option value="np"><%= t("dashboardNewPage.sortNp") %></option>
                                             </select>

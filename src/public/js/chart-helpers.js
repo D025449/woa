@@ -1,5 +1,6 @@
 
 import Utils from '../../shared/Utils.js'
+import { getSegmentColor } from "./segment-visibility.js";
 
 function sortAreasBySpanDescending(areas) {
   return areas.sort((left, right) => {
@@ -10,20 +11,8 @@ function sortAreasBySpanDescending(areas) {
 }
 
 function getSegmentStyle(segment) {
-  if (segment.segmenttype === 'manual') {
-    return {
-      color: 'rgba(255, 0, 0, 0.3)' // 🔴 rot
-    };
-  }
-
-  if (segment.segmenttype === 'auto') {
-    return {
-      color: 'rgba(0, 123, 255, 0.3)' // 🔵 blau
-    };
-  }
-
   return {
-    color: 'rgba( 17, 230, 42, 0.2)' // fallback
+    color: getSegmentColor(segment, "area")
   };
 }
 

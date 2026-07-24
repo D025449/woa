@@ -1,8 +1,37 @@
 export default class Utils {
 
     static getSegmentDisplayTitle(seg) {
-        return seg.segmentname?.trim()
-            || (seg.isGPSSegment ? "GPS Segment" : `${seg.segmenttype ?? "Segment"} Segment`);
+        const explicitName = seg.segmentname?.trim();
+        if (explicitName) {
+            return explicitName;
+        }
+
+        if (seg.isGPSSegment) {
+            const startName = String(seg.start_name ?? seg.startName ?? "").trim();
+            const endName = String(seg.end_name ?? seg.endName ?? "").trim();
+            if (startName && endName) {
+                return `${startName} → ${endName}`;
+            }
+            return startName || endName || "GPS Segment";
+        }
+
+        return `${seg.segmenttype ?? "Segment"} Segment`;
+    }
+
+    static getSegmentDisplayId(seg) {
+        const value = seg?.isGPSSegment
+            ? (seg.sid ?? seg.segment_id ?? seg.id)
+            : seg?.id;
+
+        return value == null || String(value).trim() === ""
+            ? null
+            : String(value).trim();
+    }
+
+    static getSegmentDisplayHeading(seg) {
+        const title = Utils.getSegmentDisplayTitle(seg);
+        const id = Utils.getSegmentDisplayId(seg);
+        return id == null ? title : `${title} · #${id}`;
     }
 
     static formatDuration(seconds) {
@@ -55,7 +84,7 @@ export default class Utils {
     }
 
     static formatSegmentLabel(seg) {
-        const title = Utils.getSegmentDisplayTitle(seg);
+        const title = Utils.getSegmentDisplayHeading(seg);
 
         if (!seg.duration) {
             return title;
@@ -65,7 +94,7 @@ export default class Utils {
     }
 
     static formatSegmentTooltip(seg) {
-        const title = Utils.getSegmentDisplayTitle(seg);
+        const title = Utils.getSegmentDisplayHeading(seg);
         const secondaryValue = Number.isFinite(seg.avg_power)
             ? `${Math.round(seg.avg_power)} W`
             : Number.isFinite(seg.avg_speed)

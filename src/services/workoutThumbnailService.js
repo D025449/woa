@@ -6,6 +6,11 @@ import {
   matchCompactGpsSegmentBestEfforts,
   prepareCompactGpsSegmentDefinitions
 } from "../shared/CompactGpsSegmentMatcher.js";
+import {
+  WORKOUT_ROUTE_COLOR,
+  WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION,
+  getSegmentColor
+} from "../shared/SegmentAppearance.js";
 
 const SVG_WIDTH = 256;
 const SVG_HEIGHT = 160;
@@ -226,9 +231,18 @@ function downsampleSeries(values = [], maxPoints = THUMB_MAX_SERIES_POINTS) {
   });
 }
 
-function buildSvgShell({ title, bodyMarkup, accent = "#2563eb", showAccentBar = true }) {
+function buildSvgShell({
+  title,
+  bodyMarkup,
+  accent = "#2563eb",
+  showAccentBar = true,
+  styleVersion = null
+}) {
+  const styleVersionAttribute = styleVersion == null
+    ? ""
+    : ` data-thumbnail-style="${escapeXml(styleVersion)}"`;
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_WIDTH}" height="${SVG_HEIGHT}" viewBox="0 0 ${SVG_WIDTH} ${SVG_HEIGHT}" role="img" aria-label="${escapeXml(title)}">
+<svg xmlns="http://www.w3.org/2000/svg" width="${SVG_WIDTH}" height="${SVG_HEIGHT}" viewBox="0 0 ${SVG_WIDTH} ${SVG_HEIGHT}" role="img" aria-label="${escapeXml(title)}"${styleVersionAttribute}>
   <defs>
     <linearGradient id="thumb-bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#f8fafc"/>
@@ -318,7 +332,7 @@ function buildRouteThumbnail(gpsTrackSegments = null, gpsTrack = null, segmentOv
       SVG_HEIGHT,
       SVG_PADDING,
       bounds
-    )}" fill="none" stroke="#dc2626" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`)
+    )}" fill="none" stroke="${WORKOUT_ROUTE_COLOR}" stroke-width="4" stroke-opacity="0.9" stroke-linecap="round" stroke-linejoin="round"/>`)
     .join("");
   const projectedOverlays = (Array.isArray(segmentOverlays) ? segmentOverlays : [])
     .flatMap((overlay) => (Array.isArray(overlay?.segments) ? overlay.segments : [])
@@ -338,16 +352,15 @@ function buildRouteThumbnail(gpsTrackSegments = null, gpsTrack = null, segmentOv
       points: simplifyPointsForSvg(overlay.points, bounds)
     }));
   const overlayMarkup = projectedOverlays
-    .map((overlay) => {
-      const isAuto = overlay.segmenttype === "auto";
-      return `<path data-segment-type="${escapeXml(overlay.segmenttype || "manual")}" d="${createPathFromPoints(
+    .map((overlay) => (
+      `<path data-segment-type="${escapeXml(overlay.segmenttype || "manual")}" d="${createPathFromPoints(
         overlay.points,
         SVG_WIDTH,
         SVG_HEIGHT,
         SVG_PADDING,
         bounds
-      )}" fill="none" stroke="${isAuto ? "#0000ff" : "#800080"}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>`;
-    })
+      )}" fill="none" stroke="${getSegmentColor(overlay)}" stroke-width="4" stroke-opacity="0.9" stroke-linecap="round" stroke-linejoin="round"/>`
+    ))
     .join("");
   const bodyMarkup = `
     <rect x="12" y="12" width="${SVG_WIDTH - 24}" height="${SVG_HEIGHT - 24}" rx="16" fill="#dcfce7"/>
@@ -384,7 +397,8 @@ function buildRouteThumbnail(gpsTrackSegments = null, gpsTrack = null, segmentOv
       title: "Workout route thumbnail",
       bodyMarkup,
       accent: "#16a34a",
-      showAccentBar: false
+      showAccentBar: false,
+      styleVersion: WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION
     })
   };
 }
@@ -733,6 +747,16 @@ export default class WorkoutThumbnailService {
     );
 
     return result.rows[0] || null;
+  }
+
+  static isCurrentRouteThumbnail(thumbnail) {
+    if (thumbnail?.kind !== "route") {
+      return true;
+    }
+
+    return String(thumbnail.content || "").includes(
+      `data-thumbnail-style="${WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION}"`
+    );
   }
 
   static parseGeoJsonTrack(trackGeoJson = null) {

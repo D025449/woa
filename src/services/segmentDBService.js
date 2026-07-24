@@ -517,6 +517,8 @@ export default class SegmentDBService {
       SELECT
         id,
         distance,
+        start_name,
+        end_name,
         track_blob,
         track_blob_codec,
         gps_bounds::text AS gps_bounds_text
@@ -527,6 +529,8 @@ export default class SegmentDBService {
     return new Map(rows.map((row) => [Number(row.id), {
       id: Number(row.id),
       distance: Number(row.distance) || 0,
+      start_name: row.start_name || null,
+      end_name: row.end_name || null,
       geom: row.geom,
       track: row.geom.coordinates.map(([lng, lat]) => ({ lat, lng })),
       bounds: {
@@ -902,21 +906,25 @@ export default class SegmentDBService {
 
   static async getPersistedGpsSegmentsByWorkout(wid) {
     const dataQuery = `
-    SELECT 
-      id, 
-      sid,
-      wid,
-      uid,
-      start_time, 
-      duration, 
-      start_offset, 
-      end_offset, 
-      avg_power, 
-      avg_heart_rate, 
-      avg_cadence, 
-      avg_speed
-    FROM v_gps_segment_best_efforts
-    WHERE wid = $1
+    SELECT
+      effort.id,
+      effort.sid,
+      effort.wid,
+      effort.uid,
+      effort.start_time,
+      effort.duration,
+      effort.start_offset,
+      effort.end_offset,
+      effort.avg_power,
+      effort.avg_heart_rate,
+      effort.avg_cadence,
+      effort.avg_speed,
+      segment.start_name,
+      segment.end_name
+    FROM v_gps_segment_best_efforts effort
+    INNER JOIN gps_segments segment
+      ON segment.id = effort.sid
+    WHERE effort.wid = $1
 
   `;
 
@@ -1054,7 +1062,9 @@ export default class SegmentDBService {
         avg_power: Math.round(averages?.power ?? 0),
         avg_heart_rate: Math.round(averages?.hr ?? 0),
         avg_cadence: Math.round(averages?.cadence ?? 0),
-        avg_speed: this.calculateNormalizedSegmentSpeed(segmentDefinition?.distance, duration)
+        avg_speed: this.calculateNormalizedSegmentSpeed(segmentDefinition?.distance, duration),
+        start_name: segmentDefinition?.start_name || null,
+        end_name: segmentDefinition?.end_name || null
       };
     });
     profile.calculateAveragesMs = performance.now() - averagesStartedAt;

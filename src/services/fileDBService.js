@@ -128,7 +128,10 @@ class FileDBService {
     "avg_speed",
     "avg_normalized_power",
     "total_timer_time",
-    "workout_type"
+    "total_calories",
+    "total_work",
+    "workout_type",
+    "validgps"
   ];
 
   static numericFields = [
@@ -141,7 +144,9 @@ class FileDBService {
     "avg_cadence",
     "avg_speed",
     "avg_normalized_power",
-    "total_timer_time"
+    "total_timer_time",
+    "total_calories",
+    "total_work"
   ];
 
 
@@ -388,7 +393,8 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
 
       const dir = s.dir === "desc" ? "DESC" : "ASC";
 
-      orderParts.push(`${s.field} ${dir}`);
+      const nulls = ["total_calories", "total_work"].includes(s.field) ? " NULLS LAST" : "";
+      orderParts.push(`${s.field} ${dir}${nulls}`);
 
     });
 

@@ -652,6 +652,10 @@ router.get("/:id/thumbnail", authMiddleware, async (req, res) => {
     let thumbnail = await WorkoutThumbnailService.getThumbnail(workoutId);
     thumbnailLookupMs = performance.now() - stepStartedAt;
 
+    if (!WorkoutThumbnailService.isCurrentRouteThumbnail(thumbnail)) {
+      thumbnail = null;
+    }
+
     if (!thumbnail?.content && FEATURE_THUMBNAILS_ON_DEMAND) {
       stepStartedAt = performance.now();
       thumbnail = await WorkoutThumbnailService.generateThumbnailForWorkout(workoutId, {

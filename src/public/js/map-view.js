@@ -1,3 +1,12 @@
+import {
+  DEFAULT_SEGMENT_VISIBILITY,
+  WORKOUT_ROUTE_COLOR,
+  getSegmentColor,
+  getSegmentVisibilityKey,
+  isSegmentVisible
+} from "./segment-visibility.js";
+import Utils from "../../shared/Utils.js";
+
 export default class MapView {
   static DEFAULT_CENTER = [51.1657, 10.4515];
   static DEFAULT_ZOOM = 6;
@@ -13,7 +22,13 @@ export default class MapView {
 
     this.map = L.map(containerId);
     this.trackLayer = L.layerGroup().addTo(this.map);
+    this.segmentLayer = L.layerGroup().addTo(this.map);
+    this.segmentLabelLayer = L.layerGroup().addTo(this.map);
     this.hoverLayer = L.layerGroup().addTo(this.map);
+    this.segmentVisibility = {
+      ...DEFAULT_SEGMENT_VISIBILITY,
+      ...(handlers.initialSegmentVisibility || {})
+    };
 
     this.map.createPane('trackPane');
     this.map.createPane('segmentPane');
@@ -26,6 +41,9 @@ export default class MapView {
     this.currentTrackSegments = [];
     this.currentTrackSampleRate = 1;
     this.currentWorkout = null;
+    this.segmentOverlayEntries = [];
+    this.selectedSegmentOverlay = null;
+    this.selectedSegmentTooltip = null;
     this.manualGpsMode = false;
     this.manualGpsPoints = [];
     this.manualGpsLayer = L.layerGroup().addTo(this.map);
@@ -42,6 +60,7 @@ export default class MapView {
     this.registerManualGpsControls();
     this.map.on("click", (event) => this.handleMapClick(event));
     this.map.on("moveend", () => {
+      this.updateSegmentLabels();
       const center = this.map.getCenter();
       this.onViewChange?.({
         lat: center.lat,
@@ -121,7 +140,10 @@ export default class MapView {
   renderTrack(workout) {
     this.currentWorkout = workout || null;
     this.trackLayer.clearLayers();
+    this.segmentLayer.clearLayers();
+    this.segmentLabelLayer.clearLayers();
     this.hoverLayer.clearLayers();
+    this.resetSegmentOverlayState();
     this.hoverMarker = null;
     this.currentTrackPoints = [];
     this.currentTrackSegments = [];
@@ -143,27 +165,13 @@ export default class MapView {
 
       const renderedPolylines = this.currentTrackSegments
         .map((segment) => L.polyline(segment.map((p) => [p.lat, p.lng]), {
-          color: "#ff4d4f",
+          color: WORKOUT_ROUTE_COLOR,
           pane: 'trackPane',
           weight: 4,
           opacity: 0.9
         }).addTo(this.trackLayer));
 
-      const markAreas = this.buildMarkAreas(workout);
-
-      for (let i = 0; i < markAreas.length; i++) {
-        const markArea = markAreas[i];
-        const markAreaSegments = this.splitTrackIntoSegments(markArea.currentTrackPoints);
-
-        for (const segment of markAreaSegments) {
-          L.polyline(segment.map((p) => [p.lat, p.lng]), {
-            color: markArea.segmenttype === 'auto' ? "Blue" : "Purple",
-            pane: 'segmentPane',
-            weight: 4,
-            opacity: 0.9
-          }).addTo(this.trackLayer);
-        }
-      }
+      this.renderSegmentOverlays(workout);
 
       if (renderedPolylines.length > 0) {
         const bounds = renderedPolylines[0].getBounds();
@@ -181,6 +189,312 @@ export default class MapView {
     this.syncManualGpsUi();
   }
 
+  setSegmentVisibility(visibility = {}) {
+    this.segmentVisibility = {
+      ...DEFAULT_SEGMENT_VISIBILITY,
+      ...visibility
+    };
+    this.renderSegmentOverlays(this.currentWorkout);
+  }
+
+  renderSegmentOverlays(workout = this.currentWorkout) {
+    this.segmentLayer.clearLayers();
+    this.segmentLabelLayer.clearLayers();
+    this.resetSegmentOverlayState();
+
+    if (!workout?.validGps || this.currentTrackPoints.length === 0) {
+      return;
+    }
+
+    const markAreas = this.buildMarkAreas(workout);
+    for (const markArea of markAreas) {
+      const markAreaSegments = this.splitTrackIntoSegments(markArea.currentTrackPoints);
+      const entry = {
+        key: this.getSegmentOverlayKey(markArea.segment),
+        segment: markArea.segment,
+        color: markArea.color,
+        coordinateSegments: markAreaSegments,
+        polylines: []
+      };
+
+      for (const segment of markAreaSegments) {
+        const coordinates = segment.map((point) => [point.lat, point.lng]);
+        const polyline = L.polyline(coordinates, {
+          color: markArea.color,
+          pane: "segmentPane",
+          weight: 4,
+          opacity: 0.9,
+          interactive: false
+        }).addTo(this.segmentLayer);
+
+        const hitLine = L.polyline(coordinates, {
+          color: markArea.color,
+          pane: "segmentPane",
+          weight: 16,
+          opacity: 0.001,
+          bubblingMouseEvents: false
+        }).addTo(this.segmentLayer);
+
+        hitLine.bindTooltip(this.buildSegmentTooltipContent(markArea.segment), {
+          className: "workout-map-segment-tooltip",
+          direction: "top",
+          offset: [0, -8],
+          opacity: 1,
+          sticky: true
+        });
+        hitLine.on("click", (event) => {
+          if (event.originalEvent) {
+            L.DomEvent.stopPropagation(event.originalEvent);
+          }
+          this.selectSegmentOverlay(entry, event.latlng);
+        });
+
+        entry.polylines.push(polyline);
+      }
+
+      if (entry.polylines.length > 0) {
+        this.segmentOverlayEntries.push(entry);
+      }
+    }
+
+    this.updateSegmentLabels();
+  }
+
+  resetSegmentOverlayState() {
+    this.segmentOverlayEntries = [];
+    this.selectedSegmentOverlay = null;
+    this.selectedSegmentTooltip = null;
+  }
+
+  getSegmentOverlayKey(segment) {
+    const id = Utils.getSegmentDisplayId(segment);
+    if (id != null) {
+      return `${getSegmentVisibilityKey(segment)}:${id}`;
+    }
+    return `${getSegmentVisibilityKey(segment)}:${segment?.start_offset ?? ""}:${segment?.end_offset ?? ""}`;
+  }
+
+  escapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  getSegmentTypeLabel(segment) {
+    const labels = {
+      criticalPower: "Critical Power",
+      auto: "Auto",
+      manual: "Manuell",
+      gps: "GPS"
+    };
+    return labels[getSegmentVisibilityKey(segment)] || "Segment";
+  }
+
+  buildSegmentTooltipContent(segment) {
+    const heading = Utils.getSegmentDisplayHeading(segment);
+    const duration = segment?.duration != null && Number.isFinite(Number(segment.duration))
+      ? Utils.formatDuration(Number(segment.duration))
+      : "";
+    const segmentType = getSegmentVisibilityKey(segment);
+    const averagePower = segment?.avg_power != null
+      && (segmentType === "criticalPower" || segmentType === "gps")
+      && Number.isFinite(Number(segment?.avg_power))
+      ? `${Math.round(Number(segment.avg_power))} W`
+      : "";
+    const meta = [
+      this.getSegmentTypeLabel(segment),
+      duration,
+      averagePower
+    ].filter(Boolean).join(" · ");
+
+    return `
+      <span class="workout-map-segment-tooltip__accent" style="--segment-color:${getSegmentColor(segment)}"></span>
+      <span class="workout-map-segment-tooltip__content">
+        <strong>${this.escapeHtml(heading)}</strong>
+        ${meta ? `<small>${this.escapeHtml(meta)}</small>` : ""}
+      </span>
+    `;
+  }
+
+  selectSegmentOverlay(entry, latlng) {
+    if (this.selectedSegmentOverlay?.key === entry.key) {
+      this.clearSegmentSelection();
+      return;
+    }
+
+    this.clearSegmentSelection();
+    this.selectedSegmentOverlay = entry;
+    entry.polylines.forEach((polyline) => {
+      polyline.setStyle({ weight: 7, opacity: 1 });
+      polyline.bringToFront();
+    });
+
+    this.selectedSegmentTooltip = L.tooltip({
+      className: "workout-map-segment-tooltip workout-map-segment-tooltip--selected",
+      direction: "top",
+      offset: [0, -8],
+      opacity: 1,
+      permanent: true
+    })
+      .setLatLng(latlng)
+      .setContent(this.buildSegmentTooltipContent(entry.segment))
+      .addTo(this.segmentLayer);
+  }
+
+  clearSegmentSelection() {
+    this.selectedSegmentOverlay?.polylines?.forEach((polyline) => {
+      polyline.setStyle({ weight: 4, opacity: 0.9 });
+    });
+
+    if (this.selectedSegmentTooltip && this.segmentLayer.hasLayer(this.selectedSegmentTooltip)) {
+      this.segmentLayer.removeLayer(this.selectedSegmentTooltip);
+    }
+
+    this.selectedSegmentOverlay = null;
+    this.selectedSegmentTooltip = null;
+  }
+
+  measureCoordinatePath(points = []) {
+    if (points.length < 2) {
+      return null;
+    }
+
+    const projected = points.map((point) => this.map.latLngToContainerPoint([point.lat, point.lng]));
+    let length = 0;
+    const segmentLengths = [];
+
+    for (let index = 1; index < projected.length; index += 1) {
+      const segmentLength = projected[index - 1].distanceTo(projected[index]);
+      segmentLengths.push(segmentLength);
+      length += segmentLength;
+    }
+
+    if (length <= 0) {
+      return null;
+    }
+
+    const midpointDistance = length / 2;
+    let traversed = 0;
+    for (let index = 1; index < projected.length; index += 1) {
+      const segmentLength = segmentLengths[index - 1];
+      if (traversed + segmentLength >= midpointDistance) {
+        const ratio = segmentLength > 0
+          ? (midpointDistance - traversed) / segmentLength
+          : 0;
+        const midpoint = L.point(
+          projected[index - 1].x + (projected[index].x - projected[index - 1].x) * ratio,
+          projected[index - 1].y + (projected[index].y - projected[index - 1].y) * ratio
+        );
+        return {
+          length,
+          point: midpoint,
+          latlng: this.map.containerPointToLatLng(midpoint)
+        };
+      }
+      traversed += segmentLength;
+    }
+
+    return {
+      length,
+      point: projected[projected.length - 1],
+      latlng: this.map.containerPointToLatLng(projected[projected.length - 1])
+    };
+  }
+
+  getSegmentLabelCandidate(entry) {
+    let bestMeasurement = null;
+    for (const coordinateSegment of entry.coordinateSegments) {
+      const measurement = this.measureCoordinatePath(coordinateSegment);
+      if (!bestMeasurement || (measurement?.length ?? 0) > bestMeasurement.length) {
+        bestMeasurement = measurement;
+      }
+    }
+
+    if (!bestMeasurement || bestMeasurement.length < 64) {
+      return null;
+    }
+
+    const id = Utils.getSegmentDisplayId(entry.segment);
+    if (id == null) {
+      return null;
+    }
+
+    const displayTitle = Utils.getSegmentDisplayTitle(entry.segment);
+    const hasExplicitName = String(entry.segment?.segmentname || "").trim() !== "";
+    const hasGpsRouteName = entry.segment?.isGPSSegment && (
+      String(entry.segment?.start_name ?? entry.segment?.startName ?? "").trim() !== ""
+      || String(entry.segment?.end_name ?? entry.segment?.endName ?? "").trim() !== ""
+    );
+    const name = hasExplicitName || hasGpsRouteName ? displayTitle : "";
+    const fullText = name ? `#${id} · ${name}` : `#${id}`;
+    const estimatedFullWidth = Math.min(190, Math.max(40, fullText.length * 6.6 + 18));
+    const showFullText = name && bestMeasurement.length >= Math.max(150, estimatedFullWidth + 24);
+    const text = showFullText ? fullText : `#${id}`;
+    const width = showFullText ? estimatedFullWidth : Math.max(38, String(id).length * 7 + 22);
+
+    return {
+      ...bestMeasurement,
+      entry,
+      text,
+      width,
+      height: 24
+    };
+  }
+
+  rectanglesOverlap(left, right, margin = 5) {
+    return !(
+      left.right + margin < right.left
+      || left.left - margin > right.right
+      || left.bottom + margin < right.top
+      || left.top - margin > right.bottom
+    );
+  }
+
+  updateSegmentLabels() {
+    if (!this.segmentLabelLayer || !this.map?._loaded) {
+      return;
+    }
+
+    this.segmentLabelLayer.clearLayers();
+    const mapSize = this.map.getSize();
+    const occupied = [];
+    const candidates = this.segmentOverlayEntries
+      .map((entry) => this.getSegmentLabelCandidate(entry))
+      .filter(Boolean)
+      .sort((left, right) => right.length - left.length);
+
+    for (const candidate of candidates) {
+      const rect = {
+        left: candidate.point.x - candidate.width / 2,
+        right: candidate.point.x + candidate.width / 2,
+        top: candidate.point.y - candidate.height / 2,
+        bottom: candidate.point.y + candidate.height / 2
+      };
+      const isInsideMap = rect.right >= 0
+        && rect.left <= mapSize.x
+        && rect.bottom >= 0
+        && rect.top <= mapSize.y;
+      if (!isInsideMap || occupied.some((usedRect) => this.rectanglesOverlap(rect, usedRect))) {
+        continue;
+      }
+
+      occupied.push(rect);
+      L.marker(candidate.latlng, {
+        interactive: false,
+        pane: "segmentPane",
+        icon: L.divIcon({
+          className: "workout-map-segment-label-anchor",
+          html: `<span class="workout-map-segment-label" style="--segment-color:${candidate.entry.color}">${this.escapeHtml(candidate.text)}</span>`,
+          iconAnchor: [candidate.width / 2, candidate.height / 2],
+          iconSize: [candidate.width, candidate.height]
+        })
+      }).addTo(this.segmentLabelLayer);
+    }
+  }
+
   // -----------------------------
   // BUILD SEGMENTS
   // -----------------------------
@@ -190,7 +504,10 @@ export default class MapView {
 
     if (segments != null) {
       segments
-        .filter(f => f.rowstate !== 'DEL')
+        .filter((segment) => (
+          segment.rowstate !== "DEL"
+          && isSegmentVisible(segment, this.segmentVisibility)
+        ))
         .forEach(seg => {
           const startIdx = this.mapSourceIndexToTrackIndex(seg.start_offset, "floor");
           const endIdx = this.mapSourceIndexToTrackIndex(seg.end_offset, "ceil");
@@ -199,7 +516,8 @@ export default class MapView {
 
           markAreas.push({
             currentTrackPoints,
-            segmenttype: seg.segmenttype
+            color: getSegmentColor(seg),
+            segment: seg
           });
         });
     }
@@ -407,6 +725,7 @@ export default class MapView {
 
   handleMapClick(event) {
     if (!this.manualGpsMode) {
+      this.clearSegmentSelection();
       return;
     }
 

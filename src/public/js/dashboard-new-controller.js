@@ -6,6 +6,7 @@ import UIStateManager from "./UIStateManager.js";
 import WorkoutLibraryView from "./workout-library-view.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
 import Utils from "../../shared/Utils.js";
+import { WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION } from "../../shared/SegmentAppearance.js";
 import confirmModal from "./confirm-modal.js";
 
 export default class Controller {
@@ -19,7 +20,8 @@ export default class Controller {
       search: "",
       sort: "newest",
       scope: "mine",
-      favoritesOnly: false
+      favoritesOnly: false,
+      gpsFilter: "all"
     });
     this.chartViewState = this.uiState.get("chartViewState", {
       xAxisMode: "time",
@@ -103,6 +105,7 @@ export default class Controller {
   // -----------------------------
   initViews() {
     this.mapView = new MapView("workout-map", {
+      initialSegmentVisibility: this.chartViewState?.segmentVisibility,
       onManualGpsSave: async (points) => {
         const workoutId = this.currentWorkoutId;
         if (!workoutId) {
@@ -204,6 +207,7 @@ export default class Controller {
       onPreferencesChange: (state) => {
         this.chartViewState = state;
         this.uiState.set("chartViewState", state);
+        this.mapView.setSegmentVisibility(state.segmentVisibility);
       }
     });
 
@@ -226,6 +230,7 @@ export default class Controller {
       initialSort: this.libraryState?.sort || "newest",
       initialScope: this.libraryState?.scope || "mine",
       initialWorkoutType: this.libraryState?.workoutType || "all",
+      initialGpsFilter: this.libraryState?.gpsFilter || "all",
       initialFavoriteFilterActive: !!this.libraryState?.favoritesOnly,
       initialFavoriteWorkoutIds: this.favoriteWorkoutIds,
       onWorkoutOpen: async (workoutId) => {
@@ -740,7 +745,7 @@ export default class Controller {
           })
         : this.libraryT("na");
       const thumb = candidate?.has_thumbnail
-        ? `<img src="/workouts/${candidate.id}/thumbnail?v=${encodeURIComponent(candidate.thumbnail_updated_at || candidate.start_time || "")}" alt="Workout ${candidate.id} thumbnail" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="dashboard-gps-copy-card__thumb-fallback" style="display:none;">${this.t("copyGpsNoThumbnail")}</div>`
+        ? `<img src="/workouts/${candidate.id}/thumbnail?v=${encodeURIComponent(candidate.thumbnail_updated_at || candidate.start_time || "")}&style=${WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION}" alt="Workout ${candidate.id} thumbnail" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"><div class="dashboard-gps-copy-card__thumb-fallback" style="display:none;">${this.t("copyGpsNoThumbnail")}</div>`
         : `<div class="dashboard-gps-copy-card__thumb-fallback">${this.t("copyGpsNoThumbnail")}</div>`;
 
       return `

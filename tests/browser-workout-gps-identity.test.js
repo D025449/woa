@@ -67,6 +67,11 @@ test("browser WOA1 keeps GPS2 raw while compressing the workout stream", async (
   assert.equal(woa.meta.blockCodecs.workout_stream, "gzip");
   assert.equal(woa.meta.blockCodecs.gps_track, "identity");
   assert.equal(woa.meta.persistedRow.gps_track_blob_codec, "identity");
+  assert.equal(woa.meta.persistedRow.total_calories, 6);
+  assert.equal(woa.meta.persistedRow.avg_normalized_power, 200);
+  assert.equal(woa.meta.normalizedPower, 200);
+  assert.equal(woa.meta.persistedRow.total_work, 1);
+  assert.equal(woa.meta.totalWork, 1);
   assert.equal(Buffer.from(woa.gpsTrackBytes).subarray(0, 4).toString("ascii"), "GPS2");
   assert.equal(woa.meta.blockBytes.gps_track_raw, woa.meta.blockBytes.gps_track_compressed);
   assert.equal(woa.gpsTrackBytes.byteLength, woa.meta.blockBytes.gps_track_raw);

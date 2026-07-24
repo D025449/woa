@@ -2,6 +2,11 @@ import { buildMarkAreas, buildMarkAreasCP } from "./chart-helpers.js";
 import SegmentService from "../../shared/SegmentService.js";
 import Utils from "../../shared/Utils.js";
 import { createTranslator } from "./i18n.js";
+import {
+  DEFAULT_SEGMENT_VISIBILITY,
+  SEGMENT_COLORS,
+  isSegmentVisible
+} from "./segment-visibility.js";
 
 const MIN_DISTANCE_AXIS_SPAN_METERS = 100;
 
@@ -50,12 +55,7 @@ export default class ChartView {
       speed: true,
       altitude: true
     };
-    this.segmentVisibility = {
-      criticalPower: true,
-      auto: true,
-      manual: true,
-      gps: true
-    };
+    this.segmentVisibility = { ...DEFAULT_SEGMENT_VISIBILITY };
     this.seriesToggleButtons = new Map();
     this.segmentToggleButtons = new Map();
     this.smoothingButtons = new Map();
@@ -1263,10 +1263,10 @@ export default class ChartView {
 
   getSegmentToggleDefinitions() {
     return [
-      { key: "criticalPower", label: this.t("segmentTypeCriticalPower"), color: "rgba(17, 230, 42, 0.2)" },
-      { key: "auto", label: this.t("segmentTypeAuto"), color: "rgba(0, 123, 255, 0.3)" },
-      { key: "manual", label: this.t("segmentTypeManual"), color: "rgba(255, 0, 0, 0.3)" },
-      { key: "gps", label: this.t("segmentTypeGps"), color: "rgba(17, 230, 42, 0.2)" }
+      { key: "criticalPower", label: this.t("segmentTypeCriticalPower"), color: SEGMENT_COLORS.criticalPower.solid },
+      { key: "auto", label: this.t("segmentTypeAuto"), color: SEGMENT_COLORS.auto.solid },
+      { key: "manual", label: this.t("segmentTypeManual"), color: SEGMENT_COLORS.manual.solid },
+      { key: "gps", label: this.t("segmentTypeGps"), color: SEGMENT_COLORS.gps.solid }
     ];
   }
 
@@ -1375,23 +1375,7 @@ export default class ChartView {
   }
 
   isSegmentTypeVisible(segment) {
-    if (!segment) {
-      return false;
-    }
-
-    if (segment.isGPSSegment || segment.segmenttype === "gps") {
-      return this.segmentVisibility.gps !== false;
-    }
-
-    if (segment.segmenttype === "crit") {
-      return this.segmentVisibility.criticalPower !== false;
-    }
-
-    if (segment.segmenttype === "auto") {
-      return this.segmentVisibility.auto !== false;
-    }
-
-    return this.segmentVisibility.manual !== false;
+    return isSegmentVisible(segment, this.segmentVisibility);
   }
 
   filterMarkAreasByVisibility(areas = []) {

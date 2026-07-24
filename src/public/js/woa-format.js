@@ -1,4 +1,9 @@
 import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../../shared/gpsSampling.js";
+import {
+  calculateNormalizedPowerFromSamples,
+  calculatePowerLoad,
+  resolveCyclingCalories
+} from "../../shared/WorkoutEnergy.js";
 
 const textEncoder = new TextEncoder();
 const UINT8_NAN = 0xFF;
@@ -128,7 +133,19 @@ function encodeSessionBlock(sessions = []) {
   let offset = headerBytes;
   for (const session of normalizedSessions) {
     for (const field of SESSION_SPEC) {
-      const value = session?.[field.key];
+      let value = session?.[field.key];
+      if (field.key === "total_work") {
+        value = calculatePowerLoad({
+          normalizedPower: session?.normalized_power,
+          totalTimerTime: session?.total_timer_time
+        });
+      } else if (field.key === "total_calories") {
+        value = resolveCyclingCalories({
+          totalCalories: session?.total_calories,
+          avgPower: session?.avg_power,
+          totalTimerTime: session?.total_timer_time
+        });
+      }
       switch (field.type) {
         case "time":
           view.setUint32(offset, encodeSessionTime(value), true);
@@ -727,6 +744,30 @@ function getISOWeekUTC(dateLike) {
   return { isoYear, isoWeek };
 }
 
+function withNormalizedPowerFallback(parsed) {
+  const sessions = Array.isArray(parsed?.sessions) ? parsed.sessions : [];
+  if (
+    sessions.length === 0
+    || sessions.every((session) => Number(session?.normalized_power) > 0)
+  ) {
+    return parsed;
+  }
+
+  const normalizedPower = calculateNormalizedPowerFromSamples(parsed?.recordsTyped?.powersW);
+  if (!(normalizedPower > 0)) {
+    return parsed;
+  }
+
+  return {
+    ...parsed,
+    sessions: sessions.map((session) => (
+      Number(session?.normalized_power) > 0
+        ? session
+        : { ...session, normalized_power: normalizedPower }
+    ))
+  };
+}
+
 function aggregateSessions(sessions = []) {
   if (!Array.isArray(sessions) || sessions.length === 0) {
     return null;
@@ -760,8 +801,15 @@ function aggregateSessions(sessions = []) {
     total_timer_time: sum("total_timer_time"),
     total_distance: sum("total_distance"),
     total_cycles: sum("total_cycles"),
-    total_work: sum("total_work"),
-    total_calories: sum("total_calories"),
+    total_work: sessions.reduce((total, session) => total + calculatePowerLoad({
+      normalizedPower: session?.normalized_power,
+      totalTimerTime: session?.total_timer_time
+    }), 0),
+    total_calories: sessions.reduce((total, session) => total + resolveCyclingCalories({
+      totalCalories: session?.total_calories,
+      avgPower: session?.avg_power,
+      totalTimerTime: session?.total_timer_time
+    }), 0),
     total_ascent: sum("total_ascent"),
     total_descent: sum("total_descent"),
     avg_speed: weightedAvg("avg_speed"),
@@ -874,7 +922,7 @@ function deriveSummary(parsed, gpsTrack, sourceName = "") {
     totalTimerTime: firstSession.total_timer_time ?? null,
     totalDistance: firstSession.total_distance ?? null,
     totalCycles: firstSession.total_cycles ?? null,
-    totalWork: firstSession.total_work ?? null,
+    totalWork: persistedRow?.total_work ?? null,
     totalCalories: firstSession.total_calories ?? null,
     totalAscent: firstSession.total_ascent ?? null,
     totalDescent: firstSession.total_descent ?? null,
@@ -886,7 +934,7 @@ function deriveSummary(parsed, gpsTrack, sourceName = "") {
     maxHeartRate: firstSession.max_heart_rate ?? null,
     avgCadence: firstSession.avg_cadence ?? null,
     maxCadence: firstSession.max_cadence ?? null,
-    normalizedPower: firstSession.normalized_power ?? null,
+    normalizedPower: persistedRow?.avg_normalized_power ?? null,
     bbox: gpsTrack?.bbox || null,
     startPoint: gpsTrack?.startPoint || null,
     endPoint: gpsTrack?.endPoint || null,
@@ -900,6 +948,7 @@ export function createWoa1File(parsed, {
   compressWorkoutStream = null,
   compressGpsTrack = null
 } = {}) {
+  const preparedParsed = withNormalizedPowerFallback(parsed);
   const timings = {
     buildReducedGpsTrackMs: 0,
     buildWorkoutStreamBlockMs: 0,
@@ -913,11 +962,11 @@ export function createWoa1File(parsed, {
   };
 
   let stepStartedAt = nowMs();
-  const gpsTrack = buildReducedGpsTrack(parsed.recordsTyped, sampleRateSeconds);
+  const gpsTrack = buildReducedGpsTrack(preparedParsed.recordsTyped, sampleRateSeconds);
   timings.buildReducedGpsTrackMs = nowMs() - stepStartedAt;
 
   stepStartedAt = nowMs();
-  const workoutStreamBlock = buildWorkoutStreamBlock(parsed.recordsTyped);
+  const workoutStreamBlock = buildWorkoutStreamBlock(preparedParsed.recordsTyped);
   const workoutStreamRawBytes = workoutStreamBlock.bytes;
   timings.buildWorkoutStreamBlockMs = nowMs() - stepStartedAt;
 
@@ -940,7 +989,7 @@ export function createWoa1File(parsed, {
   const usesCompressedBlocks = !!(compressWorkoutStream && compressGpsTrack);
 
   stepStartedAt = nowMs();
-  const summary = deriveSummary(parsed, gpsTrack, sourceName);
+  const summary = deriveSummary(preparedParsed, gpsTrack, sourceName);
   timings.deriveSummaryMs = nowMs() - stepStartedAt;
   if (summary?.persistedRow) {
     summary.persistedRow.stream_codec = usesCompressedBlocks ? DEFAULT_STREAM_CODEC : "identity";
@@ -965,7 +1014,9 @@ export function createWoa1File(parsed, {
   timings.encodeMetaJsonMs = nowMs() - stepStartedAt;
 
   stepStartedAt = nowMs();
-  const sessionBytes = encodeSessionBlock(Array.isArray(parsed?.sessions) ? parsed.sessions : []);
+  const sessionBytes = encodeSessionBlock(
+    Array.isArray(preparedParsed?.sessions) ? preparedParsed.sessions : []
+  );
   timings.encodeSessionsJsonMs = nowMs() - stepStartedAt;
 
   const headerLength = 4 + 1 + 1 + 2 + 4 + 4 + 4 + 4;

@@ -44,16 +44,46 @@ test("route thumbnail overlays workout and GPS segment ranges in Leaflet colors"
           { lat: 49.1, lng: 8.1 },
           { lat: 49.2, lng: 8.2 }
         ]]
+      },
+      {
+        segmenttype: "crit",
+        segments: [[
+          { lat: 49.05, lng: 8.05 },
+          { lat: 49.15, lng: 8.15 }
+        ]]
+      },
+      {
+        segmenttype: "manual",
+        segments: [[
+          { lat: 49.02, lng: 8.02 },
+          { lat: 49.12, lng: 8.12 }
+        ]]
       }
     ]
   });
 
-  assert.match(thumbnail.content, /data-segment-type="auto"[^>]+stroke="#0000ff"/);
-  assert.match(thumbnail.content, /data-segment-type="gps"[^>]+stroke="#800080"/);
+  assert.match(thumbnail.content, /data-segment-type="auto"[^>]+stroke="#2587df"/);
+  assert.match(thumbnail.content, /data-segment-type="gps"[^>]+stroke="#22a957"/);
+  assert.match(thumbnail.content, /data-segment-type="crit"[^>]+stroke="#f59e0b"/);
+  assert.match(thumbnail.content, /data-segment-type="manual"[^>]+stroke="#ef4444"/);
   assert.ok(
-    thumbnail.content.indexOf('stroke="#dc2626"')
+    thumbnail.content.indexOf('stroke="#ff4d4f"')
       < thumbnail.content.indexOf('data-segment-type="auto"')
   );
+  assert.doesNotMatch(thumbnail.content, /data-segment-label|<text/);
+  assert.match(thumbnail.content, /data-thumbnail-style="2"/);
+  assert.equal(WorkoutThumbnailService.isCurrentRouteThumbnail(thumbnail), true);
+});
+
+test("only stale route thumbnails require regeneration", () => {
+  assert.equal(WorkoutThumbnailService.isCurrentRouteThumbnail({
+    kind: "route",
+    content: "<svg></svg>"
+  }), false);
+  assert.equal(WorkoutThumbnailService.isCurrentRouteThumbnail({
+    kind: "metrics-profile",
+    content: "<svg></svg>"
+  }), true);
 });
 
 test("route thumbnail removes sub-pixel GPS points while preserving endpoints", () => {
@@ -67,7 +97,7 @@ test("route thumbnail removes sub-pixel GPS points while preserving endpoints", 
   assert.equal(thumbnail.renderStats.routeRenderedPointCount, 2);
   assert.match(
     thumbnail.content,
-    /<path d="M [\d.]+ [\d.]+ L [\d.]+ [\d.]+" fill="none" stroke="#dc2626"/
+    /<path d="M [\d.]+ [\d.]+ L [\d.]+ [\d.]+" fill="none" stroke="#ff4d4f"/
   );
 });
 

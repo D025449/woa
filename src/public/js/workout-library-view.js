@@ -1,4 +1,5 @@
 import Utils from "../../shared/Utils.js";
+import { WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION } from "../../shared/SegmentAppearance.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
 
 export default class WorkoutLibraryView {
@@ -25,6 +26,13 @@ export default class WorkoutLibraryView {
     this.scopeAllButton = document.getElementById(handlers.scopeAllButtonId || "workout-library-scope-all");
     this.favoriteFilterButton = document.getElementById(handlers.favoriteFilterButtonId || "workout-library-favorites-filter");
     this.workoutTypeFilter = document.getElementById(handlers.workoutTypeFilterId || "workout-library-type-filter");
+    this.workoutTypeTrigger = document.getElementById("workout-library-type-trigger");
+    this.workoutTypeTriggerLabel = document.getElementById("workout-library-type-trigger-label");
+    this.workoutTypeMenu = document.getElementById("workout-library-type-menu");
+    this.gpsFilter = document.getElementById(handlers.gpsFilterId || "workout-library-gps-filter");
+    this.gpsFilterTrigger = document.getElementById("workout-library-gps-trigger");
+    this.gpsFilterTriggerLabel = document.getElementById("workout-library-gps-trigger-label");
+    this.gpsFilterMenu = document.getElementById("workout-library-gps-menu");
     this.selectionModeButton = document.getElementById(handlers.selectionModeButtonId || "workout-library-selection-toggle");
     this.bulkBarElement = document.getElementById(handlers.bulkBarElementId || "workout-library-bulk-bar");
     this.bulkCountElement = document.getElementById(handlers.bulkCountElementId || "workout-library-bulk-count");
@@ -74,6 +82,9 @@ export default class WorkoutLibraryView {
     this.workoutTypeValue = ["indoor", "road", "mountain", "unknown"].includes(handlers.initialWorkoutType)
       ? handlers.initialWorkoutType
       : "all";
+    this.gpsFilterValue = ["valid", "invalid"].includes(handlers.initialGpsFilter)
+      ? handlers.initialGpsFilter
+      : "all";
     this.favoriteWorkoutIds = new Set((handlers.initialFavoriteWorkoutIds || []).map((value) => String(value)));
 
     if (this.searchInput) {
@@ -86,7 +97,12 @@ export default class WorkoutLibraryView {
     if (this.workoutTypeFilter) {
       this.workoutTypeFilter.value = this.workoutTypeValue;
     }
+    if (this.gpsFilter) {
+      this.gpsFilter.value = this.gpsFilterValue;
+    }
 
+    this.syncWorkoutTypeUi();
+    this.syncGpsFilterUi();
     this.syncSortUi();
 
     this.updateScopeButtons();
@@ -117,9 +133,33 @@ export default class WorkoutLibraryView {
     });
 
     this.workoutTypeFilter?.addEventListener("change", () => {
-      this.workoutTypeValue = this.workoutTypeFilter?.value || "all";
-      this.handlers.onStateChange?.(this.getState());
-      this.reload();
+      this.applyWorkoutTypeValue(this.workoutTypeFilter?.value || "all");
+    });
+
+    this.workoutTypeTrigger?.addEventListener("click", () => {
+      this.toggleWorkoutTypeMenu();
+    });
+
+    this.workoutTypeMenu?.querySelectorAll("[data-workout-type-option]").forEach((element) => {
+      element.addEventListener("click", () => {
+        this.applyWorkoutTypeValue(element.getAttribute("data-workout-type-option") || "all");
+        this.closeWorkoutTypeMenu();
+      });
+    });
+
+    this.gpsFilter?.addEventListener("change", () => {
+      this.applyGpsFilterValue(this.gpsFilter?.value || "all");
+    });
+
+    this.gpsFilterTrigger?.addEventListener("click", () => {
+      this.toggleGpsFilterMenu();
+    });
+
+    this.gpsFilterMenu?.querySelectorAll("[data-gps-filter-option]").forEach((element) => {
+      element.addEventListener("click", () => {
+        this.applyGpsFilterValue(element.getAttribute("data-gps-filter-option") || "all");
+        this.closeGpsFilterMenu();
+      });
     });
 
     this.sortSelect?.addEventListener("change", () => {
@@ -142,27 +182,22 @@ export default class WorkoutLibraryView {
     });
 
     document.addEventListener("click", (event) => {
-      if (!this.sortTrigger || !this.sortMenu) {
-        if (
-          this.openVisibilityWorkoutId &&
-          !event.target?.closest?.("[data-workout-visibility-toggle]") &&
-          !event.target?.closest?.("[data-workout-visibility-popover]")
-        ) {
-          this.closeVisibilityPopover();
-        }
-        return;
-      }
-
       const target = event.target;
       if (!(target instanceof Node)) {
         return;
       }
 
-      if (this.sortTrigger.contains(target) || this.sortMenu.contains(target)) {
-        return;
+      if (!this.sortTrigger?.contains(target) && !this.sortMenu?.contains(target)) {
+        this.closeSortMenu();
       }
 
-      this.closeSortMenu();
+      if (!this.workoutTypeTrigger?.contains(target) && !this.workoutTypeMenu?.contains(target)) {
+        this.closeWorkoutTypeMenu();
+      }
+
+      if (!this.gpsFilterTrigger?.contains(target) && !this.gpsFilterMenu?.contains(target)) {
+        this.closeGpsFilterMenu();
+      }
 
       if (
         this.openVisibilityWorkoutId &&
@@ -367,6 +402,14 @@ export default class WorkoutLibraryView {
       return [{ field: "total_timer_time", dir: "desc" }];
     }
 
+    if (sort === "calories") {
+      return [{ field: "total_calories", dir: "desc" }];
+    }
+
+    if (sort === "powerload") {
+      return [{ field: "total_work", dir: "desc" }];
+    }
+
     if (sort === "power") {
       return [{ field: "avg_power", dir: "desc" }];
     }
@@ -383,6 +426,13 @@ export default class WorkoutLibraryView {
     const filters = search ? [{ field: "__search", type: "like", value: search }] : [];
     if (["indoor", "road", "mountain", "unknown"].includes(this.workoutTypeValue)) {
       filters.push({ field: "workout_type", type: "=", value: this.workoutTypeValue });
+    }
+    if (["valid", "invalid"].includes(this.gpsFilterValue)) {
+      filters.push({
+        field: "validgps",
+        type: "=",
+        value: this.gpsFilterValue === "valid"
+      });
     }
     return filters;
   }
@@ -443,6 +493,13 @@ export default class WorkoutLibraryView {
       });
     }
 
+    if (this.gpsFilterValue !== "all") {
+      chips.push({
+        type: "gpsFilter",
+        label: this.getGpsFilterLabel(this.gpsFilterValue)
+      });
+    }
+
     if (chips.length === 0) {
       this.activeFiltersElement.hidden = true;
       this.activeFiltersElement.innerHTML = "";
@@ -496,10 +553,13 @@ export default class WorkoutLibraryView {
     }
 
     if (type === "workoutType") {
-      this.workoutTypeValue = "all";
-      if (this.workoutTypeFilter) this.workoutTypeFilter.value = "all";
-      this.handlers.onStateChange?.(this.getState());
-      this.reload();
+      this.applyWorkoutTypeValue("all");
+      return;
+    }
+
+    if (type === "gpsFilter") {
+      this.applyGpsFilterValue("all");
+      return;
     }
 
     if (type === "sort") {
@@ -515,6 +575,144 @@ export default class WorkoutLibraryView {
     this.syncSortUi();
     this.handlers.onStateChange?.(this.getState());
     this.reload();
+  }
+
+  applyWorkoutTypeValue(value) {
+    this.workoutTypeValue = ["indoor", "road", "mountain", "unknown"].includes(value)
+      ? value
+      : "all";
+    if (this.workoutTypeFilter) {
+      this.workoutTypeFilter.value = this.workoutTypeValue;
+    }
+    this.syncWorkoutTypeUi();
+    this.handlers.onStateChange?.(this.getState());
+    this.reload();
+  }
+
+  getWorkoutTypeLabel(type) {
+    const labels = {
+      all: this.pageT("workoutTypeAll"),
+      indoor: this.pageT("workoutTypeIndoor"),
+      road: this.pageT("workoutTypeRoad"),
+      mountain: this.pageT("workoutTypeMountain"),
+      unknown: this.pageT("workoutTypeUnknown")
+    };
+    return labels[type] || labels.all;
+  }
+
+  syncWorkoutTypeUi() {
+    const label = this.getWorkoutTypeLabel(this.workoutTypeValue);
+    const accessibleLabel = `${this.pageT("workoutTypeFilterLabel")}: ${label}`;
+
+    if (this.workoutTypeTriggerLabel) {
+      this.workoutTypeTriggerLabel.textContent = label;
+    }
+    if (this.workoutTypeTrigger) {
+      this.workoutTypeTrigger.title = accessibleLabel;
+      this.workoutTypeTrigger.setAttribute("aria-label", accessibleLabel);
+      this.workoutTypeTrigger.classList.toggle("is-active", this.workoutTypeValue !== "all");
+    }
+    this.workoutTypeMenu?.querySelectorAll("[data-workout-type-option]").forEach((element) => {
+      element.classList.toggle(
+        "is-active",
+        element.getAttribute("data-workout-type-option") === this.workoutTypeValue
+      );
+    });
+  }
+
+  toggleWorkoutTypeMenu() {
+    if (!this.workoutTypeMenu?.hidden) {
+      this.closeWorkoutTypeMenu();
+      return;
+    }
+    this.openWorkoutTypeMenu();
+  }
+
+  openWorkoutTypeMenu() {
+    if (!this.workoutTypeMenu || !this.workoutTypeTrigger) {
+      return;
+    }
+    this.closeSortMenu();
+    this.closeGpsFilterMenu();
+    this.workoutTypeMenu.hidden = false;
+    this.workoutTypeTrigger.classList.add("is-open");
+    this.workoutTypeTrigger.setAttribute("aria-expanded", "true");
+  }
+
+  closeWorkoutTypeMenu() {
+    if (!this.workoutTypeMenu || !this.workoutTypeTrigger) {
+      return;
+    }
+    this.workoutTypeMenu.hidden = true;
+    this.workoutTypeTrigger.classList.remove("is-open");
+    this.workoutTypeTrigger.setAttribute("aria-expanded", "false");
+  }
+
+  applyGpsFilterValue(value) {
+    this.gpsFilterValue = ["valid", "invalid"].includes(value) ? value : "all";
+    if (this.gpsFilter) {
+      this.gpsFilter.value = this.gpsFilterValue;
+    }
+    this.syncGpsFilterUi();
+    this.handlers.onStateChange?.(this.getState());
+    this.reload();
+  }
+
+  getGpsFilterLabel(value) {
+    const labels = {
+      all: this.pageT("gpsFilterAll"),
+      valid: this.pageT("gpsFilterValid"),
+      invalid: this.pageT("gpsFilterInvalid")
+    };
+    return labels[value] || labels.all;
+  }
+
+  syncGpsFilterUi() {
+    const label = this.getGpsFilterLabel(this.gpsFilterValue);
+    const accessibleLabel = `${this.pageT("gpsFilterLabel")}: ${label}`;
+
+    if (this.gpsFilterTriggerLabel) {
+      this.gpsFilterTriggerLabel.textContent = label;
+    }
+    if (this.gpsFilterTrigger) {
+      this.gpsFilterTrigger.title = accessibleLabel;
+      this.gpsFilterTrigger.setAttribute("aria-label", accessibleLabel);
+      this.gpsFilterTrigger.classList.toggle("is-active", this.gpsFilterValue !== "all");
+    }
+    this.gpsFilterMenu?.querySelectorAll("[data-gps-filter-option]").forEach((element) => {
+      element.classList.toggle(
+        "is-active",
+        element.getAttribute("data-gps-filter-option") === this.gpsFilterValue
+      );
+    });
+  }
+
+  toggleGpsFilterMenu() {
+    if (!this.gpsFilterMenu?.hidden) {
+      this.closeGpsFilterMenu();
+      return;
+    }
+    this.openGpsFilterMenu();
+  }
+
+  openGpsFilterMenu() {
+    if (!this.gpsFilterMenu || !this.gpsFilterTrigger) {
+      return;
+    }
+    this.closeWorkoutTypeMenu();
+    this.closeSortMenu();
+    this.gpsFilterMenu.hidden = false;
+    this.gpsFilterTrigger.classList.add("is-open");
+    this.gpsFilterTrigger.setAttribute("aria-expanded", "true");
+  }
+
+  closeGpsFilterMenu() {
+    if (!this.gpsFilterMenu || !this.gpsFilterTrigger) {
+      return;
+    }
+    this.gpsFilterMenu.hidden = true;
+    this.gpsFilterTrigger.classList.remove("is-open");
+    this.gpsFilterTrigger.setAttribute("aria-expanded", "false");
   }
 
   applySearchValue(value) {
@@ -537,6 +735,8 @@ export default class WorkoutLibraryView {
       oldest: this.pageT("sortOldest"),
       distance: this.pageT("sortDistance"),
       duration: this.pageT("sortDuration"),
+      calories: this.pageT("sortCalories"),
+      powerload: this.pageT("sortPowerload"),
       power: this.pageT("sortPower"),
       np: this.pageT("sortNp")
     };
@@ -545,9 +745,15 @@ export default class WorkoutLibraryView {
 
   syncSortUi() {
     const sort = this.sortSelect?.value || this.sortValue || "newest";
+    const label = this.getSortLabel(sort);
 
     if (this.sortTriggerLabel) {
-      this.sortTriggerLabel.textContent = this.getSortLabel(sort);
+      this.sortTriggerLabel.textContent = label;
+    }
+
+    if (this.sortTrigger) {
+      this.sortTrigger.title = label;
+      this.sortTrigger.setAttribute("aria-label", label);
     }
 
     this.sortMenu?.querySelectorAll("[data-sort-option]").forEach((element) => {
@@ -568,6 +774,8 @@ export default class WorkoutLibraryView {
     if (!this.sortMenu || !this.sortTrigger) {
       return;
     }
+    this.closeWorkoutTypeMenu();
+    this.closeGpsFilterMenu();
     this.sortMenu.hidden = false;
     this.sortTrigger.classList.add("is-open");
     this.sortTrigger.setAttribute("aria-expanded", "true");
@@ -632,6 +840,16 @@ export default class WorkoutLibraryView {
 
     if (this.sortMenu && !this.sortMenu.hidden) {
       this.closeSortMenu();
+      return true;
+    }
+
+    if (this.workoutTypeMenu && !this.workoutTypeMenu.hidden) {
+      this.closeWorkoutTypeMenu();
+      return true;
+    }
+
+    if (this.gpsFilterMenu && !this.gpsFilterMenu.hidden) {
+      this.closeGpsFilterMenu();
       return true;
     }
 
@@ -731,7 +949,8 @@ export default class WorkoutLibraryView {
       sort: this.sortSelect?.value || this.sortValue || "newest",
       scope: this.scopeValue || "mine",
       favoritesOnly: this.favoriteFilterActive,
-      workoutType: this.workoutTypeValue
+      workoutType: this.workoutTypeValue,
+      gpsFilter: this.gpsFilterValue
     };
   }
 
@@ -1141,7 +1360,12 @@ export default class WorkoutLibraryView {
     const shareError = this.shareErrors.get(workoutId) || "";
     const tone = this.getWorkoutTone(workout);
     const dimmedClass = hasSelection && !isSelected ? " is-dimmed" : "";
-    const compactStat = this.getCompactStat(workout);
+    const heartRateStat = Number.isFinite(workout.avg_heart_rate) && Number(workout.avg_heart_rate) > 0
+      ? {
+          label: "HR",
+          value: `${this.formatInt(workout.avg_heart_rate)} bpm`
+        }
+      : null;
     const ascentStat = Number.isFinite(workout.total_ascent) && Number(workout.total_ascent) > 0
       ? {
           label: "hm",
@@ -1150,8 +1374,20 @@ export default class WorkoutLibraryView {
       : null;
     const speedStat = Number.isFinite(workout.avg_speed) && Number(workout.avg_speed) > 0
       ? {
-          label: "km/h",
+          label: "SP",
           value: this.formatSpeed(workout.avg_speed)
+        }
+      : null;
+    const energyStat = Number.isFinite(workout.total_calories) && Number(workout.total_calories) > 0
+      ? {
+          label: "EN",
+          value: `${this.formatInt(workout.total_calories)} kcal`
+        }
+      : null;
+    const powerLoadStat = Number.isFinite(workout.total_work) && Number(workout.total_work) > 0
+      ? {
+          label: "PL",
+          value: `${this.formatInt(workout.total_work)} PTS`
         }
       : null;
     const isFavorite = !!workout.is_favorite;
@@ -1227,7 +1463,7 @@ export default class WorkoutLibraryView {
               ${workout.has_thumbnail ? `
                 <img
                   class="workout-library-card__thumb-image"
-                  data-thumb-src="/workouts/${workout.id}/thumbnail?v=${encodeURIComponent(workout.thumbnail_updated_at || workout.uploaded_at || "")}"
+                  data-thumb-src="/workouts/${workout.id}/thumbnail?v=${encodeURIComponent(workout.thumbnail_updated_at || workout.uploaded_at || "")}&style=${WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION}"
                   alt=""
                   loading="lazy"
                   decoding="async"
@@ -1239,13 +1475,15 @@ export default class WorkoutLibraryView {
             </div>
             <div class="workout-library-card__body-copy">
               <div class="workout-library-card__body-copy-group">
-                <span class="workout-library-stat"><span class="workout-library-stat__label">${this.t("avgPower")}</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_power)} W</span></span>
+                <span class="workout-library-stat"><span class="workout-library-stat__label">PW</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_power)} W</span></span>
                 <span class="workout-library-stat"><span class="workout-library-stat__label">NP</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_normalized_power)} W</span></span>
-                ${compactStat ? `<span class="workout-library-stat"><span class="workout-library-stat__label">${compactStat.label}</span><span class="workout-library-stat__value">${compactStat.value}</span></span>` : ""}
+                ${heartRateStat ? `<span class="workout-library-stat"><span class="workout-library-stat__label">${heartRateStat.label}</span><span class="workout-library-stat__value">${heartRateStat.value}</span></span>` : ""}
               </div>
               <div class="workout-library-card__body-copy-group">
                 ${ascentStat ? `<span class="workout-library-stat"><span class="workout-library-stat__label">${ascentStat.label}</span><span class="workout-library-stat__value">${ascentStat.value}</span></span>` : ""}
                 ${speedStat ? `<span class="workout-library-stat"><span class="workout-library-stat__label">${speedStat.label}</span><span class="workout-library-stat__value">${speedStat.value}</span></span>` : ""}
+                ${energyStat ? `<span class="workout-library-stat"><span class="workout-library-stat__label">${energyStat.label}</span><span class="workout-library-stat__value">${energyStat.value}</span></span>` : ""}
+                ${powerLoadStat ? `<span class="workout-library-stat"><span class="workout-library-stat__label">${powerLoadStat.label}</span><span class="workout-library-stat__value">${powerLoadStat.value}</span></span>` : ""}
               </div>
               ${isOwned ? `
                 <details class="workout-library-actions-menu workout-library-actions-menu--inline">
@@ -1454,31 +1692,6 @@ export default class WorkoutLibraryView {
     const seconds = Number(value) || 0;
     const hours = seconds / 3600;
     return `${this.formatNumber(hours, hours >= 100 ? 0 : 1)} h`;
-  }
-
-  getCompactStat(workout) {
-    if (Number.isFinite(workout.avg_heart_rate) && Number(workout.avg_heart_rate) > 0) {
-      return {
-        label: this.t("avgHr"),
-        value: `${this.formatInt(workout.avg_heart_rate)} bpm`
-      };
-    }
-
-    if (Number.isFinite(workout.total_ascent) && Number(workout.total_ascent) > 0) {
-      return {
-        label: "hm",
-        value: this.formatAscentMeters(workout.total_ascent)
-      };
-    }
-
-    if (Number.isFinite(workout.avg_speed) && Number(workout.avg_speed) > 0) {
-      return {
-        label: this.t("avgSpeed"),
-        value: this.formatSpeed(workout.avg_speed)
-      };
-    }
-
-    return null;
   }
 
   getWorkoutTone(workout) {
