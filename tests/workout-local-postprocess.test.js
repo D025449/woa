@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import BestEffortDetector from "../src/shared/BestEffortDetector.js";
 import {
   detectWorkoutLocalSegmentsCompact,
+  detectWorkoutLocalSegmentsFromWorkout,
   decodeWorkoutLocalPostprocessTransport,
   encodeWorkoutLocalPostprocessTransport,
   inspectWorkoutLocalPostprocessTransport
@@ -30,19 +30,58 @@ test("compact workout-local detection emits only critical-power best efforts", (
     altitude: 100 + Math.floor(index / 40),
     distance: index * 8
   }));
-  const expected = BestEffortDetector.detect(records).map((segment) => ({
-    start: segment.start_offset,
-    end: segment.end_offset,
-    duration: segment.duration,
-    avgPower: segment.avgPower,
-    avgHeartRate: segment.avgHeartRate,
-    avgCadence: segment.avgCadence,
-    avgSpeed: segment.avgSpeed,
-    altimeters: segment.altimeters,
-    type: 2
-  }));
   const actual = detectWorkoutLocalSegmentsCompact(compactFromRecords(records));
-  assert.deepEqual(actual, expected);
+  assert.deepEqual(actual.map((segment) => segment.duration), [5, 15, 60, 120, 240]);
+  assert.ok(actual.every((segment) => segment.type === 2));
+  assert.deepEqual(actual.find((segment) => segment.duration === 60), {
+    start: 80,
+    end: 139,
+    duration: 60,
+    avgPower: 320,
+    avgHeartRate: 153,
+    avgCadence: 92,
+    avgSpeed: 28.8,
+    altimeters: 1000,
+    type: 2
+  });
+});
+
+test("stored workout fallback uses the same critical-power detector as compact upload", () => {
+  const records = Array.from({ length: 60 }, (_, index) => ({
+    power: index >= 20 ? 300 : 100,
+    heart_rate: 140,
+    cadence: 90,
+    speed: 8,
+    altitude: 100,
+    distance: index * 8
+  }));
+  const workout = {
+    length: records.length,
+    getPowerAt: (index) => records[index].power,
+    getHrAt: (index) => records[index].heart_rate,
+    getCadenceAt: (index) => records[index].cadence,
+    getSpeedAt: (index) => records[index].speed * 3.6,
+    getAltitudeAt: (index) => records[index].altitude,
+    getDistanceAt: (index) => records[index].distance
+  };
+
+  const compact = detectWorkoutLocalSegmentsCompact(compactFromRecords(records));
+  const stored = detectWorkoutLocalSegmentsFromWorkout(workout);
+
+  assert.deepEqual(
+    stored.map((segment) => ({
+      start: segment.start_offset,
+      end: segment.end_offset,
+      duration: segment.duration,
+      avgPower: segment.avg_power,
+      avgHeartRate: segment.avg_heart_rate,
+      avgCadence: segment.avg_cadence,
+      avgSpeed: segment.avg_speed,
+      altimeters: segment.altimeters,
+      type: segment.segmenttype === "crit" ? 2 : 0
+    })),
+    compact
+  );
 });
 
 test("WPP1 transport stores workout and segment counts compactly", () => {

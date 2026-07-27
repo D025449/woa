@@ -45,16 +45,21 @@ function speedMpsAt(compact, index, useDistance) {
   return value === UINT16_NAN ? 0 : value / 100;
 }
 
-function detectBestEffortSegments(compact) {
-  const recordCount = recordCountOf(compact);
+function detectBestEffortSegments({
+  recordCount,
+  powerAtIndex,
+  heartRateAtIndex,
+  cadenceAtIndex,
+  speedKmhAtIndex,
+  altitudeMetersAtIndex
+}) {
   if (recordCount === 0) return [];
 
   const powerPrefix = new Float64Array(recordCount + 1);
   for (let index = 0; index < recordCount; index += 1) {
-    powerPrefix[index + 1] = powerPrefix[index] + powerAt(compact, index);
+    powerPrefix[index + 1] = powerPrefix[index] + powerAtIndex(index);
   }
 
-  const useDistance = hasCompleteDistanceSeries(compact, recordCount);
   const results = [];
   for (const duration of BEST_EFFORT_DURATIONS) {
     if (duration > recordCount) continue;
@@ -72,9 +77,9 @@ function detectBestEffortSegments(compact) {
     let cadenceSum = 0;
     let speedSum = 0;
     for (let index = bestOffset; index < bestOffset + duration; index += 1) {
-      heartRateSum += heartRateAt(compact, index);
-      cadenceSum += cadenceAt(compact, index);
-      speedSum += speedMpsAt(compact, index, useDistance);
+      heartRateSum += heartRateAtIndex(index);
+      cadenceSum += cadenceAtIndex(index);
+      speedSum += speedKmhAtIndex(index);
     }
     const endOffset = bestOffset + duration - 1;
     results.push({
@@ -85,15 +90,71 @@ function detectBestEffortSegments(compact) {
       avgHeartRate: Math.round(heartRateSum / duration),
       avgCadence: Math.round(cadenceSum / duration),
       avgSpeed: Number((speedSum / duration).toFixed(2)),
-      altimeters: (altitudeMetersAt(compact, endOffset) - altitudeMetersAt(compact, bestOffset)) * 1000
+      altimeters: (altitudeMetersAtIndex(endOffset) - altitudeMetersAtIndex(bestOffset)) * 1000
     });
   }
   return results;
 }
 
 export function detectWorkoutLocalSegmentsCompact(compact) {
-  const bestEfforts = detectBestEffortSegments(compact);
+  const recordCount = recordCountOf(compact);
+  const useDistance = hasCompleteDistanceSeries(compact, recordCount);
+  const bestEfforts = detectBestEffortSegments({
+    recordCount,
+    powerAtIndex: (index) => powerAt(compact, index),
+    heartRateAtIndex: (index) => heartRateAt(compact, index),
+    cadenceAtIndex: (index) => cadenceAt(compact, index),
+    speedKmhAtIndex: (index) => speedMpsAt(compact, index, useDistance) * 3.6,
+    altitudeMetersAtIndex: (index) => altitudeMetersAt(compact, index)
+  });
   return bestEfforts.map((segment) => ({ ...segment, type: 2 }));
+}
+
+export function detectWorkoutLocalSegmentsFromWorkout(workout) {
+  const recordCount = Math.max(0, Number(workout?.length || 0));
+  const finiteOrZero = (value) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : 0;
+  };
+  let useDistance = recordCount > 0 && typeof workout?.getDistanceAt === "function";
+  for (let index = 0; useDistance && index < recordCount; index += 1) {
+    useDistance = Number.isFinite(Number(workout.getDistanceAt(index)));
+  }
+  const bestEfforts = detectBestEffortSegments({
+    recordCount,
+    powerAtIndex: (index) => finiteOrZero(workout.getPowerAt(index)),
+    heartRateAtIndex: (index) => finiteOrZero(workout.getHrAt(index)),
+    cadenceAtIndex: (index) => finiteOrZero(workout.getCadenceAt(index)),
+    speedKmhAtIndex: (index) => {
+      if (!useDistance) {
+        return finiteOrZero(workout.getSpeedAt(index));
+      }
+      if (index === 0) {
+        return 0;
+      }
+      return Math.max(
+        0,
+        (Number(workout.getDistanceAt(index)) - Number(workout.getDistanceAt(index - 1))) * 3.6
+      );
+    },
+    altitudeMetersAtIndex: (index) => finiteOrZero(workout.getAltitudeAt(index))
+  });
+
+  return bestEfforts.map((segment, position) => ({
+    id: globalThis.crypto.randomUUID(),
+    start_offset: segment.start,
+    end_offset: segment.end,
+    duration: segment.duration,
+    avg_power: segment.avgPower,
+    avg_heart_rate: segment.avgHeartRate,
+    avg_cadence: segment.avgCadence,
+    avg_speed: segment.avgSpeed,
+    altimeters: segment.altimeters,
+    segmenttype: "crit",
+    rowstate: "CRE",
+    position,
+    segmentname: ""
+  }));
 }
 
 function clampInteger(value, min, max, fallback = 0) {

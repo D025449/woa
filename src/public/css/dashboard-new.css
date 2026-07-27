@@ -2337,6 +2337,11 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   font-weight: 600;
 }
 
+.dashboard-gpx-import-mode {
+  width: auto;
+  max-width: 10.5rem;
+}
+
 .dashboard-master-detail #workout-chart,
 .dashboard-master-detail #workout-map {
   height: 100% !important;

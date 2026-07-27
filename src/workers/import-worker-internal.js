@@ -12,9 +12,7 @@ import {
 } from "../services/fitService.js";
 import { getFitParserVariant, parseFitBuffer } from "../services/fit-parser-dispatch-service.js";
 import Workout from "../shared/Workout.js";
-import IntervalDetector from "../shared/IntervalDetector.js";
-import BestEffortDetector from "../shared/BestEffortDetector.js";
-import SegmentService from "../shared/SegmentService.js";
+import { detectWorkoutLocalSegmentsFromWorkout } from "../shared/WorkoutLocalPostprocess.js";
 
 import { FileDBService } from "../services/fileDBService.js";
 import SegmentDBService from "../services/segmentDBService.js";
@@ -1358,43 +1356,19 @@ export async function createApp(options = {}) {
       row.stream_codec || "brotli"
     );
     const decompressMs = Date.now() - decompressStartedAt;
-    const startTime = Number(workout.getStartTime());
-    const rebuildStartedAt = Date.now();
-    const records = new Array(workout.length);
-    for (let index = 0; index < workout.length; index += 1) {
-      records[index] = {
-        timestamp: new Date(startTime + (index * 1000)),
-        power: workout.getPowerAt(index),
-        heart_rate: workout.getHrAt(index),
-        cadence: workout.getCadenceAt(index),
-        speed: workout.getSpeedAt(index) / 3.6,
-        altitude: workout.getAltitudeAt(index),
-        distance: workout.getDistanceAt(index)
-      };
-    }
-    const recordRebuildMs = Date.now() - rebuildStartedAt;
 
-    const autoStartedAt = Date.now();
-    const autoIntervals = IntervalDetector.detect(records);
-    const detectAutoMs = Date.now() - autoStartedAt;
     const bestEffortsStartedAt = Date.now();
-    const bestEffortIntervals = BestEffortDetector.detect(records);
+    const segments = detectWorkoutLocalSegmentsFromWorkout(workout);
     const detectBestEffortsMs = Date.now() - bestEffortsStartedAt;
-    const mapSegmentsStartedAt = Date.now();
-    const segments = [
-      ...SegmentService.createSgmentsFromIntervals(autoIntervals, "auto"),
-      ...SegmentService.createSgmentsFromIntervals(bestEffortIntervals, "crit")
-    ];
-    const mapSegmentsMs = Date.now() - mapSegmentsStartedAt;
 
     return {
       segments,
       metrics: {
         decompressMs,
-        recordRebuildMs,
-        detectAutoMs,
+        recordRebuildMs: 0,
+        detectAutoMs: 0,
         detectBestEffortsMs,
-        mapSegmentsMs
+        mapSegmentsMs: 0
       }
     };
   }

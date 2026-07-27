@@ -360,7 +360,10 @@ router.post("/track-lookup", authMiddleware, requireActiveAccountWrite, async (r
     const startLocationPromise = reverseGeocode(lat1, lng1);
 
     const route = await routePromise;
-    timing.mark("osrm-route");
+    timing.mark("bicycle-route", {
+      provider: route.provider || "unknown",
+      profile: route.profile || null
+    });
 
     const start_location = await startLocationPromise;
     timing.mark("reverse-start");

@@ -1927,12 +1927,9 @@ function getISOWeekUTC(dateLike) {
   return { isoYear, isoWeek };
 }
 
-function withNormalizedPowerFallback(parsedCompact) {
+function withCalculatedNormalizedPower(parsedCompact) {
   const sessions = Array.isArray(parsedCompact?.sessions) ? parsedCompact.sessions : [];
-  if (
-    sessions.length === 0
-    || sessions.every((session) => Number(session?.normalized_power) > 0)
-  ) {
+  if (sessions.length === 0) {
     return parsedCompact;
   }
 
@@ -1940,17 +1937,13 @@ function withNormalizedPowerFallback(parsedCompact) {
     parsedCompact?.compactRecords?.powersW,
     { missingValue: UINT16_NAN }
   );
-  if (!(normalizedPower > 0)) {
-    return parsedCompact;
-  }
 
   return {
     ...parsedCompact,
-    sessions: sessions.map((session) => (
-      Number(session?.normalized_power) > 0
-        ? session
-        : { ...session, normalized_power: normalizedPower }
-    ))
+    sessions: sessions.map((session) => ({
+      ...session,
+      normalized_power: normalizedPower
+    }))
   };
 }
 
@@ -2411,7 +2404,7 @@ export function createWoa1FileFromCompact(parsedCompact, {
   gpsCoordinateEncoding = "bitmap-columnar",
   altitudeEncoding = "rle-delta-q1m"
 } = {}) {
-  const preparedParsedCompact = withNormalizedPowerFallback(parsedCompact);
+  const preparedParsedCompact = withCalculatedNormalizedPower(parsedCompact);
   const timings = {
     buildReducedGpsTrackMs: 0,
     buildWorkoutStreamBlockMs: 0,
@@ -2552,7 +2545,7 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
   gpsCoordinateEncoding = "bitmap-columnar",
   altitudeEncoding = "rle-delta-q1m"
 } = {}) {
-  const preparedParsedCompact = withNormalizedPowerFallback(parsedCompact);
+  const preparedParsedCompact = withCalculatedNormalizedPower(parsedCompact);
   const timings = {
     buildReducedGpsTrackMs: 0,
     buildWorkoutStreamBlockMs: 0,

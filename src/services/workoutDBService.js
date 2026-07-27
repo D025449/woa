@@ -7,6 +7,7 @@ import ElevationService from "./ElevationService.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
 import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../shared/gpsSampling.js";
 import { toPostgresBox } from "../shared/postgresSpatial.js";
+import { computeElevationTotalsFromTrack } from "../shared/ElevationTotals.js";
 
 function haversineMeters(a, b) {
   const toRad = (value) => (value * Math.PI) / 180;
@@ -54,13 +55,21 @@ function interpolateTrackPointAtDistance(track, cumulativeMeters, distanceMeters
   }
 
   if (track.length === 1 || distanceMeters <= 0) {
-    return { lat: Number(track[0].lat), lng: Number(track[0].lng) };
+    return {
+      lat: Number(track[0].lat),
+      lng: Number(track[0].lng),
+      ele: Number.isFinite(Number(track[0].ele)) ? Number(track[0].ele) : null
+    };
   }
 
   const totalMeters = cumulativeMeters[cumulativeMeters.length - 1];
   if (distanceMeters >= totalMeters) {
     const lastPoint = track[track.length - 1];
-    return { lat: Number(lastPoint.lat), lng: Number(lastPoint.lng) };
+    return {
+      lat: Number(lastPoint.lat),
+      lng: Number(lastPoint.lng),
+      ele: Number.isFinite(Number(lastPoint.ele)) ? Number(lastPoint.ele) : null
+    };
   }
 
   for (let i = 1; i < track.length; i++) {
@@ -76,14 +85,23 @@ function interpolateTrackPointAtDistance(track, cumulativeMeters, distanceMeters
       : 0;
     const from = track[i - 1];
     const to = track[i];
+    const fromElevation = Number(from.ele);
+    const toElevation = Number(to.ele);
     return {
       lat: Number(from.lat) + (Number(to.lat) - Number(from.lat)) * ratio,
-      lng: Number(from.lng) + (Number(to.lng) - Number(from.lng)) * ratio
+      lng: Number(from.lng) + (Number(to.lng) - Number(from.lng)) * ratio,
+      ele: Number.isFinite(fromElevation) && Number.isFinite(toElevation)
+        ? fromElevation + (toElevation - fromElevation) * ratio
+        : (Number.isFinite(fromElevation) ? fromElevation : (Number.isFinite(toElevation) ? toElevation : null))
     };
   }
 
   const fallback = track[track.length - 1];
-  return { lat: Number(fallback.lat), lng: Number(fallback.lng) };
+  return {
+    lat: Number(fallback.lat),
+    lng: Number(fallback.lng),
+    ele: Number.isFinite(Number(fallback.ele)) ? Number(fallback.ele) : null
+  };
 }
 
 function computeBBox(track) {
@@ -167,26 +185,6 @@ function interpolateScalarAtDistance(track, cumulativeMeters, distanceMeters, fi
 
   const fallbackValue = Number(track[track.length - 1]?.[fieldName]);
   return Number.isFinite(fallbackValue) ? fallbackValue : null;
-}
-
-function computeTotalDescentMeters(altitudes = []) {
-  let total = 0;
-
-  for (let i = 1; i < altitudes.length; i++) {
-    const prev = Number(altitudes[i - 1]);
-    const current = Number(altitudes[i]);
-
-    if (!Number.isFinite(prev) || !Number.isFinite(current)) {
-      continue;
-    }
-
-    const delta = current - prev;
-    if (delta < 0) {
-      total += Math.abs(delta);
-    }
-  }
-
-  return Math.round(total);
 }
 
 function parseGeoJsonTrack(geoJsonTrack) {
@@ -300,6 +298,24 @@ function interpolateTrackPointAtDistanceAxis(track, distanceAxis, distanceMeters
 
 
 export default class WorkoutDBService {
+  static hasRecordedAltitudeSeries(workoutObject) {
+    const recordCount = Number(workoutObject?.length) || 0;
+    for (let index = 0; index < recordCount; index += 1) {
+      const altitude = Number(workoutObject.getAltitudeAt(index));
+      if (Number.isFinite(altitude) && Math.abs(altitude) >= 0.1) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static hasTrackAltitudeSeries(track) {
+    return Array.isArray(track) && track.some((point) => {
+      const altitude = Number(point?.ele);
+      return Number.isFinite(altitude) && Math.abs(altitude) >= 0.1;
+    });
+  }
+
   static async ensureSimilarityPerformanceIndexes() {
     await pool.query("DROP INDEX IF EXISTS idx_workouts_track_start");
     await pool.query("DROP INDEX IF EXISTS idx_workouts_track_end");
@@ -1338,10 +1354,15 @@ export default class WorkoutDBService {
       throw new Error("Manual GPS track needs at least two points for altitude enrichment.");
     }
 
+    const sampleRateSeconds = normalizeGpsSampleRateSeconds(
+      manualGpsTrack?.sampleRateSeconds,
+      DEFAULT_GPS_SAMPLE_RATE_SECONDS
+    );
+    const elevationSampleIntervalSeconds = 25;
     const service = new ElevationService({
       batchSize: 100,
       sleepMs: 150,
-      downsampleStep: 5
+      downsampleStep: Math.max(1, Math.round(elevationSampleIntervalSeconds / sampleRateSeconds))
     });
 
     const enrichedTrack = await service.enrichTrack(baseTrack);
@@ -1351,7 +1372,12 @@ export default class WorkoutDBService {
     };
   }
 
-  static buildWorkoutStreamFromManualGps(workoutObject, manualGpsTrack, totalWorkoutDistanceMeters) {
+  static buildWorkoutStreamFromManualGps(
+    workoutObject,
+    manualGpsTrack,
+    totalWorkoutDistanceMeters,
+    streamCodec = null
+  ) {
     if (!workoutObject?.hasDistanceSeries?.()) {
       throw new Error("Workout has no distance series for manual GPS altitude mapping.");
     }
@@ -1372,8 +1398,6 @@ export default class WorkoutDBService {
     }
 
     const records = [];
-    const altitudes = [];
-
     for (let index = 0; index < workoutObject.length; index++) {
       const metrics = workoutObject.getMetricsAt(index);
       const distanceMeters = workoutObject.getDistanceAt(index);
@@ -1384,9 +1408,8 @@ export default class WorkoutDBService {
       const altitude = interpolateScalarAtDistance(track, trackIndex.cumulativeMeters, lookupDistanceMeters, "ele");
       const normalizedAltitude = Number.isFinite(altitude)
         ? altitude
-        : (index > 0 ? altitudes[index - 1] : 0);
+        : (index > 0 ? records[index - 1].altitude : 0);
 
-      altitudes.push(normalizedAltitude);
       records.push({
         power: metrics.power,
         heart_rate: metrics.hr,
@@ -1401,11 +1424,13 @@ export default class WorkoutDBService {
       validGps: true,
       startTime: workoutObject.getStartTime()
     });
+    const elevationTotals = computeElevationTotalsFromTrack(track);
 
     return {
       workoutObject: rebuiltWorkout,
-      totalAscent: Math.round(rebuiltWorkout.getElevationGainTotal()),
-      totalDescent: computeTotalDescentMeters(altitudes)
+      totalAscent: elevationTotals.totalAscent,
+      totalDescent: elevationTotals.totalDescent,
+      streamCodec: Workout.normalizeCodec(streamCodec)
     };
   }
 
@@ -1440,8 +1465,11 @@ export default class WorkoutDBService {
           }))
           .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))
       : [];
+    const streamCodec = streamUpdate?.workoutObject
+      ? Workout.normalizeCodec(streamUpdate?.streamCodec)
+      : null;
     const streamBuffer = streamUpdate?.workoutObject
-      ? await streamUpdate.workoutObject.toCompressedBuffer()
+      ? await Workout.compress(streamUpdate.workoutObject.buffer, streamCodec)
       : null;
     const sampleRateGps = normalizeGpsSampleRateSeconds(
       manualGpsTrack?.sampleRateSeconds,
@@ -1472,7 +1500,8 @@ export default class WorkoutDBService {
         manual_gps_lookup_points = $11::jsonb,
         stream = COALESCE($12::bytea, stream),
         total_ascent = COALESCE($13::float8, total_ascent),
-        total_descent = COALESCE($14::float8, total_descent)
+        total_descent = COALESCE($14::float8, total_descent),
+        stream_codec = COALESCE($15::text, stream_codec)
        WHERE id = $1
          AND uid = $2
        RETURNING
@@ -1497,7 +1526,8 @@ export default class WorkoutDBService {
         JSON.stringify(normalizedLookupPoints),
         streamBuffer,
         Number.isFinite(streamUpdate?.totalAscent) ? streamUpdate.totalAscent : null,
-        Number.isFinite(streamUpdate?.totalDescent) ? streamUpdate.totalDescent : null
+        Number.isFinite(streamUpdate?.totalDescent) ? streamUpdate.totalDescent : null,
+        streamCodec
       ]
     );
 

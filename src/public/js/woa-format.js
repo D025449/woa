@@ -744,27 +744,20 @@ function getISOWeekUTC(dateLike) {
   return { isoYear, isoWeek };
 }
 
-function withNormalizedPowerFallback(parsed) {
+function withCalculatedNormalizedPower(parsed) {
   const sessions = Array.isArray(parsed?.sessions) ? parsed.sessions : [];
-  if (
-    sessions.length === 0
-    || sessions.every((session) => Number(session?.normalized_power) > 0)
-  ) {
+  if (sessions.length === 0) {
     return parsed;
   }
 
   const normalizedPower = calculateNormalizedPowerFromSamples(parsed?.recordsTyped?.powersW);
-  if (!(normalizedPower > 0)) {
-    return parsed;
-  }
 
   return {
     ...parsed,
-    sessions: sessions.map((session) => (
-      Number(session?.normalized_power) > 0
-        ? session
-        : { ...session, normalized_power: normalizedPower }
-    ))
+    sessions: sessions.map((session) => ({
+      ...session,
+      normalized_power: normalizedPower
+    }))
   };
 }
 
@@ -948,7 +941,7 @@ export function createWoa1File(parsed, {
   compressWorkoutStream = null,
   compressGpsTrack = null
 } = {}) {
-  const preparedParsed = withNormalizedPowerFallback(parsed);
+  const preparedParsed = withCalculatedNormalizedPower(parsed);
   const timings = {
     buildReducedGpsTrackMs: 0,
     buildWorkoutStreamBlockMs: 0,

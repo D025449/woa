@@ -50,6 +50,10 @@ export default class MapView {
     this.manualGpsHintElement = document.getElementById("dashboard-manual-gps-hint");
     this.manualGpsToggleButton = document.getElementById("dashboard-manual-gps-toggle");
     this.copyGpsButton = document.getElementById("dashboard-copy-gps-open");
+    this.gpxImportButton = document.getElementById("dashboard-gpx-import");
+    this.gpxImportModeSelect = document.getElementById("dashboard-gpx-import-mode");
+    this.gpxFileInput = document.getElementById("dashboard-gpx-file");
+    this.gpxImportBusy = false;
     this.manualGpsSaveButton = document.getElementById("dashboard-manual-gps-save");
     this.manualGpsCancelButton = document.getElementById("dashboard-manual-gps-cancel");
     this.manualGpsClearButton = document.getElementById("dashboard-manual-gps-clear");
@@ -168,7 +172,8 @@ export default class MapView {
           color: WORKOUT_ROUTE_COLOR,
           pane: 'trackPane',
           weight: 4,
-          opacity: 0.9
+          opacity: 0.9,
+          smoothFactor: 0.25
         }).addTo(this.trackLayer));
 
       this.renderSegmentOverlays(workout);
@@ -224,6 +229,7 @@ export default class MapView {
           pane: "segmentPane",
           weight: 4,
           opacity: 0.9,
+          smoothFactor: 0.25,
           interactive: false
         }).addTo(this.segmentLayer);
 
@@ -232,6 +238,7 @@ export default class MapView {
           pane: "segmentPane",
           weight: 16,
           opacity: 0.001,
+          smoothFactor: 0.25,
           bubblingMouseEvents: false
         }).addTo(this.segmentLayer);
 
@@ -601,6 +608,37 @@ export default class MapView {
       await this.handlers.onCopyGpsSelectionOpen?.();
     });
 
+    this.gpxImportButton?.addEventListener("click", () => {
+      if (!this.gpxImportBusy) {
+        this.gpxFileInput?.click();
+      }
+    });
+
+    this.gpxFileInput?.addEventListener("change", async () => {
+      const file = this.gpxFileInput.files?.[0];
+      if (!file || this.gpxImportBusy) {
+        return;
+      }
+
+      this.gpxImportBusy = true;
+      this.syncManualGpsUi();
+      try {
+        await this.handlers.onGpxImport?.(
+          file,
+          this.gpxImportModeSelect?.value === "routed" ? "routed" : "exact"
+        );
+      } catch (error) {
+        console.error("GPX import failed", error);
+        const fallback = window.__I18N?.messages?.dashboardNewPage?.gpxImportFailed
+          || "GPX could not be imported.";
+        window.alert(error?.message || fallback);
+      } finally {
+        this.gpxImportBusy = false;
+        this.gpxFileInput.value = "";
+        this.syncManualGpsUi();
+      }
+    });
+
     this.manualGpsClearButton?.addEventListener("click", () => {
       this.resetManualGpsSelection();
     });
@@ -701,6 +739,8 @@ export default class MapView {
 
     this.manualGpsToggleButton?.classList.toggle("d-none", !canEdit);
     this.copyGpsButton?.classList.toggle("d-none", !canEdit || this.manualGpsMode);
+    this.gpxImportButton?.classList.toggle("d-none", !canEdit || this.manualGpsMode);
+    this.gpxImportModeSelect?.classList.toggle("d-none", !canEdit || this.manualGpsMode);
     this.manualGpsClearButton?.classList.toggle("d-none", !this.manualGpsMode);
     this.manualGpsCancelButton?.classList.toggle("d-none", !this.manualGpsMode);
     this.manualGpsSaveButton?.classList.toggle("d-none", !this.manualGpsMode);
@@ -720,6 +760,12 @@ export default class MapView {
 
     if (this.manualGpsSaveButton) {
       this.manualGpsSaveButton.disabled = !hasEnoughPoints;
+    }
+    if (this.gpxImportButton) {
+      this.gpxImportButton.disabled = this.gpxImportBusy;
+    }
+    if (this.gpxImportModeSelect) {
+      this.gpxImportModeSelect.disabled = this.gpxImportBusy;
     }
   }
 

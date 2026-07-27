@@ -491,6 +491,17 @@
                                         <button id="dashboard-copy-gps-open" class="btn btn-outline-primary btn-sm d-none" type="button">
                                             <%= t("dashboardNewPage.copyGpsOpen") %>
                                         </button>
+                                        <select
+                                            id="dashboard-gpx-import-mode"
+                                            class="form-select form-select-sm dashboard-gpx-import-mode d-none"
+                                            aria-label="<%= t('dashboardNewPage.gpxImportModeLabel') %>">
+                                            <option value="exact"><%= t("dashboardNewPage.gpxImportExact") %></option>
+                                            <option value="routed"><%= t("dashboardNewPage.gpxImportRouted") %></option>
+                                        </select>
+                                        <button id="dashboard-gpx-import" class="btn btn-outline-primary btn-sm d-none" type="button">
+                                            <%= t("dashboardNewPage.gpxImport") %>
+                                        </button>
+                                        <input id="dashboard-gpx-file" class="d-none" type="file" accept=".gpx,application/gpx+xml">
                                         <button id="dashboard-manual-gps-clear" class="btn btn-outline-secondary btn-sm d-none" type="button">
                                             <%= t("dashboardNewPage.manualGpsClear") %>
                                         </button>

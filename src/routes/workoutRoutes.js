@@ -1,4 +1,5 @@
 import express from "express";
+import multer from "multer";
 
 import authMiddleware from "../middleware/authMiddleware.js";
 import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
@@ -15,9 +16,30 @@ import WorkoutThumbnailService from "../services/workoutThumbnailService.js";
 import WorkoutSimilarityService from "../services/workoutSimilarityService.js";
 import WorkoutFavoriteService from "../services/workoutFavoriteService.js";
 import { fetchBicycleRoute } from "../services/bicycleRoutingService.js";
+import {
+  buildGpxRoutingAnchors,
+  GpxValidationError,
+  parseGpxTrack
+} from "../services/gpxTrackService.js";
 import WorkoutOpenV2 from "../shared/WorkoutOpenV2.js";
 
 const router = express.Router();
+const GPX_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
+const gpxUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: GPX_UPLOAD_MAX_BYTES,
+    files: 1
+  }
+});
+const receiveGpxUpload = (req, res, next) => {
+  gpxUpload.single("gpx")(req, res, (error) => {
+    if (error instanceof multer.MulterError) {
+      return res.status(400).json({ error: error.message });
+    }
+    next(error);
+  });
+};
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
 const WORKOUT_OPEN_PROFILE_LOG = String(process.env.WORKOUT_OPEN_PROFILE_LOG || "0").trim() === "1";
 
@@ -72,6 +94,97 @@ async function lookupManualWorkoutRoute(points = []) {
   return {
     distanceMeters: Number(route.distance) || computeTrackDistanceMeters(track),
     track
+  };
+}
+
+async function assignManualGpsTrack({
+  workoutId,
+  uid,
+  lookupTrack,
+  lookupPoints,
+  sampleRateSeconds,
+  trustLookupElevation = false
+}) {
+  const context = await WorkoutDBService.getManualGpsContext(workoutId, uid);
+  const workoutDistanceMeters = Number(context.total_distance)
+    || Number(context.workoutObject?.getDistanceAt?.(context.workoutObject.length - 1))
+    || 0;
+
+  if (!Number.isFinite(workoutDistanceMeters) || workoutDistanceMeters <= 0) {
+    throw Object.assign(
+      new Error("Workout has no usable distance data for manual GPS mapping."),
+      { statusCode: 422 }
+    );
+  }
+
+  const routeDistanceMeters = computeTrackDistanceMeters(lookupTrack);
+  const distanceDeltaRatio = Math.abs(routeDistanceMeters - workoutDistanceMeters) / workoutDistanceMeters;
+  if (distanceDeltaRatio > 0.2) {
+    throw Object.assign(
+      new Error("Lookup route differs too much from the workout distance."),
+      {
+        statusCode: 422,
+        distanceDeltaRatio
+      }
+    );
+  }
+
+  const manualGpsSampleRateSeconds = normalizeGpsSampleRateSeconds(
+    sampleRateSeconds,
+    context.validgps
+      ? (context.samplerategps ?? context.sampleRateGPS ?? DEFAULT_GPS_SAMPLE_RATE_SECONDS)
+      : DEFAULT_GPS_SAMPLE_RATE_SECONDS
+  );
+  const manualGpsTrack = WorkoutDBService.buildManualGpsTrackFromLookup(
+    context.workoutObject,
+    lookupTrack,
+    workoutDistanceMeters,
+    manualGpsSampleRateSeconds
+  );
+  const preserveRecordedAltitude = WorkoutDBService.hasRecordedAltitudeSeries(context.workoutObject);
+  const useLookupElevation =
+    trustLookupElevation &&
+    WorkoutDBService.hasTrackAltitudeSeries(manualGpsTrack.track);
+  const altitudeEnrichedTrack = preserveRecordedAltitude || useLookupElevation
+    ? manualGpsTrack
+    : await WorkoutDBService.enrichManualGpsTrackAltitude(manualGpsTrack);
+  const streamUpdate = preserveRecordedAltitude
+    ? null
+    : WorkoutDBService.buildWorkoutStreamFromManualGps(
+        context.workoutObject,
+        altitudeEnrichedTrack,
+        workoutDistanceMeters,
+        context.stream_codec
+      );
+
+  const updatedTrackRow = await WorkoutDBService.updateWorkoutManualGps(
+    workoutId,
+    uid,
+    altitudeEnrichedTrack,
+    lookupPoints,
+    streamUpdate
+  );
+  const thumbnailPayload = WorkoutThumbnailService.createThumbnailPayload({
+    workoutType: context.workout_type ?? context.workoutType,
+    gpsTrack: altitudeEnrichedTrack.track.map((point) => [point.lat, point.lng]),
+    workoutObject: streamUpdate?.workoutObject ?? context.workoutObject
+  });
+  const thumbnail = thumbnailPayload
+    ? await WorkoutThumbnailService.upsertThumbnail(workoutId, thumbnailPayload)
+    : null;
+
+  return {
+    ok: true,
+    workoutId,
+    gpsSource: updatedTrackRow.gps_source,
+    sampleRateGPS: updatedTrackRow.samplerategps ?? updatedTrackRow.sampleRateGPS ?? manualGpsSampleRateSeconds,
+    pointsCount: Array.isArray(updatedTrackRow?.track?.coordinates) ? updatedTrackRow.track.coordinates.length : 0,
+    distanceDeltaRatio,
+    routeDistanceMeters,
+    totalAscent: updatedTrackRow.total_ascent ?? null,
+    totalDescent: updatedTrackRow.total_descent ?? null,
+    hasThumbnail: !!thumbnail,
+    thumbnailUpdatedAt: thumbnail?.updatedAt || null
   };
 }
 
@@ -448,80 +561,82 @@ router.post("/:id/manual-gps", authMiddleware, requireActiveAccountWrite, async 
       return res.status(400).json({ error: "Invalid workout id" });
     }
 
-    const context = await WorkoutDBService.getManualGpsContext(workoutId, uid);
     const routeLookup = await lookupManualWorkoutRoute(lookupPoints);
-    const workoutDistanceMeters = Number(context.total_distance)
-      || Number(context.workoutObject?.getDistanceAt?.(context.workoutObject.length - 1))
-      || 0;
-
-    const distanceDeltaRatio = workoutDistanceMeters > 0
-      ? Math.abs(routeLookup.distanceMeters - workoutDistanceMeters) / workoutDistanceMeters
-      : 0;
-
-    if (!Number.isFinite(workoutDistanceMeters) || workoutDistanceMeters <= 0) {
-      return res.status(422).json({ error: "Workout has no usable distance data for manual GPS mapping." });
-    }
-
-    if (distanceDeltaRatio > 0.2) {
-      return res.status(422).json({
-        error: "Lookup route differs too much from the workout distance.",
-        distanceDeltaRatio
-      });
-    }
-
-    const manualGpsSampleRateSeconds = normalizeGpsSampleRateSeconds(
-      req.body?.sampleRateSeconds,
-      context.samplerategps ?? context.sampleRateGPS ?? DEFAULT_GPS_SAMPLE_RATE_SECONDS
-    );
-
-    const manualGpsTrack = WorkoutDBService.buildManualGpsTrackFromLookup(
-      context.workoutObject,
-      routeLookup.track,
-      workoutDistanceMeters,
-      manualGpsSampleRateSeconds
-    );
-    const altitudeEnrichedTrack = await WorkoutDBService.enrichManualGpsTrackAltitude(manualGpsTrack);
-    const streamUpdate = WorkoutDBService.buildWorkoutStreamFromManualGps(
-      context.workoutObject,
-      altitudeEnrichedTrack,
-      workoutDistanceMeters
-    );
-
-    const updatedTrackRow = await WorkoutDBService.updateWorkoutManualGps(
+    const result = await assignManualGpsTrack({
       workoutId,
       uid,
-      altitudeEnrichedTrack,
+      lookupTrack: routeLookup.track,
       lookupPoints,
-      streamUpdate
-    );
-    const thumbnailPayload = WorkoutThumbnailService.createThumbnailPayload({
-      workoutType: context.workout_type ?? context.workoutType,
-      gpsTrack: altitudeEnrichedTrack.track.map((point) => [point.lat, point.lng]),
-      workoutObject: streamUpdate.workoutObject
+      sampleRateSeconds: req.body?.sampleRateSeconds
     });
-    const thumbnail = thumbnailPayload
-      ? await WorkoutThumbnailService.upsertThumbnail(workoutId, thumbnailPayload)
-      : null;
-
-    return res.json({
-      ok: true,
-      workoutId,
-      gpsSource: updatedTrackRow.gps_source,
-      sampleRateGPS: updatedTrackRow.samplerategps ?? updatedTrackRow.sampleRateGPS ?? manualGpsSampleRateSeconds,
-      pointsCount: Array.isArray(updatedTrackRow?.track?.coordinates) ? updatedTrackRow.track.coordinates.length : 0,
-      distanceDeltaRatio,
-      totalAscent: updatedTrackRow.total_ascent ?? null,
-      totalDescent: updatedTrackRow.total_descent ?? null,
-      hasThumbnail: !!thumbnail,
-      thumbnailUpdatedAt: thumbnail?.updatedAt || null
-    });
+    return res.json(result);
   } catch (err) {
     console.error("POST /workouts/:id/manual-gps failed:", err);
     return res.status(err.statusCode || 500).json({
-      error: err.message || "Failed to assign manual GPS to workout"
+      error: err.message || "Failed to assign manual GPS to workout",
+      ...(Number.isFinite(err.distanceDeltaRatio) ? { distanceDeltaRatio: err.distanceDeltaRatio } : {})
     });
   }
 });
+
+router.post(
+  "/:id/manual-gps/gpx",
+  authMiddleware,
+  requireActiveAccountWrite,
+  receiveGpxUpload,
+  async (req, res) => {
+    try {
+      const workoutId = Number(req.params.id);
+      const uid = req.user?.id;
+      const mode = String(req.body?.mode || "exact").trim().toLowerCase();
+
+      if (!Number.isFinite(workoutId) || workoutId <= 0) {
+        return res.status(400).json({ error: "Invalid workout id" });
+      }
+      if (!req.file?.buffer?.length) {
+        return res.status(400).json({ error: "A GPX file is required." });
+      }
+      if (mode !== "exact" && mode !== "routed") {
+        return res.status(400).json({ error: "Unsupported GPX import mode." });
+      }
+
+      const parsed = parseGpxTrack(req.file.buffer);
+      const anchors = buildGpxRoutingAnchors(parsed.points);
+      const routeLookup = mode === "routed"
+        ? await lookupManualWorkoutRoute(anchors)
+        : {
+            distanceMeters: parsed.distanceMeters,
+            track: parsed.points
+          };
+      const result = await assignManualGpsTrack({
+        workoutId,
+        uid,
+        lookupTrack: routeLookup.track,
+        lookupPoints: anchors,
+        sampleRateSeconds: req.body?.sampleRateSeconds,
+        trustLookupElevation: mode === "exact" && parsed.hasUsableElevation
+      });
+
+      return res.json({
+        ...result,
+        mode,
+        sourcePointCount: parsed.points.length,
+        anchorPointCount: anchors.length,
+        sourceDistanceMeters: parsed.distanceMeters,
+        usedGpxElevation: mode === "exact" && parsed.hasUsableElevation
+      });
+    } catch (err) {
+      console.error("POST /workouts/:id/manual-gps/gpx failed:", err);
+      const statusCode = err instanceof GpxValidationError
+        ? err.statusCode
+        : (err.statusCode || 500);
+      return res.status(statusCode).json({
+        error: err.message || "Failed to import GPX track",
+        ...(Number.isFinite(err.distanceDeltaRatio) ? { distanceDeltaRatio: err.distanceDeltaRatio } : {})
+      });
+    }
+  }
+);
 
 router.get("/:id/gps-copy-candidates", authMiddleware, requireActiveAccountWrite, async (req, res) => {
   try {
@@ -568,8 +683,9 @@ router.post("/:id/gps-copy-from", authMiddleware, requireActiveAccountWrite, asy
 
     const targetGpsSampleRateSeconds = normalizeGpsSampleRateSeconds(
       req.body?.sampleRateSeconds,
-      targetContext.samplerategps
-        ?? targetContext.sampleRateGPS
+      (targetContext.validgps
+        ? (targetContext.samplerategps ?? targetContext.sampleRateGPS)
+        : null)
         ?? sourceContext.samplerategps
         ?? sourceContext.sampleRateGPS
         ?? DEFAULT_GPS_SAMPLE_RATE_SECONDS
@@ -585,24 +701,32 @@ router.post("/:id/gps-copy-from", authMiddleware, requireActiveAccountWrite, asy
       targetGpsSampleRateSeconds
     );
 
-    const streamUpdate = WorkoutDBService.buildWorkoutStreamFromManualGps(
-      targetContext.workoutObject,
-      copiedGpsTrack,
-      targetWorkoutDistanceMeters
-    );
+    const preserveRecordedAltitude = WorkoutDBService.hasRecordedAltitudeSeries(targetContext.workoutObject);
+    const effectiveGpsTrack = !preserveRecordedAltitude
+      && !WorkoutDBService.hasTrackAltitudeSeries(copiedGpsTrack.track)
+      ? await WorkoutDBService.enrichManualGpsTrackAltitude(copiedGpsTrack)
+      : copiedGpsTrack;
+    const streamUpdate = preserveRecordedAltitude
+      ? null
+      : WorkoutDBService.buildWorkoutStreamFromManualGps(
+          targetContext.workoutObject,
+          effectiveGpsTrack,
+          targetWorkoutDistanceMeters,
+          targetContext.stream_codec
+        );
 
     const updatedTrackRow = await WorkoutDBService.updateWorkoutManualGps(
       targetWorkoutId,
       uid,
-      copiedGpsTrack,
+      effectiveGpsTrack,
       [],
       streamUpdate
     );
 
     const thumbnailPayload = WorkoutThumbnailService.createThumbnailPayload({
       workoutType: targetContext.workout_type ?? targetContext.workoutType,
-      gpsTrack: copiedGpsTrack.track.map((point) => [point.lat, point.lng]),
-      workoutObject: streamUpdate.workoutObject
+      gpsTrack: effectiveGpsTrack.track.map((point) => [point.lat, point.lng]),
+      workoutObject: streamUpdate?.workoutObject ?? targetContext.workoutObject
     });
     const thumbnail = thumbnailPayload
       ? await WorkoutThumbnailService.upsertThumbnail(targetWorkoutId, thumbnailPayload)

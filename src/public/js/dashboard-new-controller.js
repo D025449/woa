@@ -134,6 +134,26 @@ export default class Controller {
         await this.openWorkout(workoutId);
         this.showToast(this.t("messages.manualGpsSaved"));
       },
+      onGpxImport: async (file, mode) => {
+        const workoutId = this.currentWorkoutId;
+        if (!workoutId) {
+          return;
+        }
+
+        const result = await WorkoutService.importManualGpsGpx(workoutId, file, mode);
+        this.libraryView.updateWorkoutFields(workoutId, {
+          validgps: true,
+          validGps: true,
+          gps_source: result?.gpsSource || "manual_lookup",
+          gpsSource: result?.gpsSource || "manual_lookup",
+          total_ascent: result?.totalAscent ?? null,
+          total_descent: result?.totalDescent ?? null,
+          has_thumbnail: !!result?.hasThumbnail,
+          thumbnail_updated_at: result?.thumbnailUpdatedAt || new Date().toISOString()
+        });
+        await this.openWorkout(workoutId);
+        this.showToast(this.t("messages.gpxImported"));
+      },
       onCopyGpsSelectionOpen: async () => {
         await this.openGpsCopyModal();
       }

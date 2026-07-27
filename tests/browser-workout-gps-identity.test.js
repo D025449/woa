@@ -50,6 +50,7 @@ test("browser WOA1 keeps GPS2 raw while compressing the workout stream", async (
     total_timer_time: recordCount,
     total_distance: 600,
     avg_power: 200,
+    normalized_power: 999,
     avg_heart_rate: 140,
     avg_cadence: 90
   }];
@@ -68,6 +69,7 @@ test("browser WOA1 keeps GPS2 raw while compressing the workout stream", async (
   assert.equal(woa.meta.blockCodecs.gps_track, "identity");
   assert.equal(woa.meta.persistedRow.gps_track_blob_codec, "identity");
   assert.equal(woa.meta.persistedRow.total_calories, 6);
+  // Persist the value calculated from records, not the device session summary.
   assert.equal(woa.meta.persistedRow.avg_normalized_power, 200);
   assert.equal(woa.meta.normalizedPower, 200);
   assert.equal(woa.meta.persistedRow.total_work, 1);

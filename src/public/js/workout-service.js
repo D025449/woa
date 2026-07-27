@@ -435,7 +435,8 @@ export default class WorkoutService {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        points: Array.isArray(points) ? points : []
+        points: Array.isArray(points) ? points : [],
+        sampleRateSeconds: 2
       })
     });
 
@@ -446,6 +447,40 @@ export default class WorkoutService {
 
     if (!response.ok) {
       let message = `Manual GPS save failed (${response.status})`;
+      try {
+        const result = await response.json();
+        message = result.error || message;
+      } catch {
+        const text = await response.text();
+        if (text) {
+          message = text;
+        }
+      }
+      throw new Error(message);
+    }
+
+    return await response.json();
+  }
+
+  static async importManualGpsGpx(workoutId, file, mode = "exact") {
+    const formData = new FormData();
+    formData.append("gpx", file);
+    formData.append("mode", mode === "routed" ? "routed" : "exact");
+    formData.append("sampleRateSeconds", "2");
+
+    const response = await fetch(`/workouts/${workoutId}/manual-gps/gpx`, {
+      method: "POST",
+      credentials: "include",
+      body: formData
+    });
+
+    if (response.status === 401) {
+      window.location.href = "/login";
+      return null;
+    }
+
+    if (!response.ok) {
+      let message = `GPX import failed (${response.status})`;
       try {
         const result = await response.json();
         message = result.error || message;
