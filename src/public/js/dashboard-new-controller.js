@@ -29,7 +29,7 @@ export default class Controller {
     });
     this.chartViewState = this.uiState.get("chartViewState", {
       xAxisMode: "time",
-      smoothingLevel: "medium",
+      smoothingLevel: "automatic",
       seriesVisibility: {
         power: true,
         heartRate: true,
@@ -57,6 +57,7 @@ export default class Controller {
     this.detailCopyElement = document.getElementById("dashboard-detail-copy");
     this.workoutTitleElement = document.getElementById("dashboard-workout-title");
     this.heroStatusElement = document.getElementById("dashboard-hero-status");
+    this.exportAllFitButton = document.getElementById("dashboard-export-all-fit");
     this.workspacePanelElement = document.getElementById("dashboard-workspace-panel");
     this.detailMainStackElement = document.getElementById("dashboard-detail-main-stack");
     this.similarWorkoutsPanelElement = document.getElementById("dashboard-similar-workouts-panel");
@@ -346,6 +347,7 @@ export default class Controller {
     }, { passive: true });
     document.addEventListener("keydown", (event) => this.handleGlobalShortcuts(event));
     this.map3dToggleButton?.addEventListener("click", () => this.open3dMap());
+    this.exportAllFitButton?.addEventListener("click", () => this.exportAllWorkoutsAsFit());
     this.registerSplitterEvents();
     this.initLayoutObservers();
     this.prevWorkoutButton?.addEventListener("click", async () => {
@@ -354,6 +356,90 @@ export default class Controller {
     this.nextWorkoutButton?.addEventListener("click", async () => {
       await this.openRelativeWorkout(1);
     });
+  }
+
+  async exportAllWorkoutsAsFit() {
+    if (!this.exportAllFitButton || this.exportAllFitButton.disabled) {
+      return;
+    }
+
+    const button = this.exportAllFitButton;
+    button.disabled = true;
+    this.heroStatusElement.hidden = false;
+    this.heroStatusElement.textContent = this.t("exportFitPreparing");
+
+    let worker = null;
+    try {
+      const totalStartedAt = performance.now();
+      const downloadStartedAt = performance.now();
+      const response = await fetch("/workouts/export/all/source.zip", {
+        headers: { Accept: "application/zip" }
+      });
+      if (!response.ok) {
+        throw new Error(this.t("exportFitFailedStatus", { status: response.status }));
+      }
+
+      const sourceBuffer = await response.arrayBuffer();
+      const downloadMs = performance.now() - downloadStartedAt;
+      const sourceBytes = sourceBuffer.byteLength;
+      this.heroStatusElement.textContent = this.t("exportFitConverting", {
+        completed: 0,
+        total: "…"
+      });
+      worker = new Worker("/js/workout-fit-export-worker.js", { type: "module" });
+      const result = await new Promise((resolve, reject) => {
+        worker.addEventListener("message", (event) => {
+          if (event.data?.type === "progress") {
+            this.heroStatusElement.textContent = this.t("exportFitConverting", {
+              completed: event.data.completed,
+              total: event.data.total
+            });
+            return;
+          }
+          if (event.data?.type === "complete") {
+            resolve({
+              archiveBytes: event.data.archiveBytes,
+              profile: event.data.profile || {}
+            });
+            return;
+          }
+          if (event.data?.type === "error") {
+            reject(new Error(event.data.message || this.t("exportFitFailed")));
+          }
+        });
+        worker.addEventListener("error", reject);
+        worker.postMessage({ type: "convert", sourceBuffer }, [sourceBuffer]);
+      });
+      const archiveBytes = result.archiveBytes;
+
+      const blob = new Blob([archiveBytes], { type: "application/zip" });
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = `woa-workouts-fit-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(downloadUrl), 60_000);
+      console.info("[fit-export] browser.profile", {
+        sourceBytes,
+        archiveBytes: archiveBytes.byteLength,
+        downloadMs: Number(downloadMs.toFixed(2)),
+        ...result.profile,
+        totalMs: Number((performance.now() - totalStartedAt).toFixed(2))
+      });
+      this.heroStatusElement.textContent = this.t("exportFitComplete");
+      setTimeout(() => {
+        this.heroStatusElement.hidden = true;
+      }, 4_000);
+    } catch (error) {
+      console.error("Bulk FIT export failed:", error);
+      this.heroStatusElement.textContent = error?.message || this.t("exportFitFailed");
+      this.showToast(error?.message || this.t("exportFitFailed"));
+    } finally {
+      worker?.terminate();
+      button.disabled = false;
+    }
   }
 
   async boot() {
@@ -382,23 +468,38 @@ export default class Controller {
         return;
       }
 
+      const {
+        xAxisMode,
+        smoothingLevel,
+        seriesVisibility,
+        segmentVisibility,
+        ...storedLibraryState
+      } = storedState;
       this.libraryState = {
         ...this.libraryState,
-        ...storedState
+        ...storedLibraryState
       };
       this.uiState.set("workoutLibraryState", this.libraryState);
       this.libraryView.applyState(this.libraryState);
 
-      if (storedState.segmentVisibility) {
+      if (xAxisMode || smoothingLevel || seriesVisibility || segmentVisibility) {
         this.chartViewState = {
           ...this.chartViewState,
+          ...(xAxisMode ? { xAxisMode } : {}),
+          ...(smoothingLevel ? { smoothingLevel } : {}),
+          ...(seriesVisibility ? {
+            seriesVisibility: {
+              ...this.chartViewState.seriesVisibility,
+              ...seriesVisibility
+            }
+          } : {}),
           segmentVisibility: {
             ...this.chartViewState.segmentVisibility,
-            ...storedState.segmentVisibility
+            ...segmentVisibility
           }
         };
         this.uiState.set("chartViewState", this.chartViewState);
-        this.chartView.setSegmentVisibility(this.chartViewState.segmentVisibility);
+        this.chartView.applyPreferences(this.chartViewState);
         this.mapView.setSegmentVisibility(this.chartViewState.segmentVisibility);
       }
     } catch (err) {
@@ -414,6 +515,11 @@ export default class Controller {
 
     this.pendingWorkoutLibraryPreferenceState = {
       ...state,
+      xAxisMode: this.chartViewState.xAxisMode,
+      smoothingLevel: this.chartViewState.smoothingLevel,
+      seriesVisibility: {
+        ...this.chartViewState.seriesVisibility
+      },
       segmentVisibility: {
         ...this.chartViewState.segmentVisibility
       }

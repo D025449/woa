@@ -208,6 +208,7 @@ self.addEventListener("message", async (event) => {
         buildWoaStepsMs: result.timings || {}
       },
       workoutStreamStats: result.stats?.workoutStream || {},
+      powerArtifactStats: adjustedParsed.compactRecords?.powerArtifactStats || {},
       browserPostprocess,
       browserGpsSegmentBenchmark,
       sessionsCount: getParsedSessionCount(adjustedParsed)

@@ -2339,43 +2339,8 @@ function deriveSummaryAndFilterIndoorGps(parsedCompact, gpsTrack, sourceName = "
   return { gpsTrack: filteredGpsTrack, summary };
 }
 
-function filterStationaryIndoorAltitude(compactRecords, summary) {
+function filterIndoorAltitude(compactRecords, summary) {
   if (summary?.persistedRow?.workout_type !== "indoor") {
-    return compactRecords;
-  }
-
-  const recordCount = Number(compactRecords?.recordCount || 0);
-  const distances = compactRecords?.distancesQ;
-  const altitudes = compactRecords?.altitudesQ;
-  if (recordCount <= 0 || !distances || !altitudes) {
-    return compactRecords;
-  }
-
-  let minDistanceQ = Infinity;
-  let maxDistanceQ = -Infinity;
-  let minAltitudeQ = Infinity;
-  let maxAltitudeQ = -Infinity;
-  for (let index = 0; index < recordCount; index += 1) {
-    const distanceQ = Number(distances[index]);
-    if (distanceQ !== UINT32_NAN) {
-      minDistanceQ = Math.min(minDistanceQ, distanceQ);
-      maxDistanceQ = Math.max(maxDistanceQ, distanceQ);
-    }
-
-    const altitudeQ = Number(altitudes[index]);
-    if (altitudeQ !== INT16_NAN) {
-      minAltitudeQ = Math.min(minAltitudeQ, altitudeQ);
-      maxAltitudeQ = Math.max(maxAltitudeQ, altitudeQ);
-    }
-  }
-
-  const distanceSpanMeters = Number.isFinite(minDistanceQ) && Number.isFinite(maxDistanceQ)
-    ? (maxDistanceQ - minDistanceQ) * 0.5
-    : 0;
-  const altitudeSpanMeters = Number.isFinite(minAltitudeQ) && Number.isFinite(maxAltitudeQ)
-    ? (maxAltitudeQ - minAltitudeQ) / 4
-    : 0;
-  if (distanceSpanMeters >= 100 || altitudeSpanMeters > 10) {
     return compactRecords;
   }
 
@@ -2383,6 +2348,12 @@ function filterStationaryIndoorAltitude(compactRecords, summary) {
   summary.totalDescent = 0;
   summary.persistedRow.total_ascent = 0;
   summary.persistedRow.total_descent = 0;
+
+  const recordCount = Number(compactRecords?.recordCount || 0);
+  const altitudes = compactRecords?.altitudesQ;
+  if (recordCount <= 0 || !altitudes) {
+    return compactRecords;
+  }
 
   return {
     ...compactRecords,
@@ -2425,7 +2396,7 @@ export function createWoa1FileFromCompact(parsedCompact, {
   const finalizedGps = deriveSummaryAndFilterIndoorGps(preparedParsedCompact, gpsTrack, sourceName);
   gpsTrack = finalizedGps.gpsTrack;
   const summary = finalizedGps.summary;
-  const workoutCompactRecords = filterStationaryIndoorAltitude(
+  const workoutCompactRecords = filterIndoorAltitude(
     preparedParsedCompact?.compactRecords || {},
     summary
   );
@@ -2566,7 +2537,7 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
   const finalizedGps = deriveSummaryAndFilterIndoorGps(preparedParsedCompact, gpsTrack, sourceName);
   gpsTrack = finalizedGps.gpsTrack;
   const summary = finalizedGps.summary;
-  const workoutCompactRecords = filterStationaryIndoorAltitude(
+  const workoutCompactRecords = filterIndoorAltitude(
     preparedParsedCompact?.compactRecords || {},
     summary
   );

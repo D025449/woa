@@ -1,5 +1,6 @@
 import express from "express";
 import multer from "multer";
+import { zipSync } from "fflate";
 
 import authMiddleware from "../middleware/authMiddleware.js";
 import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
@@ -204,6 +205,59 @@ function formatFitExportFileName(startTimeValue, fallbackId) {
 
   return `${yyyy}-${MM}-${dd}-${HH}-${mm}-${ss}.fit`;
 }
+
+router.get("/export/all/source.zip", authMiddleware, async (req, res) => {
+  try {
+    const startedAt = performance.now();
+    const rows = await WorkoutDBService.getOwnedFitExportPayloadRows(req.user.id);
+    const loadRowsMs = performance.now() - startedAt;
+    const entries = {};
+
+    for (const row of rows) {
+      entries[`W-${row.id}.wopn`] = WorkoutOpenV2.buildPayload({
+        meta: {
+          workoutId: Number(row.id),
+          startTime: row.start_time || null,
+          totalTimerTime: row.total_timer_time == null ? null : Number(row.total_timer_time),
+          totalDistance: row.total_distance == null ? null : Number(row.total_distance),
+          avgPower: row.avg_power == null ? null : Number(row.avg_power),
+          streamCodec: String(row.stream_codec || "gzip"),
+          gpsTrackCodec: String(row.gps_track_blob_codec || "identity"),
+          validGps: !!row.validgps,
+          sampleRateGps: Number(row.samplerategps || 0) || null,
+          gpsSource: row.gps_source || null
+        },
+        workoutStream: row.stream || new Uint8Array(0),
+        gpsTrackBlob: row.gps_track_blob || new Uint8Array(0)
+      });
+    }
+
+    const buildPayloadsMs = performance.now() - startedAt - loadRowsMs;
+    const archiveStartedAt = performance.now();
+    const archive = zipSync(entries, { level: 0 });
+    const zipMs = performance.now() - archiveStartedAt;
+
+    console.info("[fit-export] bulk-source.profile", {
+      uid: String(req.user.id),
+      workoutCount: rows.length,
+      archiveBytes: archive.byteLength,
+      loadRowsMs: Number(loadRowsMs.toFixed(2)),
+      buildPayloadsMs: Number(buildPayloadsMs.toFixed(2)),
+      zipMs: Number(zipMs.toFixed(2)),
+      totalMs: Number((performance.now() - startedAt).toFixed(2))
+    });
+
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", 'attachment; filename="woa-workout-export-source.zip"');
+    res.setHeader("Cache-Control", "no-store");
+    return res.send(Buffer.from(archive.buffer, archive.byteOffset, archive.byteLength));
+  } catch (err) {
+    console.error("GET /workouts/export/all/source.zip failed:", err);
+    return res.status(500).json({
+      error: err.message || "Failed to prepare workout export"
+    });
+  }
+});
 
 router.get("/:id/export.fit", authMiddleware, async (req, res) => {
   try {

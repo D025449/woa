@@ -1,4 +1,5 @@
 import { FIT } from "../../../vendor/fit-file-parser-fast/dist/fit.js";
+import { filterPowerArtifactsInPlace } from "../../shared/powerArtifactFilter.js";
 
 const GARMIN_TIME_OFFSET_MS = 631065600000;
 const SEMICIRCLES_TO_DEGREES = 180 / 0x80000000;
@@ -250,6 +251,77 @@ function finalizeCompactRecordBuffer(buffer, baseTimestampSec) {
   };
 }
 
+export function normalizeCompactMissingMetricsInPlace(compactRecords) {
+  const recordCount = Number(compactRecords?.recordCount || 0);
+  if (recordCount <= 0) return compactRecords;
+
+  const distances = compactRecords.distancesQ;
+  const powers = compactRecords.powersW;
+  const heartRates = compactRecords.heartRatesBpm;
+  const cadences = compactRecords.cadencesRpm;
+  const speeds = compactRecords.speedsCmS;
+  const altitudes = compactRecords.altitudesQ;
+
+  let previousDistance = 0;
+  for (let index = 0; index < recordCount; index += 1) {
+    if (distances?.[index] === COMPACT_SENTINELS.uint32) {
+      distances[index] = previousDistance;
+    } else if (distances) {
+      previousDistance = distances[index];
+    }
+    if (powers?.[index] === COMPACT_SENTINELS.uint16) powers[index] = 0;
+    if (heartRates?.[index] === COMPACT_SENTINELS.uint8) heartRates[index] = 0;
+    if (cadences?.[index] === COMPACT_SENTINELS.uint8) cadences[index] = 0;
+    if (speeds?.[index] === COMPACT_SENTINELS.uint16) speeds[index] = 0;
+  }
+
+  if (altitudes) {
+    let firstValidAltitude = COMPACT_SENTINELS.int16;
+    for (let index = 0; index < recordCount; index += 1) {
+      if (altitudes[index] !== COMPACT_SENTINELS.int16) {
+        firstValidAltitude = altitudes[index];
+        break;
+      }
+    }
+
+    if (firstValidAltitude !== COMPACT_SENTINELS.int16) {
+      let previousAltitude = firstValidAltitude;
+      for (let index = 0; index < recordCount; index += 1) {
+        if (altitudes[index] === COMPACT_SENTINELS.int16) {
+          altitudes[index] = previousAltitude;
+        } else {
+          previousAltitude = altitudes[index];
+        }
+      }
+    }
+  }
+
+  return compactRecords;
+}
+
+function cleanCompactPowerArtifacts(compactRecords) {
+  normalizeCompactMissingMetricsInPlace(compactRecords);
+  const startedAt = performance.now();
+  const stats = filterPowerArtifactsInPlace({
+    recordCount: compactRecords.recordCount,
+    powersW: compactRecords.powersW,
+    cadencesRpm: compactRecords.cadencesRpm,
+    heartRatesBpm: compactRecords.heartRatesBpm,
+    speeds: compactRecords.speedsCmS
+  }, {
+    invalidPowerValue: COMPACT_SENTINELS.uint16,
+    invalidCadenceValue: COMPACT_SENTINELS.uint8,
+    invalidHeartRateValue: COMPACT_SENTINELS.uint8,
+    invalidSpeedValue: COMPACT_SENTINELS.uint16,
+    maximumSpeedDelta: 150
+  });
+  compactRecords.powerArtifactStats = {
+    ...stats,
+    elapsedMs: performance.now() - startedAt
+  };
+  return compactRecords;
+}
+
 function fillGapsCompactRecords(compactRecords) {
   const recordCount = Number(compactRecords?.recordCount || 0);
   const timestampsSec = compactRecords?.timestampsSec;
@@ -305,7 +377,7 @@ function fillGapsCompactRecords(compactRecords) {
 
   const outputRecordCount = recordCount + countInterpolatedSteps();
   if (outputRecordCount === recordCount) {
-    return { ...compactRecords, timestampsSec: null };
+    return cleanCompactPowerArtifacts({ ...compactRecords, timestampsSec: null });
   }
 
   const outDistancesQ = new Uint32Array(outputRecordCount);
@@ -389,7 +461,7 @@ function fillGapsCompactRecords(compactRecords) {
 
   writeIndex = pushRecord(writeIndex, recordCount - 1);
 
-  return {
+  const filledRecords = {
     ...compactRecords,
     recordCount: writeIndex,
     timestampsSec: null,
@@ -402,6 +474,7 @@ function fillGapsCompactRecords(compactRecords) {
     positionLatsE6: outPositionLatsE6,
     positionLongsE6: outPositionLongsE6
   };
+  return cleanCompactPowerArtifacts(filledRecords);
 }
 
 function makeCompactRecordOps(fields, littleEndian) {
@@ -508,13 +581,22 @@ export function parseFitBufferCompactBrowser(buffer, { excludeStartTimes = null 
         };
         offset += 3;
       }
+      let developerMessageBytes = 0;
       if (hasDeveloper) {
         const developerCount = bytes[offset];
-        offset += 1 + developerCount * 3;
+        offset += 1;
+        for (let index = 0; index < developerCount; index += 1) {
+          developerMessageBytes += bytes[offset + 1];
+          offset += 3;
+        }
       }
+      const recordDefinition = globalMessage === 20
+        ? makeCompactRecordOps(fields, littleEndian)
+        : { ops: null, messageBytes: fields.reduce((sum, field) => sum + field.size, 0) };
       definitions[localMessage] = {
         globalMessage,
-        ...(globalMessage === 20 ? makeCompactRecordOps(fields, littleEndian) : { ops: null, messageBytes: fields.reduce((sum, field) => sum + field.size, 0) }),
+        ...recordDefinition,
+        messageBytes: recordDefinition.messageBytes + developerMessageBytes,
         sessionOps: globalMessage === 18 ? makeSessionOps(fields, littleEndian) : null,
       };
       cursor = offset;

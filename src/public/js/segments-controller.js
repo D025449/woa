@@ -54,6 +54,7 @@ export default class Controller {
     this.nextSegmentButton = document.getElementById("segment-next");
     this.map3dToggleButton = document.getElementById("segments-map-3d-toggle");
     this.segmentArchiveExportButton = document.getElementById("segments-archive-export");
+    this.segmentGpxExportButton = document.getElementById("segments-gpx-export");
     this.segmentArchiveImportButton = document.getElementById("segments-archive-import");
     this.segmentArchiveFileInput = document.getElementById("segments-archive-file");
     this.segmentArchiveBusy = false;
@@ -177,6 +178,10 @@ export default class Controller {
     this.segmentArchiveExportButton?.addEventListener("click", async () => {
       document.getElementById("segments-map-tools-menu")?.removeAttribute("open");
       await this.exportSegmentArchive();
+    });
+    this.segmentGpxExportButton?.addEventListener("click", async () => {
+      document.getElementById("segments-map-tools-menu")?.removeAttribute("open");
+      await this.exportSegmentGpxArchive();
     });
     this.segmentArchiveImportButton?.addEventListener("click", () => {
       document.getElementById("segments-map-tools-menu")?.removeAttribute("open");
@@ -1420,6 +1425,7 @@ export default class Controller {
   setSegmentArchiveBusy(busy) {
     this.segmentArchiveBusy = !!busy;
     if (this.segmentArchiveExportButton) this.segmentArchiveExportButton.disabled = this.segmentArchiveBusy;
+    if (this.segmentGpxExportButton) this.segmentGpxExportButton.disabled = this.segmentArchiveBusy;
     if (this.segmentArchiveImportButton) this.segmentArchiveImportButton.disabled = this.segmentArchiveBusy;
   }
 
@@ -1448,6 +1454,32 @@ export default class Controller {
       this.showToast(this.t("messages.segmentArchiveExported"));
     } catch (error) {
       console.error("Segment archive export failed", error);
+      window.alert(error.message || this.t("messages.segmentArchiveFailed"));
+    } finally {
+      this.setSegmentArchiveBusy(false);
+    }
+  }
+
+  async exportSegmentGpxArchive() {
+    if (this.segmentArchiveBusy) return;
+    this.setSegmentArchiveBusy(true);
+    try {
+      const response = await fetch("/segments/archive/export-gpx");
+      if (!response.ok) throw new Error(await this.readApiError(response));
+
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1] || "woa-segments-gpx.zip";
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      this.showToast(this.t("messages.segmentGpxExported"));
+    } catch (error) {
+      console.error("Segment GPX export failed", error);
       window.alert(error.message || this.t("messages.segmentArchiveFailed"));
     } finally {
       this.setSegmentArchiveBusy(false);

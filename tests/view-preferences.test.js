@@ -13,6 +13,16 @@ test("normalizes workout library preferences to supported values", () => {
     favoritesOnly: true,
     workoutType: "road",
     gpsFilter: "valid",
+    xAxisMode: "distance",
+    smoothingLevel: "automatic",
+    seriesVisibility: {
+      power: true,
+      heartRate: false,
+      cadence: true,
+      speed: false,
+      altitude: true,
+      injected: false
+    },
     ignored: "value"
   }), {
     search: "power > 250",
@@ -20,7 +30,16 @@ test("normalizes workout library preferences to supported values", () => {
     scope: "all",
     favoritesOnly: true,
     workoutType: "road",
-    gpsFilter: "valid"
+    gpsFilter: "valid",
+    seriesVisibility: {
+      power: true,
+      heartRate: false,
+      cadence: true,
+      speed: false,
+      altitude: true
+    },
+    xAxisMode: "distance",
+    smoothingLevel: "automatic"
   });
 });
 
@@ -30,7 +49,9 @@ test("rejects unsupported workout library preference values safely", () => {
     scope: "everyone",
     favoritesOnly: "true",
     workoutType: "gravel",
-    gpsFilter: "sometimes"
+    gpsFilter: "sometimes",
+    xAxisMode: "laps",
+    smoothingLevel: "maximum"
   }), {
     search: "",
     sort: "newest",
@@ -64,6 +85,9 @@ test("keeps legacy preferences without segment visibility backward compatible", 
   const state = normalizeWorkoutLibraryState({ sort: "duration" });
 
   assert.equal("segmentVisibility" in state, false);
+  assert.equal("seriesVisibility" in state, false);
+  assert.equal("xAxisMode" in state, false);
+  assert.equal("smoothingLevel" in state, false);
 });
 
 test("upserts one JSON preference row per user and view", async () => {

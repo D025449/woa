@@ -15,6 +15,22 @@ const WORKOUT_LIBRARY_SORTS = new Set([
 const WORKOUT_LIBRARY_SCOPES = new Set(["mine", "shared", "all"]);
 const WORKOUT_TYPES = new Set(["all", "indoor", "road", "mountain", "unknown"]);
 const GPS_FILTERS = new Set(["all", "valid", "invalid"]);
+const CHART_X_AXIS_MODES = new Set(["time", "distance"]);
+const CHART_SMOOTHING_LEVELS = new Set([
+  "automatic",
+  "off",
+  "light",
+  "medium",
+  "strong",
+  "veryStrong"
+]);
+const CHART_SERIES_VISIBILITY_KEYS = [
+  "power",
+  "heartRate",
+  "cadence",
+  "speed",
+  "altitude"
+];
 const SEGMENT_VISIBILITY_KEYS = [
   "criticalPower",
   "auto",
@@ -40,6 +56,27 @@ export function normalizeWorkoutLibraryState(state = {}) {
     workoutType: normalizeEnum(source.workoutType, WORKOUT_TYPES, "all"),
     gpsFilter: normalizeEnum(source.gpsFilter, GPS_FILTERS, "all")
   };
+
+  if (
+    source.seriesVisibility
+    && typeof source.seriesVisibility === "object"
+    && !Array.isArray(source.seriesVisibility)
+  ) {
+    normalized.seriesVisibility = Object.fromEntries(
+      CHART_SERIES_VISIBILITY_KEYS.map((key) => [
+        key,
+        source.seriesVisibility[key] !== false
+      ])
+    );
+  }
+
+  if (CHART_X_AXIS_MODES.has(source.xAxisMode)) {
+    normalized.xAxisMode = source.xAxisMode;
+  }
+
+  if (CHART_SMOOTHING_LEVELS.has(source.smoothingLevel)) {
+    normalized.smoothingLevel = source.smoothingLevel;
+  }
 
   if (
     source.segmentVisibility

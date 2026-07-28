@@ -169,6 +169,36 @@ body.dashboard-page {
   min-width: 0;
 }
 
+.dashboard-export-fit-button {
+  min-height: 2.15rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  padding: 0.38rem 0.66rem;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-radius: 0.42rem;
+  background: rgba(255, 255, 255, 0.92);
+  color: #14538c;
+  font-size: 0.76rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.dashboard-export-fit-button:hover:not(:disabled) {
+  background: #fff;
+  color: #0b477a;
+}
+
+.dashboard-export-fit-button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.dashboard-export-fit-button svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
 body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle {
   border-color: rgba(255, 255, 255, 0.4);
   background: rgba(255, 255, 255, 0.12);
@@ -2370,6 +2400,10 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
     flex: 0 0 auto;
     justify-content: flex-end;
     margin-left: auto;
+  }
+
+  .dashboard-export-fit-button span {
+    display: none;
   }
 
   .dashboard-hero .workout-library-scope-toggle .btn {

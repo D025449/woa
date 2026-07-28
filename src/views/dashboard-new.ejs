@@ -48,6 +48,16 @@
                         </div>
                     </div>
                     <div class="dashboard-hero-meta">
+                        <button
+                            id="dashboard-export-all-fit"
+                            class="dashboard-export-fit-button"
+                            type="button"
+                            title="<%= t('dashboardNewPage.exportAllFit') %>">
+                            <svg viewBox="0 0 20 20" aria-hidden="true">
+                                <path d="M10 3.2v8.4M6.8 8.7L10 12l3.2-3.3M4 15.8h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+                            </svg>
+                            <span><%= t("dashboardNewPage.exportAllFit") %></span>
+                        </button>
                         <div class="workout-library-scope-toggle" role="group" aria-label="<%= t('dashboardNewPage.filterAria') %>">
                             <button
                                 id="workout-library-scope-mine"

@@ -1019,6 +1019,30 @@ export default class WorkoutDBService {
     };
   }
 
+  static async getOwnedFitExportPayloadRows(uid) {
+    const result = await pool.query(
+      `SELECT
+        id,
+        start_time,
+        total_timer_time,
+        total_distance,
+        avg_power,
+        validgps,
+        sampleRateGPS,
+        gps_source,
+        stream,
+        stream_codec,
+        gps_track_blob,
+        gps_track_blob_codec
+       FROM workouts
+       WHERE uid = $1
+       ORDER BY start_time ASC NULLS LAST, id ASC`,
+      [uid]
+    );
+
+    return result.rows;
+  }
+
   static async getManualGpsContext(id, uid) {
     const accessInfo = await WorkoutSharingService.getAccessibleWorkout(uid, id);
     if (!accessInfo?.is_owner) {

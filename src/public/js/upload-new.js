@@ -896,6 +896,7 @@ function renderCompletedContainerMarkup({
                 Successfully converted: ${escapeHtml(String(stats.convertedEntries || 0))}<br>
                 Total records: ${escapeHtml(String(stats.totalRecordCount || 0))}<br>
                 Reduced GPS points: ${escapeHtml(String(stats.totalGpsPointCount || 0))}<br>
+                Power artifacts corrected: ${escapeHtml(String(stats.powerArtifactCount || 0))} peaks / ${escapeHtml(String(stats.powerArtifactSampleCount || 0))} samples (${escapeHtml(formatMs(stats.powerArtifactFilterMs))} CPU)<br>
                 Source ZIP size: ${escapeHtml(formatBytes(Number(stats.sourceZipBytes || 0)))}<br>
                 ${Number(stats.outputContainerBytes || 0) > 0
                     ? `Output container size: ${escapeHtml(formatBytes(Number(stats.outputContainerBytes || 0)))} (${escapeHtml(compressionRatio)}% of source ZIP, ${containerCompressionDetail})`
@@ -1260,10 +1261,14 @@ async function handleConvertSubmit(event) {
                     setReadProgress(percent, `${formatBytes(aggregateLoaded)} / ${formatBytes(totalSourceBytes)}`);
                 });
                 totalLoadedBytes += currentFile.size;
-                workerFiles.push({
-                    name: currentFile.name,
-                    arrayBuffer: currentArrayBuffer
-                });
+                if (selectedFiles.length === 1 && !currentIsZip) {
+                    arrayBuffer = currentArrayBuffer;
+                } else {
+                    workerFiles.push({
+                        name: currentFile.name,
+                        arrayBuffer: currentArrayBuffer
+                    });
+                }
             }
         }
         if (!Number.isFinite(Number(startupTimings.readSourceMs))) {
@@ -1575,7 +1580,8 @@ async function handleConvertSubmit(event) {
                             Existing duplicates skipped: ${escapeHtml(String(stats.skippedExistingEntries || 0))}<br>
                             Too-short workouts skipped: ${escapeHtml(String(stats.skippedTooShortEntries || 0))}<br>
                             Total records: ${escapeHtml(String(stats.totalRecordCount || 0))}<br>
-                            Reduced GPS points: ${escapeHtml(String(stats.totalGpsPointCount || 0))}
+                            Reduced GPS points: ${escapeHtml(String(stats.totalGpsPointCount || 0))}<br>
+                            Power artifacts corrected: ${escapeHtml(String(stats.powerArtifactCount || 0))} peaks / ${escapeHtml(String(stats.powerArtifactSampleCount || 0))} samples (${escapeHtml(formatMs(stats.powerArtifactFilterMs))} CPU)
                         </div>
                         <div class="small mb-3">
                             Source ZIP size: ${escapeHtml(formatBytes(Number(stats.sourceZipBytes || 0)))}<br>
@@ -1719,6 +1725,7 @@ async function handleConvertSubmit(event) {
                             Successfully converted: ${escapeHtml(String(stats.convertedEntries || 0))}<br>
                             Total records: ${escapeHtml(String(stats.totalRecordCount || 0))}<br>
                             Reduced GPS points: ${escapeHtml(String(stats.totalGpsPointCount || 0))}<br>
+                            Power artifacts corrected: ${escapeHtml(String(stats.powerArtifactCount || 0))} peaks / ${escapeHtml(String(stats.powerArtifactSampleCount || 0))} samples (${escapeHtml(formatMs(stats.powerArtifactFilterMs))} CPU)<br>
                             Source ZIP size: ${escapeHtml(formatBytes(Number(stats.sourceZipBytes || 0)))}<br>
                             Output container size: ${escapeHtml(formatBytes(Number(stats.outputContainerBytes || 0)))} (${escapeHtml(compressionRatio)}% of source ZIP, ${containerCompressionDetail})
                             <br>GPS coordinate encoding: ${escapeHtml(String(stats.gpsCoordinateEncoding || "bitmap-columnar"))}

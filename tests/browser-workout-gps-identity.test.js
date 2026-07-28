@@ -153,10 +153,12 @@ test("browser WOA1 removes meaningless GPS bounce tracks from indoor workouts", 
   assert.equal(woa.meta.pointsCount, 0);
   assert.equal(decodedGps.validGps, false);
   assert.equal(decodedGps.pointCount, 0);
-  assert.equal(decodedWorkout.altitudesM.every((altitude) => altitude === 300), true);
+  assert.equal(woa.meta.persistedRow.total_ascent, 0);
+  assert.equal(woa.meta.persistedRow.total_descent, 0);
+  assert.equal(decodedWorkout.altitudesM.every(Number.isNaN), true);
 });
 
-test("browser WOA1 removes barometric drift from stationary indoor workouts", async () => {
+test("browser WOA1 removes barometric altitude from stationary indoor workouts", async () => {
   const recordCount = 600;
   const baseTimestampSec = 1_700_000_000;
   const compactRecords = {
@@ -203,6 +205,57 @@ test("browser WOA1 removes barometric drift from stationary indoor workouts", as
   assert.equal(woa.meta.totalDescent, 0);
   assert.equal(decodedWorkout.altitudesM.every(Number.isNaN), true);
   assert.ok(woa.stats.workoutStream.blockBytes.altitudes < 32);
+});
+
+test("browser WOA1 preserves barometric altitude for outdoor workouts without GPS", async () => {
+  const recordCount = 600;
+  const baseTimestampSec = 1_700_000_000;
+  const compactRecords = {
+    recordCount,
+    baseTimestampSec,
+    lastTimestampSec: baseTimestampSec + recordCount - 1,
+    distancesQ: Uint32Array.from(
+      { length: recordCount },
+      (_, index) => Math.round(index * 16.7)
+    ),
+    powersW: new Uint16Array(recordCount).fill(200),
+    heartRatesBpm: new Uint8Array(recordCount).fill(140),
+    cadencesRpm: new Uint8Array(recordCount).fill(90),
+    speedsCmS: new Uint16Array(recordCount).fill(833),
+    altitudesQ: Int16Array.from(
+      { length: recordCount },
+      (_, index) => 1_200 + (index % 80)
+    ),
+    positionLatsE6: new Int32Array(recordCount).fill(-0x80000000),
+    positionLongsE6: new Int32Array(recordCount).fill(-0x80000000)
+  };
+  const sessions = [{
+    start_time: new Date(baseTimestampSec * 1000).toISOString(),
+    timestamp: new Date((baseTimestampSec + recordCount - 1) * 1000).toISOString(),
+    total_elapsed_time: recordCount,
+    total_timer_time: recordCount,
+    total_distance: 5_000,
+    total_ascent: 120,
+    total_descent: 115,
+    avg_speed: 8.33,
+    avg_power: 200,
+    avg_heart_rate: 140,
+    avg_cadence: 90
+  }];
+
+  const woa = await createWoa1FileFromCompactAsync({ compactRecords, sessions }, {
+    sourceName: "outdoor-without-gps.fit",
+    sampleRateSeconds: 5,
+    compressWorkoutStream: null,
+    compressGpsTrack: null
+  });
+  const decodedWorkout = Workout.decodeWst3Buffer(woa.workoutStreamBytes);
+
+  assert.equal(woa.meta.persistedRow.workout_type, "road");
+  assert.equal(woa.meta.persistedRow.validGps, false);
+  assert.equal(woa.meta.persistedRow.total_ascent, 120);
+  assert.equal(woa.meta.persistedRow.total_descent, 115);
+  assert.equal(decodedWorkout.altitudesM.some(Number.isFinite), true);
 });
 
 test("browser GPS reader trusts a raw GPS2 signature over stale Brotli metadata", async () => {

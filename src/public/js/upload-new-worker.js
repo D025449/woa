@@ -338,6 +338,9 @@ async function convertFitEntriesParallel({
       browserGpsSegmentSamples: [],
       speedFallbackWorkoutCount: 0,
       speedFallbackRecordCount: 0,
+      powerArtifactCount: 0,
+      powerArtifactSampleCount: 0,
+      powerArtifactFilterMs: 0,
       totalRecordCount: 0,
       totalGpsPointCount: 0
     };
@@ -364,6 +367,9 @@ async function convertFitEntriesParallel({
   const browserGpsSegmentSamples = [];
   let speedFallbackWorkoutCount = 0;
   let speedFallbackRecordCount = 0;
+  let powerArtifactCount = 0;
+  let powerArtifactSampleCount = 0;
+  let powerArtifactFilterMs = 0;
   let totalRecordCount = 0;
   let totalGpsPointCount = 0;
   const seenAcceptedStartTimes = new Set(normalizeExistingStartTimeSet(existingStartTimes));
@@ -476,6 +482,9 @@ async function convertFitEntriesParallel({
             buildTimingSamples.push(data.timings?.buildWoaStepsMs || {});
             speedFallbackWorkoutCount += Number(data.workoutStreamStats?.usesSpeedFallback ? 1 : 0);
             speedFallbackRecordCount += Number(data.workoutStreamStats?.speedFallbackRecordCount || 0);
+            powerArtifactCount += Number(data.powerArtifactStats?.artifactCount || 0);
+            powerArtifactSampleCount += Number(data.powerArtifactStats?.correctedSampleCount || 0);
+            powerArtifactFilterMs += Number(data.powerArtifactStats?.elapsedMs || 0);
             totalRecordCount += Number(data.recordCount || 0);
             totalGpsPointCount += Number(data.gpsPointCount || 0);
           }
@@ -533,6 +542,9 @@ async function convertFitEntriesParallel({
     browserGpsSegmentSamples,
     speedFallbackWorkoutCount,
     speedFallbackRecordCount,
+    powerArtifactCount,
+    powerArtifactSampleCount,
+    powerArtifactFilterMs,
     totalRecordCount,
     totalGpsPointCount
   };
@@ -715,10 +727,14 @@ self.addEventListener("message", async (event) => {
     const normalizedRepeatCount = Number.isInteger(Number(repeatCount)) && Number(repeatCount) > 0
       ? Number(repeatCount)
       : DEFAULT_BENCH_REPEAT_COUNT;
+    const fitSourceBuffer = arrayBuffer || files[0]?.arrayBuffer;
+    if (!fitSourceBuffer) {
+      throw new Error("Missing FIT source buffer");
+    }
 
     for (let iteration = 0; iteration < normalizedRepeatCount; iteration += 1) {
       const parseStartedAt = nowMs();
-      const parsed = parseFitBufferCompactBrowser(arrayBuffer, {
+      const parsed = parseFitBufferCompactBrowser(fitSourceBuffer, {
         excludeStartTimes: existingStartTimes
       });
       parseSamplesMs.push(nowMs() - parseStartedAt);
@@ -841,6 +857,9 @@ async function convertMixedEntriesToWoaZip({
   const browserGpsSegmentSamples = [];
   let speedFallbackWorkoutCount = 0;
   let speedFallbackRecordCount = 0;
+  let powerArtifactCount = 0;
+  let powerArtifactSampleCount = 0;
+  let powerArtifactFilterMs = 0;
   const skippedEntries = [];
   const skippedExistingEntries = [];
   const skippedTooShortEntries = [];
@@ -893,6 +912,9 @@ async function convertMixedEntriesToWoaZip({
     browserGpsSegmentSamples.push(...parallelResult.browserGpsSegmentSamples);
     speedFallbackWorkoutCount += Number(parallelResult.speedFallbackWorkoutCount || 0);
     speedFallbackRecordCount += Number(parallelResult.speedFallbackRecordCount || 0);
+    powerArtifactCount += Number(parallelResult.powerArtifactCount || 0);
+    powerArtifactSampleCount += Number(parallelResult.powerArtifactSampleCount || 0);
+    powerArtifactFilterMs += Number(parallelResult.powerArtifactFilterMs || 0);
     totalRecordCount += Number(parallelResult.totalRecordCount || 0);
     totalGpsPointCount += Number(parallelResult.totalGpsPointCount || 0);
     processedEntries = sortedFitEntries.length;
@@ -943,6 +965,9 @@ async function convertMixedEntriesToWoaZip({
         buildTimingSamples.push(result.timings || {});
         speedFallbackWorkoutCount += Number(result.stats?.workoutStream?.usesSpeedFallback ? 1 : 0);
         speedFallbackRecordCount += Number(result.stats?.workoutStream?.speedFallbackRecordCount || 0);
+        powerArtifactCount += Number(adjustedParsed.compactRecords?.powerArtifactStats?.artifactCount || 0);
+        powerArtifactSampleCount += Number(adjustedParsed.compactRecords?.powerArtifactStats?.correctedSampleCount || 0);
+        powerArtifactFilterMs += Number(adjustedParsed.compactRecords?.powerArtifactStats?.elapsedMs || 0);
         if (encodingOptions.browserPostprocessBenchmark) {
           const postprocessStartedAt = nowMs();
           const segments = detectWorkoutLocalSegmentsCompact(adjustedParsed.compactRecords);
@@ -1159,6 +1184,9 @@ async function convertMixedEntriesToWoaZip({
         skippedTooShortEntries: skippedTooShortEntries.length,
         totalRecordCount,
         totalGpsPointCount,
+        powerArtifactCount,
+        powerArtifactSampleCount,
+        powerArtifactFilterMs,
         sourceZipBytes: sourceBytes,
         outputContainerBytes: compressedContainerBytes.byteLength,
         rawContainerBytes: rawContainerBytes.byteLength,
@@ -1225,6 +1253,9 @@ async function convertMixedEntriesToWoaZip({
       skippedTooShortEntries: skippedTooShortEntries.length,
       totalRecordCount,
       totalGpsPointCount,
+      powerArtifactCount,
+      powerArtifactSampleCount,
+      powerArtifactFilterMs,
       sourceZipBytes: sourceBytes,
       outputZipBytes: outputZipBytes.byteLength,
       outerZipLevel: OUTER_ZIP_LEVEL

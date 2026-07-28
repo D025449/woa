@@ -1,4 +1,5 @@
 import Workout from "../shared/Workout.js";
+import { filterPowerArtifactsInPlace } from "../shared/powerArtifactFilter.js";
 
 const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
 const FIT_GPS_TRACK_HASH_MODE = String(process.env.FIT_GPS_TRACK_HASH_MODE || "lazy").trim().toLowerCase() === "eager"
@@ -277,6 +278,15 @@ export default class FitProcessor {
     timing.mark("fill-gaps", {
       filledRecordCount: filled.recordCount
     });
+
+    const powerArtifactStats = filterPowerArtifactsInPlace({
+      recordCount: filled.recordCount,
+      powersW: filled.powersW,
+      cadencesRpm: filled.cadencesRpm,
+      heartRatesBpm: filled.heartRatesBpm,
+      speeds: filled.speedsMps
+    });
+    timing.mark("clean-power-artifacts", powerArtifactStats);
 
     FitProcessor.cleanAltitudeTyped(filled, {
       sourceName: options?.sourceName ?? null

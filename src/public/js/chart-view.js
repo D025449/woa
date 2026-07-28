@@ -7,8 +7,14 @@ import {
   SEGMENT_COLORS,
   isSegmentVisible
 } from "./segment-visibility.js";
+import {
+  ADAPTIVE_CHART_RESOLUTION_ENABLED,
+  buildAdaptiveChartResolutionLevels,
+  selectAdaptiveChartResolution
+} from "./adaptive-chart-resolution.js";
 
 const MIN_DISTANCE_AXIS_SPAN_METERS = 100;
+const ADAPTIVE_CHART_ZOOM_DELAY_MS = 100;
 
 export function hasMeaningfulDistanceSeries(
   workoutObject,
@@ -31,6 +37,120 @@ export function hasMeaningfulDistanceSeries(
     && lastDistance - firstDistance >= Math.max(0, Number(minSpanMeters) || 0);
 }
 
+export function getAvailableWorkoutSeries(workoutObject) {
+  const availability = {
+    power: false,
+    heartRate: false,
+    cadence: false,
+    speed: false,
+    altitude: false
+  };
+  const length = Math.max(0, Number(workoutObject?.length) || 0);
+
+  if (length === 0 || typeof workoutObject?.getMetricsAt !== "function") {
+    return availability;
+  }
+
+  for (let index = 0; index < length; index += 1) {
+    const metrics = workoutObject.getMetricsAt(index);
+    availability.power ||= Number(metrics?.power) > 0;
+    availability.heartRate ||= Number(metrics?.hr) > 0;
+    availability.cadence ||= Number(metrics?.cadence) > 0;
+    availability.speed ||= Number(metrics?.speed) > 0;
+    availability.altitude ||= Number.isFinite(Number(metrics?.altitude))
+      && Number(metrics.altitude) !== 0;
+
+    if (
+      availability.power
+      && availability.heartRate
+      && availability.cadence
+      && availability.speed
+      && availability.altitude
+    ) {
+      break;
+    }
+  }
+
+  return availability;
+}
+
+function roundAxisMaximum(value, quantum) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+
+  return Math.ceil((value * 1.05) / quantum) * quantum;
+}
+
+export function calculateStableYAxisBounds(workoutObject) {
+  const bounds = {
+    power: { min: 0, max: null },
+    heartCadence: { min: 0, max: null },
+    speed: { min: 0, max: null },
+    altitude: { min: null, max: null }
+  };
+  const length = Math.max(0, Number(workoutObject?.length) || 0);
+
+  if (length === 0 || typeof workoutObject?.getMetricsAt !== "function") {
+    return bounds;
+  }
+
+  let maxPower = 0;
+  let maxHeartCadence = 0;
+  let maxSpeed = 0;
+  let minAltitude = Infinity;
+  let maxAltitude = -Infinity;
+
+  for (let index = 0; index < length; index += 1) {
+    const metrics = workoutObject.getMetricsAt(index);
+    const power = Number(metrics?.power);
+    const heartRate = Number(metrics?.hr);
+    const cadence = Number(metrics?.cadence);
+    const speed = Number(metrics?.speed);
+    const altitude = Number(metrics?.altitude);
+
+    if (Number.isFinite(power) && power > maxPower) {
+      maxPower = power;
+    }
+    if (Number.isFinite(heartRate) && heartRate > maxHeartCadence) {
+      maxHeartCadence = heartRate;
+    }
+    if (Number.isFinite(cadence) && cadence > maxHeartCadence) {
+      maxHeartCadence = cadence;
+    }
+    if (Number.isFinite(speed) && speed > maxSpeed) {
+      maxSpeed = speed;
+    }
+    // Zero is the compact representation for a missing altitude sample.
+    if (Number.isFinite(altitude) && altitude !== 0) {
+      minAltitude = Math.min(minAltitude, altitude);
+      maxAltitude = Math.max(maxAltitude, altitude);
+    }
+  }
+
+  bounds.power.max = roundAxisMaximum(maxPower, 25);
+  bounds.heartCadence.max = roundAxisMaximum(maxHeartCadence, 10);
+  bounds.speed.max = roundAxisMaximum(maxSpeed, 5);
+
+  if (Number.isFinite(minAltitude) && Number.isFinite(maxAltitude)) {
+    const altitudeRange = Math.max(0, maxAltitude - minAltitude);
+    const padding = Math.max(10, altitudeRange * 0.05);
+    bounds.altitude.min = Math.floor((minAltitude - padding) / 10) * 10;
+    bounds.altitude.max = Math.ceil((maxAltitude + padding) / 10) * 10;
+  }
+
+  return bounds;
+}
+
+export function getChartSeriesSamplingOption(seriesKey, smoothingLevel) {
+  if (smoothingLevel === "off") {
+    return {};
+  }
+  return {
+    sampling: seriesKey === "power" ? "average" : "lttb"
+  };
+}
+
 export default class ChartView {
 
   constructor(containerId, handlers = {}) {
@@ -43,7 +163,7 @@ export default class ChartView {
     this.selectionStart = null;
     this.currentWorkout = null;
     this.xAxisMode = "time";
-    this.smoothingLevel = "medium";
+    this.smoothingLevel = "automatic";
     this.distanceAxisToggle = null;
     this.smoothingSlot = document.getElementById("dashboard-smoothing-slot");
     this.seriesToggleSlot = document.getElementById("dashboard-series-toggle-slot");
@@ -55,11 +175,22 @@ export default class ChartView {
       speed: true,
       altitude: true
     };
+    this.seriesAvailability = {
+      power: true,
+      heartRate: true,
+      cadence: true,
+      speed: true,
+      altitude: true
+    };
     this.segmentVisibility = { ...DEFAULT_SEGMENT_VISIBILITY };
     this.seriesToggleButtons = new Map();
     this.segmentToggleButtons = new Map();
     this.smoothingButtons = new Map();
     this.distanceKmByIndex = null;
+    this.adaptiveResolutionCache = null;
+    this.yAxisBoundsCache = new WeakMap();
+    this.currentAdaptiveResolution = null;
+    this.adaptiveResolutionTimer = null;
     this.mode = "";
     this.isHoveringSegmentArea = false;
     this.baseMarkAreas = [];
@@ -130,6 +261,17 @@ export default class ChartView {
         ...this.segmentVisibility,
         ...state.segmentVisibility
       };
+    }
+  }
+
+  applyPreferences(state) {
+    this.applyInitialPreferences(state);
+    this.syncSeriesToggleState();
+    this.syncSegmentToggleState();
+    this.syncSmoothingState();
+
+    if (this.currentWorkout) {
+      this.updateWorkout(this.currentWorkout);
     }
   }
 
@@ -304,11 +446,12 @@ export default class ChartView {
       this.syncModeButtons();
     }
     const obj = workout.workoutObject;
+    this.seriesAvailability = getAvailableWorkoutSeries(obj);
     this.syncXAxisModeButtons();
     if (this.xAxisMode === "distance" && !this.hasDistanceXAxis()) {
       this.xAxisMode = "time";
     }
-    const result = obj.getAsStrideArray({ smoothing: this.getSmoothingConfig() });
+    const result = this.getChartDataset(obj);
     const source = result.data;
     const sd = obj.getStartTime();
     const xRange = this.getXAxisRange(result.rowCount, workout);
@@ -321,12 +464,13 @@ export default class ChartView {
         max: xRange.max,
         axisLabel: { formatter: (value) => this.formatXAxisLabel(value) }
       },
+      yAxis: this.buildStableYAxisOptions(obj, labels),
       legend: {
         selected: this.getLegendSelection(labels)
       },
       dataset: { source }, //workout.series },
       series: this.buildSeriesDefinitions(labels, xField)
-    });
+    }, { replaceMerge: ["series"] });
     this.renderSegmentToggles();
     this.renderSeriesToggles(labels);
     this.renderSmoothingControls();
@@ -349,7 +493,8 @@ export default class ChartView {
       this.xAxisMode = "time";
     }
     const obj = workout.workoutObject;
-    const result = obj.getAsStrideArray();
+    this.seriesAvailability = getAvailableWorkoutSeries(obj);
+    const result = this.getChartDataset(obj);
     const source = result.data;
     const xRange = this.getXAxisRange(result.rowCount, workout);
     const sd = obj.getStartTime();
@@ -362,12 +507,13 @@ export default class ChartView {
         max: xRange.max,
         axisLabel: { formatter: (value) => this.formatXAxisLabel(value) }
       },
+      yAxis: this.buildStableYAxisOptions(obj, labels),
       legend: {
         selected: this.getLegendSelection(labels)
       },
       dataset: { source }, //workout.series },
       series: this.buildSeriesDefinitions(labels, xField)
-    });
+    }, { replaceMerge: ["series"] });
     this.renderSegmentToggles();
     this.renderSeriesToggles(labels);
     this.renderSmoothingControls();
@@ -461,6 +607,10 @@ export default class ChartView {
 
     this.chart.on("globalout", () => {
       this.hideSegmentHoverTooltip();
+    });
+
+    this.chart.on("dataZoom", () => {
+      this.scheduleAdaptiveResolutionUpdate();
     });
   }
 
@@ -979,7 +1129,12 @@ export default class ChartView {
     if (!p) return "";
 
     const row = p.data;
-    const index = Number.isFinite(p.dataIndex) ? p.dataIndex : 0;
+    const index = this.xAxisMode === "distance" && this.hasDistanceXAxis()
+      ? this.xValueToIndex(Number(row?.[6]) || 0)
+      : Math.max(0, Math.min(
+          Math.max(0, Number(this.currentWorkout?.workoutObject?.length) - 1),
+          Math.round(Number(row?.[0]) || 0)
+        ));
     const rawMetrics = this.currentWorkout?.workoutObject?.getMetricsAt?.(index) || null;
     const axisValue = this.getXAxisField() === "DistanceKm"
       ? (row[6] ?? 0)
@@ -991,19 +1146,19 @@ export default class ChartView {
       ? `${this.t("chart.timeLabel")}: ${Utils.formatSeconds(index)}`
       : this.t("chart.snapshot");
     const rows = [
-      [this.t("chart.power"), Number.isFinite(rawMetrics?.power) ? `${Math.round(rawMetrics.power)} W` : "–"],
-      [this.t("chart.heartRate"), Number.isFinite(rawMetrics?.hr) ? `${Math.round(rawMetrics.hr)} bpm` : "–"],
-      [this.t("chart.cadence"), Number.isFinite(rawMetrics?.cadence) ? `${Math.round(rawMetrics.cadence)} rpm` : "–"],
-      [this.t("chart.speed"), Number.isFinite(rawMetrics?.speed) ? `${Number(rawMetrics.speed).toFixed(1)} km/h` : "–"],
-      [this.t("chart.altitude"), Number.isFinite(rawMetrics?.altitude) ? `${Math.round(rawMetrics.altitude)} m` : "–"]
-    ];
+      ["power", this.t("chart.power"), Number.isFinite(rawMetrics?.power) ? `${Math.round(rawMetrics.power)} W` : "–"],
+      ["heartRate", this.t("chart.heartRate"), Number.isFinite(rawMetrics?.hr) ? `${Math.round(rawMetrics.hr)} bpm` : "–"],
+      ["cadence", this.t("chart.cadence"), Number.isFinite(rawMetrics?.cadence) ? `${Math.round(rawMetrics.cadence)} rpm` : "–"],
+      ["speed", this.t("chart.speed"), Number.isFinite(rawMetrics?.speed) ? `${Number(rawMetrics.speed).toFixed(1)} km/h` : "–"],
+      ["altitude", this.t("chart.altitude"), Number.isFinite(rawMetrics?.altitude) ? `${Math.round(rawMetrics.altitude)} m` : "–"]
+    ].filter(([key]) => this.seriesAvailability[key] !== false);
 
     return `
       <div style="min-width: 220px;">
         <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #94a3b8; margin-bottom: 4px;">${this.t("chart.workout")}</div>
         <div style="font-size: 14px; font-weight: 700; color: #0f172a; margin-bottom: 2px;">${headline}</div>
         <div style="font-size: 12px; font-weight: 600; color: #334155; margin-bottom: 8px;">${subline}</div>
-        ${rows.map(([label, value]) => `
+        ${rows.map(([, label, value]) => `
           <div style="display:flex; justify-content:space-between; gap:12px; margin:2px 0;">
             <span style="color:#64748b;">${label}</span>
             <span style="font-weight:600; color:#0f172a;">${value}</span>
@@ -1158,15 +1313,57 @@ export default class ChartView {
     };
   }
 
+  buildStableYAxisOptions(workoutObject, labels = this.getChartLabels()) {
+    let bounds = this.yAxisBoundsCache.get(workoutObject);
+    if (!bounds) {
+      bounds = calculateStableYAxisBounds(workoutObject);
+      this.yAxisBoundsCache.set(workoutObject, bounds);
+    }
+
+    return [
+      {
+        type: "value",
+        name: labels.axisPower,
+        position: "left",
+        min: bounds.power.min,
+        max: bounds.power.max
+      },
+      {
+        type: "value",
+        name: labels.axisHeartCadence,
+        position: "right",
+        min: bounds.heartCadence.min,
+        max: bounds.heartCadence.max
+      },
+      {
+        type: "value",
+        name: labels.axisSpeed,
+        position: "left",
+        offset: 40,
+        min: bounds.speed.min,
+        max: bounds.speed.max
+      },
+      {
+        type: "value",
+        name: labels.axisAltitude,
+        position: "right",
+        offset: 50,
+        min: bounds.altitude.min,
+        max: bounds.altitude.max
+      }
+    ];
+  }
+
   buildSeriesDefinitions(labels, xField = "x") {
     const colors = this.getSeriesPalette();
 
     return [
       {
+        seriesKey: "power",
         name: labels.power,
         type: "line",
         showSymbol: false,
-        sampling: "lttb",
+        ...getChartSeriesSamplingOption("power", this.smoothingLevel),
         yAxisIndex: 0,
         markArea: { data: [] },
         lineStyle: { color: colors.power, width: 1.8 },
@@ -1174,57 +1371,63 @@ export default class ChartView {
         encode: { x: xField, y: "Power" }
       },
       {
+        seriesKey: "heartRate",
         name: labels.heartRate,
         type: "line",
         showSymbol: false,
-        sampling: "lttb",
+        ...getChartSeriesSamplingOption("heartRate", this.smoothingLevel),
         yAxisIndex: 1,
         lineStyle: { color: colors.heartRate, width: 1.7 },
         itemStyle: { color: colors.heartRate },
         encode: { x: xField, y: "Heartrate" }
       },
       {
+        seriesKey: "cadence",
         name: labels.cadence,
         type: "line",
         showSymbol: false,
-        sampling: "lttb",
+        ...getChartSeriesSamplingOption("cadence", this.smoothingLevel),
         yAxisIndex: 1,
         lineStyle: { color: colors.cadence, width: 1.7 },
         itemStyle: { color: colors.cadence },
         encode: { x: xField, y: "Cadence" }
       },
       {
+        seriesKey: "speed",
         name: labels.speed,
         type: "line",
         showSymbol: false,
-        sampling: "lttb",
+        ...getChartSeriesSamplingOption("speed", this.smoothingLevel),
         yAxisIndex: 2,
         lineStyle: { color: colors.speed, width: 1.7 },
         itemStyle: { color: colors.speed },
         encode: { x: xField, y: "Speed" }
       },
       {
+        seriesKey: "altitude",
         name: labels.altitude,
         type: "line",
         showSymbol: false,
-        sampling: "lttb",
+        ...getChartSeriesSamplingOption("altitude", this.smoothingLevel),
         yAxisIndex: 3,
         z: 1,
         lineStyle: { color: colors.altitude, width: 1.1, opacity: 0.45 },
-        areaStyle: { color: colors.altitude, opacity: 0.18 },
+        areaStyle: { color: colors.altitude, opacity: 0.18, origin: "start" },
         itemStyle: { color: colors.altitude },
         encode: { x: xField, y: "Altitude" }
       }
-    ];
+    ]
+      .filter((series) => this.seriesAvailability[series.seriesKey] !== false)
+      .map(({ seriesKey, ...series }) => series);
   }
 
   getLegendSelection(labels = this.getChartLabels()) {
     return {
-      [labels.power]: this.seriesVisibility.power,
-      [labels.heartRate]: this.seriesVisibility.heartRate,
-      [labels.cadence]: this.seriesVisibility.cadence,
-      [labels.speed]: this.seriesVisibility.speed,
-      [labels.altitude]: this.seriesVisibility.altitude
+      [labels.power]: this.seriesVisibility.power && this.seriesAvailability.power,
+      [labels.heartRate]: this.seriesVisibility.heartRate && this.seriesAvailability.heartRate,
+      [labels.cadence]: this.seriesVisibility.cadence && this.seriesAvailability.cadence,
+      [labels.speed]: this.seriesVisibility.speed && this.seriesAvailability.speed,
+      [labels.altitude]: this.seriesVisibility.altitude && this.seriesAvailability.altitude
     };
   }
 
@@ -1241,6 +1444,7 @@ export default class ChartView {
 
   getSmoothingLevelDefinitions() {
     return [
+      { key: "automatic", label: this.t("smoothingAutomatic") },
       { key: "off", label: this.t("smoothingOff") },
       { key: "light", label: this.t("smoothingLight") },
       { key: "medium", label: this.t("smoothingMedium") },
@@ -1251,6 +1455,7 @@ export default class ChartView {
 
   getSmoothingConfig() {
     const presets = {
+      automatic: { power: 10, hr: 5, cadence: 12, speed: 12, altitude: 6 },
       off: { power: 0, hr: 0, cadence: 0, speed: 0, altitude: 0 },
       light: { power: 10, hr: 5, cadence: 12, speed: 12, altitude: 6 },
       medium: { power: 20, hr: 10, cadence: 30, speed: 30, altitude: 10 },
@@ -1259,6 +1464,78 @@ export default class ChartView {
     };
 
     return presets[this.smoothingLevel] || presets.medium;
+  }
+
+  getChartDataset(workoutObject) {
+    if (!ADAPTIVE_CHART_RESOLUTION_ENABLED) {
+      this.currentAdaptiveResolution = null;
+      return workoutObject.getAsStrideArray({ smoothing: this.getSmoothingConfig() });
+    }
+
+    if (
+      this.adaptiveResolutionCache?.workoutObject !== workoutObject
+      || this.adaptiveResolutionCache?.smoothingLevel !== this.smoothingLevel
+    ) {
+      this.adaptiveResolutionCache = {
+        workoutObject,
+        smoothingLevel: this.smoothingLevel,
+        levels: buildAdaptiveChartResolutionLevels(workoutObject, this.smoothingLevel)
+      };
+    }
+
+    const resolution = this.selectCurrentAdaptiveResolution(workoutObject);
+    this.currentAdaptiveResolution = resolution;
+    return this.adaptiveResolutionCache.levels.get(resolution)
+      ?? workoutObject.getAsStrideArray({ smoothing: this.getSmoothingConfig() });
+  }
+
+  selectCurrentAdaptiveResolution(workoutObject = this.currentWorkout?.workoutObject) {
+    const recordCount = Math.max(0, Number(workoutObject?.length) || 0);
+    const zoom = this.chart?.getOption?.()?.dataZoom?.[0] || {};
+    const startPercent = Number.isFinite(Number(zoom.start)) ? Number(zoom.start) : 0;
+    const endPercent = Number.isFinite(Number(zoom.end)) ? Number(zoom.end) : 100;
+    const visibleFraction = Math.max(0.0001, Math.abs(endPercent - startPercent) / 100);
+
+    return selectAdaptiveChartResolution({
+      visibleSeconds: recordCount * visibleFraction,
+      chartWidth: this.chart?.getWidth?.() || this.container?.clientWidth || 1,
+      smoothingLevel: this.smoothingLevel
+    });
+  }
+
+  scheduleAdaptiveResolutionUpdate() {
+    if (!ADAPTIVE_CHART_RESOLUTION_ENABLED || !this.currentWorkout?.workoutObject) {
+      return;
+    }
+
+    clearTimeout(this.adaptiveResolutionTimer);
+    this.adaptiveResolutionTimer = setTimeout(() => {
+      this.adaptiveResolutionTimer = null;
+      this.applyAdaptiveResolutionForCurrentZoom();
+    }, ADAPTIVE_CHART_ZOOM_DELAY_MS);
+  }
+
+  applyAdaptiveResolutionForCurrentZoom() {
+    const workoutObject = this.currentWorkout?.workoutObject;
+    const levels = this.adaptiveResolutionCache?.levels;
+    if (!workoutObject || !levels) {
+      return;
+    }
+
+    const resolution = this.selectCurrentAdaptiveResolution(workoutObject);
+    if (resolution === this.currentAdaptiveResolution) {
+      return;
+    }
+
+    const result = levels.get(resolution);
+    if (!result) {
+      return;
+    }
+
+    this.currentAdaptiveResolution = resolution;
+    this.chart.setOption({
+      dataset: { source: result.data }
+    }, { lazyUpdate: true });
   }
 
   getSegmentToggleDefinitions() {
@@ -1278,7 +1555,9 @@ export default class ChartView {
     this.seriesToggleButtons.clear();
     this.seriesToggleSlot.innerHTML = "";
 
-    this.getSeriesToggleDefinitions(labels).forEach((series) => {
+    this.getSeriesToggleDefinitions(labels)
+      .filter((series) => this.seriesAvailability[series.key] !== false)
+      .forEach((series) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "dashboard-series-toggle";
@@ -1292,7 +1571,7 @@ export default class ChartView {
       `;
       this.seriesToggleSlot.appendChild(button);
       this.seriesToggleButtons.set(series.key, button);
-    });
+      });
 
     this.syncSeriesToggleState();
   }
@@ -1412,7 +1691,10 @@ export default class ChartView {
     });
   }
 
-  resize() { this.chart.resize(); }
+  resize() {
+    this.chart.resize();
+    this.scheduleAdaptiveResolutionUpdate();
+  }
   showLoading() { this.chart.showLoading(); }
   hideLoading() { this.chart.hideLoading(); }
 }

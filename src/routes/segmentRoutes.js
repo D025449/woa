@@ -25,6 +25,13 @@ import {
   SEGMENT_ARCHIVE_MAX_BYTES,
   SegmentArchiveValidationError
 } from "../services/segmentArchiveService.js";
+import {
+  buildSegmentGpxArchive,
+  decodeSegmentGpxArchive,
+  detectSegmentArchiveKind,
+  SegmentGpxArchiveValidationError
+} from "../services/segmentGpxArchiveService.js";
+import { buildGpxRoutingAnchors } from "../services/gpxTrackService.js";
 
 const router = express.Router();
 const SEGMENT_BEST_EFFORTS_ON_DEMAND = String(
@@ -223,6 +230,77 @@ function buildCurvatureAwareTrack(track, options = {}) {
   return reduced;
 }
 
+async function buildRoutedGpsSegment(routePoints, timing = null) {
+  const normalizedPoints = routePoints.map((point) => ({
+    lat: Number(point?.lat),
+    lng: Number(point?.lng)
+  }));
+  const hasInvalidPoint = normalizedPoints.some((point) =>
+    !Number.isFinite(point.lat) || !Number.isFinite(point.lng)
+  );
+  if (normalizedPoints.length < 2 || hasInvalidPoint) {
+    throw Object.assign(new Error("route points contain invalid lat/lng values"), {
+      statusCode: 400
+    });
+  }
+
+  const start = normalizedPoints[0];
+  const end = normalizedPoints[normalizedPoints.length - 1];
+  const routePromise = fetchBicycleRoute(normalizedPoints);
+  const startLocationPromise = reverseGeocode(start.lat, start.lng);
+  const route = await routePromise;
+  timing?.mark("bicycle-route", {
+    provider: route.provider || "unknown",
+    profile: route.profile || null
+  });
+
+  const startLocation = await startLocationPromise;
+  timing?.mark("reverse-start");
+
+  const rawTrack = route.geometry.coordinates.map(([lng, lat]) => ({ lat, lng }));
+  timing?.mark("track-spacing", computeTrackSpacingStats(rawTrack));
+  const optimizedTrack = buildCurvatureAwareTrack(rawTrack);
+  timing?.mark("optimized-track-spacing", {
+    ...computeTrackSpacingStats(optimizedTrack),
+    reducedPointCount: rawTrack.length - optimizedTrack.length,
+    reductionPercent: rawTrack.length > 0
+      ? Math.round(((rawTrack.length - optimizedTrack.length) / rawTrack.length) * 1000) / 10
+      : 0
+  });
+
+  const elevationService = new ElevationService({
+    batchSize: 100,
+    sleepMs: 150
+  });
+  const elevationPromise = elevationService.enrichTrack(optimizedTrack);
+  await sleep(1000);
+  timing?.mark("reverse-gap-wait");
+  const endLocation = await reverseGeocode(end.lat, end.lng);
+  timing?.mark("reverse-end");
+
+  const enriched = await elevationPromise;
+  timing?.mark("elevation", { pointCount: optimizedTrack.length });
+
+  return {
+    ok: true,
+    distance: Number(route.distance) || computeTrackDistanceMeters(enriched),
+    duration: Number(route.duration) || 0,
+    track: enriched,
+    ascent: elevationService.calculateAscent(enriched),
+    start: {
+      ...start,
+      name: MapSegment.formatLocation(startLocation.address, "full"),
+      altitude: enriched[0]?.ele ?? null
+    },
+    end: {
+      ...end,
+      name: MapSegment.formatLocation(endLocation.address, "full"),
+      altitude: enriched[enriched.length - 1]?.ele ?? null
+    },
+    bestEffortsStatus: "queued"
+  };
+}
+
 function createStepLogger(scope, meta = {}) {
   const startedAt = Date.now();
   let lastAt = startedAt;
@@ -267,6 +345,23 @@ router.get("/archive/export", authMiddleware, async (req, res, next) => {
   }
 });
 
+router.get("/archive/export-gpx", authMiddleware, async (req, res, next) => {
+  try {
+    const uid = req.user?.id;
+    const segments = await SegmentDBService.getOwnedSegmentsForArchive(uid);
+    const archive = buildSegmentGpxArchive(segments);
+    const date = new Date().toISOString().slice(0, 10);
+
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="woa-segments-gpx-${date}.zip"`);
+    res.setHeader("Content-Length", String(archive.byteLength));
+    res.send(archive);
+  } catch (error) {
+    console.error("GET /segments/archive/export-gpx failed:", error);
+    next(error);
+  }
+});
+
 router.post(
   "/archive/import",
   authMiddleware,
@@ -279,9 +374,50 @@ router.post(
       }
 
       const uid = req.user?.id;
-      const importedSegments = await decodeSegmentArchive(req.file.buffer);
       const existingSegments = await SegmentDBService.getOwnedSegmentsForArchive(uid);
-      const { accepted, skippedDuplicates } = filterNovelSegments(importedSegments, existingSegments);
+      const archiveKind = await detectSegmentArchiveKind(req.file.buffer);
+      let importedSegments;
+      let accepted;
+      let skippedDuplicates;
+
+      if (archiveKind === "gpx") {
+        const importedGpxSegments = await decodeSegmentGpxArchive(req.file.buffer);
+        const gpxCandidates = importedGpxSegments.map((segment) => {
+          const start = segment.points[0];
+          const end = segment.points[segment.points.length - 1];
+          return {
+            sourceId: segment.sourceId,
+            distance: segment.distanceMeters,
+            duration: 0,
+            ascent: 0,
+            start: { ...start, name: "GPX start", altitude: null },
+            end: { ...end, name: "GPX end", altitude: null },
+            track: segment.points,
+            routingAnchors: buildGpxRoutingAnchors(segment.points, 50),
+            bestEffortsStatus: "queued"
+          };
+        });
+        const initialNovel = filterNovelSegments(gpxCandidates, existingSegments);
+        const routedSegments = [];
+
+        for (let index = 0; index < initialNovel.accepted.length; index += 1) {
+          if (index > 0) await sleep(1000);
+          routedSegments.push(
+            await buildRoutedGpsSegment(initialNovel.accepted[index].routingAnchors)
+          );
+        }
+
+        const finalNovel = filterNovelSegments(routedSegments, existingSegments);
+        importedSegments = gpxCandidates;
+        accepted = finalNovel.accepted;
+        skippedDuplicates = importedGpxSegments.length - accepted.length;
+      } else {
+        importedSegments = await decodeSegmentArchive(req.file.buffer);
+        const novel = filterNovelSegments(importedSegments, existingSegments);
+        accepted = novel.accepted;
+        skippedDuplicates = novel.skippedDuplicates;
+      }
+
       const insertedRows = await SegmentDBService.insertGpsSegmentsBulk(uid, accepted);
       const segmentIds = [...new Set(
         insertedRows
@@ -295,6 +431,7 @@ router.post(
 
       console.log("[segments] archive-import.completed", {
         uid: String(uid),
+        archiveKind,
         total: importedSegments.length,
         imported: insertedRows.length,
         skippedDuplicates,
@@ -302,6 +439,7 @@ router.post(
       });
       res.status(201).json({
         ok: true,
+        archiveKind,
         total: importedSegments.length,
         imported: insertedRows.length,
         skippedDuplicates,
@@ -309,7 +447,11 @@ router.post(
         segments: insertedRows.map((row) => SegmentDBService.mapSegment(row))
       });
     } catch (error) {
-      if (error instanceof SegmentArchiveValidationError || error instanceof multer.MulterError) {
+      if (
+        error instanceof SegmentArchiveValidationError ||
+        error instanceof SegmentGpxArchiveValidationError ||
+        error instanceof multer.MulterError
+      ) {
         return res.status(400).json({ error: error.message });
       }
       console.error("POST /segments/archive/import failed:", error);
@@ -336,88 +478,7 @@ router.post("/track-lookup", authMiddleware, requireActiveAccountWrite, async (r
       });
     }
 
-    const normalizedPoints = routePoints.map((point) => ({
-      lat: Number(point?.lat),
-      lng: Number(point?.lng)
-    }));
-
-    const hasInvalidPoint = normalizedPoints.some((point) =>
-      !Number.isFinite(point.lat) || !Number.isFinite(point.lng)
-    );
-
-    if (hasInvalidPoint) {
-      return res.status(400).json({
-        error: "route points contain invalid lat/lng values"
-      });
-    }
-
-    const normalizedStart = normalizedPoints[0];
-    const normalizedEnd = normalizedPoints[normalizedPoints.length - 1];
-    const { lat: lat1, lng: lng1 } = normalizedStart;
-    const { lat: lat2, lng: lng2 } = normalizedEnd;
-
-    const routePromise = fetchBicycleRoute(normalizedPoints);
-    const startLocationPromise = reverseGeocode(lat1, lng1);
-
-    const route = await routePromise;
-    timing.mark("bicycle-route", {
-      provider: route.provider || "unknown",
-      profile: route.profile || null
-    });
-
-    const start_location = await startLocationPromise;
-    timing.mark("reverse-start");
-
-    // 👉 GeoJSON → dein Format
-    const rawTrack = route.geometry.coordinates.map(([lng, lat]) => ({
-      lat,
-      lng
-    }));
-    const trackSpacing = computeTrackSpacingStats(rawTrack);
-    timing.mark("track-spacing", trackSpacing);
-    const optimizedTrack = buildCurvatureAwareTrack(rawTrack);
-    const optimizedTrackSpacing = computeTrackSpacingStats(optimizedTrack);
-    timing.mark("optimized-track-spacing", {
-      ...optimizedTrackSpacing,
-      reducedPointCount: rawTrack.length - optimizedTrack.length,
-      reductionPercent: rawTrack.length > 0
-        ? Math.round(((rawTrack.length - optimizedTrack.length) / rawTrack.length) * 1000) / 10
-        : 0
-    });
-
-    const label_start = MapSegment.formatLocation(start_location.address, "full");
-
-    const service = new ElevationService({
-      batchSize: 100,
-      sleepMs: 150
-    });
-
-    const elevationPromise = service.enrichTrack(optimizedTrack);
-    await sleep(1000);
-    timing.mark("reverse-gap-wait");
-    const endLocationPromise = reverseGeocode(lat2, lng2);
-
-    const end_location = await endLocationPromise;
-    timing.mark("reverse-end");
-
-    const enriched = await elevationPromise;
-    timing.mark("elevation", {
-      pointCount: optimizedTrack.length
-    });
-    const ascent = service.calculateAscent(enriched);
-    const label_end = MapSegment.formatLocation(end_location.address, "full");
-
-    const temp_seg = {
-      ok: true,
-      distance: route.distance,
-      duration: route.duration,
-      track: enriched,
-      ascent,
-      start: { ...normalizedStart, name: label_start, altitude: enriched[0].ele },
-      end: { ...normalizedEnd, name: label_end, altitude: enriched[enriched.length - 1].ele }
-    };
-
-    temp_seg.bestEffortsStatus = "queued";
+    const temp_seg = await buildRoutedGpsSegment(routePoints, timing);
     const segments_inserted = await SegmentDBService.insertGpsSegmentsBulk(uid, [temp_seg]);
     timing.mark("insert-segment", {
       insertedCount: segments_inserted.length
