@@ -207,6 +207,58 @@ test("browser WOA1 removes barometric altitude from stationary indoor workouts",
   assert.ok(woa.stats.workoutStream.blockBytes.altitudes < 32);
 });
 
+test("browser WOA1 removes partial altitude from FIT-declared indoor workouts", async () => {
+  const recordCount = 2_103;
+  const baseTimestampSec = 1_692_466_681;
+  const compactRecords = {
+    recordCount,
+    baseTimestampSec,
+    lastTimestampSec: baseTimestampSec + recordCount - 1,
+    distancesQ: Uint32Array.from(
+      { length: recordCount },
+      (_, index) => Math.round((index / (recordCount - 1)) * 57_722)
+    ),
+    powersW: new Uint16Array(recordCount).fill(175),
+    heartRatesBpm: new Uint8Array(recordCount).fill(138),
+    cadencesRpm: new Uint8Array(recordCount).fill(84),
+    speedsCmS: new Uint16Array(recordCount).fill(687),
+    altitudesQ: Int16Array.from(
+      { length: recordCount },
+      (_, index) => index < 20 ? 656 : 658
+    ),
+    positionLatsE6: new Int32Array(recordCount).fill(-0x80000000),
+    positionLongsE6: new Int32Array(recordCount).fill(-0x80000000)
+  };
+  const sessions = [{
+    start_time: new Date(baseTimestampSec * 1000).toISOString(),
+    timestamp: new Date((baseTimestampSec + recordCount - 1) * 1000).toISOString(),
+    total_elapsed_time: 2_102,
+    total_timer_time: 2_102,
+    total_distance: 14_430,
+    total_ascent: 0,
+    total_descent: 0,
+    avg_speed: 6.865,
+    avg_power: 175,
+    avg_heart_rate: 138,
+    avg_cadence: 84,
+    sport: "cycling",
+    sub_sport: "indoor_cycling"
+  }];
+
+  const woa = await createWoa1FileFromCompactAsync({ compactRecords, sessions }, {
+    sourceName: "w-22226.fit",
+    sampleRateSeconds: 5,
+    compressWorkoutStream: null,
+    compressGpsTrack: null
+  });
+  const decodedWorkout = Workout.decodeWst3Buffer(woa.workoutStreamBytes);
+
+  assert.equal(woa.meta.persistedRow.workout_type, "indoor");
+  assert.equal(woa.meta.persistedRow.total_ascent, 0);
+  assert.equal(woa.meta.persistedRow.total_descent, 0);
+  assert.equal(decodedWorkout.altitudesM.every(Number.isNaN), true);
+});
+
 test("browser WOA1 preserves barometric altitude for outdoor workouts without GPS", async () => {
   const recordCount = 600;
   const baseTimestampSec = 1_700_000_000;

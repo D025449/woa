@@ -129,8 +129,13 @@ export function classifyFitWorkoutType({ sport = null, subSport = null } = {}) {
 }
 
 export function classifyWorkoutTypeWithFitFallback(input = {}) {
+  const fitType = classifyFitWorkoutType(input);
+  if (fitType === "indoor" && input.validGps !== true) {
+    return "indoor";
+  }
+
   const inferredType = classifyWorkoutType(input);
-  return inferredType === "unknown" ? classifyFitWorkoutType(input) : inferredType;
+  return inferredType === "unknown" ? fitType : inferredType;
 }
 
 export default classifyWorkoutType;

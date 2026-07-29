@@ -4,31 +4,10 @@ import url from "url";
 
 const __filename = url.fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const EN_MESSAGES_PATH = path.join(__dirname, "..", "public", "i18n", "en.json");
-const DE_MESSAGES_PATH = path.join(__dirname, "..", "public", "i18n", "de.json");
 const I18N_DIR_PATH = path.join(__dirname, "..", "public", "i18n");
 
-let cachedEnMessages = null;
-let cachedDeMessages = null;
 let cachedSupportedLocales = null;
-
-function loadEnMessages() {
-  if (!cachedEnMessages) {
-    const fileContent = fs.readFileSync(EN_MESSAGES_PATH, "utf8");
-    cachedEnMessages = JSON.parse(fileContent);
-  }
-
-  return cachedEnMessages;
-}
-
-function loadDeMessages() {
-  if (!cachedDeMessages) {
-    const fileContent = fs.readFileSync(DE_MESSAGES_PATH, "utf8");
-    cachedDeMessages = JSON.parse(fileContent);
-  }
-
-  return cachedDeMessages;
-}
+let cachedMessageBundles = null;
 
 function getByPath(source, key) {
   if (!source || !key) {
@@ -82,14 +61,23 @@ export function normalizeSupportedLocale(value, fallback = "en") {
   return supportedLocales.includes(candidate) ? candidate : fallback;
 }
 
+function loadMessageBundles() {
+  if (cachedMessageBundles) {
+    return cachedMessageBundles;
+  }
+
+  cachedMessageBundles = Object.fromEntries(
+    getSupportedLocales().map((locale) => {
+      const filePath = path.join(I18N_DIR_PATH, `${locale}.json`);
+      return [locale, JSON.parse(fs.readFileSync(filePath, "utf8"))];
+    })
+  );
+  return cachedMessageBundles;
+}
+
 export function createI18nMiddleware() {
-  const enMessages = loadEnMessages();
-  const deMessages = loadDeMessages();
   const supportedLocales = getSupportedLocales();
-  const bundles = {
-    en: enMessages,
-    de: deMessages
-  };
+  const bundles = loadMessageBundles();
 
   function normalizeLocale(value) {
     const normalized = normalizeSupportedLocale(value, "__invalid__");
@@ -131,14 +119,7 @@ export function createI18nMiddleware() {
     const acceptLocale = pickFromAcceptLanguage(req.headers["accept-language"]);
 
     const locale = queryLocale || sessionLocale || cookieLocale || acceptLocale || "en";
-    const messages = bundles[locale] || (() => {
-      try {
-        const fileContent = fs.readFileSync(path.join(I18N_DIR_PATH, `${locale}.json`), "utf8");
-        return JSON.parse(fileContent);
-      } catch {
-        return bundles.en;
-      }
-    })();
+    const messages = bundles[locale] || bundles.en;
 
     res.locals.locale = locale;
     res.locals.messages = messages;

@@ -48,11 +48,14 @@ export default class MapView {
     this.manualGpsPoints = [];
     this.manualGpsLayer = L.layerGroup().addTo(this.map);
     this.manualGpsHintElement = document.getElementById("dashboard-manual-gps-hint");
+    this.gpsTrackMenu = document.getElementById("dashboard-gps-track-menu");
     this.manualGpsToggleButton = document.getElementById("dashboard-manual-gps-toggle");
     this.copyGpsButton = document.getElementById("dashboard-copy-gps-open");
-    this.gpxImportButton = document.getElementById("dashboard-gpx-import");
-    this.gpxImportModeSelect = document.getElementById("dashboard-gpx-import-mode");
+    this.gpxImportButtons = Array.from(
+      this.gpsTrackMenu?.querySelectorAll("[data-gpx-import-mode]") || []
+    );
     this.gpxFileInput = document.getElementById("dashboard-gpx-file");
+    this.pendingGpxImportMode = "exact";
     this.gpxImportBusy = false;
     this.manualGpsSaveButton = document.getElementById("dashboard-manual-gps-save");
     this.manualGpsCancelButton = document.getElementById("dashboard-manual-gps-cancel");
@@ -61,6 +64,7 @@ export default class MapView {
     this.setBaseLayer(this.baseLayerMode);
     this.initBaseLayerControls();
     this.initBaseLayerMenuBehaviour();
+    this.initGpsTrackMenuBehaviour();
     this.registerManualGpsControls();
     this.map.on("click", (event) => this.handleMapClick(event));
     this.map.on("moveend", () => {
@@ -597,6 +601,7 @@ export default class MapView {
 
   registerManualGpsControls() {
     this.manualGpsToggleButton?.addEventListener("click", () => {
+      this.gpsTrackMenu?.removeAttribute("open");
       if (this.manualGpsMode) {
         this.disableManualGpsMode();
       } else {
@@ -605,13 +610,21 @@ export default class MapView {
     });
 
     this.copyGpsButton?.addEventListener("click", async () => {
+      this.gpsTrackMenu?.removeAttribute("open");
       await this.handlers.onCopyGpsSelectionOpen?.();
     });
 
-    this.gpxImportButton?.addEventListener("click", () => {
-      if (!this.gpxImportBusy) {
+    this.gpxImportButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        if (this.gpxImportBusy) {
+          return;
+        }
+        this.pendingGpxImportMode = button.dataset.gpxImportMode === "routed"
+          ? "routed"
+          : "exact";
+        this.gpsTrackMenu?.removeAttribute("open");
         this.gpxFileInput?.click();
-      }
+      });
     });
 
     this.gpxFileInput?.addEventListener("change", async () => {
@@ -625,7 +638,7 @@ export default class MapView {
       try {
         await this.handlers.onGpxImport?.(
           file,
-          this.gpxImportModeSelect?.value === "routed" ? "routed" : "exact"
+          this.pendingGpxImportMode
         );
       } catch (error) {
         console.error("GPX import failed", error);
@@ -737,36 +750,28 @@ export default class MapView {
     const hasEnoughPoints = this.manualGpsPoints.length >= 2;
     const i18n = window.__I18N?.messages?.dashboardNewPage || {};
 
-    this.manualGpsToggleButton?.classList.toggle("d-none", !canEdit);
-    this.copyGpsButton?.classList.toggle("d-none", !canEdit || this.manualGpsMode);
-    this.gpxImportButton?.classList.toggle("d-none", !canEdit || this.manualGpsMode);
-    this.gpxImportModeSelect?.classList.toggle("d-none", !canEdit || this.manualGpsMode);
+    this.gpsTrackMenu?.classList.toggle("d-none", !canEdit || this.manualGpsMode);
+    if (!canEdit || this.manualGpsMode) {
+      this.gpsTrackMenu?.removeAttribute("open");
+    }
     this.manualGpsClearButton?.classList.toggle("d-none", !this.manualGpsMode);
     this.manualGpsCancelButton?.classList.toggle("d-none", !this.manualGpsMode);
     this.manualGpsSaveButton?.classList.toggle("d-none", !this.manualGpsMode);
     this.manualGpsHintElement?.classList.toggle("d-none", !this.manualGpsMode);
 
     if (this.manualGpsToggleButton) {
-      if (this.currentWorkout?.gpsSource === "manual_lookup") {
-        this.manualGpsToggleButton.textContent = this.manualGpsMode
-          ? (i18n.manualGpsEditDone || "Editing active")
-          : (i18n.manualGpsEdit || "Edit manual GPS");
-      } else {
-        this.manualGpsToggleButton.textContent = this.manualGpsMode
-          ? (i18n.manualGpsEditDone || "Editing active")
-          : (i18n.manualGpsCreate || "Create manual GPS");
-      }
+      this.manualGpsToggleButton.textContent = this.currentWorkout?.gpsSource === "manual_lookup"
+        ? (i18n.manualGpsEdit || "Edit manual GPS")
+        : (i18n.manualGpsCreate || "Create manual GPS");
     }
 
     if (this.manualGpsSaveButton) {
       this.manualGpsSaveButton.disabled = !hasEnoughPoints;
     }
-    if (this.gpxImportButton) {
-      this.gpxImportButton.disabled = this.gpxImportBusy;
-    }
-    if (this.gpxImportModeSelect) {
-      this.gpxImportModeSelect.disabled = this.gpxImportBusy;
-    }
+    this.gpxTrackMenu?.setAttribute("aria-busy", this.gpxImportBusy ? "true" : "false");
+    this.gpxImportButtons.forEach((button) => {
+      button.disabled = this.gpxImportBusy;
+    });
   }
 
   handleMapClick(event) {
@@ -889,6 +894,11 @@ export default class MapView {
     this.baseLayerMenu.addEventListener("click", (event) => {
       event.stopPropagation();
     });
+    this.baseLayerMenu.addEventListener("toggle", () => {
+      if (this.baseLayerMenu.open) {
+        this.gpsTrackMenu?.removeAttribute("open");
+      }
+    });
 
     document.addEventListener("click", (event) => {
       const target = event.target;
@@ -910,6 +920,36 @@ export default class MapView {
 
       if (this.baseLayerMenu?.open) {
         this.baseLayerMenu.removeAttribute("open");
+        event.preventDefault();
+      }
+    });
+  }
+
+  initGpsTrackMenuBehaviour() {
+    if (!this.gpsTrackMenu) {
+      return;
+    }
+
+    this.gpsTrackMenu.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+    this.gpsTrackMenu.addEventListener("toggle", () => {
+      if (this.gpsTrackMenu.open) {
+        this.baseLayerMenu?.removeAttribute("open");
+      }
+    });
+
+    document.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Node) || this.gpsTrackMenu?.contains(target)) {
+        return;
+      }
+      this.gpsTrackMenu?.removeAttribute("open");
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && this.gpsTrackMenu?.open) {
+        this.gpsTrackMenu.removeAttribute("open");
         event.preventDefault();
       }
     });

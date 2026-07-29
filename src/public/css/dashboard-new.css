@@ -2367,9 +2367,45 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   font-weight: 600;
 }
 
-.dashboard-gpx-import-mode {
-  width: auto;
-  max-width: 10.5rem;
+.dashboard-gps-track-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.38rem;
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.62rem;
+  border: 1px solid var(--ui-info-border-hover);
+  border-radius: 0.42rem;
+  background: var(--ui-bg-subtle);
+  color: var(--ui-info-text);
+  cursor: pointer;
+  list-style: none;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.dashboard-gps-track-menu__trigger::-webkit-details-marker {
+  display: none;
+}
+
+.dashboard-gps-track-menu__trigger svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dashboard-gps-track-menu[open] .dashboard-gps-track-menu__trigger {
+  border-color: var(--ui-info-border-hover);
+  background: var(--ui-info-bg-soft);
+}
+
+.dashboard-gps-track-menu__panel {
+  min-width: 15.5rem;
 }
 
 .dashboard-master-detail #workout-chart,
@@ -2587,5 +2623,16 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
 
   .dashboard-master-detail #workout-map {
     height: 280px !important;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .dashboard-gps-track-menu__trigger {
+    width: 2rem;
+    padding: 0;
+  }
+
+  .dashboard-gps-track-menu__trigger span {
+    display: none;
   }
 }

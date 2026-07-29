@@ -495,22 +495,31 @@
                                         <button id="dashboard-map-3d-toggle" class="btn btn-outline-secondary btn-sm" type="button">
                                             <%= t("dashboardNewPage.map3dOpen") %>
                                         </button>
-                                        <button id="dashboard-manual-gps-toggle" class="btn btn-outline-primary btn-sm d-none" type="button">
-                                            <%= t("dashboardNewPage.manualGpsCreate") %>
-                                        </button>
-                                        <button id="dashboard-copy-gps-open" class="btn btn-outline-primary btn-sm d-none" type="button">
-                                            <%= t("dashboardNewPage.copyGpsOpen") %>
-                                        </button>
-                                        <select
-                                            id="dashboard-gpx-import-mode"
-                                            class="form-select form-select-sm dashboard-gpx-import-mode d-none"
-                                            aria-label="<%= t('dashboardNewPage.gpxImportModeLabel') %>">
-                                            <option value="exact"><%= t("dashboardNewPage.gpxImportExact") %></option>
-                                            <option value="routed"><%= t("dashboardNewPage.gpxImportRouted") %></option>
-                                        </select>
-                                        <button id="dashboard-gpx-import" class="btn btn-outline-primary btn-sm d-none" type="button">
-                                            <%= t("dashboardNewPage.gpxImport") %>
-                                        </button>
+                                        <details id="dashboard-gps-track-menu" class="dashboard-actions-menu dashboard-gps-track-menu d-none">
+                                            <summary class="dashboard-gps-track-menu__trigger" aria-label="<%= t('dashboardNewPage.gpsTrackMenu') %>">
+                                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                                    <path d="M5 17.5a2.5 2.5 0 1 0 0 .01M19 6.5a2.5 2.5 0 1 0 0 .01M7.4 16.7c2.2-1.1 2.5-3.5 4.5-4.6 1.8-1 3.3-.3 4.8-3.2M12 4v5M9.5 6.5h5"/>
+                                                </svg>
+                                                <span><%= t("dashboardNewPage.gpsTrackMenu") %></span>
+                                            </summary>
+                                            <div class="dashboard-actions-menu__panel dashboard-gps-track-menu__panel">
+                                                <div class="dashboard-actions-menu__group">
+                                                    <div class="dashboard-actions-menu__group-label"><%= t("dashboardNewPage.gpsTrackMenu") %></div>
+                                                    <button class="dashboard-actions-menu__item" type="button" data-gpx-import-mode="exact">
+                                                        <%= t("dashboardNewPage.gpxImportExact") %>
+                                                    </button>
+                                                    <button class="dashboard-actions-menu__item" type="button" data-gpx-import-mode="routed">
+                                                        <%= t("dashboardNewPage.gpxImportRouted") %>
+                                                    </button>
+                                                    <button id="dashboard-copy-gps-open" class="dashboard-actions-menu__item" type="button">
+                                                        <%= t("dashboardNewPage.copyGpsOpen") %>
+                                                    </button>
+                                                    <button id="dashboard-manual-gps-toggle" class="dashboard-actions-menu__item" type="button">
+                                                        <%= t("dashboardNewPage.manualGpsCreate") %>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </details>
                                         <input id="dashboard-gpx-file" class="d-none" type="file" accept=".gpx,application/gpx+xml">
                                         <button id="dashboard-manual-gps-clear" class="btn btn-outline-secondary btn-sm d-none" type="button">
                                             <%= t("dashboardNewPage.manualGpsClear") %>

@@ -306,6 +306,20 @@ test("does not let a FIT profile override an automatic classification", () => {
   }), "road");
 });
 
+test("trusts an explicit FIT indoor profile when GPS is unavailable", () => {
+  assert.equal(classifyWorkoutTypeWithFitFallback({
+    validGps: false,
+    totalDistance: 14_430,
+    totalTimerTime: 2_102,
+    totalAscent: 0,
+    avgSpeed: 24.7,
+    avgPower: 175,
+    avgCadence: 84,
+    sport: "cycling",
+    subSport: "indoor_cycling"
+  }), "indoor");
+});
+
 test("maps only concrete cycling FIT sub-sports", () => {
   assert.equal(classifyFitWorkoutType({ sport: 2, subSport: 6 }), "indoor");
   assert.equal(classifyFitWorkoutType({ sport: "cycling", subSport: "track_cycling" }), "road");
