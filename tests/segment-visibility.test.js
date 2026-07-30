@@ -7,6 +7,7 @@ import {
   getSegmentVisibilityKey,
   isSegmentVisible
 } from "../src/public/js/segment-visibility.js";
+import { buildMarkAreas } from "../src/public/js/chart-helpers.js";
 
 test("maps every workout segment representation to its UI visibility key", () => {
   assert.equal(getSegmentVisibilityKey({ segmenttype: "crit" }), "criticalPower");
@@ -38,4 +39,40 @@ test("uses the same visibility decision for chart and map segments", () => {
   assert.equal(isSegmentVisible({ segmenttype: "manual" }, visibility), false);
   assert.equal(isSegmentVisible({ isGPSSegment: true }, visibility), true);
   assert.equal(isSegmentVisible(null, visibility), false);
+});
+
+test("filters GPS chart areas before relying on segment ids", () => {
+  const visibility = {
+    criticalPower: true,
+    auto: true,
+    manual: true,
+    gps: false
+  };
+  const workout = {
+    segments: [
+      {
+        id: 12,
+        rowstate: "DB",
+        segmenttype: "crit",
+        start_offset: 10,
+        end_offset: 30
+      },
+      {
+        id: null,
+        sid: 91,
+        rowstate: "DB",
+        isGPSSegment: true,
+        segmenttype: "gps",
+        start_offset: 40,
+        end_offset: 80
+      }
+    ]
+  };
+
+  const areas = buildMarkAreas(workout, {
+    isVisible: (segment) => isSegmentVisible(segment, visibility)
+  });
+
+  assert.equal(areas.length, 1);
+  assert.equal(areas[0][0].segmentId, 12);
 });

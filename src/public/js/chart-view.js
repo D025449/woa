@@ -200,6 +200,8 @@ export default class ChartView {
     this.createGpsButton = document.getElementById('draw-gps-segment-toggle');
     this.deleteButton = document.getElementById('delete-segments');
     this.actionsMenu = document.querySelector(".dashboard-actions-menu");
+    this.modeStatus = document.getElementById("dashboard-chart-mode-status");
+    this.modeStatusText = document.getElementById("dashboard-chart-mode-status-text");
 
     this.applyInitialPreferences(handlers.initialState || null);
 
@@ -336,6 +338,12 @@ export default class ChartView {
 
       if (this.actionsMenu?.open) {
         this.actionsMenu.removeAttribute("open");
+        event.preventDefault();
+        return;
+      }
+
+      if (this.mode) {
+        this.setMode("");
         event.preventDefault();
       }
     });
@@ -688,6 +696,25 @@ export default class ChartView {
     this.clearSelectionPreview();
     this.setDrawingMode(mode === "create" || mode === "gps-create");
     this.syncModeButtons();
+    this.syncModeStatus();
+    this.actionsMenu?.removeAttribute("open");
+  }
+
+  syncModeStatus() {
+    if (!this.modeStatus || !this.modeStatusText) {
+      return;
+    }
+
+    const message = this.mode === "create"
+      ? this.t("createSegmentActive")
+      : this.mode === "gps-create"
+      ? this.t("createGpsSegmentActive")
+      : this.mode === "delete"
+      ? this.t("deleteSegmentActive")
+      : "";
+
+    this.modeStatusText.textContent = message;
+    this.modeStatus.hidden = !message;
   }
 
   syncModeButtons() {
@@ -757,6 +784,8 @@ export default class ChartView {
         isDelete ? "true" : "false"
       );
     }
+
+    this.syncModeStatus();
   }
 
   setXAxisMode(mode) {
@@ -959,12 +988,14 @@ export default class ChartView {
       return [];
     }
 
-    const areas = buildMarkAreas(workout);
+    const areas = buildMarkAreas(workout, {
+      isVisible: (segment) => this.isSegmentTypeVisible(segment)
+    });
     if (this.xAxisMode !== "distance" || !this.hasDistanceXAxis()) {
-      return this.filterMarkAreasByVisibility(areas);
+      return areas;
     }
 
-    return this.filterMarkAreasByVisibility(areas).map((area) => ([
+    return areas.map((area) => ([
       {
         ...area[0],
         xAxis: this.xIndexToValue(area[0].xAxis)
@@ -1668,18 +1699,6 @@ export default class ChartView {
 
   isSegmentTypeVisible(segment) {
     return isSegmentVisible(segment, this.segmentVisibility);
-  }
-
-  filterMarkAreasByVisibility(areas = []) {
-    return areas.filter((area) => {
-      const segmentId = area?.[0]?.segmentId;
-      if (segmentId == null) {
-        return true;
-      }
-
-      const segment = this.currentWorkout?.segments?.find((entry) => entry.id === segmentId);
-      return this.isSegmentTypeVisible(segment);
-    });
   }
 
   applySeriesSelection() {

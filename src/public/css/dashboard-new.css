@@ -2275,6 +2275,67 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   height: 420px !important;
 }
 
+.dashboard-chart-stage {
+  position: relative;
+}
+
+.dashboard-chart-mode-status {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.75rem;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: min(34rem, calc(100% - 1.5rem));
+  padding: 0.42rem 0.58rem;
+  border: 1px solid color-mix(in srgb, #2587df 62%, white);
+  border-radius: 0.42rem;
+  background: rgba(238, 247, 255, 0.94);
+  box-shadow: 0 5px 16px rgba(22, 78, 126, 0.16);
+  color: #174f81;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+  pointer-events: none;
+  backdrop-filter: blur(6px);
+}
+
+.dashboard-chart-mode-status[hidden] {
+  display: none;
+}
+
+.dashboard-chart-mode-status__dot {
+  flex: 0 0 auto;
+  width: 0.46rem;
+  height: 0.46rem;
+  border-radius: 50%;
+  background: #2587df;
+  box-shadow: 0 0 0 0 rgba(37, 135, 223, 0.35);
+  animation: dashboardChartModePulse 1.45s ease-out infinite;
+}
+
+.dashboard-chart-mode-status kbd {
+  flex: 0 0 auto;
+  padding: 0.12rem 0.3rem;
+  border: 1px solid rgba(37, 135, 223, 0.28);
+  border-radius: 0.24rem;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: none;
+  color: #174f81;
+  font: inherit;
+  font-size: 0.65rem;
+}
+
+@keyframes dashboardChartModePulse {
+  70% {
+    box-shadow: 0 0 0 0.38rem rgba(37, 135, 223, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 135, 223, 0);
+  }
+}
+
 #workout-map {
   height: 340px !important;
 }
@@ -2430,6 +2491,12 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   .dashboard-title {
     font-size: clamp(1rem, 3.6vw, 1.2rem);
     line-height: 1;
+  }
+
+  .dashboard-chart-mode-status {
+    top: 0.45rem;
+    right: 0.45rem;
+    max-width: calc(100% - 0.9rem);
   }
 
   .dashboard-hero-meta {

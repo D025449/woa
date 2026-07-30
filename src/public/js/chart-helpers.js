@@ -16,10 +16,12 @@ function getSegmentStyle(segment) {
   };
 }
 
-export function buildMarkAreas(workout) {
+export function buildMarkAreas(workout, {
+  isVisible = () => true
+} = {}) {
   return sortAreasBySpanDescending(
     workout.segments
-    .filter(s => s.rowstate !== 'DEL')
+    .filter(s => s.rowstate !== 'DEL' && isVisible(s))
     .map(s => {
       const area = [
         {
