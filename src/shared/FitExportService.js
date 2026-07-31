@@ -130,6 +130,32 @@ function finiteOr(value, fallback = null) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function hasPositiveSeries(records, key) {
+  return records.some((record) => Number.isFinite(record[key]) && record[key] > 0);
+}
+
+function hasMeaningfulAltitudeSeries(records) {
+  return records.some((record) => Number.isFinite(record.altitudeM) && Math.abs(record.altitudeM) >= 0.1);
+}
+
+function hasMeasuredLeftRightBalanceSeries(records) {
+  return records.some((record) => (
+    Number.isFinite(record.leftRightBalancePct)
+    && record.leftRightBalancePct >= 0
+    && record.leftRightBalancePct <= 100
+    && record.leftRightBalancePct !== 50
+  ));
+}
+
+function resolveCyclingSubSport(workoutType) {
+  switch (String(workoutType || "").trim().toLowerCase()) {
+    case "indoor": return 6;
+    case "road": return 7;
+    case "mountain": return 8;
+    default: return 0;
+  }
+}
+
 function normalizeFitDeviceMetadata(value, fallbackSerialNumber, fallbackTimestamp) {
   const metadata = value && typeof value === "object" ? value : {};
   const sourceFileId = metadata.fileId && typeof metadata.fileId === "object" ? metadata.fileId : {};
@@ -562,8 +588,21 @@ export default class FitExportService {
       options.fitDeviceMetadata?.fileId
       || (Array.isArray(options.fitDeviceMetadata?.devices) && options.fitDeviceMetadata.devices.length > 0)
     );
+    const hasGpsSeries = records.some((record) => Number.isFinite(record.lat) && Number.isFinite(record.lon));
+    const hasDistanceSeries = (
+      (typeof workout.hasDistanceSeries === "function" && workout.hasDistanceSeries())
+      || hasPositiveSeries(records, "speedMps")
+    );
+    const hasSpeedSeries = hasPositiveSeries(records, "speedMps");
+    const hasPowerSeries = hasPositiveSeries(records, "power");
+    const hasHeartRateSeries = hasPositiveSeries(records, "heartRate");
+    const hasCadenceSeries = hasPositiveSeries(records, "cadence");
+    const hasAltitudeSeries = hasMeaningfulAltitudeSeries(records);
     const hasTemperatureSeries = records.some((record) => Number.isFinite(record.temperatureC));
-    const hasLeftRightBalanceSeries = records.some((record) => Number.isFinite(record.leftRightBalancePct));
+    const hasLeftRightBalanceSeries = hasMeasuredLeftRightBalanceSeries(records);
+    const normalizedPower = finiteOr(options.normalizedPower, workout.getNormalizedPower?.());
+    const totalCalories = finiteOr(options.totalCalories);
+    const subSport = resolveCyclingSubSport(options.workoutType);
     const avgSpeedFromDistance = totalSeconds > 0
       ? (summary.totalDistanceM / totalSeconds)
       : 0;
@@ -586,14 +625,28 @@ export default class FitExportService {
     ];
 
     const RECORD_FIELDS = [
-      { num: 0, size: 4, type: FIT_BASE_TYPES.sint32 },   // position_lat (semicircles)
-      { num: 1, size: 4, type: FIT_BASE_TYPES.sint32 },   // position_long (semicircles)
-      { num: 2, size: 2, type: FIT_BASE_TYPES.uint16 },   // altitude
-      { num: 3, size: 1, type: FIT_BASE_TYPES.uint8 },    // heart_rate
-      { num: 4, size: 1, type: FIT_BASE_TYPES.uint8 },    // cadence
-      { num: 5, size: 4, type: FIT_BASE_TYPES.uint32 },   // distance
-      { num: 6, size: 2, type: FIT_BASE_TYPES.uint16 },   // speed
-      { num: 7, size: 2, type: FIT_BASE_TYPES.uint16 },   // power
+      ...(hasGpsSeries ? [
+        { num: 0, size: 4, type: FIT_BASE_TYPES.sint32 },  // position_lat (semicircles)
+        { num: 1, size: 4, type: FIT_BASE_TYPES.sint32 }   // position_long (semicircles)
+      ] : []),
+      ...(hasAltitudeSeries ? [
+        { num: 2, size: 2, type: FIT_BASE_TYPES.uint16 }   // altitude
+      ] : []),
+      ...(hasHeartRateSeries ? [
+        { num: 3, size: 1, type: FIT_BASE_TYPES.uint8 }    // heart_rate
+      ] : []),
+      ...(hasCadenceSeries ? [
+        { num: 4, size: 1, type: FIT_BASE_TYPES.uint8 }    // cadence
+      ] : []),
+      ...(hasDistanceSeries ? [
+        { num: 5, size: 4, type: FIT_BASE_TYPES.uint32 }   // distance
+      ] : []),
+      ...(hasSpeedSeries ? [
+        { num: 6, size: 2, type: FIT_BASE_TYPES.uint16 }   // speed
+      ] : []),
+      ...(hasPowerSeries ? [
+        { num: 7, size: 2, type: FIT_BASE_TYPES.uint16 }   // power
+      ] : []),
       ...(hasTemperatureSeries ? [
         { num: 13, size: 1, type: FIT_BASE_TYPES.sint8 }   // temperature
       ] : []),
@@ -631,20 +684,39 @@ export default class FitExportService {
       { num: 2, size: 4, type: FIT_BASE_TYPES.uint32 },   // start_time
       { num: 7, size: 4, type: FIT_BASE_TYPES.uint32 },   // total_elapsed_time
       { num: 8, size: 4, type: FIT_BASE_TYPES.uint32 },   // total_timer_time
-      { num: 9, size: 4, type: FIT_BASE_TYPES.uint32 },   // total_distance
-      { num: 13, size: 2, type: FIT_BASE_TYPES.uint16 },  // avg_speed
-      { num: 14, size: 2, type: FIT_BASE_TYPES.uint16 },  // max_speed
-      { num: 15, size: 1, type: FIT_BASE_TYPES.uint8 },   // avg_hr
-      { num: 16, size: 1, type: FIT_BASE_TYPES.uint8 },   // max_hr
-      { num: 17, size: 1, type: FIT_BASE_TYPES.uint8 },   // avg_cadence
-      { num: 18, size: 1, type: FIT_BASE_TYPES.uint8 },   // max_cadence
-      { num: 19, size: 2, type: FIT_BASE_TYPES.uint16 },  // avg_power
-      { num: 20, size: 2, type: FIT_BASE_TYPES.uint16 },  // max_power
-      { num: 21, size: 2, type: FIT_BASE_TYPES.uint16 },  // total_ascent
-      { num: 22, size: 2, type: FIT_BASE_TYPES.uint16 },  // total_descent
+      ...(hasDistanceSeries ? [
+        { num: 9, size: 4, type: FIT_BASE_TYPES.uint32 }   // total_distance
+      ] : []),
+      ...(hasSpeedSeries ? [
+        { num: 13, size: 2, type: FIT_BASE_TYPES.uint16 }, // avg_speed
+        { num: 14, size: 2, type: FIT_BASE_TYPES.uint16 }  // max_speed
+      ] : []),
+      ...(hasHeartRateSeries ? [
+        { num: 15, size: 1, type: FIT_BASE_TYPES.uint8 },  // avg_hr
+        { num: 16, size: 1, type: FIT_BASE_TYPES.uint8 }   // max_hr
+      ] : []),
+      ...(hasCadenceSeries ? [
+        { num: 17, size: 1, type: FIT_BASE_TYPES.uint8 },  // avg_cadence
+        { num: 18, size: 1, type: FIT_BASE_TYPES.uint8 }   // max_cadence
+      ] : []),
+      ...(hasPowerSeries ? [
+        { num: 19, size: 2, type: FIT_BASE_TYPES.uint16 }, // avg_power
+        { num: 20, size: 2, type: FIT_BASE_TYPES.uint16 }  // max_power
+      ] : []),
+      ...(hasAltitudeSeries ? [
+        { num: 21, size: 2, type: FIT_BASE_TYPES.uint16 }, // total_ascent
+        { num: 22, size: 2, type: FIT_BASE_TYPES.uint16 }  // total_descent
+      ] : []),
+      ...(Number.isFinite(totalCalories) && totalCalories > 0 ? [
+        { num: 11, size: 2, type: FIT_BASE_TYPES.uint16 }  // total_calories
+      ] : []),
+      ...(Number.isFinite(normalizedPower) && normalizedPower > 0 ? [
+        { num: 33, size: 2, type: FIT_BASE_TYPES.uint16 }  // normalized_power
+      ] : []),
       { num: 23, size: 1, type: FIT_BASE_TYPES.enum },    // intensity
       { num: 24, size: 1, type: FIT_BASE_TYPES.enum },    // lap_trigger
       { num: 25, size: 1, type: FIT_BASE_TYPES.enum },    // sport
+      { num: 39, size: 1, type: FIT_BASE_TYPES.enum },    // sub_sport
       { num: 253, size: 4, type: FIT_BASE_TYPES.uint32 }  // timestamp
     ];
 
@@ -653,17 +725,36 @@ export default class FitExportService {
       { num: 5, size: 1, type: FIT_BASE_TYPES.enum },     // sport
       { num: 7, size: 4, type: FIT_BASE_TYPES.uint32 },   // total_elapsed_time
       { num: 8, size: 4, type: FIT_BASE_TYPES.uint32 },   // total_timer_time
-      { num: 9, size: 4, type: FIT_BASE_TYPES.uint32 },   // total_distance
-      { num: 14, size: 2, type: FIT_BASE_TYPES.uint16 },  // avg_speed
-      { num: 15, size: 2, type: FIT_BASE_TYPES.uint16 },  // max_speed
-      { num: 16, size: 1, type: FIT_BASE_TYPES.uint8 },   // avg_hr
-      { num: 17, size: 1, type: FIT_BASE_TYPES.uint8 },   // max_hr
-      { num: 18, size: 1, type: FIT_BASE_TYPES.uint8 },   // avg_cadence
-      { num: 19, size: 1, type: FIT_BASE_TYPES.uint8 },   // max_cadence
-      { num: 20, size: 2, type: FIT_BASE_TYPES.uint16 },  // avg_power
-      { num: 21, size: 2, type: FIT_BASE_TYPES.uint16 },  // max_power
-      { num: 22, size: 2, type: FIT_BASE_TYPES.uint16 },  // total_ascent
-      { num: 23, size: 2, type: FIT_BASE_TYPES.uint16 },  // total_descent
+      ...(hasDistanceSeries ? [
+        { num: 9, size: 4, type: FIT_BASE_TYPES.uint32 }   // total_distance
+      ] : []),
+      ...(hasSpeedSeries ? [
+        { num: 14, size: 2, type: FIT_BASE_TYPES.uint16 }, // avg_speed
+        { num: 15, size: 2, type: FIT_BASE_TYPES.uint16 }  // max_speed
+      ] : []),
+      ...(hasHeartRateSeries ? [
+        { num: 16, size: 1, type: FIT_BASE_TYPES.uint8 },  // avg_hr
+        { num: 17, size: 1, type: FIT_BASE_TYPES.uint8 }   // max_hr
+      ] : []),
+      ...(hasCadenceSeries ? [
+        { num: 18, size: 1, type: FIT_BASE_TYPES.uint8 },  // avg_cadence
+        { num: 19, size: 1, type: FIT_BASE_TYPES.uint8 }   // max_cadence
+      ] : []),
+      ...(hasPowerSeries ? [
+        { num: 20, size: 2, type: FIT_BASE_TYPES.uint16 }, // avg_power
+        { num: 21, size: 2, type: FIT_BASE_TYPES.uint16 }  // max_power
+      ] : []),
+      ...(hasAltitudeSeries ? [
+        { num: 22, size: 2, type: FIT_BASE_TYPES.uint16 }, // total_ascent
+        { num: 23, size: 2, type: FIT_BASE_TYPES.uint16 }  // total_descent
+      ] : []),
+      ...(Number.isFinite(totalCalories) && totalCalories > 0 ? [
+        { num: 11, size: 2, type: FIT_BASE_TYPES.uint16 }  // total_calories
+      ] : []),
+      ...(Number.isFinite(normalizedPower) && normalizedPower > 0 ? [
+        { num: 34, size: 2, type: FIT_BASE_TYPES.uint16 }  // normalized_power
+      ] : []),
+      { num: 6, size: 1, type: FIT_BASE_TYPES.enum },     // sub_sport
       { num: 26, size: 2, type: FIT_BASE_TYPES.uint16 },  // num_laps
       { num: 253, size: 4, type: FIT_BASE_TYPES.uint32 }  // timestamp
     ];
@@ -756,14 +847,14 @@ export default class FitExportService {
     msg.ensureDefinition(1, 20, RECORD_FIELDS);
     for (const record of records) {
       msg.writeDataMessage(1, RECORD_FIELDS, {
-        0: Number.isFinite(record.lat) ? toSemicircles(record.lat) : 0x7fffffff,
-        1: Number.isFinite(record.lon) ? toSemicircles(record.lon) : 0x7fffffff,
-        2: fitAltitudeValue(record.altitudeM),
-        3: clamp(Math.round(record.heartRate), 0, 0xff),
-        4: clamp(Math.round(record.cadence), 0, 0xff),
-        5: fitDistanceValue(record.distanceM),
-        6: fitSpeedValue(record.speedMps),
-        7: clamp(Math.round(record.power), 0, 0xffff),
+        0: Number.isFinite(record.lat) ? toSemicircles(record.lat) : null,
+        1: Number.isFinite(record.lon) ? toSemicircles(record.lon) : null,
+        2: Number.isFinite(record.altitudeM) ? fitAltitudeValue(record.altitudeM) : null,
+        3: Number.isFinite(record.heartRate) ? clamp(Math.round(record.heartRate), 0, 0xfe) : null,
+        4: Number.isFinite(record.cadence) ? clamp(Math.round(record.cadence), 0, 0xfe) : null,
+        5: Number.isFinite(record.distanceM) ? fitDistanceValue(record.distanceM) : null,
+        6: Number.isFinite(record.speedMps) ? fitSpeedValue(record.speedMps) : null,
+        7: Number.isFinite(record.power) ? clamp(Math.round(record.power), 0, 0xfffe) : null,
         13: Number.isFinite(record.temperatureC)
           ? clamp(Math.round(record.temperatureC), -128, 126)
           : null,
@@ -794,9 +885,12 @@ export default class FitExportService {
         20: clamp(Math.round(segmentSummary.maxPower), 0, 0xffff),
         21: clamp(Math.round(segmentSummary.totalAscentM), 0, 0xffff),
         22: clamp(Math.round(segmentSummary.totalDescentM), 0, 0xffff),
+        11: null,
+        33: null,
         23: 0, // active
         24: 0, // manual
         25: 2, // cycling
+        39: subSport,
         253: fitTimestampFromMs(records[segment.end].timestampMs)
       });
     }
@@ -816,9 +910,12 @@ export default class FitExportService {
       20: clamp(Math.round(summary.maxPower), 0, 0xffff),
       21: clamp(Math.round(summary.totalAscentM), 0, 0xffff),
       22: clamp(Math.round(summary.totalDescentM), 0, 0xffff),
+      11: Number.isFinite(totalCalories) ? clamp(Math.round(totalCalories), 0, 0xfffe) : null,
+      33: Number.isFinite(normalizedPower) ? clamp(Math.round(normalizedPower), 0, 0xfffe) : null,
       23: 0, // active
       24: 7, // session_end
       25: 2, // cycling
+      39: subSport,
       253: lastTs
     });
 
@@ -839,6 +936,9 @@ export default class FitExportService {
       21: clamp(Math.round(summary.maxPower), 0, 0xffff),
       22: clamp(Math.round(summary.totalAscentM), 0, 0xffff),
       23: clamp(Math.round(summary.totalDescentM), 0, 0xffff),
+      11: Number.isFinite(totalCalories) ? clamp(Math.round(totalCalories), 0, 0xfffe) : null,
+      34: Number.isFinite(normalizedPower) ? clamp(Math.round(normalizedPower), 0, 0xfffe) : null,
+      6: subSport,
       26: manualLapSegments.length + 1,
       253: lastTs,
       woa_manual_gps: developerFieldEnabled ? 1 : 0

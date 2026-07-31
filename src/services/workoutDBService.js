@@ -988,6 +988,9 @@ export default class WorkoutDBService {
         total_timer_time,
         total_distance,
         avg_power,
+        avg_normalized_power,
+        total_calories,
+        workout_type,
         validgps,
         sampleRateGPS,
         gps_source,
@@ -1029,6 +1032,9 @@ export default class WorkoutDBService {
         total_timer_time,
         total_distance,
         avg_power,
+        avg_normalized_power,
+        total_calories,
+        workout_type,
         validgps,
         sampleRateGPS,
         gps_source,
@@ -1044,6 +1050,25 @@ export default class WorkoutDBService {
     );
 
     return result.rows;
+  }
+
+  static async getFitExportMetadata(id, uid) {
+    const result = await pool.query(
+      `SELECT
+        fit_device_metadata,
+        avg_normalized_power,
+        total_calories,
+        workout_type
+       FROM workouts
+       WHERE id = $1
+         AND uid = $2`,
+      [id, uid]
+    );
+
+    if (result.rowCount === 0) {
+      throw new Error("no workouts found");
+    }
+    return result.rows[0];
   }
 
   static async getOwnedManualSegmentsForFitExport(uid) {

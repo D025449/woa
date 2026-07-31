@@ -11,6 +11,53 @@ import {
 } from "../src/public/js/fit-import-compact-browser.js";
 import { detectFitLapSegmentsCompact } from "../src/shared/WorkoutLocalPostprocess.js";
 
+function getRecordFieldNumbers(fitBytes) {
+  const view = new DataView(fitBytes.buffer, fitBytes.byteOffset, fitBytes.byteLength);
+  const dataStart = fitBytes[0];
+  const dataEnd = dataStart + view.getUint32(4, true);
+  const definitions = [];
+  let recordFields = [];
+  let cursor = dataStart;
+
+  while (cursor < dataEnd) {
+    const header = fitBytes[cursor];
+    const localMessage = header & 0x0f;
+    if ((header & 0x40) !== 0) {
+      const hasDeveloperFields = (header & 0x20) !== 0;
+      const littleEndian = fitBytes[cursor + 2] === 0;
+      const globalMessage = littleEndian
+        ? view.getUint16(cursor + 3, true)
+        : view.getUint16(cursor + 3, false);
+      const fieldCount = fitBytes[cursor + 5];
+      const fields = [];
+      let messageBytes = 0;
+      for (let index = 0; index < fieldCount; index += 1) {
+        const offset = cursor + 6 + (index * 3);
+        fields.push(fitBytes[offset]);
+        messageBytes += fitBytes[offset + 1];
+      }
+      let definitionBytes = 6 + (fieldCount * 3);
+      if (hasDeveloperFields) {
+        const developerFieldCount = fitBytes[cursor + definitionBytes];
+        definitionBytes += 1 + (developerFieldCount * 3);
+        for (let index = 0; index < developerFieldCount; index += 1) {
+          messageBytes += fitBytes[cursor + 7 + (fieldCount * 3) + (index * 3) + 1];
+        }
+      }
+      definitions[localMessage] = { messageBytes };
+      if (globalMessage === 20) recordFields = fields;
+      cursor += definitionBytes;
+      continue;
+    }
+
+    const definition = definitions[localMessage];
+    assert.ok(definition, `Missing FIT definition for local message ${localMessage}`);
+    cursor += 1 + definition.messageBytes;
+  }
+
+  return recordFields;
+}
+
 function buildWorkoutFixture() {
   return {
     length: 6,
@@ -33,14 +80,14 @@ const options = {
   gpsSource: "manual_lookup"
 };
 
-test("browser FIT encoder remains byte-identical to the previous server encoder", () => {
+test("browser FIT encoder matches the current golden FIT payload", () => {
   const bytes = BrowserFitExportService.buildFitFromWorkout(buildWorkoutFixture(), options);
 
   assert.ok(bytes instanceof Uint8Array);
-  assert.equal(bytes.byteLength, 543);
+  assert.equal(bytes.byteLength, 551);
   assert.equal(
     createHash("sha256").update(bytes).digest("hex"),
-    "2b7f96d95b350f6eba59ad38053fe35734a9900294d5689657b6c9faabeec17f"
+    "65945f5644572b2f4fde3e1e10edde77930907e400c47b8fe69f4abc68e23691"
   );
 });
 
@@ -91,7 +138,10 @@ test("FIT export round-trips temperature, balance and device metadata", () => {
 
   const bytes = BrowserFitExportService.buildFitFromWorkout(fixture, {
     ...options,
-    fitDeviceMetadata
+    fitDeviceMetadata,
+    normalizedPower: 219,
+    totalCalories: 321,
+    workoutType: "road"
   });
   const parsed = parseFitBufferCompactBrowser(bytes);
 
@@ -100,6 +150,9 @@ test("FIT export round-trips temperature, balance and device metadata", () => {
   assert.equal(parsed.fitDeviceMetadata.fileId.product, 4440);
   assert.equal(parsed.fitDeviceMetadata.fileId.productName, "Edge 1050");
   assert.equal(parsed.fitDeviceMetadata.devices[0].softwareVersion, 13.18);
+  assert.equal(parsed.sessions[0].normalized_power, 219);
+  assert.equal(parsed.sessions[0].total_calories, 321);
+  assert.equal(parsed.sessions[0].sub_sport, 7);
 });
 
 test("FIT import discards constant 50 percent balance placeholders", () => {
@@ -117,6 +170,28 @@ test("FIT import discards constant 50 percent balance placeholders", () => {
   const measured = { leftRightBalancesPct: Uint8Array.from([127, 50, 51]) };
   assert.equal(discardPlaceholderLeftRightBalance(measured), measured);
   assert.deepEqual(Array.from(measured.leftRightBalancesPct), [127, 50, 51]);
+});
+
+test("FIT export omits measurement fields that the workout does not contain", () => {
+  const fixture = {
+    length: 3,
+    getStartTime: () => Date.UTC(2024, 0, 2, 3, 4, 5),
+    hasDistanceSeries: () => false,
+    getDistanceAt: () => null,
+    getSpeedAt: () => 0,
+    getPowerAt: () => 0,
+    getHrAt: () => 0,
+    getCadenceAt: () => 0,
+    getAltitudeAt: () => 0,
+    getTemperatureAt: () => Number.NaN,
+    getLeftRightBalanceAt: () => Number.NaN
+  };
+
+  const bytes = BrowserFitExportService.buildFitFromWorkout(fixture, {
+    serialNumber: 99,
+    includeGps: false
+  });
+  assert.deepEqual(getRecordFieldNumbers(bytes), [253]);
 });
 
 test("FIT export round-trips manual workout segments as manual laps", () => {

@@ -420,6 +420,49 @@
                                         <button id="dashboard-workout-prev" class="dashboard-detail-nav__button" type="button" aria-label="<%= t('dashboardNewPage.previousItem') %>">‹</button>
                                         <button id="dashboard-workout-next" class="dashboard-detail-nav__button" type="button" aria-label="<%= t('dashboardNewPage.nextItem') %>">›</button>
                                     </div>
+                                    <details id="dashboard-device-info" class="dashboard-device-info d-none">
+                                        <summary class="dashboard-device-info__trigger" aria-label="<%= t('dashboardNewPage.deviceInfoOpen') %>" title="<%= t('dashboardNewPage.deviceInfoOpen') %>">
+                                            <svg viewBox="0 0 20 20" aria-hidden="true">
+                                                <circle cx="10" cy="10" r="7.3"></circle>
+                                                <path d="M10 8.5v5M10 6.1h.01"></path>
+                                            </svg>
+                                        </summary>
+                                        <div class="dashboard-device-info__panel">
+                                            <div class="dashboard-device-info__panel-header">
+                                                <div>
+                                                    <span class="dashboard-device-info__eyebrow"><%= t("dashboardNewPage.deviceInfoEyebrow") %></span>
+                                                    <h3 class="dashboard-device-info__title"><%= t("dashboardNewPage.deviceInfoTitle") %></h3>
+                                                </div>
+                                                <button id="dashboard-device-info-close" class="dashboard-device-info__close" type="button" aria-label="<%= t('dashboardNewPage.deviceInfoClose') %>">×</button>
+                                            </div>
+                                            <dl class="dashboard-device-info__facts">
+                                                <div>
+                                                    <dt><%= t("dashboardNewPage.deviceInfoRecorder") %></dt>
+                                                    <dd id="dashboard-device-info-recorder">–</dd>
+                                                </div>
+                                                <div>
+                                                    <dt><%= t("dashboardNewPage.deviceInfoSoftware") %></dt>
+                                                    <dd id="dashboard-device-info-software">–</dd>
+                                                </div>
+                                                <div>
+                                                    <dt><%= t("dashboardNewPage.deviceInfoCreated") %></dt>
+                                                    <dd id="dashboard-device-info-created">–</dd>
+                                                </div>
+                                                <div>
+                                                    <dt><%= t("dashboardNewPage.deviceInfoActivity") %></dt>
+                                                    <dd id="dashboard-device-info-activity">–</dd>
+                                                </div>
+                                            </dl>
+                                            <div class="dashboard-device-info__section">
+                                                <span class="dashboard-device-info__section-title"><%= t("dashboardNewPage.deviceInfoSensors") %></span>
+                                                <div id="dashboard-device-info-sensors" class="dashboard-device-info__sensors"></div>
+                                            </div>
+                                            <details class="dashboard-device-info__technical">
+                                                <summary><%= t("dashboardNewPage.deviceInfoTechnical") %></summary>
+                                                <dl id="dashboard-device-info-technical" class="dashboard-device-info__technical-list"></dl>
+                                            </details>
+                                        </div>
+                                    </details>
                                     <details class="dashboard-actions-menu">
                                         <summary class="dashboard-actions-menu__trigger" aria-label="<%= t('dashboardNewPage.btnCreateSegment') %> / <%= t('dashboardNewPage.btnCreateGps') %> / <%= t('dashboardNewPage.btnDeleteSegment') %>">
                                             <span></span><span></span><span></span>

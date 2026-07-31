@@ -49,6 +49,9 @@ self.addEventListener("message", async (event) => {
       includeGps: !!meta.validGps,
       gpsSource: meta.gpsSource || null,
       fitDeviceMetadata: meta.fitDeviceMetadata || null,
+      normalizedPower: meta.normalizedPower,
+      totalCalories: meta.totalCalories,
+      workoutType: meta.workoutType,
       segments: Array.isArray(payload.segments) ? payload.segments : []
     });
 

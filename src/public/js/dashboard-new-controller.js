@@ -87,6 +87,14 @@ export default class Controller {
     this.detailGridElement = document.getElementById("dashboard-detail-grid");
     this.prevWorkoutButton = document.getElementById("dashboard-workout-prev");
     this.nextWorkoutButton = document.getElementById("dashboard-workout-next");
+    this.deviceInfoElement = document.getElementById("dashboard-device-info");
+    this.deviceInfoCloseButton = document.getElementById("dashboard-device-info-close");
+    this.deviceInfoRecorderElement = document.getElementById("dashboard-device-info-recorder");
+    this.deviceInfoSoftwareElement = document.getElementById("dashboard-device-info-software");
+    this.deviceInfoCreatedElement = document.getElementById("dashboard-device-info-created");
+    this.deviceInfoActivityElement = document.getElementById("dashboard-device-info-activity");
+    this.deviceInfoSensorsElement = document.getElementById("dashboard-device-info-sensors");
+    this.deviceInfoTechnicalElement = document.getElementById("dashboard-device-info-technical");
     this.detailSplitterTopElement = document.getElementById("dashboard-detail-splitter-1");
     this.isMobileLibraryOpen = false;
     this.libraryWidthPx = this.uiState.get("dashboardLibraryWidthPx", null);
@@ -357,6 +365,14 @@ export default class Controller {
     });
     this.nextWorkoutButton?.addEventListener("click", async () => {
       await this.openRelativeWorkout(1);
+    });
+    this.deviceInfoCloseButton?.addEventListener("click", () => {
+      this.deviceInfoElement?.removeAttribute("open");
+    });
+    document.addEventListener("click", (event) => {
+      if (this.deviceInfoElement?.open && !this.deviceInfoElement.contains(event.target)) {
+        this.deviceInfoElement.removeAttribute("open");
+      }
     });
   }
 
@@ -632,6 +648,7 @@ export default class Controller {
 
       this.libraryView.setSelectedWorkout(workout.id);
       this.updateWorkoutMeta(workout);
+      this.updateDeviceInfo(workout);
 
       stepStartedAt = performance.now();
       this.scheduleDesktopLayoutMeasure(true);
@@ -767,6 +784,123 @@ export default class Controller {
     this.sharedMetaElement.classList.remove("d-none");
     this.sharedMetaTextElement.textContent = this.t("messages.sharedBy", { owner: ownerLabel });
     this.detailCopyElement.textContent = headerDetailLine;
+  }
+
+  updateDeviceInfo(workout) {
+    const metadata = workout?.fitDeviceMetadata;
+    const fileId = metadata?.fileId && typeof metadata.fileId === "object"
+      ? metadata.fileId
+      : null;
+    const devices = Array.isArray(metadata?.devices)
+      ? metadata.devices.filter((device) => device && typeof device === "object")
+      : [];
+
+    if (!fileId && devices.length === 0) {
+      this.resetDeviceInfo();
+      return;
+    }
+
+    const recorder = devices.find((device) => Number(device.deviceIndex) === 0)
+      || devices.find((device) => device.productName)
+      || null;
+    const recorderName = fileId?.productName
+      || recorder?.productName
+      || fileId?.manufacturerName
+      || recorder?.manufacturerName
+      || this.t("deviceInfoUnknown");
+    const softwareVersion = recorder?.softwareVersion;
+    const createdAt = fileId?.timeCreated ? new Date(fileId.timeCreated) : null;
+    const sensors = devices.filter((device) => (
+      device !== recorder
+      && Number(device.deviceIndex) !== 0
+      && !["gps", "barometer"].includes(String(device.deviceTypeName || "").toLowerCase())
+    ));
+
+    this.deviceInfoElement?.classList.remove("d-none");
+    this.deviceInfoElement?.removeAttribute("open");
+    this.deviceInfoRecorderElement.textContent = recorderName;
+    this.deviceInfoSoftwareElement.textContent = softwareVersion == null
+      ? "–"
+      : String(softwareVersion);
+    this.deviceInfoCreatedElement.textContent = createdAt && !Number.isNaN(createdAt.getTime())
+      ? new Intl.DateTimeFormat(this.locale, {
+          dateStyle: "medium",
+          timeStyle: "short"
+        }).format(createdAt)
+      : "–";
+    this.deviceInfoActivityElement.textContent = this.formatWorkoutType(workout);
+
+    this.deviceInfoSensorsElement.replaceChildren();
+    if (sensors.length === 0) {
+      const empty = document.createElement("span");
+      empty.className = "dashboard-device-info__empty";
+      empty.textContent = this.t("deviceInfoNoSensors");
+      this.deviceInfoSensorsElement.append(empty);
+    } else {
+      sensors.forEach((device) => {
+        const item = document.createElement("div");
+        item.className = "dashboard-device-info__sensor";
+        const name = document.createElement("strong");
+        name.textContent = this.formatDeviceType(device.deviceTypeName);
+        const detail = document.createElement("span");
+        detail.textContent = [device.manufacturerName, device.sourceTypeName]
+          .filter(Boolean)
+          .map((value) => this.humanizeFitValue(value))
+          .join(" · ") || this.t("deviceInfoUnknown");
+        item.append(name, detail);
+        this.deviceInfoSensorsElement.append(item);
+      });
+    }
+
+    const technicalRows = [
+      [this.t("deviceInfoFileType"), this.humanizeFitValue(fileId?.typeName)],
+      [this.t("deviceInfoManufacturer"), this.humanizeFitValue(fileId?.manufacturerName || recorder?.manufacturerName)],
+      [this.t("deviceInfoProductCode"), fileId?.product],
+      [this.t("deviceInfoSerialNumber"), fileId?.serialNumber],
+      [this.t("deviceInfoDeviceCount"), devices.length]
+    ].filter(([, value]) => value !== null && value !== undefined && value !== "");
+    this.deviceInfoTechnicalElement.replaceChildren();
+    technicalRows.forEach(([label, value]) => {
+      const row = document.createElement("div");
+      const term = document.createElement("dt");
+      const description = document.createElement("dd");
+      term.textContent = label;
+      description.textContent = String(value);
+      row.append(term, description);
+      this.deviceInfoTechnicalElement.append(row);
+    });
+  }
+
+  resetDeviceInfo() {
+    this.deviceInfoElement?.removeAttribute("open");
+    this.deviceInfoElement?.classList.add("d-none");
+    this.deviceInfoSensorsElement?.replaceChildren();
+    this.deviceInfoTechnicalElement?.replaceChildren();
+  }
+
+  formatWorkoutType(workout) {
+    const workoutType = String(workout?.workout_type || workout?.workoutType || "unknown");
+    const key = {
+      indoor: "workoutTypeIndoor",
+      road: "workoutTypeRoad",
+      mountain: "workoutTypeMountain",
+      unknown: "workoutTypeUnknown"
+    }[workoutType] || "workoutTypeUnknown";
+    return this.t(key);
+  }
+
+  formatDeviceType(value) {
+    const normalized = String(value || "").toLowerCase();
+    if (normalized === "heart_rate") return this.t("deviceInfoHeartRate");
+    if (normalized === "bike_power") return this.t("deviceInfoPowerMeter");
+    if (normalized.includes("cadence")) return this.t("deviceInfoCadence");
+    return this.humanizeFitValue(value) || this.t("deviceInfoSensor");
+  }
+
+  humanizeFitValue(value) {
+    return String(value || "")
+      .replaceAll("_", " ")
+      .replace(/\b\w/g, (character) => character.toUpperCase());
   }
 
   async deleteSelectedWorkouts(workouts = []) {
@@ -908,6 +1042,7 @@ export default class Controller {
     if (this.detailCopyElement) {
       this.detailCopyElement.textContent = "";
     }
+    this.resetDeviceInfo();
     this.resetSimilarWorkouts();
     this.flyoverView?.setWorkout(null);
     this.update3dMapButton();

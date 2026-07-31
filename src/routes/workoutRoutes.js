@@ -230,6 +230,9 @@ router.get("/export/all/source.zip", authMiddleware, async (req, res) => {
           totalTimerTime: row.total_timer_time == null ? null : Number(row.total_timer_time),
           totalDistance: row.total_distance == null ? null : Number(row.total_distance),
           avgPower: row.avg_power == null ? null : Number(row.avg_power),
+          normalizedPower: row.avg_normalized_power == null ? null : Number(row.avg_normalized_power),
+          totalCalories: row.total_calories == null ? null : Number(row.total_calories),
+          workoutType: row.workout_type || null,
           streamCodec: String(row.stream_codec || "gzip"),
           gpsTrackCodec: String(row.gps_track_blob_codec || "identity"),
           validGps: !!row.validgps,
@@ -284,11 +287,11 @@ router.get("/:id/export.fit", authMiddleware, async (req, res) => {
       return res.status(403).json({ error: "Only workout owners can export FIT files." });
     }
 
-    const [workout, workoutTrack, segmentResult, fitDeviceMetadata] = await Promise.all([
+    const [workout, workoutTrack, segmentResult, fitExportMetadata] = await Promise.all([
       WorkoutDBService.getWorkout(workoutId),
       WorkoutDBService.getTrack(workoutId, uid),
       FileDBService.getSegmentsByWorkout(uid, workoutId),
-      WorkoutDBService.getFitDeviceMetadata(workoutId, uid)
+      WorkoutDBService.getFitExportMetadata(workoutId, uid)
     ]);
     const geoJsonCoordinates = Array.isArray(workoutTrack?.track?.coordinates)
       ? workoutTrack.track.coordinates
@@ -314,7 +317,14 @@ router.get("/:id/export.fit", authMiddleware, async (req, res) => {
       gpsCoordinates,
       includeGps: hasValidGps,
       gpsSource: workoutTrack?.gps_source ?? workoutTrack?.gpsSource ?? null,
-      fitDeviceMetadata,
+      fitDeviceMetadata: fitExportMetadata.fit_device_metadata || null,
+      normalizedPower: fitExportMetadata.avg_normalized_power == null
+        ? null
+        : Number(fitExportMetadata.avg_normalized_power),
+      totalCalories: fitExportMetadata.total_calories == null
+        ? null
+        : Number(fitExportMetadata.total_calories),
+      workoutType: fitExportMetadata.workout_type || null,
       segments: Array.isArray(segmentResult?.rows) ? segmentResult.rows : []
     });
     const fileName = formatFitExportFileName(
@@ -454,13 +464,14 @@ router.get("/:id/open-v2", authMiddleware, async (req, res) => {
         totalTimerTime: row.total_timer_time == null ? null : Number(row.total_timer_time),
         totalDistance: row.total_distance == null ? null : Number(row.total_distance),
         avgPower: row.avg_power == null ? null : Number(row.avg_power),
+        workoutType: row.workout_type || "unknown",
         isFavorite: !!accessInfo.is_favorite,
         streamCodec: String(row.stream_codec || "brotli"),
         gpsTrackCodec: String(row.gps_track_blob_codec || "identity"),
         validGps: !!(row?.validgps ?? row?.validGps),
         sampleRateGps: Number(row?.samplerategps ?? row?.sampleRateGPS ?? 0) || null,
         gpsSource: row.gps_source || null,
-        fitDeviceMetadata: row.fit_device_metadata || null,
+        fitDeviceMetadata: accessInfo.is_owner ? (row.fit_device_metadata || null) : null,
         manualGpsLookupPoints: Array.isArray(row.manual_gps_lookup_points) ? row.manual_gps_lookup_points : [],
         segmentProcessingStatus: row.segment_processing_status || "queued",
         segmentProcessingError: row.segment_processing_error || null,
