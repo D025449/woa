@@ -29,7 +29,8 @@ const CHART_SERIES_VISIBILITY_KEYS = [
   "heartRate",
   "cadence",
   "speed",
-  "altitude"
+  "altitude",
+  "leftRightBalance"
 ];
 const SEGMENT_VISIBILITY_KEYS = [
   "criticalPower",
@@ -76,6 +77,10 @@ export function normalizeWorkoutLibraryState(state = {}) {
 
   if (CHART_SMOOTHING_LEVELS.has(source.smoothingLevel)) {
     normalized.smoothingLevel = source.smoothingLevel;
+  }
+
+  if (typeof source.bridgePowerCadenceZeros === "boolean") {
+    normalized.bridgePowerCadenceZeros = source.bridgePowerCadenceZeros;
   }
 
   if (

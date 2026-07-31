@@ -8,18 +8,19 @@ import {
 test("normalizes WPP1 rows into database segment values", () => {
   const result = normalizeWorkoutLocalPostprocessPayload({
     workoutCount: 1,
-    segmentCount: 2,
+    segmentCount: 3,
     workouts: [{
       startTimeSec: 1_700_000_000,
       recordCount: 100,
       segments: [
         { type: 1, start: 10, end: 40, duration: 30, avgPower: 250, avgHeartRate: 150, avgCadence: 90, avgSpeed: 8.25, altimeters: 3000 },
-        { type: 2, start: 20, end: 24, duration: 5, avgPower: 400, avgHeartRate: 160, avgCadence: 95, avgSpeed: 9.5, altimeters: 1000 }
+        { type: 2, start: 20, end: 24, duration: 5, avgPower: 400, avgHeartRate: 160, avgCadence: 95, avgSpeed: 9.5, altimeters: 1000 },
+        { type: 3, start: 50, end: 70, duration: 20, avgPower: 280, avgHeartRate: 155, avgCadence: 92, avgSpeed: 8.75, altimeters: 500 }
       ]
     }]
   });
-  assert.equal(result.segmentCount, 2);
-  assert.deepEqual(result.workouts[0].segments.map((segment) => segment.segmenttype), ["auto", "crit"]);
+  assert.equal(result.segmentCount, 3);
+  assert.deepEqual(result.workouts[0].segments.map((segment) => segment.segmenttype), ["auto", "crit", "manual"]);
   assert.equal(result.workouts[0].segments[0].avg_speed, 8.25);
 });
 

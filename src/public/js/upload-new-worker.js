@@ -2,6 +2,7 @@ import { applyCompactEncodingOptions, parseFitBufferCompactBrowser } from "./fit
 import { createWoa1FileFromCompactAsync } from "./woa-format-compact.js";
 import { encodeWoaTransportContainer } from "./woa-transport-container.js";
 import {
+  detectFitLapSegmentsCompact,
   detectWorkoutLocalSegmentsCompact,
   encodeWorkoutLocalPostprocessTransport
 } from "../../shared/WorkoutLocalPostprocess.js";
@@ -176,6 +177,36 @@ function average(values) {
     return 0;
   }
   return values.reduce((sum, value) => sum + Number(value || 0), 0) / values.length;
+}
+
+function aggregateFitLapStats(workouts = []) {
+  const result = {
+    totalMessages: 0,
+    fullWorkoutMessages: 0,
+    invalidMessages: 0,
+    importedSegments: 0,
+    workoutStepLinkedMessages: 0,
+    triggers: {},
+    intensities: {}
+  };
+  const mergeCounts = (target, source) => {
+    for (const [key, value] of Object.entries(source || {})) {
+      target[key] = Number(target[key] || 0) + Number(value || 0);
+    }
+  };
+
+  for (const workout of workouts) {
+    const stats = workout?.lapStats;
+    if (!stats) continue;
+    result.totalMessages += Number(stats.totalMessages || 0);
+    result.fullWorkoutMessages += Number(stats.fullWorkoutMessages || 0);
+    result.invalidMessages += Number(stats.invalidMessages || 0);
+    result.importedSegments += Number(stats.importedSegments || 0);
+    result.workoutStepLinkedMessages += Number(stats.workoutStepLinkedMessages || 0);
+    mergeCounts(result.triggers, stats.triggers);
+    mergeCounts(result.intensities, stats.intensities);
+  }
+  return result;
 }
 
 function averageTimingMaps(samples = []) {
@@ -970,11 +1001,16 @@ async function convertMixedEntriesToWoaZip({
         powerArtifactFilterMs += Number(adjustedParsed.compactRecords?.powerArtifactStats?.elapsedMs || 0);
         if (encodingOptions.browserPostprocessBenchmark) {
           const postprocessStartedAt = nowMs();
-          const segments = detectWorkoutLocalSegmentsCompact(adjustedParsed.compactRecords);
+          const criticalSegments = detectWorkoutLocalSegmentsCompact(adjustedParsed.compactRecords);
+          const lapResult = detectFitLapSegmentsCompact(
+            adjustedParsed.compactRecords,
+            adjustedParsed.laps
+          );
           browserPostprocessWorkouts.push({
             startTimeSec: Number(adjustedParsed.compactRecords?.baseTimestampSec || 0),
             recordCount: Number(adjustedParsed.compactRecords?.recordCount || 0),
-            segments
+            segments: [...criticalSegments, ...lapResult.segments],
+            lapStats: lapResult.stats
           });
           browserPostprocessDetectSamplesMs.push(nowMs() - postprocessStartedAt);
           if (result.gpsTrack?.bbox) {
@@ -1143,6 +1179,7 @@ async function convertMixedEntriesToWoaZip({
         compressMs,
         compressionEngine: canUseCompressionStream("gzip") ? "compression-stream" : "fflate"
       };
+      browserPostprocessStats.fitLaps = aggregateFitLapStats(browserPostprocessWorkouts);
       browserPostprocessStats.gpsSegmentBenchmark = {
         workoutCount: browserGpsSegmentSamples.length,
         cpuMs: browserGpsSegmentSamples.reduce((sum, sample) => sum + Number(sample.cpuMs || 0), 0),

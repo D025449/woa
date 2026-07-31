@@ -47,7 +47,9 @@ self.addEventListener("message", async (event) => {
       sampleRateGps: meta.sampleRateGps,
       gpsCoordinates,
       includeGps: !!meta.validGps,
-      gpsSource: meta.gpsSource || null
+      gpsSource: meta.gpsSource || null,
+      fitDeviceMetadata: meta.fitDeviceMetadata || null,
+      segments: Array.isArray(payload.segments) ? payload.segments : []
     });
 
     self.postMessage({

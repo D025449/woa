@@ -44,6 +44,7 @@ CREATE TABLE workouts (
     validGps             BOOLEAN,
     gps_source           TEXT,
     workout_type         TEXT NOT NULL DEFAULT 'unknown',
+    fit_device_metadata  JSONB NOT NULL DEFAULT '{"version":1,"fileId":null,"devices":[]}'::jsonb,
     manual_gps_lookup_points JSONB,
     segment_processing_status TEXT NOT NULL DEFAULT 'completed',
     segment_processing_error  TEXT,
@@ -67,6 +68,19 @@ CREATE TABLE workouts (
         CHECK (gps_source IS NULL OR gps_source IN ('recorded', 'manual_lookup')),
     CONSTRAINT workouts_workout_type_check
         CHECK (workout_type IN ('indoor', 'road', 'mountain', 'unknown')),
+    CONSTRAINT workouts_fit_device_metadata_check
+        CHECK (
+            jsonb_typeof(fit_device_metadata) = 'object'
+            AND (
+                NOT (fit_device_metadata ? 'fileId')
+                OR fit_device_metadata->'fileId' = 'null'::jsonb
+                OR jsonb_typeof(fit_device_metadata->'fileId') = 'object'
+            )
+            AND (
+                NOT (fit_device_metadata ? 'devices')
+                OR jsonb_typeof(fit_device_metadata->'devices') = 'array'
+            )
+        ),
     CONSTRAINT workouts_stream_codec_check
         CHECK (stream_codec IS NULL OR stream_codec IN ('brotli', 'gzip')),
     CONSTRAINT workouts_gps_track_blob_codec_check

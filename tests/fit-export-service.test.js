@@ -5,9 +5,11 @@ import test from "node:test";
 import BrowserFitExportService from "../src/shared/FitExportService.js";
 import ServerFitExportService from "../src/services/fitExportService.js";
 import {
+  discardPlaceholderLeftRightBalance,
   normalizeCompactMissingMetricsInPlace,
   parseFitBufferCompactBrowser
 } from "../src/public/js/fit-import-compact-browser.js";
+import { detectFitLapSegmentsCompact } from "../src/shared/WorkoutLocalPostprocess.js";
 
 function buildWorkoutFixture() {
   return {
@@ -35,10 +37,10 @@ test("browser FIT encoder remains byte-identical to the previous server encoder"
   const bytes = BrowserFitExportService.buildFitFromWorkout(buildWorkoutFixture(), options);
 
   assert.ok(bytes instanceof Uint8Array);
-  assert.equal(bytes.byteLength, 521);
+  assert.equal(bytes.byteLength, 543);
   assert.equal(
     createHash("sha256").update(bytes).digest("hex"),
-    "91b8d99253b8ff6af5fa93df1e1b6c1001c894bd2b26a87847dc29f438283088"
+    "2b7f96d95b350f6eba59ad38053fe35734a9900294d5689657b6c9faabeec17f"
   );
 });
 
@@ -59,6 +61,86 @@ test("browser FIT parser accounts for developer fields in exported records", () 
   assert.equal(parsed.recordCount, 6);
   assert.deepEqual(Array.from(parsed.powersW), [200, 201, 202, 203, 204, 205]);
   assert.deepEqual(Array.from(parsed.altitudesQ), [2000, 2008, 2016, 2024, 2032, 2040]);
+});
+
+test("FIT export round-trips temperature, balance and device metadata", () => {
+  const fixture = buildWorkoutFixture();
+  fixture.getTemperatureAt = (index) => 18 + (index % 2);
+  fixture.getLeftRightBalanceAt = (index) => index === 2 ? Number.NaN : 51 + (index % 2);
+  const fitDeviceMetadata = {
+    version: 1,
+    fileId: {
+      type: 4,
+      manufacturer: 1,
+      product: 4440,
+      productName: "Edge 1050",
+      serialNumber: 3625669243,
+      timeCreated: "2024-01-02T03:04:05.000Z"
+    },
+    devices: [{
+      timestamp: "2024-01-02T03:04:05.000Z",
+      deviceIndex: 0,
+      manufacturer: 1,
+      product: 4440,
+      productName: "Edge 1050",
+      serialNumber: 3625669243,
+      softwareVersion: 13.18,
+      sourceType: 5
+    }]
+  };
+
+  const bytes = BrowserFitExportService.buildFitFromWorkout(fixture, {
+    ...options,
+    fitDeviceMetadata
+  });
+  const parsed = parseFitBufferCompactBrowser(bytes);
+
+  assert.deepEqual(Array.from(parsed.compactRecords.temperaturesC), [18, 19, 18, 19, 18, 19]);
+  assert.deepEqual(Array.from(parsed.compactRecords.leftRightBalancesPct), [51, 52, 127, 52, 51, 52]);
+  assert.equal(parsed.fitDeviceMetadata.fileId.product, 4440);
+  assert.equal(parsed.fitDeviceMetadata.fileId.productName, "Edge 1050");
+  assert.equal(parsed.fitDeviceMetadata.devices[0].softwareVersion, 13.18);
+});
+
+test("FIT import discards constant 50 percent balance placeholders", () => {
+  const fixture = buildWorkoutFixture();
+  fixture.getLeftRightBalanceAt = () => 50;
+
+  const bytes = BrowserFitExportService.buildFitFromWorkout(fixture, options);
+  const parsed = parseFitBufferCompactBrowser(bytes);
+
+  assert.deepEqual(
+    Array.from(parsed.compactRecords.leftRightBalancesPct),
+    [127, 127, 127, 127, 127, 127]
+  );
+
+  const measured = { leftRightBalancesPct: Uint8Array.from([127, 50, 51]) };
+  assert.equal(discardPlaceholderLeftRightBalance(measured), measured);
+  assert.deepEqual(Array.from(measured.leftRightBalancesPct), [127, 50, 51]);
+});
+
+test("FIT export round-trips manual workout segments as manual laps", () => {
+  const bytes = BrowserFitExportService.buildFitFromWorkout(buildWorkoutFixture(), {
+    ...options,
+    segments: [
+      { segmenttype: "manual", start_offset: 1, end_offset: 4 },
+      { segmenttype: "crit", start_offset: 0, end_offset: 5 },
+      { segmenttype: "auto", start_offset: 2, end_offset: 5 }
+    ]
+  });
+  const parsed = parseFitBufferCompactBrowser(
+    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+  );
+
+  assert.equal(parsed.laps.length, 2);
+  assert.deepEqual(parsed.laps.map((lap) => lap.lap_trigger), [0, 7]);
+  const detected = detectFitLapSegmentsCompact(parsed.compactRecords, parsed.laps);
+  assert.equal(detected.stats.fullWorkoutMessages, 1);
+  assert.equal(detected.stats.importedSegments, 1);
+  assert.deepEqual(
+    detected.segments.map(({ type, start, end, duration }) => ({ type, start, end, duration })),
+    [{ type: 3, start: 1, end: 4, duration: 3 }]
+  );
 });
 
 test("FIT export removes an unmistakably corrupt terminal record", () => {

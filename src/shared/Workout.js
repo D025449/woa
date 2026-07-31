@@ -30,6 +30,10 @@ export default class Workout {
 
     constructor(buffer) {
         this.buffer = buffer;
+        /** @type {ArrayLike<number> | null} */
+        this.temperatureSeriesC = null;
+        /** @type {ArrayLike<number> | null} */
+        this.leftRightBalanceSeriesPct = null;
         this.streamFormatVersion = Workout.readFormatVersion(buffer);
         this._initViews();
         this._computeDerived();
@@ -304,7 +308,10 @@ export default class Workout {
             }
         }
 
-        return new Workout(buffer);
+        const workout = new Workout(buffer);
+        workout.temperatureSeriesC = arrays?.temperaturesC ?? null;
+        workout.leftRightBalanceSeriesPct = arrays?.leftRightBalancesPct ?? null;
+        return workout;
     }
 
     static buildWoaDistancePayload(distancesM, recordCount) {
@@ -465,7 +472,7 @@ export default class Workout {
         const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
-        if (magic !== "WST9") {
+        if (magic !== "WST9" && magic !== "WS10") {
             throw new Error(`Unsupported workout stream block: ${magic}`);
         }
         const recordCount = view.getUint32(4, true);
@@ -473,7 +480,8 @@ export default class Workout {
         const sampleIntervalMs = view.getUint32(16, true);
         const lengths = [];
         let headerOffset = 20;
-        for (let i = 0; i < 6; i += 1) {
+        const blockCount = magic === "WS10" ? 8 : 6;
+        for (let i = 0; i < blockCount; i += 1) {
             lengths.push(view.getUint32(headerOffset, true));
             headerOffset += 4;
         }
@@ -531,6 +539,22 @@ export default class Workout {
         const altitudesM = new Float64Array(recordCount);
         offset = this.#decodeInt16RunLengthDeltaBlock(view, offset, lengths[5], recordCount, altitudesM);
 
+        const temperaturesC = new Float64Array(recordCount);
+        temperaturesC.fill(Number.NaN);
+        if (magic === "WS10" && lengths[6] > 0) {
+            offset = this.#decodeInt8RunLengthDeltaBlock(view, offset, lengths[6], recordCount, temperaturesC);
+        }
+
+        const leftRightBalancesPct = new Float64Array(recordCount);
+        leftRightBalancesPct.fill(Number.NaN);
+        if (magic === "WS10" && lengths[7] > 0) {
+            for (let i = 0; i < recordCount; i += 1) {
+                const raw = view.getUint8(offset + i);
+                leftRightBalancesPct[i] = raw === 0x7f ? Number.NaN : raw;
+            }
+            offset += lengths[7];
+        }
+
         const timestampsMs = new Float64Array(recordCount);
         for (let i = 0; i < recordCount; i += 1) {
             timestampsMs[i] = baseTimestampMs + (i * sampleIntervalMs);
@@ -555,7 +579,9 @@ export default class Workout {
             heartRatesBpm,
             cadencesRpm,
             speedsMps,
-            altitudesM
+            altitudesM,
+            temperaturesC,
+            leftRightBalancesPct
         };
     }
 
@@ -563,7 +589,7 @@ export default class Workout {
         const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
-        if (magic !== "WST9") {
+        if (magic !== "WST9" && magic !== "WS10") {
             throw new Error(`Unsupported workout stream block: ${magic}`);
         }
 
@@ -578,7 +604,7 @@ export default class Workout {
             throw new Error("Invalid range");
         }
 
-        const lengths = new Uint32Array(6);
+        const lengths = new Uint32Array(magic === "WS10" ? 8 : 6);
         let headerOffset = 20;
         for (let index = 0; index < lengths.length; index += 1) {
             lengths[index] = view.getUint32(headerOffset, true);
@@ -620,12 +646,12 @@ export default class Workout {
         const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
-        if (magic !== "WST9") {
+        if (magic !== "WST9" && magic !== "WS10") {
             throw new Error(`Unsupported workout stream block: ${magic}`);
         }
 
         const recordCount = view.getUint32(4, true);
-        const lengths = new Uint32Array(6);
+        const lengths = new Uint32Array(magic === "WS10" ? 8 : 6);
         let headerOffset = 20;
         for (let index = 0; index < lengths.length; index += 1) {
             lengths[index] = view.getUint32(headerOffset, true);
@@ -826,6 +852,40 @@ export default class Workout {
         return blockEnd;
     }
 
+    static #decodeInt8RunLengthDeltaBlock(view, offset, blockLength, recordCount, output) {
+        const blockEnd = offset + blockLength;
+        const runCount = view.getUint32(offset, true);
+        offset += 4;
+        const lengthsOffset = offset;
+        const valuesOffset = lengthsOffset + runCount;
+        const tokenOffset = valuesOffset + 1;
+        let absoluteOffset = tokenOffset + Math.max(0, runCount - 1);
+        let currentValue = runCount > 0 ? view.getInt8(valuesOffset) : 0x7f;
+        let writeIndex = 0;
+        for (let runIndex = 0; runIndex < runCount && writeIndex < recordCount; runIndex += 1) {
+            if (runIndex > 0) {
+                const token = view.getInt8(tokenOffset + runIndex - 1);
+                if (token === WOA_RLE_DELTA_ESCAPE) {
+                    if (absoluteOffset + 1 > blockEnd) {
+                        throw new Error("Corrupt WS10 int8 RLE block: missing absolute fallback value");
+                    }
+                    currentValue = view.getInt8(absoluteOffset);
+                    absoluteOffset += 1;
+                } else if (currentValue !== 0x7f) {
+                    currentValue += token;
+                } else {
+                    currentValue = 0x7f;
+                }
+            }
+            const runLength = view.getUint8(lengthsOffset + runIndex);
+            for (let i = 0; i < runLength && writeIndex < recordCount; i += 1) {
+                output[writeIndex] = currentValue === 0x7f ? Number.NaN : currentValue;
+                writeIndex += 1;
+            }
+        }
+        return blockEnd;
+    }
+
     static #decodeInt16RunLengthDeltaBlock(view, offset, blockLength, recordCount, output) {
         const blockEnd = offset + blockLength;
         const runCount = view.getUint32(offset, true);
@@ -960,7 +1020,7 @@ export default class Workout {
     static fromBuffer(buffer) {
         const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
         const magic = bytes.byteLength >= 4 ? TEXT_DECODER.decode(bytes.subarray(0, 4)) : "";
-        if (magic === "WST9") {
+        if (magic === "WST9" || magic === "WS10") {
             const decoded = this.decodeWst3Buffer(bytes);
             return this.fromTypedArrays(decoded, {
                 startTimeMs: Number.isFinite(Number(decoded.timestampsMs?.[0])) ? Number(decoded.timestampsMs[0]) : Date.now(),
@@ -1305,6 +1365,23 @@ export default class Workout {
         return this._altitudeInternalToMeters(this._getSeriesValueAt(this.cumAltitude, i));
     }
 
+    getTemperatureAt(i) {
+        this._assertValidIndex(i);
+        return this.temperatureSeriesC ? Number(this.temperatureSeriesC[i]) : Number.NaN;
+    }
+
+    getLeftRightBalanceAt(i) {
+        this._assertValidIndex(i);
+        if (!this.leftRightBalanceSeriesPct) {
+            return Number.NaN;
+        }
+
+        const value = Number(this.leftRightBalanceSeriesPct[i]);
+        return Number.isFinite(value) && value >= 0 && value <= 100
+            ? value
+            : Number.NaN;
+    }
+
     hasDistanceSeries() {
         return !!this.hasDistanceDeltas;
     }
@@ -1324,7 +1401,8 @@ export default class Workout {
             hr: this._getSeriesValueAt(this.cumHr, i),
             cadence: this._getSeriesValueAt(this.cumCadence, i),
             speed: this._speedInternalToKmh(this._getSeriesValueAt(this.cumSpeed, i)),
-            altitude: this._altitudeInternalToMeters(this._getSeriesValueAt(this.cumAltitude, i))
+            altitude: this._altitudeInternalToMeters(this._getSeriesValueAt(this.cumAltitude, i)),
+            leftRightBalance: this.getLeftRightBalanceAt(i)
         };
     }
 
@@ -1483,14 +1561,21 @@ export default class Workout {
     getAsStrideArray(options = {}) {
         const n = this.length;
         const smoothing = options?.smoothing ?? {};
+        const includeLeftRightBalance = options?.includeLeftRightBalance === true;
 
         const powers = this.smoothSeriesCentered(this.cumPower, smoothing.power ?? 10);
         const heartRates = this.smoothSeriesCentered(this.cumHr, smoothing.hr ?? 10);
         const cadences = this.smoothSeriesCentered(this.cumCadence, smoothing.cadence ?? 30);
         const speeds = this.smoothSeriesCentered(this.cumSpeed, smoothing.speed ?? 30);
         const altitudes = this.smoothSeriesCentered(this.cumAltitude, smoothing.altitude ?? 10);
+        const leftRightBalances = includeLeftRightBalance
+            ? this.smoothLeftRightBalanceCentered(
+                this.leftRightBalanceSeriesPct,
+                smoothing.leftRightBalance ?? 5
+            )
+            : null;
 
-        const strideSize = 7; // index + 5 Werte + DistanceKm
+        const strideSize = includeLeftRightBalance ? 8 : 7;
         const result = new Float64Array(n * strideSize);
 
         let offset = 0;
@@ -1504,12 +1589,61 @@ export default class Workout {
             result[offset++] = this._altitudeInternalToMeters(altitudes[i]);
             const distanceM = this.getDistanceAt(i);
             result[offset++] = Number.isFinite(distanceM) ? distanceM / 1000 : 0;
+            if (includeLeftRightBalance) {
+                result[offset++] = leftRightBalances[i];
+            }
         }
 
         return {
             data: result,
             rowCount: n + 1
         };
+    }
+
+    smoothLeftRightBalanceCentered(series, windowSize = 1) {
+        const result = new Float64Array(this.length);
+        result.fill(Number.NaN);
+        if (!series || series.length !== this.length) {
+            return result;
+        }
+
+        const size = Math.max(1, Math.floor(windowSize));
+        if (size === 1) {
+            for (let index = 0; index < this.length; index += 1) {
+                const value = Number(series[index]);
+                if (Number.isFinite(value)) {
+                    result[index] = value;
+                }
+            }
+            return result;
+        }
+
+        const halfLeft = Math.floor((size - 1) / 2);
+        const halfRight = size - 1 - halfLeft;
+        const prefixWeightedBalance = new Float64Array(this.length + 1);
+        const prefixPower = new Float64Array(this.length + 1);
+        const prefixCounts = new Uint32Array(this.length + 1);
+        for (let index = 0; index < this.length; index += 1) {
+            const balance = Number(series[index]);
+            const power = Number(this.getPowerAt(index));
+            const isValid = Number.isFinite(balance) && Number.isFinite(power) && power > 0;
+            prefixWeightedBalance[index + 1] = prefixWeightedBalance[index]
+                + (isValid ? balance * power : 0);
+            prefixPower[index + 1] = prefixPower[index] + (isValid ? power : 0);
+            prefixCounts[index + 1] = prefixCounts[index] + (isValid ? 1 : 0);
+        }
+
+        for (let index = 0; index < this.length; index += 1) {
+            const start = Math.max(0, index - halfLeft);
+            const end = Math.min(this.length - 1, index + halfRight);
+            const weightedBalance = prefixWeightedBalance[end + 1] - prefixWeightedBalance[start];
+            const power = prefixPower[end + 1] - prefixPower[start];
+            const count = prefixCounts[end + 1] - prefixCounts[start];
+            if (count > 0 && power / count >= 50) {
+                result[index] = weightedBalance / power;
+            }
+        }
+        return result;
     }
 
 

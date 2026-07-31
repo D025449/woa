@@ -1,5 +1,8 @@
 import Workout from "../shared/Workout.js";
-import FitProcessor, { mapAggregatedToFileRow } from "./fitService.js";
+import {
+  aggregateWorkoutSessions,
+  mapWorkoutSummaryToFileRow
+} from "./workoutSessionSummaryService.js";
 
 const UINT8_NAN = 0xFF;
 const UINT16_NAN = 0xFFFF;
@@ -600,6 +603,9 @@ function decodeGpsCoordinatePayload(bytes, pointCount, layoutVersion = 1) {
 function decodeWorkoutStreamBlock(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
+  if (magic === "WS10") {
+    return Workout.decodeWst3Buffer(bytes);
+  }
   if (magic !== "WST9") {
     throw new Error(`Unsupported workout stream block: ${magic}`);
   }
@@ -819,13 +825,13 @@ export async function decodeWoa1Buffer(buffer) {
     sessions: Array.isArray(sessions) ? sessions : [],
     recordsTyped: workoutStream
   };
-  const aggregated = FitProcessor.aggregateSessions(fitLike);
+  const aggregated = aggregateWorkoutSessions(fitLike);
   const workoutOptions = {
     startTimeMs: Number.isFinite(Number(workoutStream.timestampsMs[0])) ? Number(workoutStream.timestampsMs[0]) : Date.now(),
     validGps: !!gpsTrack.validGps
   };
   const workoutObject = Workout.fromTypedArrays(workoutStream, workoutOptions);
-  const fileRow = mapAggregatedToFileRow(aggregated, {
+  const fileRow = mapWorkoutSummaryToFileRow(aggregated, {
     uid: null,
     gps_source: meta?.gpsSource === "manual_lookup" ? "manual_lookup" : null
   }, workoutObject.getNormalizedPower());

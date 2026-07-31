@@ -48,6 +48,15 @@ const RECORD_FIELDS = new Set([
   "position_lat",
   "position_long"
 ]);
+const LAP_FIELDS = new Set([
+  "timestamp",
+  "start_time",
+  "total_elapsed_time",
+  "total_timer_time",
+  "lap_trigger",
+  "intensity",
+  "wkt_step_index"
+]);
 
 function normalizeExcludeStartTimeSet(excludeStartTimes) {
   if (excludeStartTimes instanceof Set) {
@@ -126,6 +135,8 @@ function isInvalidValue(data, type) {
     case "enum":
     case "uint8":
     case "byte":
+    case "lap_trigger":
+    case "intensity":
       return data === 0xFF;
     case "sint8":
       return data === 0x7F;
@@ -133,6 +144,7 @@ function isInvalidValue(data, type) {
       return data === 0x7FFF;
     case "uint16":
     case "uint16z":
+    case "message_index":
       return data === 0xFFFF;
     case "sint32":
       return data === 0x7FFFFFFF;
@@ -153,11 +165,14 @@ function readValue(view, offset, fieldDef) {
     case "uint8":
     case "enum":
     case "byte":
+    case "lap_trigger":
+    case "intensity":
       return view.getUint8(offset);
     case "sint8":
       return view.getInt8(offset);
     case "uint16":
     case "uint16z":
+    case "message_index":
       return view.getUint16(offset, fieldDef.littleEndian);
     case "sint16":
       return view.getInt16(offset, fieldDef.littleEndian);
@@ -225,6 +240,9 @@ function shouldKeepField(messageName, fieldName) {
   }
   if (messageName === "session") {
     return SESSION_FIELDS.has(fieldName);
+  }
+  if (messageName === "lap") {
+    return LAP_FIELDS.has(fieldName);
   }
   if (messageName === "field_description") {
     return fieldName === "developer_data_index"
@@ -303,6 +321,7 @@ export function parseFitBufferTypedBrowser(buffer, options = {}) {
   const messageTypes = [];
   const developerFields = [];
   const sessions = [];
+  const laps = [];
 
   const timestampsMs = new GrowableFloat64Array();
   const distancesM = new GrowableFloat64Array();
@@ -403,7 +422,7 @@ export function parseFitBufferTypedBrowser(buffer, options = {}) {
     }
 
     const messageName = messageType.messageName;
-    if (messageName !== "record" && messageName !== "session" && messageName !== "field_description") {
+    if (messageName !== "record" && messageName !== "session" && messageName !== "lap" && messageName !== "field_description") {
       loopIndex = skipMessage(loopIndex, messageType);
       continue;
     }
@@ -509,13 +528,14 @@ export function parseFitBufferTypedBrowser(buffer, options = {}) {
           developerFields[developerFieldDescription.developerDataIndex][developerFieldDescription.fieldDefinitionNumber]
             = developerFieldDescription;
         }
-      } else {
+      } else if (messageName === "session") {
         sessions.push(target);
         const startTimeMs = Number(target?.start_time);
         const startTimeKey = toIsoStartTimeKey(startTimeMs);
         if (excludeStartTimeSet && startTimeKey && excludeStartTimeSet.has(startTimeKey)) {
           return {
             sessions,
+            laps,
             recordsTyped: {
               recordCount: timestampsMs.length,
               timestampsMs: timestampsMs.toTypedArray(),
@@ -533,6 +553,8 @@ export function parseFitBufferTypedBrowser(buffer, options = {}) {
             skippedStartTime: startTimeKey
           };
         }
+      } else {
+        laps.push(target);
       }
     }
 
@@ -541,6 +563,7 @@ export function parseFitBufferTypedBrowser(buffer, options = {}) {
 
   return {
     sessions,
+    laps,
     recordsTyped: {
       recordCount: timestampsMs.length,
       timestampsMs: timestampsMs.toTypedArray(),

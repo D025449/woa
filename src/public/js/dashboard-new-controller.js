@@ -30,12 +30,14 @@ export default class Controller {
     this.chartViewState = this.uiState.get("chartViewState", {
       xAxisMode: "time",
       smoothingLevel: "automatic",
+      bridgePowerCadenceZeros: false,
       seriesVisibility: {
         power: true,
         heartRate: true,
         cadence: true,
         speed: true,
-        altitude: true
+        altitude: true,
+        leftRightBalance: true
       },
       segmentVisibility: {
         criticalPower: true,
@@ -471,6 +473,7 @@ export default class Controller {
       const {
         xAxisMode,
         smoothingLevel,
+        bridgePowerCadenceZeros,
         seriesVisibility,
         segmentVisibility,
         ...storedLibraryState
@@ -482,11 +485,20 @@ export default class Controller {
       this.uiState.set("workoutLibraryState", this.libraryState);
       this.libraryView.applyState(this.libraryState);
 
-      if (xAxisMode || smoothingLevel || seriesVisibility || segmentVisibility) {
+      if (
+        xAxisMode
+        || smoothingLevel
+        || typeof bridgePowerCadenceZeros === "boolean"
+        || seriesVisibility
+        || segmentVisibility
+      ) {
         this.chartViewState = {
           ...this.chartViewState,
           ...(xAxisMode ? { xAxisMode } : {}),
           ...(smoothingLevel ? { smoothingLevel } : {}),
+          ...(typeof bridgePowerCadenceZeros === "boolean"
+            ? { bridgePowerCadenceZeros }
+            : {}),
           ...(seriesVisibility ? {
             seriesVisibility: {
               ...this.chartViewState.seriesVisibility,
@@ -517,6 +529,7 @@ export default class Controller {
       ...state,
       xAxisMode: this.chartViewState.xAxisMode,
       smoothingLevel: this.chartViewState.smoothingLevel,
+      bridgePowerCadenceZeros: this.chartViewState.bridgePowerCadenceZeros,
       seriesVisibility: {
         ...this.chartViewState.seriesVisibility
       },

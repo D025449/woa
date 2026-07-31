@@ -2,11 +2,11 @@ export const ADAPTIVE_CHART_RESOLUTION_ENABLED = true;
 export const ADAPTIVE_CHART_RESOLUTION_LEVELS = Object.freeze([1, 5, 15, 30, 60, 120]);
 
 const MANUAL_SMOOTHING_CONFIGS = Object.freeze({
-  off: Object.freeze({ power: 1, hr: 1, cadence: 1, speed: 1, altitude: 1 }),
-  light: Object.freeze({ power: 10, hr: 5, cadence: 12, speed: 12, altitude: 6 }),
-  medium: Object.freeze({ power: 20, hr: 10, cadence: 30, speed: 30, altitude: 10 }),
-  strong: Object.freeze({ power: 35, hr: 18, cadence: 45, speed: 45, altitude: 18 }),
-  veryStrong: Object.freeze({ power: 60, hr: 28, cadence: 60, speed: 60, altitude: 28 })
+  off: Object.freeze({ power: 1, hr: 1, cadence: 1, speed: 1, altitude: 1, leftRightBalance: 1 }),
+  light: Object.freeze({ power: 10, hr: 5, cadence: 12, speed: 12, altitude: 6, leftRightBalance: 15 }),
+  medium: Object.freeze({ power: 20, hr: 10, cadence: 30, speed: 30, altitude: 10, leftRightBalance: 30 }),
+  strong: Object.freeze({ power: 35, hr: 18, cadence: 45, speed: 45, altitude: 18, leftRightBalance: 45 }),
+  veryStrong: Object.freeze({ power: 60, hr: 28, cadence: 60, speed: 60, altitude: 28, leftRightBalance: 60 })
 });
 
 const SERIES_WINDOW_FACTORS = Object.freeze({
@@ -14,7 +14,8 @@ const SERIES_WINDOW_FACTORS = Object.freeze({
   hr: 0.75,
   cadence: 1,
   speed: 1,
-  altitude: 0.75
+  altitude: 0.75,
+  leftRightBalance: 0.5
 });
 
 function normalizeLevel(level) {
@@ -29,12 +30,14 @@ function buildSmoothingConfig(level, smoothingLevel) {
     };
   }
 
-  return Object.fromEntries(
+  const config = Object.fromEntries(
     Object.entries(SERIES_WINDOW_FACTORS).map(([key, factor]) => ([
       key,
       Math.max(1, Math.round(normalizedLevel * factor))
     ]))
   );
+  config.leftRightBalance = Math.max(15, config.leftRightBalance);
+  return config;
 }
 
 function copyRow(source, target, sourceIndex, targetIndex, strideSize) {
@@ -43,23 +46,226 @@ function copyRow(source, target, sourceIndex, targetIndex, strideSize) {
   target.set(source.subarray(sourceOffset, sourceOffset + strideSize), targetOffset);
 }
 
+export function dequantizeChartSpeedInPlace(data, {
+  strideSize = 7,
+  speedOffset = 4,
+  distanceOffset = 6
+} = {}) {
+  const rowCount = Math.floor((data?.length || 0) / strideSize);
+  const quantizationStepKmh = 1.8;
+  const quantizationToleranceKmh = 0.05;
+  const maximumCorrectionKmh = quantizationStepKmh * 2;
+
+  // Five distance intervals reduce the 0.5 m storage step from 1.8 to 0.36 km/h.
+  for (let index = 3; index < rowCount - 2; index += 1) {
+    const speedIndex = index * strideSize + speedOffset;
+    const rawSpeed = Number(data[speedIndex]);
+    if (
+      !Number.isFinite(rawSpeed)
+      || rawSpeed <= 0
+      || Math.abs(rawSpeed - Math.round(rawSpeed / quantizationStepKmh) * quantizationStepKmh)
+        > quantizationToleranceKmh
+    ) {
+      continue;
+    }
+
+    let validMovingWindow = true;
+    for (let cursor = index - 2; cursor <= index + 2; cursor += 1) {
+      const previousDistance = Number(data[(cursor - 1) * strideSize + distanceOffset]);
+      const currentDistance = Number(data[cursor * strideSize + distanceOffset]);
+      if (
+        !Number.isFinite(previousDistance)
+        || !Number.isFinite(currentDistance)
+        || currentDistance <= previousDistance
+      ) {
+        validMovingWindow = false;
+        break;
+      }
+    }
+    if (!validMovingWindow) {
+      continue;
+    }
+
+    const startDistanceKm = Number(data[(index - 3) * strideSize + distanceOffset]);
+    const endDistanceKm = Number(data[(index + 2) * strideSize + distanceOffset]);
+    const reconstructedSpeed = (endDistanceKm - startDistanceKm) * 3600 / 5;
+    if (
+      !Number.isFinite(reconstructedSpeed)
+      || reconstructedSpeed <= 0
+      || Math.abs(reconstructedSpeed - rawSpeed) > maximumCorrectionKmh
+    ) {
+      continue;
+    }
+
+    data[speedIndex] = reconstructedSpeed;
+  }
+
+  return data;
+}
+
+export function stabilizeQuantizedChartMetricInPlace(data, {
+  strideSize = 7,
+  valueOffset,
+  weights,
+  maximumWindowRange,
+  maximumCorrection,
+  requirePositive = true
+} = {}) {
+  const rowCount = Math.floor((data?.length || 0) / strideSize);
+  const normalizedWeights = Array.isArray(weights) ? weights : [];
+  const radius = Math.floor(normalizedWeights.length / 2);
+  const weightSum = normalizedWeights.reduce((sum, weight) => sum + weight, 0);
+  if (
+    !Number.isInteger(valueOffset)
+    || radius < 1
+    || normalizedWeights.length % 2 === 0
+    || weightSum <= 0
+  ) {
+    return data;
+  }
+
+  const original = new Float64Array(rowCount);
+  for (let index = 0; index < rowCount; index += 1) {
+    original[index] = Number(data[index * strideSize + valueOffset]);
+  }
+
+  for (let index = radius; index < rowCount - radius; index += 1) {
+    let weightedSum = 0;
+    let minimum = Number.POSITIVE_INFINITY;
+    let maximum = Number.NEGATIVE_INFINITY;
+    let validWindow = true;
+
+    for (let offset = -radius; offset <= radius; offset += 1) {
+      const value = original[index + offset];
+      if (!Number.isFinite(value) || (requirePositive && value <= 0)) {
+        validWindow = false;
+        break;
+      }
+      weightedSum += value * normalizedWeights[offset + radius];
+      minimum = Math.min(minimum, value);
+      maximum = Math.max(maximum, value);
+    }
+
+    if (!validWindow || maximum - minimum > maximumWindowRange) {
+      continue;
+    }
+
+    const stabilized = weightedSum / weightSum;
+    if (Math.abs(stabilized - original[index]) > maximumCorrection) {
+      continue;
+    }
+    data[index * strideSize + valueOffset] = stabilized;
+  }
+
+  return data;
+}
+
+export function omitShortZeroRunsForChartInPlace(data, {
+  strideSize = 7,
+  valueOffsets = [1, 3],
+  maximumRunSeconds = 30
+} = {}) {
+  const rowCount = Math.floor((data?.length || 0) / strideSize);
+  const maximumRunLength = Math.max(0, Math.floor(Number(maximumRunSeconds) || 0));
+  if (rowCount < 3 || maximumRunLength < 1) {
+    return data;
+  }
+
+  for (const valueOffset of valueOffsets) {
+    let index = 1;
+    while (index < rowCount - 1) {
+      if (Number(data[index * strideSize + valueOffset]) !== 0) {
+        index += 1;
+        continue;
+      }
+
+      const runStart = index;
+      while (
+        index < rowCount
+        && Number(data[index * strideSize + valueOffset]) === 0
+      ) {
+        index += 1;
+      }
+      const runEnd = index - 1;
+      const bridgeStart = runStart - 1;
+      const bridgeEnd = index;
+      const previousAnchorValue = bridgeStart > 0
+        ? Number(data[(bridgeStart - 1) * strideSize + valueOffset])
+        : Number.NaN;
+      const nextAnchorValue = bridgeEnd < rowCount - 1
+        ? Number(data[(bridgeEnd + 1) * strideSize + valueOffset])
+        : Number.NaN;
+
+      if (
+        runEnd - runStart + 1 <= maximumRunLength
+        && Number.isFinite(previousAnchorValue)
+        && previousAnchorValue > 0
+        && Number.isFinite(nextAnchorValue)
+        && nextAnchorValue > 0
+      ) {
+        for (let cursor = bridgeStart; cursor <= bridgeEnd; cursor += 1) {
+          data[cursor * strideSize + valueOffset] = Number.NaN;
+        }
+      }
+    }
+  }
+
+  return data;
+}
+
 export function buildAdaptiveChartResolutionLevels(
   workoutObject,
   smoothingLevel = "automatic",
-  levels = ADAPTIVE_CHART_RESOLUTION_LEVELS
+  levels = ADAPTIVE_CHART_RESOLUTION_LEVELS,
+  { bridgePowerCadenceZeros = false } = {}
 ) {
   const recordCount = Math.max(0, Number(workoutObject?.length) || 0);
-  const strideSize = 7;
+  const strideSize = 8;
   const result = new Map();
   const activeLevels = smoothingLevel === "automatic" ? levels : [1];
 
   for (const requestedLevel of activeLevels) {
     const level = normalizeLevel(requestedLevel);
+    const smoothing = buildSmoothingConfig(level, smoothingLevel);
     const full = workoutObject.getAsStrideArray({
-      smoothing: buildSmoothingConfig(level, smoothingLevel)
+      smoothing,
+      includeLeftRightBalance: true
     });
     const source = full.data;
-
+    if (smoothing.speed <= 1) {
+      dequantizeChartSpeedInPlace(source, { strideSize });
+    }
+    if (smoothing.hr <= 1) {
+      stabilizeQuantizedChartMetricInPlace(source, {
+        strideSize,
+        valueOffset: 2,
+        weights: [1, 2, 3, 2, 1],
+        maximumWindowRange: 8,
+        maximumCorrection: 2
+      });
+    }
+    if (smoothing.cadence <= 1) {
+      stabilizeQuantizedChartMetricInPlace(source, {
+        strideSize,
+        valueOffset: 3,
+        weights: [1, 2, 1],
+        maximumWindowRange: 12,
+        maximumCorrection: 3
+      });
+    }
+    if (smoothing.altitude <= 1) {
+      stabilizeQuantizedChartMetricInPlace(source, {
+        strideSize,
+        valueOffset: 5,
+        weights: [1, 2, 3, 2, 1],
+        maximumWindowRange: 10,
+        maximumCorrection: 1,
+        requirePositive: false
+      });
+    }
+    if (bridgePowerCadenceZeros) {
+      omitShortZeroRunsForChartInPlace(source, { strideSize });
+    }
     if (level === 1 || recordCount <= 1) {
       result.set(level, {
         data: source,

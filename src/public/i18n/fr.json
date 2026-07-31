@@ -440,6 +440,8 @@
     "smoothingMedium": "Moyen",
     "smoothingStrong": "Fort",
     "smoothingVeryStrong": "Très fort",
+    "bridgeZeroValues": "Relier les valeurs zéro",
+    "bridgeZeroValuesTitle": "Relier les courtes périodes à zéro de puissance et cadence jusqu’à 30 secondes",
     "subtitle": "Parcourez vos entrainements, comparez duree, distance et puissance, et ouvrez directement le graphique et la carte.",
     "searchPlaceholder": "Rechercher par entraînement, date ou métrique ...",
     "sortNewest": "Plus récents d'abord",
@@ -509,10 +511,12 @@
       "cadence": "Cad.",
       "speed": "Vit.",
       "altitude": "Alt.",
+      "leftRightBalance": "Équilibre G/D",
       "axisPower": "W",
       "axisHeartCadence": "FC/Cad",
       "axisSpeed": "km/h",
-      "axisAltitude": "m"
+      "axisAltitude": "m",
+      "axisLeftRightBalance": "G/D %"
     },
     "messages": {
       "workoutShareUpdated": "Le partage de l'entraînement a été mis à jour.",

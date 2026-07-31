@@ -1834,7 +1834,12 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       gps_source: persistedRow.gps_source || null,
       workout_type: ["indoor", "road", "mountain", "unknown"].includes(persistedRow.workout_type)
         ? persistedRow.workout_type
-        : "unknown"
+        : "unknown",
+      fit_device_metadata: persistedRow.fit_device_metadata || {
+        version: 1,
+        fileId: null,
+        devices: []
+      }
     };
 
     const bounds = persistedRow?.bounds || null;
@@ -1990,7 +1995,8 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       year_quarter,
       year_month,
       year_week,
-      workout_type
+      workout_type,
+      fit_device_metadata
     } = fileRow;
 
     return [
@@ -2033,12 +2039,13 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       gpsTrackBlobCodec,
       streamCodec,
       gpsSource,
-      workout_type || "unknown"
+      workout_type || "unknown",
+      fit_device_metadata || { version: 1, fileId: null, devices: [] }
     ];
   }
 
   static buildWorkoutInsertValuesClause(rowIndex) {
-    const offset = rowIndex * 40;
+    const offset = rowIndex * 41;
     const p = (index) => `$${offset + index}`;
     return `(
   ${p(1)},${p(2)},
@@ -2057,7 +2064,8 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
   ${p(37)},
   ${p(38)},
   ${p(39)},
-  ${p(40)}
+  ${p(40)},
+  ${p(41)}::jsonb
 )`;
   }
 
@@ -2193,7 +2201,8 @@ INSERT INTO workouts (
   gps_track_blob_codec,
   stream_codec,
   gps_source,
-  workout_type
+  workout_type,
+  fit_device_metadata
 )
 VALUES
 ${valuesClauses.join(",\n")}
@@ -2290,7 +2299,8 @@ INSERT INTO workouts (
   gps_track_blob_codec,
   stream_codec,
   gps_source,
-  workout_type
+  workout_type,
+  fit_device_metadata
 )
 VALUES (
   $1,$2,
@@ -2309,7 +2319,8 @@ VALUES (
   $37,
   $38,
   $39,
-  $40
+  $40,
+  $41::jsonb
 )
 ON CONFLICT (uid, start_time)
 DO NOTHING

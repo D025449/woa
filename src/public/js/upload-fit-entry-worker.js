@@ -1,7 +1,10 @@
 import { applyCompactEncodingOptions, parseFitBufferCompactBrowser } from "./fit-import-compact-browser.js";
 import { createWoa1FileFromCompactAsync } from "./woa-format-compact.js";
 import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../../shared/gpsSampling.js";
-import { detectWorkoutLocalSegmentsCompact } from "../../shared/WorkoutLocalPostprocess.js";
+import {
+  detectFitLapSegmentsCompact,
+  detectWorkoutLocalSegmentsCompact
+} from "../../shared/WorkoutLocalPostprocess.js";
 import { benchmarkGpsSegmentBestEfforts } from "../../shared/BrowserGpsSegmentMatcher.js";
 import { gzipSync } from "/vendor/fflate/browser.js";
 
@@ -168,11 +171,16 @@ self.addEventListener("message", async (event) => {
     let browserPostprocess = null;
     if (encodingOptions.browserPostprocessBenchmark) {
       const postprocessStartedAt = nowMs();
-      const segments = detectWorkoutLocalSegmentsCompact(adjustedParsed.compactRecords);
+      const criticalSegments = detectWorkoutLocalSegmentsCompact(adjustedParsed.compactRecords);
+      const lapResult = detectFitLapSegmentsCompact(
+        adjustedParsed.compactRecords,
+        adjustedParsed.laps
+      );
       browserPostprocess = {
         startTimeSec: Number(adjustedParsed.compactRecords?.baseTimestampSec || 0),
         recordCount: Number(adjustedParsed.compactRecords?.recordCount || 0),
-        segments,
+        segments: [...criticalSegments, ...lapResult.segments],
+        lapStats: lapResult.stats,
         detectMs: nowMs() - postprocessStartedAt
       };
     }

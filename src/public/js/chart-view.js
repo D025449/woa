@@ -16,6 +16,14 @@ import {
 const MIN_DISTANCE_AXIS_SPAN_METERS = 100;
 const ADAPTIVE_CHART_ZOOM_DELAY_MS = 100;
 
+function isValidLeftRightBalance(value) {
+  return value !== null
+    && value !== undefined
+    && Number.isFinite(Number(value))
+    && Number(value) >= 0
+    && Number(value) <= 100;
+}
+
 export function hasMeaningfulDistanceSeries(
   workoutObject,
   minSpanMeters = MIN_DISTANCE_AXIS_SPAN_METERS
@@ -43,12 +51,27 @@ export function getAvailableWorkoutSeries(workoutObject) {
     heartRate: false,
     cadence: false,
     speed: false,
-    altitude: false
+    altitude: false,
+    leftRightBalance: false
   };
   const length = Math.max(0, Number(workoutObject?.length) || 0);
 
   if (length === 0 || typeof workoutObject?.getMetricsAt !== "function") {
     return availability;
+  }
+
+  const balanceSeries = workoutObject?.leftRightBalanceSeriesPct;
+  const hasBalanceSeries = balanceSeries?.length === length;
+  if (hasBalanceSeries) {
+    for (let index = 0; index < length; index += 1) {
+      if (
+        isValidLeftRightBalance(balanceSeries[index])
+        && Number(balanceSeries[index]) !== 50
+      ) {
+        availability.leftRightBalance = true;
+        break;
+      }
+    }
   }
 
   for (let index = 0; index < length; index += 1) {
@@ -59,6 +82,10 @@ export function getAvailableWorkoutSeries(workoutObject) {
     availability.speed ||= Number(metrics?.speed) > 0;
     availability.altitude ||= Number.isFinite(Number(metrics?.altitude))
       && Number(metrics.altitude) !== 0;
+    if (!hasBalanceSeries) {
+      availability.leftRightBalance ||= isValidLeftRightBalance(metrics?.leftRightBalance)
+        && Number(metrics.leftRightBalance) !== 50;
+    }
 
     if (
       availability.power
@@ -164,6 +191,7 @@ export default class ChartView {
     this.currentWorkout = null;
     this.xAxisMode = "time";
     this.smoothingLevel = "automatic";
+    this.bridgePowerCadenceZeros = false;
     this.distanceAxisToggle = null;
     this.smoothingSlot = document.getElementById("dashboard-smoothing-slot");
     this.seriesToggleSlot = document.getElementById("dashboard-series-toggle-slot");
@@ -173,19 +201,22 @@ export default class ChartView {
       heartRate: true,
       cadence: true,
       speed: true,
-      altitude: true
+      altitude: true,
+      leftRightBalance: false
     };
     this.seriesAvailability = {
       power: true,
       heartRate: true,
       cadence: true,
       speed: true,
-      altitude: true
+      altitude: true,
+      leftRightBalance: false
     };
     this.segmentVisibility = { ...DEFAULT_SEGMENT_VISIBILITY };
     this.seriesToggleButtons = new Map();
     this.segmentToggleButtons = new Map();
     this.smoothingButtons = new Map();
+    this.zeroBridgeButton = null;
     this.distanceKmByIndex = null;
     this.adaptiveResolutionCache = null;
     this.yAxisBoundsCache = new WeakMap();
@@ -251,6 +282,10 @@ export default class ChartView {
       this.smoothingLevel = state.smoothingLevel.trim();
     }
 
+    if (typeof state.bridgePowerCadenceZeros === "boolean") {
+      this.bridgePowerCadenceZeros = state.bridgePowerCadenceZeros;
+    }
+
     if (state.seriesVisibility && typeof state.seriesVisibility === "object") {
       this.seriesVisibility = {
         ...this.seriesVisibility,
@@ -281,6 +316,7 @@ export default class ChartView {
     this.handlers.onPreferencesChange?.({
       xAxisMode: this.xAxisMode,
       smoothingLevel: this.smoothingLevel,
+      bridgePowerCadenceZeros: this.bridgePowerCadenceZeros,
       seriesVisibility: { ...this.seriesVisibility },
       segmentVisibility: { ...this.segmentVisibility }
     });
@@ -419,12 +455,25 @@ export default class ChartView {
         { type: "value", name: labels.axisPower, position: "left" },
         { type: "value", name: labels.axisHeartCadence, position: "right" },
         { type: "value", name: labels.axisSpeed, position: "left", offset: 40 },
-        { type: "value", name: labels.axisAltitude, position: "right", offset: 50 }
+        { type: "value", name: labels.axisAltitude, position: "right", offset: 50 },
+        {
+          type: "value",
+          name: labels.axisLeftRightBalance,
+          position: "right",
+          offset: 96,
+          min: 0,
+          max: 100,
+          interval: 25,
+          show: false,
+          axisLine: { show: true, lineStyle: { color: "#d946ef" } },
+          axisLabel: { color: "#a21caf", formatter: "{value}%" },
+          splitLine: { show: false }
+        }
       ],
       dataset: {
         dimensions: [
           "x", "Power", "Heartrate", "Cadence",
-          "Speed", "Altitude", "DistanceKm"
+          "Speed", "Altitude", "DistanceKm", "LeftRightBalance"
           //, "PowerS5", "PowerS15",
           //"SpeedS5", "AltitudeS7"
         ],
@@ -852,6 +901,20 @@ export default class ChartView {
 
     this.smoothingSlot.addEventListener("click", (event) => {
       const button = event.target?.closest?.("button[data-smoothing-level]");
+      const zeroBridgeButton = event.target?.closest?.("button[data-zero-bridge]");
+      if (zeroBridgeButton) {
+        if (zeroBridgeButton.disabled) {
+          return;
+        }
+        this.bridgePowerCadenceZeros = !this.bridgePowerCadenceZeros;
+        this.syncSmoothingState();
+        this.emitPreferenceChange();
+        if (this.currentWorkout) {
+          this.updateWorkout(this.currentWorkout);
+        }
+        return;
+      }
+
       if (!button) {
         return;
       }
@@ -1181,7 +1244,8 @@ export default class ChartView {
       ["heartRate", this.t("chart.heartRate"), Number.isFinite(rawMetrics?.hr) ? `${Math.round(rawMetrics.hr)} bpm` : "–"],
       ["cadence", this.t("chart.cadence"), Number.isFinite(rawMetrics?.cadence) ? `${Math.round(rawMetrics.cadence)} rpm` : "–"],
       ["speed", this.t("chart.speed"), Number.isFinite(rawMetrics?.speed) ? `${Number(rawMetrics.speed).toFixed(1)} km/h` : "–"],
-      ["altitude", this.t("chart.altitude"), Number.isFinite(rawMetrics?.altitude) ? `${Math.round(rawMetrics.altitude)} m` : "–"]
+      ["altitude", this.t("chart.altitude"), Number.isFinite(rawMetrics?.altitude) ? `${Math.round(rawMetrics.altitude)} m` : "–"],
+      ["leftRightBalance", this.t("chart.leftRightBalance"), Number.isFinite(rawMetrics?.leftRightBalance) ? `${Number(rawMetrics.leftRightBalance).toFixed(1)} %` : "–"]
     ].filter(([key]) => this.seriesAvailability[key] !== false);
 
     return `
@@ -1327,10 +1391,12 @@ export default class ChartView {
       cadence: this.t("chart.cadence"),
       speed: this.t("chart.speed"),
       altitude: this.t("chart.altitude"),
+      leftRightBalance: this.t("chart.leftRightBalance"),
       axisPower: this.t("chart.axisPower"),
       axisHeartCadence: this.t("chart.axisHeartCadence"),
       axisSpeed: this.t("chart.axisSpeed"),
-      axisAltitude: this.t("chart.axisAltitude")
+      axisAltitude: this.t("chart.axisAltitude"),
+      axisLeftRightBalance: this.t("chart.axisLeftRightBalance")
     };
   }
 
@@ -1340,11 +1406,13 @@ export default class ChartView {
       heartRate: "#16a34a",
       cadence: "#f59e0b",
       speed: "#ef4444",
-      altitude: "#38bdf8"
+      altitude: "#38bdf8",
+      leftRightBalance: "#d946ef"
     };
   }
 
   buildStableYAxisOptions(workoutObject, labels = this.getChartLabels()) {
+    const colors = this.getSeriesPalette();
     let bounds = this.yAxisBoundsCache.get(workoutObject);
     if (!bounds) {
       bounds = calculateStableYAxisBounds(workoutObject);
@@ -1381,6 +1449,19 @@ export default class ChartView {
         offset: 50,
         min: bounds.altitude.min,
         max: bounds.altitude.max
+      },
+      {
+        type: "value",
+        name: labels.axisLeftRightBalance,
+        position: "right",
+        offset: 96,
+        min: 0,
+        max: 100,
+        interval: 25,
+        show: this.seriesAvailability.leftRightBalance === true,
+        axisLine: { show: true, lineStyle: { color: colors.leftRightBalance } },
+        axisLabel: { color: "#a21caf", formatter: "{value}%" },
+        splitLine: { show: false }
       }
     ];
   }
@@ -1394,6 +1475,7 @@ export default class ChartView {
         name: labels.power,
         type: "line",
         showSymbol: false,
+        connectNulls: this.bridgePowerCadenceZeros,
         ...getChartSeriesSamplingOption("power", this.smoothingLevel),
         yAxisIndex: 0,
         markArea: { data: [] },
@@ -1417,6 +1499,7 @@ export default class ChartView {
         name: labels.cadence,
         type: "line",
         showSymbol: false,
+        connectNulls: this.bridgePowerCadenceZeros,
         ...getChartSeriesSamplingOption("cadence", this.smoothingLevel),
         yAxisIndex: 1,
         lineStyle: { color: colors.cadence, width: 1.7 },
@@ -1446,6 +1529,18 @@ export default class ChartView {
         areaStyle: { color: colors.altitude, opacity: 0.18, origin: "start" },
         itemStyle: { color: colors.altitude },
         encode: { x: xField, y: "Altitude" }
+      },
+      {
+        seriesKey: "leftRightBalance",
+        name: labels.leftRightBalance,
+        type: "line",
+        showSymbol: false,
+        ...getChartSeriesSamplingOption("leftRightBalance", this.smoothingLevel),
+        yAxisIndex: 4,
+        z: 4,
+        lineStyle: { color: colors.leftRightBalance, width: 1.5 },
+        itemStyle: { color: colors.leftRightBalance },
+        encode: { x: xField, y: "LeftRightBalance" }
       }
     ]
       .filter((series) => this.seriesAvailability[series.seriesKey] !== false)
@@ -1458,7 +1553,8 @@ export default class ChartView {
       [labels.heartRate]: this.seriesVisibility.heartRate && this.seriesAvailability.heartRate,
       [labels.cadence]: this.seriesVisibility.cadence && this.seriesAvailability.cadence,
       [labels.speed]: this.seriesVisibility.speed && this.seriesAvailability.speed,
-      [labels.altitude]: this.seriesVisibility.altitude && this.seriesAvailability.altitude
+      [labels.altitude]: this.seriesVisibility.altitude && this.seriesAvailability.altitude,
+      [labels.leftRightBalance]: this.seriesVisibility.leftRightBalance && this.seriesAvailability.leftRightBalance
     };
   }
 
@@ -1469,7 +1565,8 @@ export default class ChartView {
       { key: "heartRate", label: labels.heartRate, color: colors.heartRate },
       { key: "cadence", label: labels.cadence, color: colors.cadence },
       { key: "speed", label: labels.speed, color: colors.speed },
-      { key: "altitude", label: labels.altitude, color: colors.altitude }
+      { key: "altitude", label: labels.altitude, color: colors.altitude },
+      { key: "leftRightBalance", label: labels.leftRightBalance, color: colors.leftRightBalance }
     ];
   }
 
@@ -1486,12 +1583,12 @@ export default class ChartView {
 
   getSmoothingConfig() {
     const presets = {
-      automatic: { power: 10, hr: 5, cadence: 12, speed: 12, altitude: 6 },
-      off: { power: 0, hr: 0, cadence: 0, speed: 0, altitude: 0 },
-      light: { power: 10, hr: 5, cadence: 12, speed: 12, altitude: 6 },
-      medium: { power: 20, hr: 10, cadence: 30, speed: 30, altitude: 10 },
-      strong: { power: 35, hr: 18, cadence: 45, speed: 45, altitude: 18 },
-      veryStrong: { power: 60, hr: 28, cadence: 60, speed: 60, altitude: 28 }
+      automatic: { power: 10, hr: 5, cadence: 12, speed: 12, altitude: 6, leftRightBalance: 15 },
+      off: { power: 0, hr: 0, cadence: 0, speed: 0, altitude: 0, leftRightBalance: 0 },
+      light: { power: 10, hr: 5, cadence: 12, speed: 12, altitude: 6, leftRightBalance: 15 },
+      medium: { power: 20, hr: 10, cadence: 30, speed: 30, altitude: 10, leftRightBalance: 30 },
+      strong: { power: 35, hr: 18, cadence: 45, speed: 45, altitude: 18, leftRightBalance: 45 },
+      veryStrong: { power: 60, hr: 28, cadence: 60, speed: 60, altitude: 28, leftRightBalance: 60 }
     };
 
     return presets[this.smoothingLevel] || presets.medium;
@@ -1500,24 +1597,37 @@ export default class ChartView {
   getChartDataset(workoutObject) {
     if (!ADAPTIVE_CHART_RESOLUTION_ENABLED) {
       this.currentAdaptiveResolution = null;
-      return workoutObject.getAsStrideArray({ smoothing: this.getSmoothingConfig() });
+      return workoutObject.getAsStrideArray({
+        smoothing: this.getSmoothingConfig(),
+        includeLeftRightBalance: true
+      });
     }
 
     if (
       this.adaptiveResolutionCache?.workoutObject !== workoutObject
       || this.adaptiveResolutionCache?.smoothingLevel !== this.smoothingLevel
+      || this.adaptiveResolutionCache?.bridgePowerCadenceZeros !== this.bridgePowerCadenceZeros
     ) {
       this.adaptiveResolutionCache = {
         workoutObject,
         smoothingLevel: this.smoothingLevel,
-        levels: buildAdaptiveChartResolutionLevels(workoutObject, this.smoothingLevel)
+        bridgePowerCadenceZeros: this.bridgePowerCadenceZeros,
+        levels: buildAdaptiveChartResolutionLevels(
+          workoutObject,
+          this.smoothingLevel,
+          undefined,
+          { bridgePowerCadenceZeros: this.bridgePowerCadenceZeros }
+        )
       };
     }
 
     const resolution = this.selectCurrentAdaptiveResolution(workoutObject);
     this.currentAdaptiveResolution = resolution;
     return this.adaptiveResolutionCache.levels.get(resolution)
-      ?? workoutObject.getAsStrideArray({ smoothing: this.getSmoothingConfig() });
+      ?? workoutObject.getAsStrideArray({
+        smoothing: this.getSmoothingConfig(),
+        includeLeftRightBalance: true
+      });
   }
 
   selectCurrentAdaptiveResolution(workoutObject = this.currentWorkout?.workoutObject) {
@@ -1657,6 +1767,19 @@ export default class ChartView {
       this.smoothingButtons.set(entry.key, button);
     });
 
+    const zeroBridgeButton = document.createElement("button");
+    zeroBridgeButton.type = "button";
+    zeroBridgeButton.className = "dashboard-series-toggle dashboard-series-toggle--separated";
+    zeroBridgeButton.dataset.zeroBridge = "true";
+    zeroBridgeButton.innerHTML = `
+      <span class="dashboard-series-toggle__identity">
+        <span class="dashboard-series-toggle__label">${this.t("bridgeZeroValues")}</span>
+      </span>
+      <span class="dashboard-series-toggle__state" aria-hidden="true">✓</span>
+    `;
+    this.smoothingSlot.appendChild(zeroBridgeButton);
+    this.zeroBridgeButton = zeroBridgeButton;
+
     this.syncSmoothingState();
   }
 
@@ -1695,6 +1818,16 @@ export default class ChartView {
       button.classList.toggle("is-active", isActive);
       button.setAttribute("aria-pressed", isActive ? "true" : "false");
     });
+
+    if (this.zeroBridgeButton) {
+      this.zeroBridgeButton.disabled = false;
+      this.zeroBridgeButton.classList.toggle("is-active", this.bridgePowerCadenceZeros);
+      this.zeroBridgeButton.setAttribute(
+        "aria-pressed",
+        this.bridgePowerCadenceZeros ? "true" : "false"
+      );
+      this.zeroBridgeButton.title = this.t("bridgeZeroValuesTitle");
+    }
   }
 
   isSegmentTypeVisible(segment) {

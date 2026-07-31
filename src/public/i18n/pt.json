@@ -440,6 +440,8 @@
     "smoothingMedium": "Médio",
     "smoothingStrong": "Forte",
     "smoothingVeryStrong": "Muito forte",
+    "bridgeZeroValues": "Unir valores zero",
+    "bridgeZeroValuesTitle": "Unir intervalos curtos de potência e cadência a zero até 30 segundos",
     "subtitle": "Explora os teus treinos, compara duracao, distancia e potencia e salta diretamente para o grafico e o mapa.",
     "searchPlaceholder": "Pesquisar por treino, data ou métrica ...",
     "sortNewest": "Mais recentes primeiro",
@@ -509,10 +511,12 @@
       "cadence": "Cad.",
       "speed": "Vel.",
       "altitude": "Alt.",
+      "leftRightBalance": "Equilíbrio E/D",
       "axisPower": "W",
       "axisHeartCadence": "FC/Cad",
       "axisSpeed": "km/h",
-      "axisAltitude": "m"
+      "axisAltitude": "m",
+      "axisLeftRightBalance": "E/D %"
     },
     "messages": {
       "workoutShareUpdated": "A partilha do treino foi atualizada.",

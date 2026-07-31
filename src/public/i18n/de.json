@@ -636,6 +636,8 @@
     "smoothingMedium": "Mittel",
     "smoothingStrong": "Stark",
     "smoothingVeryStrong": "Sehr stark",
+    "bridgeZeroValues": "Nullwerte überbrücken",
+    "bridgeZeroValuesTitle": "Kurze Nullphasen bei Leistung und Kadenz bis 30 Sekunden überbrücken",
     "createSegmentActive": "Segment-Erstellmodus ist aktiv. Über das Chart ziehen, um ein Segment zu erstellen.",
     "createGpsSegmentActive": "GPS-Segment-Erstellmodus ist aktiv. Über das Chart ziehen, um ein GPS-Segment zu erstellen.",
     "enableDeleteSegment": "Segment-Löschmodus aktivieren.",
@@ -649,10 +651,12 @@
       "cadence": "Kad.",
       "speed": "Tempo",
       "altitude": "Höhe",
+      "leftRightBalance": "L/R-Balance",
       "axisPower": "W",
       "axisHeartCadence": "HF/Kad",
       "axisSpeed": "km/h",
-      "axisAltitude": "m"
+      "axisAltitude": "m",
+      "axisLeftRightBalance": "L/R %"
     },
     "messages": {
       "workoutShareUpdated": "Workout-Freigabe aktualisiert.",

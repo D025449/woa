@@ -2,7 +2,8 @@ import { FileDBService } from "./fileDBService.js";
 
 const SEGMENT_TYPES = new Map([
   [1, "auto"],
-  [2, "crit"]
+  [2, "crit"],
+  [3, "manual"]
 ]);
 const DEFAULT_BATCH_WORKOUT_COUNT = 100;
 
@@ -37,7 +38,7 @@ export function normalizeWorkoutLocalPostprocessPayload(decoded) {
     seenStartTimes.add(startTimeSec);
 
     const segments = (Array.isArray(workout?.segments) ? workout.segments : []).map((segment, segmentIndex) => {
-      const typeCode = requireInteger(segment?.type, `workout ${workoutIndex} segment ${segmentIndex} type`, 1, 2);
+      const typeCode = requireInteger(segment?.type, `workout ${workoutIndex} segment ${segmentIndex} type`, 1, 3);
       const segmenttype = SEGMENT_TYPES.get(typeCode);
       const startOffset = requireInteger(segment?.start, `workout ${workoutIndex} segment ${segmentIndex} start`, 0, 0xfffffffe);
       const endOffset = requireInteger(segment?.end, `workout ${workoutIndex} segment ${segmentIndex} end`, startOffset, 0xfffffffe);
@@ -45,7 +46,7 @@ export function normalizeWorkoutLocalPostprocessPayload(decoded) {
         throw new WorkoutLocalPostprocessValidationError(`WPP1 segment exceeds workout ${workoutIndex} record range`);
       }
       const duration = requireInteger(segment?.duration, `workout ${workoutIndex} segment ${segmentIndex} duration`, 1, 0xfffffffe);
-      const expectedDuration = segmenttype === "auto"
+      const expectedDuration = segmenttype === "auto" || segmenttype === "manual"
         ? endOffset - startOffset
         : endOffset - startOffset + 1;
       if (duration !== expectedDuration) {
@@ -135,7 +136,7 @@ export async function persistWorkoutLocalPostprocess({
       WHERE uid = $1
         AND wid = ANY($2::bigint[])
         AND segmenttype = ANY($3::text[])
-    `, [uid, workoutIds, ["auto", "crit"]]);
+    `, [uid, workoutIds, ["auto", "crit", "manual"]]);
     profile.deleteSegmentsMs = performance.now() - stepStartedAt;
 
     const normalizedBatchWorkoutCount = Math.max(1, Math.min(1_000, Number(batchWorkoutCount) || DEFAULT_BATCH_WORKOUT_COUNT));

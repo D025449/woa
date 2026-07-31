@@ -88,6 +88,7 @@ These fields map directly to the current insert path in [fileDBService.js](/User
 - `avg_heart_rate`
 - `max_heart_rate`
 - `avg_cadence`
+- `fit_device_metadata`
 - `max_cadence`
 - `validGps`
 - `year`
@@ -207,6 +208,21 @@ The workout stream must already reflect all browser-side decisions:
 - all record ordering assumptions
 
 Backend must not reinterpret these semantics.
+
+### WS10 workout stream
+
+New browser uploads use the four-byte magic `WS10` (the logical WST10 format). It extends WST9's six length-prefixed columns with two optional columns while preserving the original column order:
+
+1. distance
+2. power
+3. heart rate
+4. cadence
+5. optional speed
+6. altitude
+7. optional signed temperature in degrees Celsius, RLE/delta encoded (`127` means missing)
+8. optional right-side power balance in whole percent (`127` means missing)
+
+Readers continue to accept WST9. Missing WS10 columns have a zero block length, so FIT files without these metrics do not pay a per-record storage cost.
 
 ## GPS Track Block
 
@@ -345,7 +361,8 @@ The browser must compute:
 - `year_month`
 - `year_week`
 
-using the same UTC and ISO-week logic as [fitService.js](/Users/D025449/woa/src/services/fitService.js).
+using the UTC and ISO-week logic from
+[workoutSessionSummaryService.js](/Users/D025449/woa/src/services/workoutSessionSummaryService.js).
 
 ### Speed Units
 

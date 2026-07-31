@@ -440,6 +440,8 @@
     "smoothingMedium": "Medio",
     "smoothingStrong": "Forte",
     "smoothingVeryStrong": "Molto forte",
+    "bridgeZeroValues": "Collega valori zero",
+    "bridgeZeroValuesTitle": "Collega brevi intervalli a zero di potenza e cadenza fino a 30 secondi",
     "subtitle": "Sfoglia i tuoi allenamenti, confronta durata, distanza e potenza e passa direttamente a grafico e mappa.",
     "searchPlaceholder": "Cerca per allenamento, data o metrica ...",
     "sortNewest": "Più recenti prima",
@@ -509,10 +511,12 @@
       "cadence": "Cad.",
       "speed": "Vel.",
       "altitude": "Alt.",
+      "leftRightBalance": "Bilanciamento S/D",
       "axisPower": "W",
       "axisHeartCadence": "FC/Cad",
       "axisSpeed": "km/h",
-      "axisAltitude": "m"
+      "axisAltitude": "m",
+      "axisLeftRightBalance": "S/D %"
     },
     "messages": {
       "workoutShareUpdated": "La condivisione dell'allenamento è stata aggiornata.",

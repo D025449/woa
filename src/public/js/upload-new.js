@@ -548,6 +548,21 @@ function buildWorkoutStreamStatLines(stats = {}) {
     ].join("<br>");
 }
 
+function buildFitLapStatLines(stats = {}) {
+    if (!stats || typeof stats !== "object") {
+        return "";
+    }
+    const formatCounts = (counts) => Object.entries(counts || {})
+        .map(([key, value]) => `${key}=${Number(value || 0)}`)
+        .join(", ");
+    return [
+        `FIT laps: ${Number(stats.totalMessages || 0)} total / ${Number(stats.importedSegments || 0)} imported / ${Number(stats.fullWorkoutMessages || 0)} full-workout skipped / ${Number(stats.invalidMessages || 0)} invalid`,
+        `FIT lap triggers: ${formatCounts(stats.triggers) || "none"}`,
+        `FIT lap intensities: ${formatCounts(stats.intensities) || "none"}`,
+        `FIT laps linked to workout steps: ${Number(stats.workoutStepLinkedMessages || 0)}`
+    ].map(escapeHtml).join("<br>");
+}
+
 function buildStartupTimingLines(timings = {}) {
     if (!timings || typeof timings !== "object") {
         return "";
@@ -906,7 +921,8 @@ function renderCompletedContainerMarkup({
                 ${stats.browserPostprocess
                     ? `<br>Browser postprocessing (${escapeHtml(String(stats.browserPostprocess.format || "WPP1"))}): ${escapeHtml(String(stats.browserPostprocess.workoutCount || 0))} workouts / ${escapeHtml(String(stats.browserPostprocess.segmentCount || 0))} segments<br>
                        Browser postprocessing raw: ${escapeHtml(formatBytes(Number(stats.browserPostprocess.rawBytes || 0)))}<br>
-                       Browser postprocessing gzip: ${escapeHtml(formatBytes(Number(stats.browserPostprocess.gzipBytes || 0)))} (${escapeHtml(String(stats.browserPostprocess.compressionEngine || "gzip"))})`
+                       Browser postprocessing gzip: ${escapeHtml(formatBytes(Number(stats.browserPostprocess.gzipBytes || 0)))} (${escapeHtml(String(stats.browserPostprocess.compressionEngine || "gzip"))})<br>
+                       ${buildFitLapStatLines(stats.browserPostprocess.fitLaps)}`
                     : ""}
             </div>
             ${skippedExistingMarkup}
@@ -1261,14 +1277,10 @@ async function handleConvertSubmit(event) {
                     setReadProgress(percent, `${formatBytes(aggregateLoaded)} / ${formatBytes(totalSourceBytes)}`);
                 });
                 totalLoadedBytes += currentFile.size;
-                if (selectedFiles.length === 1 && !currentIsZip) {
-                    arrayBuffer = currentArrayBuffer;
-                } else {
-                    workerFiles.push({
-                        name: currentFile.name,
-                        arrayBuffer: currentArrayBuffer
-                    });
-                }
+                workerFiles.push({
+                    name: currentFile.name,
+                    arrayBuffer: currentArrayBuffer
+                });
             }
         }
         if (!Number.isFinite(Number(startupTimings.readSourceMs))) {
@@ -1732,7 +1744,8 @@ async function handleConvertSubmit(event) {
                             ${stats.browserPostprocess
                                 ? `<br>Browser postprocessing (${escapeHtml(String(stats.browserPostprocess.format || "WPP1"))}): ${escapeHtml(String(stats.browserPostprocess.workoutCount || 0))} workouts / ${escapeHtml(String(stats.browserPostprocess.segmentCount || 0))} segments<br>
                                    Browser postprocessing raw: ${escapeHtml(formatBytes(Number(stats.browserPostprocess.rawBytes || 0)))}<br>
-                                   Browser postprocessing gzip: ${escapeHtml(formatBytes(Number(stats.browserPostprocess.gzipBytes || 0)))} (${escapeHtml(String(stats.browserPostprocess.compressionEngine || "gzip"))})`
+                                   Browser postprocessing gzip: ${escapeHtml(formatBytes(Number(stats.browserPostprocess.gzipBytes || 0)))} (${escapeHtml(String(stats.browserPostprocess.compressionEngine || "gzip"))})<br>
+                                   ${buildFitLapStatLines(stats.browserPostprocess.fitLaps)}`
                                 : ""}
                         </div>
                         ${skippedExistingMarkup}
@@ -1790,10 +1803,10 @@ async function handleConvertSubmit(event) {
         worker.postMessage({
             type: isZipMode
                 ? "convert-zip-to-woa-zip"
-                : (selectedFiles.length > 1 ? "convert-fit-files-to-woa-zip" : "convert-fit-to-woa"),
+                : "convert-fit-files-to-woa-zip",
             fileName: isZipMode
                 ? selectedFile.name
-                : (selectedFiles.length > 1 ? "fit-files.woa1.zip" : selectedFile.name),
+                : "fit-files.woa1.zip",
             arrayBuffer,
             files: workerFiles,
             prewarmedZipToken,

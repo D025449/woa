@@ -2,7 +2,104 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import Workout from "../src/shared/Workout.js";
-import { buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m } from "../src/public/js/woa-format-compact.js";
+import {
+  buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m,
+  buildWorkoutStreamBlockWst10,
+  buildWorkoutStreamBlockWst10FromWorkout
+} from "../src/public/js/woa-format-compact.js";
+
+test("WS10 preserves optional temperature and left/right balance series", () => {
+  const compactRecords = {
+    recordCount: 6,
+    baseTimestampSec: 1_700_000_000,
+    distancesQ: Uint32Array.from([0, 10, 20, 30, 40, 50]),
+    powersW: Uint16Array.from([200, 204, 208, 212, 216, 220]),
+    heartRatesBpm: Uint8Array.from([120, 121, 122, 123, 124, 125]),
+    cadencesRpm: Uint8Array.from([80, 81, 82, 83, 84, 85]),
+    speedsCmS: Uint16Array.from([500, 500, 500, 500, 500, 500]),
+    altitudesQ: Int16Array.from([2000, 2004, 2008, 2012, 2016, 2020]),
+    temperaturesC: Int8Array.from([-2, -2, -1, 0, 0, 127]),
+    leftRightBalancesPct: Uint8Array.from([50, 51, 127, 52, 53, 54])
+  };
+
+  const encoded = buildWorkoutStreamBlockWst10(compactRecords).bytes;
+  const workout = Workout.fromBuffer(encoded);
+
+  assert.equal(new TextDecoder().decode(encoded.subarray(0, 4)), "WS10");
+  assert.deepEqual(
+    Array.from({ length: 6 }, (_, index) => workout.getTemperatureAt(index)),
+    [-2, -2, -1, 0, 0, Number.NaN]
+  );
+  assert.deepEqual(
+    Array.from({ length: 6 }, (_, index) => workout.getLeftRightBalanceAt(index)),
+    [50, 51, Number.NaN, 52, 53, 54]
+  );
+  assert.equal(Workout.getWst9RangeAverages(encoded, 0, 5).power, 212);
+});
+
+test("WS10 rebuild from Workout preserves core and optional series", () => {
+  const workout = Workout.fromRecords([
+    { power: 200, heart_rate: 120, cadence: 80, speed: 10, altitude: 500, distance: 0 },
+    { power: 204, heart_rate: 121, cadence: 81, speed: 10.5, altitude: 501, distance: 10 },
+    { power: 208, heart_rate: 122, cadence: 82, speed: 11, altitude: 502, distance: 21 }
+  ], { startTime: 1_700_000_000_000, validGps: true });
+  workout.temperatureSeriesC = Int8Array.from([-2, -1, 0]);
+  workout.leftRightBalanceSeriesPct = Uint8Array.from([49, 50, 51]);
+
+  const encoded = buildWorkoutStreamBlockWst10FromWorkout(workout).bytes;
+  const decoded = Workout.fromBuffer(encoded);
+
+  assert.equal(new TextDecoder().decode(encoded.subarray(0, 4)), "WS10");
+  assert.deepEqual(Array.from({ length: 3 }, (_, index) => decoded.getDistanceAt(index)), [0, 10, 21]);
+  assert.deepEqual(Array.from({ length: 3 }, (_, index) => decoded.getPowerAt(index)), [200, 204, 208]);
+  assert.deepEqual(Array.from({ length: 3 }, (_, index) => decoded.getTemperatureAt(index)), [-2, -1, 0]);
+  assert.deepEqual(Array.from({ length: 3 }, (_, index) => decoded.getLeftRightBalanceAt(index)), [49, 50, 51]);
+});
+
+test("Workout never exposes the compact missing balance marker as data", () => {
+  const workout = Workout.fromRecords([{ power: 100 }]);
+  workout.leftRightBalanceSeriesPct = Uint8Array.from([127]);
+
+  assert.equal(Number.isNaN(workout.getLeftRightBalanceAt(0)), true);
+  assert.equal(Number.isNaN(workout.getMetricsAt(0).leftRightBalance), true);
+});
+
+test("chart balance smoothing is power weighted and keeps raw mode untouched", () => {
+  const workout = Workout.fromRecords([
+    { power: 100, heart_rate: 120, cadence: 80, speed: 10, altitude: 500, distance: 0 },
+    { power: 300, heart_rate: 121, cadence: 81, speed: 10, altitude: 500, distance: 10 },
+    { power: 100, heart_rate: 122, cadence: 82, speed: 10, altitude: 500, distance: 20 }
+  ], { startTime: 1_700_000_000_000 });
+  workout.leftRightBalanceSeriesPct = Uint8Array.from([40, 60, 40]);
+
+  const smoothed = workout.getAsStrideArray({
+    includeLeftRightBalance: true,
+    smoothing: { power: 1, hr: 1, cadence: 1, speed: 1, altitude: 1, leftRightBalance: 3 }
+  }).data;
+  const raw = workout.getAsStrideArray({
+    includeLeftRightBalance: true,
+    smoothing: { power: 1, hr: 1, cadence: 1, speed: 1, altitude: 1, leftRightBalance: 1 }
+  }).data;
+
+  assert.equal(smoothed[8 + 7], 52);
+  assert.deepEqual([raw[7], raw[8 + 7], raw[16 + 7]], [40, 60, 40]);
+});
+
+test("smoothed chart balance suppresses windows with negligible power", () => {
+  const workout = Workout.fromRecords([
+    { power: 20 },
+    { power: 30 },
+    { power: 40 }
+  ]);
+  workout.leftRightBalanceSeriesPct = Uint8Array.from([40, 70, 45]);
+
+  const smoothed = workout.getAsStrideArray({
+    includeLeftRightBalance: true,
+    smoothing: { leftRightBalance: 3 }
+  }).data;
+
+  assert.equal(Number.isNaN(smoothed[8 + 7]), true);
+});
 
 test("direct WST9 range averages match fully materialized workouts", () => {
   const recordCount = 420;

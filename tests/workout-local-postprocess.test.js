@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  detectFitLapSegmentsCompact,
   detectWorkoutLocalSegmentsCompact,
   detectWorkoutLocalSegmentsFromWorkout,
   decodeWorkoutLocalPostprocessTransport,
@@ -84,9 +85,114 @@ test("stored workout fallback uses the same critical-power detector as compact u
   );
 });
 
+test("FIT lap detection skips the mandatory full-workout envelope", () => {
+  const compact = compactFromRecords(Array.from({ length: 61 }, (_, index) => ({
+    power: 200,
+    heart_rate: 140,
+    cadence: 85,
+    speed: 8,
+    altitude: 100,
+    distance: index * 8
+  })));
+  const startTimeMs = compact.baseTimestampSec * 1000;
+  const result = detectFitLapSegmentsCompact(compact, [{
+    start_time: startTimeMs,
+    timestamp: startTimeMs + 60_000,
+    lap_trigger: 7,
+    intensity: 0,
+    wkt_step_index: null
+  }]);
+
+  assert.deepEqual(result.segments, []);
+  assert.equal(result.stats.totalMessages, 1);
+  assert.equal(result.stats.fullWorkoutMessages, 1);
+  assert.deepEqual(result.stats.triggers, { session_end: 1 });
+  assert.deepEqual(result.stats.intensities, { active: 1 });
+});
+
+test("FIT lap detection maps manual triggers to manual and all other triggers to auto", () => {
+  const compact = compactFromRecords(Array.from({ length: 121 }, (_, index) => ({
+    power: index < 60 ? 200 : 300,
+    heart_rate: index < 60 ? 140 : 150,
+    cadence: index < 60 ? 80 : 90,
+    speed: 8,
+    altitude: 100 + Math.floor(index / 60),
+    distance: index * 8
+  })));
+  const startTimeMs = compact.baseTimestampSec * 1000;
+  const result = detectFitLapSegmentsCompact(compact, [
+    {
+      start_time: startTimeMs,
+      timestamp: startTimeMs + 60_000,
+      lap_trigger: 0,
+      intensity: 2,
+      wkt_step_index: 3
+    },
+    {
+      start_time: startTimeMs + 60_000,
+      timestamp: startTimeMs + 120_000,
+      lap_trigger: 1,
+      intensity: 5,
+      wkt_step_index: null
+    }
+  ]);
+
+  assert.deepEqual(result.segments.map((segment) => ({
+    type: segment.type,
+    start: segment.start,
+    end: segment.end,
+    duration: segment.duration,
+    avgPower: segment.avgPower
+  })), [
+    { type: 3, start: 0, end: 60, duration: 60, avgPower: 200 },
+    { type: 1, start: 60, end: 120, duration: 60, avgPower: 300 }
+  ]);
+  assert.equal(result.stats.importedSegments, 2);
+  assert.equal(result.stats.workoutStepLinkedMessages, 1);
+  assert.deepEqual(result.stats.triggers, { manual: 1, time: 1 });
+  assert.deepEqual(result.stats.intensities, { warmup: 1, interval: 1 });
+});
+
+test("FIT lap detection falls back to timer durations for unusable legacy timestamps", () => {
+  const compact = compactFromRecords(Array.from({ length: 101 }, (_, index) => ({
+    power: 200,
+    heart_rate: 140,
+    cadence: 85,
+    speed: 8,
+    altitude: 100,
+    distance: index * 8
+  })));
+  const unrelatedTimeMs = Date.UTC(2030, 0, 1);
+  const result = detectFitLapSegmentsCompact(compact, [
+    {
+      start_time: unrelatedTimeMs,
+      timestamp: unrelatedTimeMs + 30_000,
+      total_timer_time: 30,
+      lap_trigger: 2
+    },
+    {
+      start_time: unrelatedTimeMs + 30_000,
+      timestamp: unrelatedTimeMs + 100_000,
+      total_timer_time: 70,
+      lap_trigger: 7
+    }
+  ]);
+
+  assert.deepEqual(result.segments.map(({ type, start, end, duration }) => ({
+    type,
+    start,
+    end,
+    duration
+  })), [
+    { type: 1, start: 0, end: 30, duration: 30 },
+    { type: 1, start: 30, end: 100, duration: 70 }
+  ]);
+  assert.equal(result.stats.invalidMessages, 0);
+});
+
 test("WPP1 transport stores workout and segment counts compactly", () => {
   const workouts = [
-    { startTimeSec: 100, recordCount: 100, segments: [{ type: 1, start: 4, end: 20, duration: 16, avgPower: 250, avgHeartRate: 150, avgCadence: 90, avgSpeed: 8.25, altimeters: 3000 }] },
+    { startTimeSec: 100, recordCount: 100, segments: [{ type: 3, start: 4, end: 20, duration: 16, avgPower: 250, avgHeartRate: 150, avgCadence: 90, avgSpeed: 8.25, altimeters: 3000 }] },
     { startTimeSec: 200, recordCount: 200, segments: [] }
   ];
   const bytes = encodeWorkoutLocalPostprocessTransport(workouts);

@@ -4,6 +4,26 @@ const UINT32_NAN = 0xffffffff;
 const INT16_NAN = -0x8000;
 const BEST_EFFORT_DURATIONS = [5, 15, 60, 120, 240, 480, 900, 1800];
 const textEncoder = new TextEncoder();
+const LAP_TRIGGER_NAMES = [
+  "manual",
+  "time",
+  "distance",
+  "position_start",
+  "position_lap",
+  "position_waypoint",
+  "position_marked",
+  "session_end",
+  "fitness_equipment"
+];
+const LAP_INTENSITY_NAMES = [
+  "active",
+  "rest",
+  "warmup",
+  "cooldown",
+  "recovery",
+  "interval",
+  "other"
+];
 
 function recordCountOf(compact) {
   return Math.max(0, Number(compact?.recordCount || 0));
@@ -108,6 +128,145 @@ export function detectWorkoutLocalSegmentsCompact(compact) {
     altitudeMetersAtIndex: (index) => altitudeMetersAt(compact, index)
   });
   return bestEfforts.map((segment) => ({ ...segment, type: 2 }));
+}
+
+function incrementNamedCount(target, value, names) {
+  if (value == null || value === "") {
+    target.unspecified = Number(target.unspecified || 0) + 1;
+    return;
+  }
+  const numeric = Number(value);
+  const key = Number.isInteger(numeric)
+    ? (names[numeric] || `unknown:${numeric}`)
+    : "unspecified";
+  target[key] = Number(target[key] || 0) + 1;
+}
+
+function lapEndTimeMs(lap) {
+  const startTime = Number(lap?.start_time);
+  const timestamp = Number(lap?.timestamp);
+  if (Number.isFinite(timestamp) && (!Number.isFinite(startTime) || timestamp > startTime)) {
+    return timestamp;
+  }
+
+  const elapsedSeconds = Number(lap?.total_timer_time ?? lap?.total_elapsed_time);
+  return Number.isFinite(startTime) && Number.isFinite(elapsedSeconds)
+    ? startTime + (elapsedSeconds * 1000)
+    : Number.NaN;
+}
+
+export function detectFitLapSegmentsCompact(compact, laps = []) {
+  const normalizedLaps = Array.isArray(laps) ? laps : [];
+  const recordCount = recordCountOf(compact);
+  const baseTimestampSec = Number(compact?.baseTimestampSec);
+  const stats = {
+    totalMessages: normalizedLaps.length,
+    fullWorkoutMessages: 0,
+    invalidMessages: 0,
+    importedSegments: 0,
+    workoutStepLinkedMessages: 0,
+    triggers: {},
+    intensities: {}
+  };
+
+  for (const lap of normalizedLaps) {
+    incrementNamedCount(stats.triggers, lap?.lap_trigger, LAP_TRIGGER_NAMES);
+    incrementNamedCount(stats.intensities, lap?.intensity, LAP_INTENSITY_NAMES);
+    if (lap?.wkt_step_index != null && Number.isInteger(Number(lap.wkt_step_index))) {
+      stats.workoutStepLinkedMessages += 1;
+    }
+  }
+
+  if (recordCount < 2 || !Number.isFinite(baseTimestampSec)) {
+    stats.invalidMessages = normalizedLaps.length;
+    return { segments: [], stats };
+  }
+
+  const useDistance = hasCompleteDistanceSeries(compact, recordCount);
+  const lapDurations = normalizedLaps.map((lap) => {
+    const duration = Number(lap?.total_timer_time ?? lap?.total_elapsed_time);
+    return Number.isFinite(duration) && duration > 0 ? duration : 0;
+  });
+  const totalLapDuration = lapDurations.reduce((sum, duration) => sum + duration, 0);
+  let cumulativeLapDuration = 0;
+  const segments = [];
+  for (let lapIndex = 0; lapIndex < normalizedLaps.length; lapIndex += 1) {
+    const lap = normalizedLaps[lapIndex];
+    const fallbackStart = cumulativeLapDuration;
+    cumulativeLapDuration += lapDurations[lapIndex];
+
+    // A FIT activity always contains at least one lap. A sole lap is only the
+    // mandatory session envelope, even when an old device wrote bad timestamps.
+    if (normalizedLaps.length === 1) {
+      stats.fullWorkoutMessages += 1;
+      continue;
+    }
+
+    const startTimeMs = Number(lap?.start_time);
+    const endTimeMs = lapEndTimeMs(lap);
+    const directStart = (startTimeMs / 1000) - baseTimestampSec;
+    const directEnd = (endTimeMs / 1000) - baseTimestampSec;
+    const directRangeIsUsable = Number.isFinite(directStart)
+      && Number.isFinite(directEnd)
+      && directStart >= -1
+      && directEnd > directStart
+      && directStart <= recordCount
+      && directEnd <= recordCount + 1;
+
+    let start;
+    let end;
+    if (directRangeIsUsable) {
+      start = Math.max(0, Math.min(recordCount - 1, Math.round(directStart)));
+      end = Math.max(start, Math.min(recordCount - 1, Math.round(directEnd)));
+    } else if (totalLapDuration > 0 && lapDurations[lapIndex] > 0) {
+      const scale = (recordCount - 1) / totalLapDuration;
+      start = Math.max(0, Math.min(recordCount - 1, Math.round(fallbackStart * scale)));
+      end = Math.max(start, Math.min(recordCount - 1, Math.round(cumulativeLapDuration * scale)));
+    } else {
+      stats.invalidMessages += 1;
+      continue;
+    }
+
+    const isFullWorkoutEnvelope = Number(lap?.lap_trigger) === 7
+      && start <= 1
+      && end >= recordCount - 2;
+    if (isFullWorkoutEnvelope) {
+      stats.fullWorkoutMessages += 1;
+      continue;
+    }
+
+    const duration = end - start;
+    if (duration <= 0) {
+      stats.invalidMessages += 1;
+      continue;
+    }
+
+    let powerSum = 0;
+    let heartRateSum = 0;
+    let cadenceSum = 0;
+    let speedSum = 0;
+    for (let index = start; index < end; index += 1) {
+      powerSum += powerAt(compact, index);
+      heartRateSum += heartRateAt(compact, index);
+      cadenceSum += cadenceAt(compact, index);
+      speedSum += speedMpsAt(compact, index, useDistance) * 3.6;
+    }
+
+    segments.push({
+      type: Number(lap?.lap_trigger) === 0 ? 3 : 1,
+      start,
+      end,
+      duration,
+      avgPower: Math.round(powerSum / duration),
+      avgHeartRate: Math.round(heartRateSum / duration),
+      avgCadence: Math.round(cadenceSum / duration),
+      avgSpeed: Number((speedSum / duration).toFixed(2)),
+      altimeters: (altitudeMetersAt(compact, end) - altitudeMetersAt(compact, start)) * 1000
+    });
+  }
+
+  stats.importedSegments = segments.length;
+  return { segments, stats };
 }
 
 export function detectWorkoutLocalSegmentsFromWorkout(workout) {

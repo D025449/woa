@@ -64,7 +64,8 @@ test("chart hides measurement series containing only zero values", () => {
       heartRate: true,
       cadence: true,
       speed: false,
-      altitude: false
+      altitude: false,
+      leftRightBalance: false
     }
   );
 });
@@ -80,9 +81,40 @@ test("chart keeps real indoor speed and non-zero altitude series", () => {
       heartRate: false,
       cadence: false,
       speed: true,
-      altitude: true
+      altitude: true,
+      leftRightBalance: false
     }
   );
+});
+
+test("chart exposes left/right balance only when the workout contains it", () => {
+  const availability = getAvailableWorkoutSeries(metricsWorkout([
+    { power: 180, leftRightBalance: Number.NaN },
+    { power: 190, leftRightBalance: 49 }
+  ]));
+
+  assert.equal(availability.leftRightBalance, true);
+});
+
+test("chart hides compact missing left/right balance values", () => {
+  const workout = metricsWorkout([
+    { power: 180, leftRightBalance: null },
+    { power: 190, leftRightBalance: Number.NaN }
+  ]);
+  workout.leftRightBalanceSeriesPct = Uint8Array.from([127, 127]);
+
+  assert.equal(getAvailableWorkoutSeries(workout).leftRightBalance, false);
+});
+
+test("chart hides a constant 50 percent balance series mixed with missing values", () => {
+  const workout = metricsWorkout([
+    { power: 180, leftRightBalance: 50 },
+    { power: 190, leftRightBalance: null },
+    { power: 200, leftRightBalance: Number.NaN }
+  ]);
+  workout.leftRightBalanceSeriesPct = Float64Array.from([50, Number.NaN, Number.NaN]);
+
+  assert.equal(getAvailableWorkoutSeries(workout).leftRightBalance, false);
 });
 
 test("chart derives stable rounded axes from unsmoothed workout metrics", () => {

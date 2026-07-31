@@ -636,6 +636,8 @@
     "smoothingMedium": "Medium",
     "smoothingStrong": "Strong",
     "smoothingVeryStrong": "Very Strong",
+    "bridgeZeroValues": "Bridge zero values",
+    "bridgeZeroValuesTitle": "Bridge short power and cadence zero runs up to 30 seconds",
     "createSegmentActive": "Create Segment mode is active. Drag across the chart to create a new segment.",
     "createGpsSegmentActive": "Create GPS Segment mode is active. Drag across the chart to create a GPS segment.",
     "enableDeleteSegment": "Enable Delete Segment mode.",
@@ -649,10 +651,12 @@
       "cadence": "Cad.",
       "speed": "Speed",
       "altitude": "Alt.",
+      "leftRightBalance": "L/R Balance",
       "axisPower": "W",
       "axisHeartCadence": "HR/Cad",
       "axisSpeed": "km/h",
-      "axisAltitude": "m"
+      "axisAltitude": "m",
+      "axisLeftRightBalance": "L/R %"
     },
     "messages": {
       "workoutShareUpdated": "Workout sharing updated.",

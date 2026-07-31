@@ -8,6 +8,7 @@ import GpsTrackBlobService from "./gpsTrackBlobService.js";
 import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../shared/gpsSampling.js";
 import { toPostgresBox } from "../shared/postgresSpatial.js";
 import { computeElevationTotalsFromTrack } from "../shared/ElevationTotals.js";
+import { buildWorkoutStreamBlockWst10FromWorkout } from "../public/js/woa-format-compact.js";
 
 function haversineMeters(a, b) {
   const toRad = (value) => (value * Math.PI) / 180;
@@ -995,6 +996,7 @@ export default class WorkoutDBService {
         gps_track_blob_codec,
         stream,
         stream_codec,
+        fit_device_metadata,
         uploaded_at,
         octet_length(stream) AS stream_size,
         octet_length(gps_track_blob) AS gps_track_blob_size,
@@ -1033,7 +1035,8 @@ export default class WorkoutDBService {
         stream,
         stream_codec,
         gps_track_blob,
-        gps_track_blob_codec
+        gps_track_blob_codec,
+        fit_device_metadata
        FROM workouts
        WHERE uid = $1
        ORDER BY start_time ASC NULLS LAST, id ASC`,
@@ -1041,6 +1044,38 @@ export default class WorkoutDBService {
     );
 
     return result.rows;
+  }
+
+  static async getOwnedManualSegmentsForFitExport(uid) {
+    const result = await pool.query(
+      `SELECT
+        wid,
+        start_offset,
+        end_offset,
+        segmenttype
+       FROM workout_segments
+       WHERE uid = $1
+         AND segmenttype = 'manual'
+       ORDER BY wid ASC, start_offset ASC, end_offset ASC`,
+      [uid]
+    );
+
+    return result.rows;
+  }
+
+  static async getFitDeviceMetadata(id, uid) {
+    const result = await pool.query(
+      `SELECT fit_device_metadata
+       FROM workouts
+       WHERE id = $1
+         AND uid = $2`,
+      [id, uid]
+    );
+    return result.rows[0]?.fit_device_metadata || {
+      version: 1,
+      fileId: null,
+      devices: []
+    };
   }
 
   static async getManualGpsContext(id, uid) {
@@ -1448,6 +1483,8 @@ export default class WorkoutDBService {
       validGps: true,
       startTime: workoutObject.getStartTime()
     });
+    rebuiltWorkout.temperatureSeriesC = workoutObject.temperatureSeriesC;
+    rebuiltWorkout.leftRightBalanceSeriesPct = workoutObject.leftRightBalanceSeriesPct;
     const elevationTotals = computeElevationTotalsFromTrack(track);
 
     return {
@@ -1493,7 +1530,10 @@ export default class WorkoutDBService {
       ? Workout.normalizeCodec(streamUpdate?.streamCodec)
       : null;
     const streamBuffer = streamUpdate?.workoutObject
-      ? await Workout.compress(streamUpdate.workoutObject.buffer, streamCodec)
+      ? await Workout.compress(
+          buildWorkoutStreamBlockWst10FromWorkout(streamUpdate.workoutObject).bytes,
+          streamCodec
+        )
       : null;
     const sampleRateGps = normalizeGpsSampleRateSeconds(
       manualGpsTrack?.sampleRateSeconds,

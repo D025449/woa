@@ -83,6 +83,9 @@ const FIT_BASE_TYPES = {
   byte: 0x0d,
   uint16: 0x84,
   uint32: 0x86,
+  uint8z: 0x0a,
+  uint16z: 0x8b,
+  uint32z: 0x8c,
   sint32: 0x85
 };
 
@@ -119,6 +122,51 @@ function fitDistanceValue(meters) {
 function fitDurationValue(seconds) {
   // FIT elapsed/timer scale = 1000
   return clamp(Math.round(seconds * 1000), 0, 0xffffffff);
+}
+
+function finiteOr(value, fallback = null) {
+  if (value == null || value === "") return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function normalizeFitDeviceMetadata(value, fallbackSerialNumber, fallbackTimestamp) {
+  const metadata = value && typeof value === "object" ? value : {};
+  const sourceFileId = metadata.fileId && typeof metadata.fileId === "object" ? metadata.fileId : {};
+  const fileId = {
+    type: finiteOr(sourceFileId.type, 4),
+    manufacturer: finiteOr(sourceFileId.manufacturer, 1),
+    product: finiteOr(sourceFileId.product, 0),
+    serialNumber: finiteOr(sourceFileId.serialNumber, fallbackSerialNumber),
+    timeCreated: sourceFileId.timeCreated || fallbackTimestamp,
+    number: finiteOr(sourceFileId.number),
+    productName: typeof sourceFileId.productName === "string" ? sourceFileId.productName : null
+  };
+  const devices = (Array.isArray(metadata.devices) ? metadata.devices : [])
+    .filter((device) => device && typeof device === "object")
+    .map((device) => ({
+      timestamp: device.timestamp || null,
+      deviceIndex: finiteOr(device.deviceIndex),
+      deviceType: finiteOr(device.deviceType),
+      manufacturer: finiteOr(device.manufacturer),
+      serialNumber: finiteOr(device.serialNumber),
+      product: finiteOr(device.product),
+      softwareVersion: finiteOr(device.softwareVersion),
+      hardwareVersion: finiteOr(device.hardwareVersion),
+      cumulativeOperatingTime: finiteOr(device.cumulativeOperatingTime),
+      batteryVoltage: finiteOr(device.batteryVoltage),
+      batteryStatus: finiteOr(device.batteryStatus),
+      batteryLevel: finiteOr(device.batteryLevel),
+      sensorPosition: finiteOr(device.sensorPosition),
+      descriptor: typeof device.descriptor === "string" ? device.descriptor : null,
+      antTransmissionType: finiteOr(device.antTransmissionType),
+      antDeviceNumber: finiteOr(device.antDeviceNumber),
+      antNetwork: finiteOr(device.antNetwork),
+      antId: finiteOr(device.antId),
+      sourceType: finiteOr(device.sourceType),
+      productName: typeof device.productName === "string" ? device.productName : null
+    }));
+  return { fileId, devices };
 }
 
 function crc16Fit(buffer, seed = 0) {
@@ -202,6 +250,11 @@ class FitMessageBuilder {
           offset += 1;
           break;
         }
+        case FIT_BASE_TYPES.uint8z: {
+          row.writeUInt8(value ?? 0, offset);
+          offset += 1;
+          break;
+        }
         case FIT_BASE_TYPES.sint8: {
           row.writeInt8(value ?? 0x7f, offset);
           offset += 1;
@@ -212,8 +265,18 @@ class FitMessageBuilder {
           offset += 2;
           break;
         }
+        case FIT_BASE_TYPES.uint16z: {
+          row.writeUInt16LE(value ?? 0, offset);
+          offset += 2;
+          break;
+        }
         case FIT_BASE_TYPES.uint32: {
           row.writeUInt32LE(value ?? 0xffffffff, offset);
+          offset += 4;
+          break;
+        }
+        case FIT_BASE_TYPES.uint32z: {
+          row.writeUInt32LE(value ?? 0, offset);
           offset += 4;
           break;
         }
@@ -305,6 +368,72 @@ function summarizeRecords(records) {
   };
 }
 
+function normalizeManualLapSegments(segments, recordCount) {
+  const maximumOffset = Math.max(0, recordCount - 1);
+  return (Array.isArray(segments) ? segments : [])
+    .filter((segment) => String(segment?.segmenttype || "").toLowerCase() === "manual")
+    .map((segment) => {
+      const start = clamp(Math.round(Number(segment?.start_offset)), 0, maximumOffset);
+      const end = clamp(Math.round(Number(segment?.end_offset)), 0, maximumOffset);
+      return { start: Math.min(start, end), end: Math.max(start, end) };
+    })
+    .filter((segment) => Number.isFinite(segment.start) && Number.isFinite(segment.end) && segment.end > segment.start)
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+}
+
+function summarizeRecordRange(records, start, end) {
+  let maxSpeed = 0;
+  let maxPower = 0;
+  let maxHr = 0;
+  let maxCad = 0;
+  let powerSum = 0;
+  let hrSum = 0;
+  let cadSum = 0;
+  let ascent = 0;
+  let descent = 0;
+  let previousAltitude = null;
+
+  for (let index = start; index < end; index += 1) {
+    const record = records[index];
+    maxSpeed = Math.max(maxSpeed, record.speedMps || 0);
+    maxPower = Math.max(maxPower, record.power || 0);
+    maxHr = Math.max(maxHr, record.heartRate || 0);
+    maxCad = Math.max(maxCad, record.cadence || 0);
+    powerSum += record.power || 0;
+    hrSum += record.heartRate || 0;
+    cadSum += record.cadence || 0;
+
+    if (Number.isFinite(record.altitudeM) && Number.isFinite(previousAltitude)) {
+      const delta = record.altitudeM - previousAltitude;
+      if (delta > 0) ascent += delta;
+      else descent += Math.abs(delta);
+    }
+    if (Number.isFinite(record.altitudeM)) previousAltitude = record.altitudeM;
+  }
+
+  const intervalCount = Math.max(1, end - start);
+  const startDistance = Number(records[start]?.distanceM);
+  const endDistance = Number(records[end]?.distanceM);
+  const totalDistanceM = Number.isFinite(startDistance) && Number.isFinite(endDistance)
+    ? Math.max(0, endDistance - startDistance)
+    : 0;
+
+  return {
+    durationSeconds: end - start,
+    totalDistanceM,
+    avgSpeed: end > start ? totalDistanceM / (end - start) : 0,
+    maxSpeed,
+    avgPower: powerSum / intervalCount,
+    maxPower,
+    avgHr: hrSum / intervalCount,
+    maxHr,
+    avgCad: cadSum / intervalCount,
+    maxCad,
+    totalAscentM: ascent,
+    totalDescentM: descent
+  };
+}
+
 function normalizeRecords(workout, options = {}) {
   const records = [];
   let length = workout.length || 0;
@@ -393,6 +522,12 @@ function normalizeRecords(workout, options = {}) {
       speedMps,
       distanceM,
       altitudeM: Number(workout.getAltitudeAt(i) || 0),
+      temperatureC: typeof workout.getTemperatureAt === "function"
+        ? Number(workout.getTemperatureAt(i))
+        : Number.NaN,
+      leftRightBalancePct: typeof workout.getLeftRightBalanceAt === "function"
+        ? Number(workout.getLeftRightBalanceAt(i))
+        : Number.NaN,
       lat,
       lon
     });
@@ -417,6 +552,18 @@ export default class FitExportService {
     const lastTs = fitTimestampFromMs(records[records.length - 1].timestampMs);
     const totalSeconds = Math.max(0, records.length - 1);
     const summary = summarizeRecords(records);
+    const manualLapSegments = normalizeManualLapSegments(options.segments, records.length);
+    const fitDeviceMetadata = normalizeFitDeviceMetadata(
+      options.fitDeviceMetadata,
+      serialNumber,
+      records[0].timestampMs
+    );
+    const hasFitDeviceMetadata = !!(
+      options.fitDeviceMetadata?.fileId
+      || (Array.isArray(options.fitDeviceMetadata?.devices) && options.fitDeviceMetadata.devices.length > 0)
+    );
+    const hasTemperatureSeries = records.some((record) => Number.isFinite(record.temperatureC));
+    const hasLeftRightBalanceSeries = records.some((record) => Number.isFinite(record.leftRightBalancePct));
     const avgSpeedFromDistance = totalSeconds > 0
       ? (summary.totalDistanceM / totalSeconds)
       : 0;
@@ -430,8 +577,12 @@ export default class FitExportService {
       { num: 0, size: 1, type: FIT_BASE_TYPES.enum },   // type
       { num: 1, size: 2, type: FIT_BASE_TYPES.uint16 }, // manufacturer
       { num: 2, size: 2, type: FIT_BASE_TYPES.uint16 }, // product
-      { num: 3, size: 4, type: FIT_BASE_TYPES.uint32 }, // serial_number
-      { num: 4, size: 4, type: FIT_BASE_TYPES.uint32 }  // time_created
+      { num: 3, size: 4, type: hasFitDeviceMetadata ? FIT_BASE_TYPES.uint32z : FIT_BASE_TYPES.uint32 }, // serial_number
+      { num: 4, size: 4, type: FIT_BASE_TYPES.uint32 }, // time_created
+      ...(hasFitDeviceMetadata ? [
+        { num: 5, size: 2, type: FIT_BASE_TYPES.uint16 }, // number
+        { num: 8, size: 32, type: FIT_BASE_TYPES.string } // product_name
+      ] : [])
     ];
 
     const RECORD_FIELDS = [
@@ -443,10 +594,40 @@ export default class FitExportService {
       { num: 5, size: 4, type: FIT_BASE_TYPES.uint32 },   // distance
       { num: 6, size: 2, type: FIT_BASE_TYPES.uint16 },   // speed
       { num: 7, size: 2, type: FIT_BASE_TYPES.uint16 },   // power
+      ...(hasTemperatureSeries ? [
+        { num: 13, size: 1, type: FIT_BASE_TYPES.sint8 }   // temperature
+      ] : []),
+      ...(hasLeftRightBalanceSeries ? [
+        { num: 30, size: 1, type: FIT_BASE_TYPES.uint8 }   // left_right_balance
+      ] : []),
+      { num: 253, size: 4, type: FIT_BASE_TYPES.uint32 }  // timestamp
+    ];
+
+    const DEVICE_INFO_FIELDS = [
+      { num: 0, size: 1, type: FIT_BASE_TYPES.uint8 },    // device_index
+      { num: 1, size: 1, type: FIT_BASE_TYPES.uint8 },    // device_type
+      { num: 2, size: 2, type: FIT_BASE_TYPES.uint16 },   // manufacturer
+      { num: 3, size: 4, type: FIT_BASE_TYPES.uint32z },  // serial_number
+      { num: 4, size: 2, type: FIT_BASE_TYPES.uint16 },   // product
+      { num: 5, size: 2, type: FIT_BASE_TYPES.uint16 },   // software_version
+      { num: 6, size: 1, type: FIT_BASE_TYPES.uint8 },    // hardware_version
+      { num: 7, size: 4, type: FIT_BASE_TYPES.uint32 },   // cum_operating_time
+      { num: 10, size: 2, type: FIT_BASE_TYPES.uint16 },  // battery_voltage
+      { num: 11, size: 1, type: FIT_BASE_TYPES.enum },    // battery_status
+      { num: 18, size: 1, type: FIT_BASE_TYPES.enum },    // sensor_position
+      { num: 19, size: 32, type: FIT_BASE_TYPES.string }, // descriptor
+      { num: 20, size: 1, type: FIT_BASE_TYPES.uint8z },  // ant_transmission_type
+      { num: 21, size: 2, type: FIT_BASE_TYPES.uint16z }, // ant_device_number
+      { num: 22, size: 1, type: FIT_BASE_TYPES.enum },    // ant_network
+      { num: 24, size: 4, type: FIT_BASE_TYPES.uint32z }, // ant_id
+      { num: 25, size: 1, type: FIT_BASE_TYPES.enum },    // source_type
+      { num: 27, size: 32, type: FIT_BASE_TYPES.string }, // product_name
+      { num: 32, size: 1, type: FIT_BASE_TYPES.uint8 },   // battery_level
       { num: 253, size: 4, type: FIT_BASE_TYPES.uint32 }  // timestamp
     ];
 
     const LAP_FIELDS = [
+      { num: 254, size: 2, type: FIT_BASE_TYPES.uint16 }, // message_index
       { num: 2, size: 4, type: FIT_BASE_TYPES.uint32 },   // start_time
       { num: 7, size: 4, type: FIT_BASE_TYPES.uint32 },   // total_elapsed_time
       { num: 8, size: 4, type: FIT_BASE_TYPES.uint32 },   // total_timer_time
@@ -461,6 +642,9 @@ export default class FitExportService {
       { num: 20, size: 2, type: FIT_BASE_TYPES.uint16 },  // max_power
       { num: 21, size: 2, type: FIT_BASE_TYPES.uint16 },  // total_ascent
       { num: 22, size: 2, type: FIT_BASE_TYPES.uint16 },  // total_descent
+      { num: 23, size: 1, type: FIT_BASE_TYPES.enum },    // intensity
+      { num: 24, size: 1, type: FIT_BASE_TYPES.enum },    // lap_trigger
+      { num: 25, size: 1, type: FIT_BASE_TYPES.enum },    // sport
       { num: 253, size: 4, type: FIT_BASE_TYPES.uint32 }  // timestamp
     ];
 
@@ -480,6 +664,7 @@ export default class FitExportService {
       { num: 21, size: 2, type: FIT_BASE_TYPES.uint16 },  // max_power
       { num: 22, size: 2, type: FIT_BASE_TYPES.uint16 },  // total_ascent
       { num: 23, size: 2, type: FIT_BASE_TYPES.uint16 },  // total_descent
+      { num: 26, size: 2, type: FIT_BASE_TYPES.uint16 },  // num_laps
       { num: 253, size: 4, type: FIT_BASE_TYPES.uint32 }  // timestamp
     ];
 
@@ -514,12 +699,42 @@ export default class FitExportService {
 
     msg.ensureDefinition(0, 0, FILE_ID_FIELDS);
     msg.writeDataMessage(0, FILE_ID_FIELDS, {
-      0: 4, // activity file
-      1: 1, // Garmin
-      2: 0,
-      3: clamp(serialNumber, 0, 0xffffffff),
-      4: firstTs
+      0: clamp(fitDeviceMetadata.fileId.type, 0, 0xff),
+      1: clamp(fitDeviceMetadata.fileId.manufacturer, 0, 0xffff),
+      2: clamp(fitDeviceMetadata.fileId.product, 0, 0xffff),
+      3: clamp(fitDeviceMetadata.fileId.serialNumber, 0, 0xffffffff),
+      4: fitTimestampFromMs(new Date(fitDeviceMetadata.fileId.timeCreated).getTime()),
+      5: fitDeviceMetadata.fileId.number,
+      8: fitDeviceMetadata.fileId.productName
     });
+
+    if (fitDeviceMetadata.devices.length > 0) {
+      msg.ensureDefinition(7, 23, DEVICE_INFO_FIELDS);
+      for (const device of fitDeviceMetadata.devices) {
+        msg.writeDataMessage(7, DEVICE_INFO_FIELDS, {
+          0: device.deviceIndex,
+          1: device.deviceType,
+          2: device.manufacturer,
+          3: device.serialNumber,
+          4: device.product,
+          5: Number.isFinite(device.softwareVersion) ? Math.round(device.softwareVersion * 100) : null,
+          6: device.hardwareVersion,
+          7: device.cumulativeOperatingTime,
+          10: Number.isFinite(device.batteryVoltage) ? Math.round(device.batteryVoltage * 256) : null,
+          11: device.batteryStatus,
+          18: device.sensorPosition,
+          19: device.descriptor,
+          20: device.antTransmissionType,
+          21: device.antDeviceNumber,
+          22: device.antNetwork,
+          24: device.antId,
+          25: device.sourceType,
+          27: device.productName,
+          32: device.batteryLevel,
+          253: device.timestamp ? fitTimestampFromMs(new Date(device.timestamp).getTime()) : firstTs
+        });
+      }
+    }
 
     if (developerFieldEnabled) {
       msg.ensureDefinition(5, 207, DEVELOPER_DATA_ID_FIELDS);
@@ -549,12 +764,44 @@ export default class FitExportService {
         5: fitDistanceValue(record.distanceM),
         6: fitSpeedValue(record.speedMps),
         7: clamp(Math.round(record.power), 0, 0xffff),
+        13: Number.isFinite(record.temperatureC)
+          ? clamp(Math.round(record.temperatureC), -128, 126)
+          : null,
+        30: Number.isFinite(record.leftRightBalancePct)
+          ? (0x80 | clamp(Math.round(record.leftRightBalancePct), 0, 100))
+          : null,
         253: fitTimestampFromMs(record.timestampMs)
       });
     }
 
     msg.ensureDefinition(2, 19, LAP_FIELDS);
+    for (let lapIndex = 0; lapIndex < manualLapSegments.length; lapIndex += 1) {
+      const segment = manualLapSegments[lapIndex];
+      const segmentSummary = summarizeRecordRange(records, segment.start, segment.end);
+      msg.writeDataMessage(2, LAP_FIELDS, {
+        254: lapIndex,
+        2: fitTimestampFromMs(records[segment.start].timestampMs),
+        7: fitDurationValue(segmentSummary.durationSeconds),
+        8: fitDurationValue(segmentSummary.durationSeconds),
+        9: fitDistanceValue(segmentSummary.totalDistanceM),
+        13: fitSpeedValue(segmentSummary.avgSpeed),
+        14: fitSpeedValue(segmentSummary.maxSpeed),
+        15: clamp(Math.round(segmentSummary.avgHr), 0, 0xff),
+        16: clamp(Math.round(segmentSummary.maxHr), 0, 0xff),
+        17: clamp(Math.round(segmentSummary.avgCad), 0, 0xff),
+        18: clamp(Math.round(segmentSummary.maxCad), 0, 0xff),
+        19: clamp(Math.round(segmentSummary.avgPower), 0, 0xffff),
+        20: clamp(Math.round(segmentSummary.maxPower), 0, 0xffff),
+        21: clamp(Math.round(segmentSummary.totalAscentM), 0, 0xffff),
+        22: clamp(Math.round(segmentSummary.totalDescentM), 0, 0xffff),
+        23: 0, // active
+        24: 0, // manual
+        25: 2, // cycling
+        253: fitTimestampFromMs(records[segment.end].timestampMs)
+      });
+    }
     msg.writeDataMessage(2, LAP_FIELDS, {
+      254: manualLapSegments.length,
       2: firstTs,
       7: fitDurationValue(totalSeconds),
       8: fitDurationValue(totalSeconds),
@@ -569,6 +816,9 @@ export default class FitExportService {
       20: clamp(Math.round(summary.maxPower), 0, 0xffff),
       21: clamp(Math.round(summary.totalAscentM), 0, 0xffff),
       22: clamp(Math.round(summary.totalDescentM), 0, 0xffff),
+      23: 0, // active
+      24: 7, // session_end
+      25: 2, // cycling
       253: lastTs
     });
 
@@ -589,6 +839,7 @@ export default class FitExportService {
       21: clamp(Math.round(summary.maxPower), 0, 0xffff),
       22: clamp(Math.round(summary.totalAscentM), 0, 0xffff),
       23: clamp(Math.round(summary.totalDescentM), 0, 0xffff),
+      26: manualLapSegments.length + 1,
       253: lastTs,
       woa_manual_gps: developerFieldEnabled ? 1 : 0
     }, SESSION_DEVELOPER_FIELDS);

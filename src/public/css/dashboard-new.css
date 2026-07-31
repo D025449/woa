@@ -807,6 +807,21 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   background: var(--ui-bg-subtle);
 }
 
+.dashboard-series-toggle--separated {
+  margin-top: 0.32rem;
+  border-top: 1px solid var(--ui-border-color-soft);
+  border-radius: 0;
+}
+
+.dashboard-series-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.dashboard-series-toggle:disabled:hover {
+  background: transparent;
+}
+
 .dashboard-series-toggle__identity {
   display: inline-flex;
   align-items: center;

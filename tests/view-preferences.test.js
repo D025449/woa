@@ -15,12 +15,14 @@ test("normalizes workout library preferences to supported values", () => {
     gpsFilter: "valid",
     xAxisMode: "distance",
     smoothingLevel: "automatic",
+    bridgePowerCadenceZeros: true,
     seriesVisibility: {
       power: true,
       heartRate: false,
       cadence: true,
       speed: false,
       altitude: true,
+      leftRightBalance: false,
       injected: false
     },
     ignored: "value"
@@ -36,10 +38,12 @@ test("normalizes workout library preferences to supported values", () => {
       heartRate: false,
       cadence: true,
       speed: false,
-      altitude: true
+      altitude: true,
+      leftRightBalance: false
     },
     xAxisMode: "distance",
-    smoothingLevel: "automatic"
+    smoothingLevel: "automatic",
+    bridgePowerCadenceZeros: true
   });
 });
 
@@ -51,7 +55,8 @@ test("rejects unsupported workout library preference values safely", () => {
     workoutType: "gravel",
     gpsFilter: "sometimes",
     xAxisMode: "laps",
-    smoothingLevel: "maximum"
+    smoothingLevel: "maximum",
+    bridgePowerCadenceZeros: "true"
   }), {
     search: "",
     sort: "newest",
@@ -88,6 +93,7 @@ test("keeps legacy preferences without segment visibility backward compatible", 
   assert.equal("seriesVisibility" in state, false);
   assert.equal("xAxisMode" in state, false);
   assert.equal("smoothingLevel" in state, false);
+  assert.equal("bridgePowerCadenceZeros" in state, false);
 });
 
 test("upserts one JSON preference row per user and view", async () => {

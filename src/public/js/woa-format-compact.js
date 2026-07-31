@@ -1352,6 +1352,170 @@ export function buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDe
   };
 }
 
+function hasValidCompactValue(values, sentinel) {
+  if (!values) return false;
+  for (let index = 0; index < values.length; index += 1) {
+    if (values[index] !== sentinel) return true;
+  }
+  return false;
+}
+
+export function buildWorkoutStreamBlockWst10(compactRecords, { distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE } = {}) {
+  const recordCount = Number(compactRecords.recordCount || 0);
+  let hasCompleteDistanceSeries = recordCount > 0;
+  for (let index = 0; index < recordCount; index += 1) {
+    if (compactRecords.distancesQ[index] === UINT32_NAN) {
+      hasCompleteDistanceSeries = false;
+      break;
+    }
+  }
+
+  const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
+  const distancePayload = buildDistancePayloadCompactUint8Q05(compactRecords, recordCount, normalizedDistanceBlockSize);
+  const powerPayload = buildPowerDeltaInt8Q4PayloadFromCompact(compactRecords, recordCount);
+  const heartRatePayload = buildUint8RunLengthPayloadColumnDelta(compactRecords.heartRatesBpm, UINT8_NAN, "hr-rle-col-delta8");
+  const cadencePayload = buildUint8RunLengthPayloadColumnDelta(compactRecords.cadencesRpm, UINT8_NAN, "cad-rle-col-delta8");
+  const altitudePayload = buildAltitudeRunLengthPayloadFromCompact(compactRecords, recordCount);
+  const temperaturePayload = hasValidCompactValue(compactRecords.temperaturesC, 0x7f)
+    ? buildUint8RunLengthPayloadColumnDelta(compactRecords.temperaturesC, 0x7f, "temperature-rle-col-delta8")
+    : { bytes: new Uint8Array(0), stats: { encoding: "temperature-rle-col-delta8", runCount: 0 } };
+  const balancePayload = hasValidCompactValue(compactRecords.leftRightBalancesPct, 0x7f)
+    ? new Uint8Array(
+        compactRecords.leftRightBalancesPct.buffer,
+        compactRecords.leftRightBalancesPct.byteOffset,
+        compactRecords.leftRightBalancesPct.byteLength
+      )
+    : new Uint8Array(0);
+  const speedPayload = hasCompleteDistanceSeries
+    ? new Uint8Array(0)
+    : new Uint8Array(compactRecords.speedsCmS.buffer, compactRecords.speedsCmS.byteOffset, recordCount * 2);
+  const payloads = [
+    distancePayload,
+    powerPayload.bytes,
+    heartRatePayload.bytes,
+    cadencePayload.bytes,
+    speedPayload,
+    altitudePayload.bytes,
+    temperaturePayload.bytes,
+    balancePayload
+  ];
+  const headerBytes = 4 + 4 + 8 + 4 + payloads.length * 4;
+  const payloadBytes = payloads.reduce((sum, payload) => sum + payload.byteLength, 0);
+  const bytes = new Uint8Array(headerBytes + payloadBytes);
+  const view = new DataView(bytes.buffer);
+  // WST magic remains four bytes; version 10 uses "WS10" to avoid shifting the header.
+  bytes.set(textEncoder.encode("WS10"), 0);
+  view.setUint32(4, recordCount, true);
+  view.setFloat64(8, getCompactBaseTimestampMs(compactRecords, recordCount), true);
+  view.setUint32(16, 1000, true);
+
+  let offset = 20;
+  for (const payload of payloads) {
+    view.setUint32(offset, payload.byteLength, true);
+    offset += 4;
+  }
+  offset = headerBytes;
+  for (const payload of payloads) {
+    bytes.set(payload, offset);
+    offset += payload.byteLength;
+  }
+
+  return {
+    bytes,
+    distancePayloadBytes: distancePayload,
+    powerPayloadBytes: powerPayload.bytes,
+    heartRatePayloadBytes: heartRatePayload.bytes,
+    cadencePayloadBytes: cadencePayload.bytes,
+    speedPayloadBytes: speedPayload,
+    altitudePayloadBytes: altitudePayload.bytes,
+    temperaturePayloadBytes: temperaturePayload.bytes,
+    leftRightBalancePayloadBytes: balancePayload,
+    stats: {
+      recordCount,
+      format: "WST10",
+      usesSpeedFallback: !hasCompleteDistanceSeries,
+      distanceEncoding: DISTANCE_ENCODING_UINT8_Q05M,
+      distanceBlockSize: normalizedDistanceBlockSize,
+      powerEncoding: powerPayload.stats.powerEncoding,
+      heartRateEncoding: heartRatePayload.stats.encoding,
+      cadenceEncoding: cadencePayload.stats.encoding,
+      altitudeEncoding: altitudePayload.stats.altitudeEncoding,
+      temperatureEncoding: temperaturePayload.stats.encoding,
+      leftRightBalanceEncoding: balancePayload.byteLength > 0 ? "uint8-right-percent" : "absent",
+      blockBytes: {
+        distances: distancePayload.byteLength,
+        powers: powerPayload.bytes.byteLength,
+        heartRates: heartRatePayload.bytes.byteLength,
+        cadences: cadencePayload.bytes.byteLength,
+        speeds: speedPayload.byteLength,
+        altitudes: altitudePayload.bytes.byteLength,
+        temperatures: temperaturePayload.bytes.byteLength,
+        leftRightBalances: balancePayload.byteLength
+      }
+    }
+  };
+}
+
+export function buildWorkoutStreamBlockWst10FromWorkout(workoutObject, options = {}) {
+  const recordCount = Math.max(0, Number(workoutObject?.length || 0));
+  const timestampsSec = new Uint32Array(recordCount);
+  const distancesQ = new Uint32Array(recordCount);
+  const powersW = new Uint16Array(recordCount);
+  const heartRatesBpm = new Uint8Array(recordCount);
+  const cadencesRpm = new Uint8Array(recordCount);
+  const temperaturesC = new Int8Array(recordCount);
+  const leftRightBalancesPct = new Uint8Array(recordCount);
+  const speedsCmS = new Uint16Array(recordCount);
+  const altitudesQ = new Int16Array(recordCount);
+  const startTimeSec = Math.max(0, Math.round(Number(workoutObject?.getStartTime?.() || 0) / 1000));
+
+  const encodeUnsigned = (value, maximum, sentinel) => Number.isFinite(value)
+    ? Math.max(0, Math.min(maximum, Math.round(value)))
+    : sentinel;
+
+  for (let index = 0; index < recordCount; index += 1) {
+    timestampsSec[index] = Math.min(UINT32_NAN - 1, startTimeSec + index);
+    const distance = workoutObject.getDistanceAt(index);
+    distancesQ[index] = Number.isFinite(distance)
+      ? encodeUnsigned(Number(distance) * 2, UINT32_NAN - 1, UINT32_NAN)
+      : UINT32_NAN;
+    powersW[index] = encodeUnsigned(Number(workoutObject.getPowerAt(index)), UINT16_NAN - 1, UINT16_NAN);
+    heartRatesBpm[index] = encodeUnsigned(Number(workoutObject.getHrAt(index)), UINT8_NAN - 1, UINT8_NAN);
+    cadencesRpm[index] = encodeUnsigned(Number(workoutObject.getCadenceAt(index)), UINT8_NAN - 1, UINT8_NAN);
+
+    const temperature = Number(workoutObject.getTemperatureAt?.(index));
+    temperaturesC[index] = Number.isFinite(temperature)
+      ? Math.max(-128, Math.min(126, Math.round(temperature)))
+      : 0x7f;
+    leftRightBalancesPct[index] = encodeUnsigned(
+      Number(workoutObject.getLeftRightBalanceAt?.(index)),
+      100,
+      0x7f
+    );
+
+    const speedKmh = Number(workoutObject.getSpeedAt(index));
+    speedsCmS[index] = encodeUnsigned(speedKmh / 3.6 * 100, UINT16_NAN - 1, UINT16_NAN);
+    const altitude = Number(workoutObject.getAltitudeAt(index));
+    altitudesQ[index] = Number.isFinite(altitude)
+      ? Math.max(INT16_NAN + 1, Math.min(0x7fff, Math.round(altitude * 4)))
+      : INT16_NAN;
+  }
+
+  return buildWorkoutStreamBlockWst10({
+    recordCount,
+    baseTimestampSec: startTimeSec,
+    timestampsSec,
+    distancesQ,
+    powersW,
+    heartRatesBpm,
+    cadencesRpm,
+    temperaturesC,
+    leftRightBalancesPct,
+    speedsCmS,
+    altitudesQ
+  }, options);
+}
+
 function buildGpsCoordinatePayload(points, gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE) {
   const quantized = points.map((point) => ({
     lat: Number.isFinite(Number(point.lat)) ? Math.round(Number(point.lat) * GPS_TRACK_COORDINATE_SCALE) : INT32_NAN,
@@ -2232,7 +2396,12 @@ function derivePersistedRowFromCompact(parsedCompact, gpsTrack, sourceName = "")
     track_start: trackStart ? { lat: trackStart.lat, lng: trackStart.lng } : null,
     track_end: trackEnd ? { lat: trackEnd.lat, lng: trackEnd.lng } : null,
     stream_codec: DEFAULT_STREAM_CODEC,
-    gps_track_blob_codec: DEFAULT_GPS_TRACK_CODEC
+    gps_track_blob_codec: DEFAULT_GPS_TRACK_CODEC,
+    fit_device_metadata: parsedCompact?.fitDeviceMetadata || {
+      version: 1,
+      fileId: null,
+      devices: []
+    }
   };
   const classificationInput = {
     validGps: persistedRow.validGps,
@@ -2404,7 +2573,7 @@ export function createWoa1FileFromCompact(parsedCompact, {
 
   stepStartedAt = nowMs();
   const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
-  const workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(
+  const workoutStreamBlock = buildWorkoutStreamBlockWst10(
     workoutCompactRecords,
     { distanceBlockSize: normalizedDistanceBlockSize }
   );
@@ -2545,7 +2714,7 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
 
   stepStartedAt = nowMs();
   const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
-  const workoutStreamBlock = buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(
+  const workoutStreamBlock = buildWorkoutStreamBlockWst10(
     workoutCompactRecords,
     { distanceBlockSize: normalizedDistanceBlockSize }
   );
