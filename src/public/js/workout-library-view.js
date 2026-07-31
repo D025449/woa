@@ -1,4 +1,5 @@
 import { WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION } from "../../shared/SegmentAppearance.js";
+import { getBrowserTimeZone } from "../../shared/FitFileName.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
 
 export default class WorkoutLibraryView {
@@ -7,6 +8,7 @@ export default class WorkoutLibraryView {
     this.t = createTranslator("dashboardNewPage.library");
     this.pageT = createTranslator("dashboardNewPage");
     this.locale = getCurrentLocale();
+    this.timeZone = getBrowserTimeZone();
     this.numberFormatters = new Map();
     this.container = document.querySelector(containerSelector);
     this.scrollRoot = this.container?.closest?.(".workout-library-scroll") || null;
@@ -1532,7 +1534,7 @@ export default class WorkoutLibraryView {
                   <div class="workout-library-actions-menu__panel">
                     <a
                       class="workout-library-actions-menu__item workout-library-actions-menu__item--primary"
-                      href="/workouts/${workout.id}/export.fit"
+                      href="/workouts/${workout.id}/export.fit?timeZone=${encodeURIComponent(this.timeZone)}"
                       data-workout-export="${workout.id}"
                       download>
                       <span class="workout-library-actions-menu__icon" aria-hidden="true">

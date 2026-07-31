@@ -2,25 +2,7 @@ import Workout from "/shared/Workout.js";
 import GpsTrackBlobCodec from "/shared/GpsTrackBlobCodec.js";
 import WorkoutOpenV2 from "/shared/WorkoutOpenV2.js";
 import FitExportService from "/shared/FitExportService.js";
-
-function pad(value) {
-  return String(value).padStart(2, "0");
-}
-
-function buildFileName(startTimeValue, workoutId) {
-  const date = new Date(startTimeValue);
-  if (Number.isNaN(date.getTime())) {
-    return `W-${workoutId}.fit`;
-  }
-  return [
-    date.getFullYear(),
-    pad(date.getMonth() + 1),
-    pad(date.getDate()),
-    pad(date.getHours()),
-    pad(date.getMinutes()),
-    pad(date.getSeconds())
-  ].join("-") + `-W-${workoutId}.fit`;
-}
+import { formatFitExportFileName, getBrowserTimeZone } from "/shared/FitFileName.js";
 
 self.addEventListener("message", async (event) => {
   const { jobId, payloadBytes } = event.data || {};
@@ -58,7 +40,11 @@ self.addEventListener("message", async (event) => {
     self.postMessage({
       type: "result",
       jobId,
-      fileName: buildFileName(meta.startTime, workoutId),
+      fileName: formatFitExportFileName(meta.startTime, {
+        timeZone: getBrowserTimeZone(),
+        fallbackName: `W-${workoutId}.fit`,
+        suffix: `-W-${workoutId}`
+      }),
       fitBytes
     }, [fitBytes.buffer]);
   } catch (error) {

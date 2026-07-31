@@ -23,6 +23,7 @@ import {
   parseGpxTrack
 } from "../services/gpxTrackService.js";
 import WorkoutOpenV2 from "../shared/WorkoutOpenV2.js";
+import { formatFitExportFileName } from "../shared/FitFileName.js";
 
 const router = express.Router();
 const GPX_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
@@ -189,23 +190,6 @@ async function assignManualGpsTrack({
   };
 }
 
-function formatFitExportFileName(startTimeValue, fallbackId) {
-  const date = new Date(startTimeValue);
-  if (Number.isNaN(date.getTime())) {
-    return `workout-${fallbackId}.fit`;
-  }
-
-  const pad = (value) => String(value).padStart(2, "0");
-  const yyyy = date.getFullYear();
-  const MM = pad(date.getMonth() + 1);
-  const dd = pad(date.getDate());
-  const HH = pad(date.getHours());
-  const mm = pad(date.getMinutes());
-  const ss = pad(date.getSeconds());
-
-  return `${yyyy}-${MM}-${dd}-${HH}-${mm}-${ss}.fit`;
-}
-
 router.get("/export/all/source.zip", authMiddleware, async (req, res) => {
   try {
     const startedAt = performance.now();
@@ -329,7 +313,10 @@ router.get("/:id/export.fit", authMiddleware, async (req, res) => {
     });
     const fileName = formatFitExportFileName(
       typeof workout.getStartTime === "function" ? workout.getStartTime() : null,
-      workoutId
+      {
+        timeZone: req.query.timeZone,
+        fallbackName: `workout-${workoutId}.fit`
+      }
     );
 
     res.setHeader("Content-Type", "application/octet-stream");
