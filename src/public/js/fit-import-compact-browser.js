@@ -1162,11 +1162,13 @@ function makeCompactRecordOps(fields, littleEndian) {
     if (number === 253 && size === 4) kind = 1;
     else if (number === 0 && size === 4) kind = 2;
     else if (number === 1 && size === 4) kind = 3;
-    else if ((number === 2 || number === 78) && size === 2) kind = number === 78 ? 12 : 4;
+    else if (number === 2 && size === 2) kind = 4;
+    else if (number === 78 && size === 4) kind = 12;
     else if (number === 3 && size === 1) kind = 5;
     else if (number === 4 && size === 1) kind = 6;
     else if (number === 5 && size === 4) kind = 7;
-    else if ((number === 6 || number === 73) && size === 2) kind = number === 73 ? 11 : 8;
+    else if (number === 6 && size === 2) kind = 8;
+    else if (number === 73 && size === 4) kind = 11;
     else if (number === 7 && size === 2) kind = 9;
     else if (number === 13 && size === 1) kind = 13;
     else if (number === 30 && size === 1) kind = 14;
@@ -1487,10 +1489,14 @@ export function parseFitBufferCompactBrowser(
             if (raw !== 0x7fffffff) lng = compactCoordFromSemicircles(raw);
             break;
           }
-          case 4:
-          case 12: {
+          case 4: {
             const raw = op.littleEndian ? readU16LE(bytes, o) : readU16BE(bytes, o);
             if (raw !== 0xffff) altitude = compactAltitude(raw / 5 - 500);
+            break;
+          }
+          case 12: {
+            const raw = op.littleEndian ? readU32LE(bytes, o) : readU32BE(bytes, o);
+            if (raw !== 0xffffffff) altitude = compactAltitude(raw / 5 - 500);
             break;
           }
           case 5:
@@ -1504,10 +1510,14 @@ export function parseFitBufferCompactBrowser(
             if (raw !== 0xffffffff) distance = compactDistanceFromCentimeters(raw);
             break;
           }
-          case 8:
-          case 11: {
+          case 8: {
             const raw = op.littleEndian ? readU16LE(bytes, o) : readU16BE(bytes, o);
             if (raw !== 0xffff) speed = Math.min(0xfffe, Math.round(raw / 10));
+            break;
+          }
+          case 11: {
+            const raw = op.littleEndian ? readU32LE(bytes, o) : readU32BE(bytes, o);
+            if (raw !== 0xffffffff) speed = Math.min(0xfffe, Math.round(raw / 10));
             break;
           }
           case 9: {

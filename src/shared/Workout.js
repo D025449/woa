@@ -111,7 +111,9 @@ export default class Workout {
                 hr += this.absHr[i];
                 cad += this.absCadence[i];
                 speed += this.absSpeed[i];
-                alt += Math.round(this.absAltitude[i] * ALTITUDE_SCALE_INTERNAL / ALTITUDE_ABS_COMPACT_SCALE);
+                if (this.absAltitude[i] !== WOA_INT16_NAN) {
+                    alt += Math.round(this.absAltitude[i] * ALTITUDE_SCALE_INTERNAL / ALTITUDE_ABS_COMPACT_SCALE);
+                }
                 this.cumPower[i] = p;
                 this.cumHr[i] = hr;
                 this.cumCadence[i] = cad;
@@ -168,6 +170,11 @@ export default class Workout {
 
         for (let i = 0; i < this.length; i++) {
             const alt = this._altitudeInternalToMeters(this._getAltitudeAt(i));
+
+            if (!Number.isFinite(alt)) {
+                prevAlt = null;
+                continue;
+            }
 
             if (prevAlt != null) {
                 const diff = alt - prevAlt;
@@ -289,8 +296,10 @@ export default class Workout {
             const hr = Math.max(0, Math.min(0xff, Math.round(heartRatesBpm?.[i] ?? 0)));
             const cad = Math.max(0, Math.min(0xff, Math.round(cadencesRpm?.[i] ?? 0)));
             const speed = Math.max(0, Math.min(0xffff, Math.round((speedsMps?.[i] ?? 0) * SPEED_SCALE_INTERNAL)));
-            const altMeters = Number(altitudesM?.[i] ?? 0);
-            const altCompact = Math.round(altMeters * ALTITUDE_ABS_COMPACT_SCALE);
+            const altMeters = Number(altitudesM?.[i]);
+            const altCompact = Number.isFinite(altMeters)
+                ? Math.round(altMeters * ALTITUDE_ABS_COMPACT_SCALE)
+                : WOA_INT16_NAN;
 
             if (altCompact < -32768 || altCompact > 32767) {
                 throw new Error("Altitude out of range for compact Int16 (0.1m).");
@@ -1162,6 +1171,12 @@ export default class Workout {
     // INTERNAL
     // =============================
     _getAltitudeAt(i) {
+        if (this.streamFormatVersion === STREAM_FORMAT_ABSOLUTE_COMPACT) {
+            const value = this.absAltitude[i];
+            return value === WOA_INT16_NAN
+                ? Number.NaN
+                : Math.round(value * ALTITUDE_SCALE_INTERNAL / ALTITUDE_ABS_COMPACT_SCALE);
+        }
         if (i === 0) return this.cumAltitude[0];
         return this.cumAltitude[i] - this.cumAltitude[i - 1];
     }
@@ -1373,7 +1388,7 @@ export default class Workout {
 
     getAltitudeAt(i) {
         this._assertValidIndex(i);
-        return this._altitudeInternalToMeters(this._getSeriesValueAt(this.cumAltitude, i));
+        return this._altitudeInternalToMeters(this._getAltitudeAt(i));
     }
 
     getTemperatureAt(i) {

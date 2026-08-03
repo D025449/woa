@@ -72,6 +72,39 @@ function buildWorkoutFixture() {
   };
 }
 
+function buildEnhancedRecordFitFixture() {
+  const dataLength = 15 + (2 * 13);
+  const bytes = new Uint8Array(14 + dataLength);
+  const view = new DataView(bytes.buffer);
+  bytes[0] = 14;
+  bytes[1] = 0x20;
+  view.setUint16(2, 100, true);
+  view.setUint32(4, dataLength, true);
+  bytes.set([46, 70, 73, 84], 8);
+
+  let offset = 14;
+  bytes[offset++] = 0x40;
+  bytes[offset++] = 0;
+  bytes[offset++] = 0;
+  view.setUint16(offset, 20, true); offset += 2;
+  bytes[offset++] = 3;
+  bytes.set([253, 4, 0x86], offset); offset += 3;
+  bytes.set([78, 4, 0x86], offset); offset += 3;
+  bytes.set([73, 4, 0x86], offset); offset += 3;
+
+  const records = [
+    { timestamp: 1_000_000_000, altitude: 5500, speed: 12_345 },
+    { timestamp: 1_000_000_001, altitude: 5505, speed: 12_400 }
+  ];
+  for (const record of records) {
+    bytes[offset++] = 0;
+    view.setUint32(offset, record.timestamp, true); offset += 4;
+    view.setUint32(offset, record.altitude, true); offset += 4;
+    view.setUint32(offset, record.speed, true); offset += 4;
+  }
+  return bytes;
+}
+
 const options = {
   serialNumber: 42,
   sampleRateGps: 2,
@@ -108,6 +141,14 @@ test("browser FIT parser accounts for developer fields in exported records", () 
   assert.equal(parsed.recordCount, 6);
   assert.deepEqual(Array.from(parsed.powersW), [200, 201, 202, 203, 204, 205]);
   assert.deepEqual(Array.from(parsed.altitudesQ), [2000, 2008, 2016, 2024, 2032, 2040]);
+});
+
+test("browser FIT parser decodes 32-bit enhanced altitude and speed records", () => {
+  const parsed = parseFitBufferCompactBrowser(buildEnhancedRecordFitFixture()).compactRecords;
+
+  assert.equal(parsed.recordCount, 2);
+  assert.deepEqual(Array.from(parsed.altitudesQ), [2400, 2404]);
+  assert.deepEqual(Array.from(parsed.speedsCmS), [1235, 1240]);
 });
 
 test("FIT export round-trips temperature, balance and device metadata", () => {
