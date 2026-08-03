@@ -7,9 +7,11 @@ import ServerFitExportService from "../src/services/fitExportService.js";
 import {
   discardPlaceholderLeftRightBalance,
   normalizeCompactMissingMetricsInPlace,
-  parseFitBufferCompactBrowser
+  parseFitBufferCompactBrowser,
+  repairCompactPedalConnectivityDropoutsInPlace
 } from "../src/public/js/fit-import-compact-browser.js";
 import { detectFitLapSegmentsCompact } from "../src/shared/WorkoutLocalPostprocess.js";
+import { withCalculatedPedalMetrics } from "../src/public/js/woa-format-compact.js";
 
 function getRecordFieldNumbers(fitBytes) {
   const view = new DataView(fitBytes.buffer, fitBytes.byteOffset, fitBytes.byteLength);
@@ -304,4 +306,134 @@ test("FIT import normalizes missing metric markers without inventing GPS", () =>
   assert.deepEqual(Array.from(compactRecords.altitudesQ), [2000, 2000, 2000]);
   assert.equal(compactRecords.positionLatsE6[1], -0x80000000);
   assert.equal(compactRecords.positionLongsE6[1], -0x80000000);
+});
+
+test("FIT import repairs short pedal sensor dropouts but preserves explicit zero values", () => {
+  const compactRecords = {
+    recordCount: 10,
+    timestampsSec: new Uint32Array([100, 101, 102, 103, 104, 105, 106, 107, 108, 109]),
+    powersW: new Uint16Array([200, 210, 0xffff, 0xffff, 0, 230, 240, 0, 0, 250]),
+    cadencesRpm: new Uint8Array([80, 82, 0xff, 0xff, 0xff, 0xff, 84, 0, 0, 86])
+  };
+
+  repairCompactPedalConnectivityDropoutsInPlace(compactRecords);
+
+  assert.deepEqual(Array.from(compactRecords.powersW), [200, 210, 216, 222, 228, 234, 240, 0, 0, 250]);
+  assert.deepEqual(Array.from(compactRecords.cadencesRpm), [80, 82, 82, 83, 83, 84, 84, 0, 0, 86]);
+  assert.deepEqual(compactRecords.pedalConnectivityRepairStats, {
+    detectedDropoutCount: 1,
+    correctedDropoutCount: 1,
+    correctedSampleCount: 4,
+    maxCorrectedDropoutSeconds: 4,
+    correctedPowerSampleCount: 4,
+    correctedBalanceDropoutCount: 0,
+    correctedBalanceSampleCount: 0,
+    discardedBalanceSampleCount: 0
+  });
+});
+
+test("FIT import leaves long or unbounded pedal sensor gaps missing", () => {
+  const compactRecords = {
+    recordCount: 6,
+    timestampsSec: new Uint32Array([100, 101, 102, 120, 121, 122]),
+    powersW: new Uint16Array([200, 0xffff, 0xffff, 220, 0xffff, 0xffff]),
+    cadencesRpm: new Uint8Array([80, 0xff, 0xff, 82, 0xff, 0xff])
+  };
+
+  repairCompactPedalConnectivityDropoutsInPlace(compactRecords);
+
+  assert.deepEqual(Array.from(compactRecords.powersW), [200, 0xffff, 0xffff, 220, 0xffff, 0xffff]);
+  assert.deepEqual(Array.from(compactRecords.cadencesRpm), [80, 0xff, 0xff, 82, 0xff, 0xff]);
+  assert.equal(compactRecords.pedalConnectivityRepairStats.correctedDropoutCount, 0);
+});
+
+test("FIT import repairs short single-sided pedal dropouts and collapsed power", () => {
+  const compactRecords = {
+    recordCount: 7,
+    timestampsSec: new Uint32Array([100, 101, 102, 103, 104, 105, 106]),
+    powersW: new Uint16Array([210, 220, 62, 58, 64, 230, 240]),
+    cadencesRpm: new Uint8Array([78, 79, 78, 79, 80, 81, 82]),
+    leftRightBalancesPct: new Uint8Array([51, 52, 100, 100, 100, 50, 49])
+  };
+
+  repairCompactPedalConnectivityDropoutsInPlace(compactRecords);
+
+  assert.deepEqual(Array.from(compactRecords.leftRightBalancesPct), [51, 52, 52, 51, 51, 50, 49]);
+  assert.deepEqual(Array.from(compactRecords.powersW), [210, 220, 223, 225, 228, 230, 240]);
+  assert.equal(compactRecords.pedalConnectivityRepairStats.correctedBalanceDropoutCount, 1);
+  assert.equal(compactRecords.pedalConnectivityRepairStats.correctedBalanceSampleCount, 3);
+  assert.equal(compactRecords.pedalConnectivityRepairStats.correctedPowerSampleCount, 3);
+});
+
+test("FIT import preserves sustained or unbounded single-sided balance readings", () => {
+  const compactRecords = {
+    recordCount: 10,
+    timestampsSec: new Uint32Array([100, 101, 102, 103, 104, 105, 106, 107, 108, 109]),
+    powersW: new Uint16Array([200, 210, 70, 72, 74, 76, 78, 80, 220, 230]),
+    cadencesRpm: new Uint8Array([80, 81, 80, 80, 80, 80, 80, 80, 82, 83]),
+    leftRightBalancesPct: new Uint8Array([51, 52, 100, 100, 100, 100, 100, 100, 50, 49])
+  };
+
+  repairCompactPedalConnectivityDropoutsInPlace(compactRecords);
+
+  assert.deepEqual(Array.from(compactRecords.leftRightBalancesPct), [51, 52, 100, 100, 100, 100, 100, 100, 50, 49]);
+  assert.deepEqual(Array.from(compactRecords.powersW), [200, 210, 70, 72, 74, 76, 78, 80, 220, 230]);
+  assert.equal(compactRecords.pedalConnectivityRepairStats.correctedBalanceDropoutCount, 0);
+});
+
+test("FIT import fixes short balance spikes without rewriting plausible power", () => {
+  const compactRecords = {
+    recordCount: 5,
+    timestampsSec: new Uint32Array([100, 101, 102, 103, 104]),
+    powersW: new Uint16Array([200, 205, 210, 215, 220]),
+    cadencesRpm: new Uint8Array([80, 81, 82, 83, 84]),
+    leftRightBalancesPct: new Uint8Array([50, 51, 0, 49, 50])
+  };
+
+  repairCompactPedalConnectivityDropoutsInPlace(compactRecords);
+
+  assert.deepEqual(Array.from(compactRecords.leftRightBalancesPct), [50, 51, 50, 49, 50]);
+  assert.deepEqual(Array.from(compactRecords.powersW), [200, 205, 210, 215, 220]);
+  assert.equal(compactRecords.pedalConnectivityRepairStats.correctedPowerSampleCount, 0);
+});
+
+test("FIT import discards an unbounded balance extreme at the start of a power loss", () => {
+  const compactRecords = {
+    recordCount: 7,
+    timestampsSec: new Uint32Array([100, 101, 102, 103, 104, 105, 106]),
+    powersW: new Uint16Array([220, 210, 70, 65, 0, 0, 0]),
+    cadencesRpm: new Uint8Array([82, 81, 70, 68, 55, 45, 0]),
+    leftRightBalancesPct: new Uint8Array([51, 52, 100, 100, 0, 0, 50])
+  };
+
+  repairCompactPedalConnectivityDropoutsInPlace(compactRecords);
+
+  assert.deepEqual(Array.from(compactRecords.leftRightBalancesPct), [51, 52, 127, 127, 127, 127, 127]);
+  assert.deepEqual(Array.from(compactRecords.powersW), [220, 210, 70, 65, 0, 0, 0]);
+  assert.equal(compactRecords.pedalConnectivityRepairStats.discardedBalanceSampleCount, 5);
+});
+
+test("repaired pedal samples refresh dependent session metrics", () => {
+  const parsed = withCalculatedPedalMetrics({
+    compactRecords: {
+      recordCount: 4,
+      powersW: new Uint16Array([180, 200, 220, 240]),
+      cadencesRpm: new Uint8Array([70, 0, 80, 90]),
+      pedalConnectivityRepairStats: { correctedDropoutCount: 1 }
+    },
+    sessions: [{
+      total_timer_time: 3600,
+      total_calories: 999,
+      avg_power: 1,
+      avg_cadence: 1,
+      normalized_power: 1
+    }]
+  });
+
+  assert.equal(parsed.sessions[0].avg_power, 210);
+  assert.equal(parsed.sessions[0].max_power, 240);
+  assert.equal(parsed.sessions[0].avg_cadence, 80);
+  assert.equal(parsed.sessions[0].max_cadence, 90);
+  assert.equal(parsed.sessions[0].normalized_power, 213);
+  assert.equal(parsed.sessions[0].total_calories, 756);
 });

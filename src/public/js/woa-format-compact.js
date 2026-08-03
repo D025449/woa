@@ -2106,22 +2106,79 @@ function getISOWeekUTC(dateLike) {
   return { isoYear, isoWeek };
 }
 
-function withCalculatedNormalizedPower(parsedCompact) {
+export function withCalculatedPedalMetrics(parsedCompact) {
   const sessions = Array.isArray(parsedCompact?.sessions) ? parsedCompact.sessions : [];
   if (sessions.length === 0) {
     return parsedCompact;
   }
 
+  const compactRecords = parsedCompact?.compactRecords;
   const normalizedPower = calculateNormalizedPowerFromSamples(
-    parsedCompact?.compactRecords?.powersW,
+    compactRecords?.powersW,
     { missingValue: UINT16_NAN }
   );
+  const repairStats = compactRecords?.pedalConnectivityRepairStats;
+  const correctedPowerSampleCount = Number(
+    repairStats?.correctedPowerSampleCount
+    ?? repairStats?.correctedSampleCount
+    ?? repairStats?.correctedDropoutCount
+    ?? 0
+  );
+  if (correctedPowerSampleCount <= 0) {
+    return {
+      ...parsedCompact,
+      sessions: sessions.map((session) => ({
+        ...session,
+        normalized_power: normalizedPower
+      }))
+    };
+  }
+
+  const powers = compactRecords?.powersW;
+  const cadences = compactRecords?.cadencesRpm;
+  const recordCount = Math.min(
+    Number(compactRecords?.recordCount || 0),
+    Number(powers?.length || 0),
+    Number(cadences?.length || 0)
+  );
+  let powerSum = 0;
+  let powerCount = 0;
+  let cadenceSum = 0;
+  let cadenceCount = 0;
+  let maxPower = 0;
+  let maxCadence = 0;
+  for (let index = 0; index < recordCount; index += 1) {
+    const power = Number(powers[index]);
+    if (power !== UINT16_NAN) {
+      powerSum += power;
+      powerCount += 1;
+      maxPower = Math.max(maxPower, power);
+    }
+    const cadence = Number(cadences[index]);
+    if (cadence !== UINT8_NAN && cadence > 0) {
+      cadenceSum += cadence;
+      cadenceCount += 1;
+      maxCadence = Math.max(maxCadence, cadence);
+    }
+  }
+
+  const avgPower = powerCount > 0 ? Math.round(powerSum / powerCount) : 0;
+  const avgCadence = cadenceCount > 0 ? Math.round(cadenceSum / cadenceCount) : 0;
 
   return {
     ...parsedCompact,
     sessions: sessions.map((session) => ({
       ...session,
-      normalized_power: normalizedPower
+      normalized_power: normalizedPower,
+      avg_power: avgPower,
+      max_power: maxPower,
+      avg_cadence: avgCadence,
+      max_cadence: maxCadence,
+      total_calories: resolveCyclingCalories({
+        totalCalories: null,
+        avgPower,
+        totalTimerTime: session?.total_timer_time
+      })
     }))
   };
 }
@@ -2554,7 +2611,7 @@ export function createWoa1FileFromCompact(parsedCompact, {
   gpsCoordinateEncoding = "bitmap-columnar",
   altitudeEncoding = "rle-delta-q1m"
 } = {}) {
-  const preparedParsedCompact = withCalculatedNormalizedPower(parsedCompact);
+  const preparedParsedCompact = withCalculatedPedalMetrics(parsedCompact);
   const timings = {
     buildReducedGpsTrackMs: 0,
     buildWorkoutStreamBlockMs: 0,
@@ -2698,7 +2755,7 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
   gpsCoordinateEncoding = "bitmap-columnar",
   altitudeEncoding = "rle-delta-q1m"
 } = {}) {
-  const preparedParsedCompact = withCalculatedNormalizedPower(parsedCompact);
+  const preparedParsedCompact = withCalculatedPedalMetrics(parsedCompact);
   const timings = {
     buildReducedGpsTrackMs: 0,
     buildWorkoutStreamBlockMs: 0,

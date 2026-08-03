@@ -328,6 +328,206 @@ export function normalizeCompactMissingMetricsInPlace(compactRecords) {
   return compactRecords;
 }
 
+export function repairCompactPedalConnectivityDropoutsInPlace(
+  compactRecords,
+  {
+    maxDropoutSeconds = 15,
+    maxSingleSidedDropoutSeconds = 5,
+    maximumSingleSidedPowerRatio = 0.75
+  } = {}
+) {
+  const recordCount = Number(compactRecords?.recordCount || 0);
+  const powers = compactRecords?.powersW;
+  const cadences = compactRecords?.cadencesRpm;
+  const balances = compactRecords?.leftRightBalancesPct;
+  const timestamps = compactRecords?.timestampsSec;
+  const stats = {
+    detectedDropoutCount: 0,
+    correctedDropoutCount: 0,
+    correctedSampleCount: 0,
+    maxCorrectedDropoutSeconds: 0,
+    correctedPowerSampleCount: 0,
+    correctedBalanceDropoutCount: 0,
+    correctedBalanceSampleCount: 0,
+    discardedBalanceSampleCount: 0
+  };
+  compactRecords.pedalConnectivityRepairStats = stats;
+
+  if (recordCount < 3 || !powers || !cadences) {
+    return compactRecords;
+  }
+
+  const isComplete = (index) => (
+    powers[index] !== COMPACT_SENTINELS.uint16
+    && cadences[index] !== COMPACT_SENTINELS.uint8
+  );
+  const isPedaling = (index) => isComplete(index) && powers[index] > 0 && cadences[index] > 0;
+  const isJointlyMissing = (index) => (
+    powers[index] === COMPACT_SENTINELS.uint16
+    && cadences[index] === COMPACT_SENTINELS.uint8
+  );
+  const elapsedSeconds = (left, right) => {
+    const leftTimestamp = Number(timestamps?.[left]);
+    const rightTimestamp = Number(timestamps?.[right]);
+    if (
+      Number.isFinite(leftTimestamp)
+      && Number.isFinite(rightTimestamp)
+      && leftTimestamp !== COMPACT_SENTINELS.uint32
+      && rightTimestamp !== COMPACT_SENTINELS.uint32
+      && rightTimestamp > leftTimestamp
+    ) {
+      return rightTimestamp - leftTimestamp - 1;
+    }
+    return right - left - 1;
+  };
+
+  for (let start = 1; start < recordCount - 1; start += 1) {
+    if (!isJointlyMissing(start) || !isPedaling(start - 1)) continue;
+    stats.detectedDropoutCount += 1;
+
+    let right = start + 1;
+    while (right < recordCount && !isComplete(right)) right += 1;
+    if (right >= recordCount || !isPedaling(right)) {
+      start = right - 1;
+      continue;
+    }
+
+    const dropoutSeconds = elapsedSeconds(start - 1, right);
+    if (!(dropoutSeconds > 0) || dropoutSeconds > maxDropoutSeconds) {
+      start = right - 1;
+      continue;
+    }
+
+    const left = start - 1;
+    const span = right - left;
+    for (let index = start; index < right; index += 1) {
+      const ratio = (index - left) / span;
+      powers[index] = Math.max(0, Math.min(
+        COMPACT_SENTINELS.uint16 - 1,
+        Math.round(powers[left] + ((powers[right] - powers[left]) * ratio))
+      ));
+      cadences[index] = Math.max(0, Math.min(
+        COMPACT_SENTINELS.uint8 - 1,
+        Math.round(cadences[left] + ((cadences[right] - cadences[left]) * ratio))
+      ));
+    }
+
+    stats.correctedDropoutCount += 1;
+    stats.correctedSampleCount += right - start;
+    stats.correctedPowerSampleCount += right - start;
+    stats.maxCorrectedDropoutSeconds = Math.max(stats.maxCorrectedDropoutSeconds, dropoutSeconds);
+    start = right - 1;
+  }
+
+  if (!balances) return compactRecords;
+
+  const isValidBalance = (index) => balances[index] !== COMPACT_LEFT_RIGHT_BALANCE_SENTINEL;
+  const isPlausibleBoundaryBalance = (index) => (
+    isValidBalance(index) && balances[index] > 0 && balances[index] < 100
+  );
+  const isSingleSidedBalance = (index) => balances[index] === 0 || balances[index] === 100;
+
+  for (let start = 1; start < recordCount - 1; start += 1) {
+    if (!isSingleSidedBalance(start) || !isPlausibleBoundaryBalance(start - 1)) continue;
+
+    let right = start + 1;
+    while (right < recordCount && isSingleSidedBalance(right)) right += 1;
+    if (right >= recordCount || !isPlausibleBoundaryBalance(right)) {
+      start = right - 1;
+      continue;
+    }
+
+    const dropoutSeconds = elapsedSeconds(start - 1, right);
+    if (!(dropoutSeconds > 0) || dropoutSeconds > maxSingleSidedDropoutSeconds) {
+      start = right - 1;
+      continue;
+    }
+
+    let hasContinuousPedaling = true;
+    let actualPowerSum = 0;
+    let expectedPowerSum = 0;
+    const left = start - 1;
+    const span = right - left;
+    for (let index = start; index < right; index += 1) {
+      if (!isPedaling(index)) {
+        hasContinuousPedaling = false;
+        break;
+      }
+      const ratio = (index - left) / span;
+      actualPowerSum += powers[index];
+      expectedPowerSum += powers[left] + ((powers[right] - powers[left]) * ratio);
+    }
+    if (!hasContinuousPedaling) {
+      start = right - 1;
+      continue;
+    }
+
+    const repairPower = expectedPowerSum > 0
+      && actualPowerSum <= expectedPowerSum * maximumSingleSidedPowerRatio;
+    for (let index = start; index < right; index += 1) {
+      const ratio = (index - left) / span;
+      balances[index] = Math.max(0, Math.min(100, Math.round(
+        balances[left] + ((balances[right] - balances[left]) * ratio)
+      )));
+      if (repairPower) {
+        powers[index] = Math.max(0, Math.min(
+          COMPACT_SENTINELS.uint16 - 1,
+          Math.round(powers[left] + ((powers[right] - powers[left]) * ratio))
+        ));
+      }
+    }
+
+    stats.correctedDropoutCount += 1;
+    stats.correctedSampleCount += right - start;
+    stats.correctedBalanceDropoutCount += 1;
+    stats.correctedBalanceSampleCount += right - start;
+    if (repairPower) stats.correctedPowerSampleCount += right - start;
+    stats.maxCorrectedDropoutSeconds = Math.max(stats.maxCorrectedDropoutSeconds, dropoutSeconds);
+    start = right - 1;
+  }
+
+  for (let start = 0; start < recordCount;) {
+    if (!isSingleSidedBalance(start)) {
+      start += 1;
+      continue;
+    }
+    const extremeValue = balances[start];
+    let right = start + 1;
+    while (right < recordCount && balances[right] === extremeValue) right += 1;
+
+    const sampleCount = right - start;
+    const left = start - 1;
+    let powerSum = 0;
+    for (let index = start; index < right; index += 1) powerSum += powers[index];
+    const averagePower = powerSum / sampleCount;
+    const leftPower = left >= 0 && isComplete(left) ? Number(powers[left]) : Number.NaN;
+    const followsAbruptPowerLoss = Number.isFinite(leftPower)
+      && leftPower > 0
+      && averagePower <= leftPower * maximumSingleSidedPowerRatio;
+    const isNegligiblePower = averagePower <= 10;
+
+    if (
+      sampleCount <= maxSingleSidedDropoutSeconds
+      && left >= 0
+      && isPlausibleBoundaryBalance(left)
+      && (followsAbruptPowerLoss || isNegligiblePower)
+    ) {
+      balances.fill(COMPACT_LEFT_RIGHT_BALANCE_SENTINEL, start, right);
+      stats.discardedBalanceSampleCount += sampleCount;
+    }
+    start = right;
+  }
+
+  for (let index = 0; index < recordCount; index += 1) {
+    if (powers[index] === 0 && isValidBalance(index)) {
+      balances[index] = COMPACT_LEFT_RIGHT_BALANCE_SENTINEL;
+      stats.discardedBalanceSampleCount += 1;
+    }
+  }
+
+  return compactRecords;
+}
+
 export function correctCompactDistanceBatchingLegacyInPlace(
   compactRecords,
   remainingPasses = 3
@@ -948,6 +1148,8 @@ function fillGapsCompactRecords(compactRecords, options = {}) {
   if (!(recordCount > 1) || !timestampsSec || timestampsSec.length !== recordCount) {
     return { ...compactRecords, timestampsSec: null };
   }
+
+  repairCompactPedalConnectivityDropoutsInPlace(compactRecords);
 
   const maxGap = 5;
 
