@@ -8,7 +8,7 @@ import GpsTrackBlobService from "./gpsTrackBlobService.js";
 import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../shared/gpsSampling.js";
 import { toPostgresBox } from "../shared/postgresSpatial.js";
 import { computeElevationTotalsFromTrack } from "../shared/ElevationTotals.js";
-import { buildWorkoutStreamBlockWst10FromWorkout } from "../public/js/woa-format-compact.js";
+import { buildWorkoutStreamBlockWst11FromWorkout } from "../public/js/woa-format-compact.js";
 
 function haversineMeters(a, b) {
   const toRad = (value) => (value * Math.PI) / 180;
@@ -1556,7 +1556,7 @@ export default class WorkoutDBService {
       : null;
     const streamBuffer = streamUpdate?.workoutObject
       ? await Workout.compress(
-          buildWorkoutStreamBlockWst10FromWorkout(streamUpdate.workoutObject).bytes,
+          buildWorkoutStreamBlockWst11FromWorkout(streamUpdate.workoutObject).bytes,
           streamCodec
         )
       : null;
@@ -1629,7 +1629,7 @@ export default class WorkoutDBService {
 
 
   static async getStream(id, uid) {
-    await WorkoutSharingService.getAccessibleWorkout(uid, id);
+    const accessInfo = await WorkoutSharingService.getAccessibleWorkout(uid, id);
 
     const result = await pool.query(
       `SELECT
@@ -1646,7 +1646,7 @@ export default class WorkoutDBService {
       throw new Error("no workouts found");
     }
 
-    return result.rows[0];
+    return { ...result.rows[0], accessInfo };
   }
 
   static async getWorkout(id) {

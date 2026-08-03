@@ -603,7 +603,7 @@ function decodeGpsCoordinatePayload(bytes, pointCount, layoutVersion = 1) {
 function decodeWorkoutStreamBlock(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
-  if (magic === "WS10") {
+  if (magic === "WS10" || magic === "WS11") {
     return Workout.decodeWst3Buffer(bytes);
   }
   if (magic !== "WST9") {

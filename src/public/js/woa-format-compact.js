@@ -8,6 +8,7 @@ import {
   calculatePowerLoad,
   resolveCyclingCalories
 } from "../../shared/WorkoutEnergy.js";
+import { encodeFitDeviceMetadata } from "../../shared/FitDeviceMetadataCodec.js";
 
 const textEncoder = new TextEncoder();
 const UINT8_NAN = 0xFF;
@@ -1360,7 +1361,10 @@ function hasValidCompactValue(values, sentinel) {
   return false;
 }
 
-export function buildWorkoutStreamBlockWst10(compactRecords, { distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE } = {}) {
+export function buildWorkoutStreamBlockWst11(compactRecords, {
+  distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE,
+  fitDeviceMetadata = null
+} = {}) {
   const recordCount = Number(compactRecords.recordCount || 0);
   let hasCompleteDistanceSeries = recordCount > 0;
   for (let index = 0; index < recordCount; index += 1) {
@@ -1386,6 +1390,7 @@ export function buildWorkoutStreamBlockWst10(compactRecords, { distanceBlockSize
         compactRecords.leftRightBalancesPct.byteLength
       )
     : new Uint8Array(0);
+  const deviceMetadataPayload = encodeFitDeviceMetadata(fitDeviceMetadata);
   const speedPayload = hasCompleteDistanceSeries
     ? new Uint8Array(0)
     : new Uint8Array(compactRecords.speedsCmS.buffer, compactRecords.speedsCmS.byteOffset, recordCount * 2);
@@ -1397,14 +1402,14 @@ export function buildWorkoutStreamBlockWst10(compactRecords, { distanceBlockSize
     speedPayload,
     altitudePayload.bytes,
     temperaturePayload.bytes,
-    balancePayload
+    balancePayload,
+    deviceMetadataPayload
   ];
   const headerBytes = 4 + 4 + 8 + 4 + payloads.length * 4;
   const payloadBytes = payloads.reduce((sum, payload) => sum + payload.byteLength, 0);
   const bytes = new Uint8Array(headerBytes + payloadBytes);
   const view = new DataView(bytes.buffer);
-  // WST magic remains four bytes; version 10 uses "WS10" to avoid shifting the header.
-  bytes.set(textEncoder.encode("WS10"), 0);
+  bytes.set(textEncoder.encode("WS11"), 0);
   view.setUint32(4, recordCount, true);
   view.setFloat64(8, getCompactBaseTimestampMs(compactRecords, recordCount), true);
   view.setUint32(16, 1000, true);
@@ -1430,9 +1435,10 @@ export function buildWorkoutStreamBlockWst10(compactRecords, { distanceBlockSize
     altitudePayloadBytes: altitudePayload.bytes,
     temperaturePayloadBytes: temperaturePayload.bytes,
     leftRightBalancePayloadBytes: balancePayload,
+    deviceMetadataPayloadBytes: deviceMetadataPayload,
     stats: {
       recordCount,
-      format: "WST10",
+      format: "WST11",
       usesSpeedFallback: !hasCompleteDistanceSeries,
       distanceEncoding: DISTANCE_ENCODING_UINT8_Q05M,
       distanceBlockSize: normalizedDistanceBlockSize,
@@ -1442,6 +1448,7 @@ export function buildWorkoutStreamBlockWst10(compactRecords, { distanceBlockSize
       altitudeEncoding: altitudePayload.stats.altitudeEncoding,
       temperatureEncoding: temperaturePayload.stats.encoding,
       leftRightBalanceEncoding: balancePayload.byteLength > 0 ? "uint8-right-percent" : "absent",
+      deviceMetadataEncoding: deviceMetadataPayload.byteLength > 0 ? "DEV1" : "absent",
       blockBytes: {
         distances: distancePayload.byteLength,
         powers: powerPayload.bytes.byteLength,
@@ -1450,13 +1457,14 @@ export function buildWorkoutStreamBlockWst10(compactRecords, { distanceBlockSize
         speeds: speedPayload.byteLength,
         altitudes: altitudePayload.bytes.byteLength,
         temperatures: temperaturePayload.bytes.byteLength,
-        leftRightBalances: balancePayload.byteLength
+        leftRightBalances: balancePayload.byteLength,
+        deviceMetadata: deviceMetadataPayload.byteLength
       }
     }
   };
 }
 
-export function buildWorkoutStreamBlockWst10FromWorkout(workoutObject, options = {}) {
+export function buildWorkoutStreamBlockWst11FromWorkout(workoutObject, options = {}) {
   const recordCount = Math.max(0, Number(workoutObject?.length || 0));
   const timestampsSec = new Uint32Array(recordCount);
   const distancesQ = new Uint32Array(recordCount);
@@ -1501,7 +1509,7 @@ export function buildWorkoutStreamBlockWst10FromWorkout(workoutObject, options =
       : INT16_NAN;
   }
 
-  return buildWorkoutStreamBlockWst10({
+  return buildWorkoutStreamBlockWst11({
     recordCount,
     baseTimestampSec: startTimeSec,
     timestampsSec,
@@ -1513,8 +1521,15 @@ export function buildWorkoutStreamBlockWst10FromWorkout(workoutObject, options =
     leftRightBalancesPct,
     speedsCmS,
     altitudesQ
-  }, options);
+  }, {
+    ...options,
+    fitDeviceMetadata: options.fitDeviceMetadata ?? workoutObject?.fitDeviceMetadata ?? null
+  });
 }
+
+// Compatibility aliases for callers compiled against the previous stream builder name.
+export const buildWorkoutStreamBlockWst10 = buildWorkoutStreamBlockWst11;
+export const buildWorkoutStreamBlockWst10FromWorkout = buildWorkoutStreamBlockWst11FromWorkout;
 
 function buildGpsCoordinatePayload(points, gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE) {
   const quantized = points.map((point) => ({
@@ -2396,12 +2411,7 @@ function derivePersistedRowFromCompact(parsedCompact, gpsTrack, sourceName = "")
     track_start: trackStart ? { lat: trackStart.lat, lng: trackStart.lng } : null,
     track_end: trackEnd ? { lat: trackEnd.lat, lng: trackEnd.lng } : null,
     stream_codec: DEFAULT_STREAM_CODEC,
-    gps_track_blob_codec: DEFAULT_GPS_TRACK_CODEC,
-    fit_device_metadata: parsedCompact?.fitDeviceMetadata || {
-      version: 1,
-      fileId: null,
-      devices: []
-    }
+    gps_track_blob_codec: DEFAULT_GPS_TRACK_CODEC
   };
   const classificationInput = {
     validGps: persistedRow.validGps,
@@ -2573,9 +2583,12 @@ export function createWoa1FileFromCompact(parsedCompact, {
 
   stepStartedAt = nowMs();
   const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
-  const workoutStreamBlock = buildWorkoutStreamBlockWst10(
+  const workoutStreamBlock = buildWorkoutStreamBlockWst11(
     workoutCompactRecords,
-    { distanceBlockSize: normalizedDistanceBlockSize }
+    {
+      distanceBlockSize: normalizedDistanceBlockSize,
+      fitDeviceMetadata: preparedParsedCompact?.fitDeviceMetadata || null
+    }
   );
   const workoutStreamRawBytes = workoutStreamBlock.bytes;
   timings.buildWorkoutStreamBlockMs = nowMs() - stepStartedAt;
@@ -2714,9 +2727,12 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
 
   stepStartedAt = nowMs();
   const normalizedDistanceBlockSize = normalizeDistanceBlockSize(distanceBlockSize);
-  const workoutStreamBlock = buildWorkoutStreamBlockWst10(
+  const workoutStreamBlock = buildWorkoutStreamBlockWst11(
     workoutCompactRecords,
-    { distanceBlockSize: normalizedDistanceBlockSize }
+    {
+      distanceBlockSize: normalizedDistanceBlockSize,
+      fitDeviceMetadata: preparedParsedCompact?.fitDeviceMetadata || null
+    }
   );
   const workoutStreamRawBytes = workoutStreamBlock.bytes;
   timings.buildWorkoutStreamBlockMs = nowMs() - stepStartedAt;

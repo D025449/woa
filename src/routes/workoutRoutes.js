@@ -24,6 +24,11 @@ import {
 } from "../services/gpxTrackService.js";
 import WorkoutOpenV2 from "../shared/WorkoutOpenV2.js";
 import { formatFitExportFileName } from "../shared/FitFileName.js";
+import Workout from "../shared/Workout.js";
+import {
+  hasFitDeviceMetadata,
+  stripFitDeviceMetadataFromWorkoutStream
+} from "../shared/FitDeviceMetadataCodec.js";
 
 const router = express.Router();
 const GPX_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
@@ -42,6 +47,22 @@ const receiveGpxUpload = (req, res, next) => {
     next(error);
   });
 };
+
+function legacyFitDeviceMetadata(metadata) {
+  return hasFitDeviceMetadata(metadata) ? metadata : null;
+}
+
+async function getVisibleWorkoutStream(row, isOwner) {
+  const storedStream = row?.stream || Buffer.alloc(0);
+  if (isOwner || storedStream.length === 0) return storedStream;
+
+  const codec = String(row.stream_codec || "brotli");
+  const rawStream = await Workout.decompressBytes(storedStream, codec);
+  const visibleStream = stripFitDeviceMetadataFromWorkoutStream(rawStream);
+  if (visibleStream.byteLength === rawStream.byteLength) return storedStream;
+  return Workout.compress(visibleStream, codec);
+}
+
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
 const WORKOUT_OPEN_PROFILE_LOG = String(process.env.WORKOUT_OPEN_PROFILE_LOG || "0").trim() === "1";
 
@@ -222,7 +243,7 @@ router.get("/export/all/source.zip", authMiddleware, async (req, res) => {
           validGps: !!row.validgps,
           sampleRateGps: Number(row.samplerategps || 0) || null,
           gpsSource: row.gps_source || null,
-          fitDeviceMetadata: row.fit_device_metadata || null
+          fitDeviceMetadata: legacyFitDeviceMetadata(row.fit_device_metadata)
         },
         workoutStream: row.stream || new Uint8Array(0),
         gpsTrackBlob: row.gps_track_blob || new Uint8Array(0),
@@ -301,7 +322,8 @@ router.get("/:id/export.fit", authMiddleware, async (req, res) => {
       gpsCoordinates,
       includeGps: hasValidGps,
       gpsSource: workoutTrack?.gps_source ?? workoutTrack?.gpsSource ?? null,
-      fitDeviceMetadata: fitExportMetadata.fit_device_metadata || null,
+      fitDeviceMetadata: workout.fitDeviceMetadata
+        || legacyFitDeviceMetadata(fitExportMetadata.fit_device_metadata),
       normalizedPower: fitExportMetadata.avg_normalized_power == null
         ? null
         : Number(fitExportMetadata.avg_normalized_power),
@@ -444,6 +466,7 @@ router.get("/:id/open-v2", authMiddleware, async (req, res) => {
     const segmentsMs = Date.now() - segmentsStartedAt;
 
     const responseBuildStartedAt = Date.now();
+    const visibleWorkoutStream = await getVisibleWorkoutStream(row, !!accessInfo.is_owner);
     const payload = WorkoutOpenV2.buildPayload({
       meta: {
         workoutId: Number(id),
@@ -458,7 +481,9 @@ router.get("/:id/open-v2", authMiddleware, async (req, res) => {
         validGps: !!(row?.validgps ?? row?.validGps),
         sampleRateGps: Number(row?.samplerategps ?? row?.sampleRateGPS ?? 0) || null,
         gpsSource: row.gps_source || null,
-        fitDeviceMetadata: accessInfo.is_owner ? (row.fit_device_metadata || null) : null,
+        fitDeviceMetadata: accessInfo.is_owner
+          ? legacyFitDeviceMetadata(row.fit_device_metadata)
+          : null,
         manualGpsLookupPoints: Array.isArray(row.manual_gps_lookup_points) ? row.manual_gps_lookup_points : [],
         segmentProcessingStatus: row.segment_processing_status || "queued",
         segmentProcessingError: row.segment_processing_error || null,
@@ -469,7 +494,7 @@ router.get("/:id/open-v2", authMiddleware, async (req, res) => {
           ownerEmail: accessInfo.owner_email || null
         }
       },
-      workoutStream: row?.stream || Buffer.alloc(0),
+      workoutStream: visibleWorkoutStream,
       gpsTrackBlob: row?.gps_track_blob || Buffer.alloc(0),
       segments: Array.isArray(segmentResult?.rows) ? segmentResult.rows : [],
       gpsSegments: Array.isArray(gpsSegmentResult?.rows) ? gpsSegmentResult.rows : []
@@ -526,7 +551,7 @@ router.get("/:id/stream", authMiddleware, async (req, res) => {
     }
 
     const streamRow = await WorkoutDBService.getStream(id, uid);
-    const stream = streamRow.stream;
+    const stream = await getVisibleWorkoutStream(streamRow, !!streamRow.accessInfo?.is_owner);
     const uploadedAtIso = streamRow.uploaded_at
       ? new Date(streamRow.uploaded_at).toISOString()
       : "";

@@ -185,7 +185,7 @@ export default class WorkoutService {
         validGps: !!(meta?.validGps ?? workoutObject.isValidGps()),
         sampleRateGPS: meta?.sampleRateGps ?? 1,
         gpsSource: meta?.gpsSource || null,
-        fitDeviceMetadata: meta?.fitDeviceMetadata || null,
+        fitDeviceMetadata: workoutObject.fitDeviceMetadata || meta?.fitDeviceMetadata || null,
         segmentProcessingStatus: meta?.segmentProcessingStatus || "queued",
         segmentProcessingError: meta?.segmentProcessingError || null,
         segmentProcessingUpdatedAt: meta?.segmentProcessingUpdatedAt || null,

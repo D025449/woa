@@ -1,3 +1,5 @@
+import { decodeFitDeviceMetadata } from "./FitDeviceMetadataCodec.js";
+
 const HEADER_BYTES = 16;
 const SERIES_COUNT = 5;
 const HEADER_OFFSET_LENGTH = 0;
@@ -34,6 +36,8 @@ export default class Workout {
         this.temperatureSeriesC = null;
         /** @type {ArrayLike<number> | null} */
         this.leftRightBalanceSeriesPct = null;
+        /** @type {object | null} */
+        this.fitDeviceMetadata = null;
         this.streamFormatVersion = Workout.readFormatVersion(buffer);
         this._initViews();
         this._computeDerived();
@@ -311,6 +315,7 @@ export default class Workout {
         const workout = new Workout(buffer);
         workout.temperatureSeriesC = arrays?.temperaturesC ?? null;
         workout.leftRightBalanceSeriesPct = arrays?.leftRightBalancesPct ?? null;
+        workout.fitDeviceMetadata = arrays?.fitDeviceMetadata ?? null;
         return workout;
     }
 
@@ -472,7 +477,7 @@ export default class Workout {
         const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
-        if (magic !== "WST9" && magic !== "WS10") {
+        if (magic !== "WST9" && magic !== "WS10" && magic !== "WS11") {
             throw new Error(`Unsupported workout stream block: ${magic}`);
         }
         const recordCount = view.getUint32(4, true);
@@ -480,7 +485,7 @@ export default class Workout {
         const sampleIntervalMs = view.getUint32(16, true);
         const lengths = [];
         let headerOffset = 20;
-        const blockCount = magic === "WS10" ? 8 : 6;
+        const blockCount = magic === "WS11" ? 9 : magic === "WS10" ? 8 : 6;
         for (let i = 0; i < blockCount; i += 1) {
             lengths.push(view.getUint32(headerOffset, true));
             headerOffset += 4;
@@ -541,19 +546,24 @@ export default class Workout {
 
         const temperaturesC = new Float64Array(recordCount);
         temperaturesC.fill(Number.NaN);
-        if (magic === "WS10" && lengths[6] > 0) {
+        if ((magic === "WS10" || magic === "WS11") && lengths[6] > 0) {
             offset = this.#decodeInt8RunLengthDeltaBlock(view, offset, lengths[6], recordCount, temperaturesC);
         }
 
         const leftRightBalancesPct = new Float64Array(recordCount);
         leftRightBalancesPct.fill(Number.NaN);
-        if (magic === "WS10" && lengths[7] > 0) {
+        if ((magic === "WS10" || magic === "WS11") && lengths[7] > 0) {
             for (let i = 0; i < recordCount; i += 1) {
                 const raw = view.getUint8(offset + i);
                 leftRightBalancesPct[i] = raw === 0x7f ? Number.NaN : raw;
             }
             offset += lengths[7];
         }
+
+        const fitDeviceMetadata = magic === "WS11" && lengths[8] > 0
+            ? decodeFitDeviceMetadata(bytes.subarray(offset, offset + lengths[8]))
+            : null;
+        if (magic === "WS11") offset += lengths[8];
 
         const timestampsMs = new Float64Array(recordCount);
         for (let i = 0; i < recordCount; i += 1) {
@@ -581,7 +591,8 @@ export default class Workout {
             speedsMps,
             altitudesM,
             temperaturesC,
-            leftRightBalancesPct
+            leftRightBalancesPct,
+            fitDeviceMetadata
         };
     }
 
@@ -589,7 +600,7 @@ export default class Workout {
         const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
-        if (magic !== "WST9" && magic !== "WS10") {
+        if (magic !== "WST9" && magic !== "WS10" && magic !== "WS11") {
             throw new Error(`Unsupported workout stream block: ${magic}`);
         }
 
@@ -604,7 +615,7 @@ export default class Workout {
             throw new Error("Invalid range");
         }
 
-        const lengths = new Uint32Array(magic === "WS10" ? 8 : 6);
+        const lengths = new Uint32Array(magic === "WS11" ? 9 : magic === "WS10" ? 8 : 6);
         let headerOffset = 20;
         for (let index = 0; index < lengths.length; index += 1) {
             lengths[index] = view.getUint32(headerOffset, true);
@@ -646,12 +657,12 @@ export default class Workout {
         const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
-        if (magic !== "WST9" && magic !== "WS10") {
+        if (magic !== "WST9" && magic !== "WS10" && magic !== "WS11") {
             throw new Error(`Unsupported workout stream block: ${magic}`);
         }
 
         const recordCount = view.getUint32(4, true);
-        const lengths = new Uint32Array(magic === "WS10" ? 8 : 6);
+        const lengths = new Uint32Array(magic === "WS11" ? 9 : magic === "WS10" ? 8 : 6);
         let headerOffset = 20;
         for (let index = 0; index < lengths.length; index += 1) {
             lengths[index] = view.getUint32(headerOffset, true);
@@ -1020,7 +1031,7 @@ export default class Workout {
     static fromBuffer(buffer) {
         const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
         const magic = bytes.byteLength >= 4 ? TEXT_DECODER.decode(bytes.subarray(0, 4)) : "";
-        if (magic === "WST9" || magic === "WS10") {
+        if (magic === "WST9" || magic === "WS10" || magic === "WS11") {
             const decoded = this.decodeWst3Buffer(bytes);
             return this.fromTypedArrays(decoded, {
                 startTimeMs: Number.isFinite(Number(decoded.timestampsMs?.[0])) ? Number(decoded.timestampsMs[0]) : Date.now(),

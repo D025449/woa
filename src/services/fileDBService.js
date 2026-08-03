@@ -1836,7 +1836,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
         ? persistedRow.workout_type
         : "unknown",
       fit_device_metadata: persistedRow.fit_device_metadata || {
-        version: 1,
+        version: 2,
         fileId: null,
         devices: []
       }
@@ -2040,7 +2040,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       streamCodec,
       gpsSource,
       workout_type || "unknown",
-      fit_device_metadata || { version: 1, fileId: null, devices: [] }
+      fit_device_metadata || { version: 2, fileId: null, devices: [] }
     ];
   }
 

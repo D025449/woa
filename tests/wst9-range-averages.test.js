@@ -4,11 +4,11 @@ import test from "node:test";
 import Workout from "../src/shared/Workout.js";
 import {
   buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m,
-  buildWorkoutStreamBlockWst10,
-  buildWorkoutStreamBlockWst10FromWorkout
+  buildWorkoutStreamBlockWst11,
+  buildWorkoutStreamBlockWst11FromWorkout
 } from "../src/public/js/woa-format-compact.js";
 
-test("WS10 preserves optional temperature and left/right balance series", () => {
+test("WS11 preserves optional series and compact FIT device metadata", () => {
   const compactRecords = {
     recordCount: 6,
     baseTimestampSec: 1_700_000_000,
@@ -22,10 +22,30 @@ test("WS10 preserves optional temperature and left/right balance series", () => 
     leftRightBalancesPct: Uint8Array.from([50, 51, 127, 52, 53, 54])
   };
 
-  const encoded = buildWorkoutStreamBlockWst10(compactRecords).bytes;
+  const encoded = buildWorkoutStreamBlockWst11(compactRecords, {
+    fitDeviceMetadata: {
+      version: 2,
+      fileId: {
+        type: 4,
+        manufacturer: 1,
+        product: 4440,
+        productName: "Edge 1050",
+        serialNumber: 123456,
+        timeCreated: "2024-06-15T08:30:00.000Z"
+      },
+      devices: [{
+        deviceIndex: 0,
+        sourceType: 1,
+        deviceType: 11,
+        manufacturer: 263,
+        product: 12,
+        softwareVersion: 3.14
+      }]
+    }
+  }).bytes;
   const workout = Workout.fromBuffer(encoded);
 
-  assert.equal(new TextDecoder().decode(encoded.subarray(0, 4)), "WS10");
+  assert.equal(new TextDecoder().decode(encoded.subarray(0, 4)), "WS11");
   assert.deepEqual(
     Array.from({ length: 6 }, (_, index) => workout.getTemperatureAt(index)),
     [-2, -2, -1, 0, 0, Number.NaN]
@@ -34,10 +54,14 @@ test("WS10 preserves optional temperature and left/right balance series", () => 
     Array.from({ length: 6 }, (_, index) => workout.getLeftRightBalanceAt(index)),
     [50, 51, Number.NaN, 52, 53, 54]
   );
+  assert.equal(workout.fitDeviceMetadata.fileId.productName, "edge_1050");
+  assert.equal(workout.fitDeviceMetadata.fileId.serialNumber, 123456);
+  assert.equal(workout.fitDeviceMetadata.devices[0].manufacturerName, "favero_electronics");
+  assert.equal(workout.fitDeviceMetadata.devices[0].deviceTypeName, "bike_power");
   assert.equal(Workout.getWst9RangeAverages(encoded, 0, 5).power, 212);
 });
 
-test("WS10 rebuild from Workout preserves core and optional series", () => {
+test("WS11 rebuild from Workout preserves core, optional series, and device metadata", () => {
   const workout = Workout.fromRecords([
     { power: 200, heart_rate: 120, cadence: 80, speed: 10, altitude: 500, distance: 0 },
     { power: 204, heart_rate: 121, cadence: 81, speed: 10.5, altitude: 501, distance: 10 },
@@ -45,15 +69,22 @@ test("WS10 rebuild from Workout preserves core and optional series", () => {
   ], { startTime: 1_700_000_000_000, validGps: true });
   workout.temperatureSeriesC = Int8Array.from([-2, -1, 0]);
   workout.leftRightBalanceSeriesPct = Uint8Array.from([49, 50, 51]);
+  workout.fitDeviceMetadata = {
+    version: 2,
+    fileId: { manufacturer: 1, product: 2713 },
+    devices: [{ deviceIndex: 0, manufacturer: 1, product: 2713, softwareVersion: 12.34 }]
+  };
 
-  const encoded = buildWorkoutStreamBlockWst10FromWorkout(workout).bytes;
+  const encoded = buildWorkoutStreamBlockWst11FromWorkout(workout).bytes;
   const decoded = Workout.fromBuffer(encoded);
 
-  assert.equal(new TextDecoder().decode(encoded.subarray(0, 4)), "WS10");
+  assert.equal(new TextDecoder().decode(encoded.subarray(0, 4)), "WS11");
   assert.deepEqual(Array.from({ length: 3 }, (_, index) => decoded.getDistanceAt(index)), [0, 10, 21]);
   assert.deepEqual(Array.from({ length: 3 }, (_, index) => decoded.getPowerAt(index)), [200, 204, 208]);
   assert.deepEqual(Array.from({ length: 3 }, (_, index) => decoded.getTemperatureAt(index)), [-2, -1, 0]);
   assert.deepEqual(Array.from({ length: 3 }, (_, index) => decoded.getLeftRightBalanceAt(index)), [49, 50, 51]);
+  assert.equal(decoded.fitDeviceMetadata.fileId.productName, "edge_1030");
+  assert.equal(decoded.fitDeviceMetadata.devices[0].softwareVersion, 12.34);
 });
 
 test("Workout never exposes the compact missing balance marker as data", () => {
