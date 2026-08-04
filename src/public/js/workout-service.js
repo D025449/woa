@@ -373,34 +373,6 @@ export default class WorkoutService {
     return response.json();
   }
 
-  static async classifySimilarWorkouts(workoutId) {
-    const response = await fetch(`/workouts/${workoutId}/similarity/classify`, {
-      method: "POST",
-      credentials: "include"
-    });
-
-    if (response.status === 401) {
-      window.location.href = "/login";
-      return null;
-    }
-
-    if (!response.ok) {
-      let message = `Similarity classification failed (${response.status})`;
-      try {
-        const result = await response.json();
-        message = result.error || message;
-      } catch {
-        const text = await response.text();
-        if (text) {
-          message = text;
-        }
-      }
-      throw new Error(message);
-    }
-
-    return await response.json();
-  }
-
   static async getSimilarWorkouts(workoutId) {
     const response = await fetch(`/workouts/${workoutId}/similarity`, {
       method: "GET",

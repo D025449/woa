@@ -44,6 +44,7 @@ export default class MapView {
     this.segmentOverlayEntries = [];
     this.selectedSegmentOverlay = null;
     this.selectedSegmentTooltip = null;
+    this.hoveredSegmentOverlay = null;
     this.manualGpsMode = false;
     this.manualGpsPoints = [];
     this.manualGpsLayer = L.layerGroup().addTo(this.map);
@@ -142,6 +143,17 @@ export default class MapView {
     this.map.fitBounds(bounds, { padding: [20, 20] });
   }
 
+  fitTrackBounds() {
+    const coords = this.currentTrackSegments
+      .flat()
+      .filter((point) => this.isValidTrackPoint(point));
+    if (coords.length === 0) {
+      return;
+    }
+
+    this.map.fitBounds(L.latLngBounds(coords), { padding: [10, 10] });
+  }
+
   // -----------------------------
   // TRACK RENDERING
   // -----------------------------
@@ -183,11 +195,7 @@ export default class MapView {
       this.renderSegmentOverlays(workout);
 
       if (renderedPolylines.length > 0) {
-        const bounds = renderedPolylines[0].getBounds();
-        for (let index = 1; index < renderedPolylines.length; index += 1) {
-          bounds.extend(renderedPolylines[index].getBounds());
-        }
-        this.map.fitBounds(bounds, { padding: [10, 10] });
+        this.fitTrackBounds();
       }
     }
 
@@ -275,6 +283,7 @@ export default class MapView {
     this.segmentOverlayEntries = [];
     this.selectedSegmentOverlay = null;
     this.selectedSegmentTooltip = null;
+    this.hoveredSegmentOverlay = null;
   }
 
   getSegmentOverlayKey(segment) {
@@ -338,8 +347,9 @@ export default class MapView {
 
     this.clearSegmentSelection();
     this.selectedSegmentOverlay = entry;
+    const isHovered = this.hoveredSegmentOverlay?.key === entry.key;
     entry.polylines.forEach((polyline) => {
-      polyline.setStyle({ weight: 7, opacity: 1 });
+      polyline.setStyle({ weight: isHovered ? 8 : 7, opacity: 1 });
       polyline.bringToFront();
     });
 
@@ -355,9 +365,46 @@ export default class MapView {
       .addTo(this.segmentLayer);
   }
 
+  hoverSegmentOverlay(segment) {
+    const key = this.getSegmentOverlayKey(segment);
+    const entry = this.segmentOverlayEntries.find((candidate) => candidate.key === key);
+    if (!entry || this.hoveredSegmentOverlay?.key === entry.key) {
+      return;
+    }
+
+    this.clearSegmentHover();
+    this.hoveredSegmentOverlay = entry;
+    entry.polylines.forEach((polyline) => {
+      polyline.setStyle({ weight: 8, opacity: 1 });
+      polyline.bringToFront();
+    });
+  }
+
+  clearSegmentHover() {
+    if (!this.hoveredSegmentOverlay) {
+      return;
+    }
+
+    const entry = this.hoveredSegmentOverlay;
+    const isSelected = this.selectedSegmentOverlay?.key === entry.key;
+    entry.polylines.forEach((polyline) => {
+      polyline.setStyle({
+        weight: isSelected ? 7 : 4,
+        opacity: isSelected ? 1 : 0.9
+      });
+    });
+    this.hoveredSegmentOverlay = null;
+
+    this.selectedSegmentOverlay?.polylines?.forEach((polyline) => polyline.bringToFront());
+  }
+
   clearSegmentSelection() {
     this.selectedSegmentOverlay?.polylines?.forEach((polyline) => {
-      polyline.setStyle({ weight: 4, opacity: 0.9 });
+      const isHovered = this.hoveredSegmentOverlay?.key === this.selectedSegmentOverlay?.key;
+      polyline.setStyle({
+        weight: isHovered ? 8 : 4,
+        opacity: isHovered ? 1 : 0.9
+      });
     });
 
     if (this.selectedSegmentTooltip && this.segmentLayer.hasLayer(this.selectedSegmentTooltip)) {

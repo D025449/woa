@@ -1854,17 +1854,15 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   color: color-mix(in srgb, var(--ui-text-muted) 58%, transparent);
 }
 
+.workout-library-card__context-id {
+  color: var(--ui-text-strong);
+  font-weight: 800;
+}
+
 .workout-library-card__context-chip--button {
   position: relative;
   border: 0;
   cursor: pointer;
-}
-
-.workout-library-card__title {
-  font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--ui-text-strong);
 }
 
 .workout-library-card__meta {
@@ -2287,6 +2285,13 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.34fr);
 }
 
+.dashboard-detail-side-stack {
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  min-height: 0;
+}
+
 .dashboard-detail-main-stack {
   --dashboard-detail-splitter-size: 0.5rem;
   display: grid;
@@ -2357,16 +2362,19 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   display: none !important;
 }
 
+.dashboard-workout-segments-panel .dashboard-surface-body,
 .dashboard-similar-workouts-panel .dashboard-surface-body {
   padding: 0 0.8rem 0.65rem;
   overflow: auto;
 }
 
+.dashboard-workout-segments-list,
 .dashboard-similar-workouts-list {
   display: grid;
   gap: 0;
 }
 
+.dashboard-workout-segments-empty,
 .dashboard-similar-workouts-empty {
   padding: 0.85rem 0.95rem;
   border: 1px dashed var(--ui-card-border-soft);
@@ -2375,6 +2383,111 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   color: var(--ui-text-muted);
   font-size: 0.88rem;
   font-weight: 600;
+}
+
+.dashboard-workout-segment {
+  display: grid;
+  grid-template-columns: 0.22rem minmax(0, 1fr);
+  gap: 0.62rem;
+  width: 100%;
+  padding: 0.62rem 0.4rem;
+  border: 0;
+  border-bottom: 1px solid var(--ui-divider-color);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ui-text-default);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.dashboard-workout-segment:hover {
+  background: var(--ui-bg-subtle-faint);
+}
+
+.dashboard-workout-segment.is-focused {
+  background: color-mix(in srgb, var(--segment-color) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--segment-color) 48%, transparent);
+}
+
+.dashboard-workout-segment:focus-visible {
+  outline: 2px solid var(--segment-color, var(--ui-info-border-hover));
+  outline-offset: -2px;
+}
+
+.dashboard-workout-segment__accent {
+  width: 0.22rem;
+  height: 100%;
+  min-height: 2.7rem;
+  border-radius: 0.12rem;
+  background: var(--segment-color, var(--ui-info-border-hover));
+}
+
+.dashboard-workout-segment__content {
+  display: grid;
+  min-width: 0;
+}
+
+.dashboard-workout-segment__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.dashboard-workout-segment__title {
+  overflow: hidden;
+  color: var(--ui-text-strong);
+  font-size: 0.86rem;
+  font-weight: 800;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-workout-segment__id {
+  flex: 0 0 auto;
+  color: var(--ui-text-strong);
+  font-size: 0.74rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard-workout-segment__meta {
+  margin-top: 0.12rem;
+  overflow: hidden;
+  color: var(--ui-text-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-workout-segment__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.26rem 0.55rem;
+  margin-top: 0.28rem;
+  color: var(--ui-text-default);
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.dashboard-workout-segment__stat {
+  display: flex;
+  align-items: baseline;
+  gap: 0.16rem;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.dashboard-workout-segment__stats strong {
+  color: var(--ui-text-muted);
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
 }
 
 .dashboard-similar-workout {
@@ -2759,6 +2872,11 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   }
 
   .dashboard-detail-main-stack {
+    grid-template-rows: auto;
+    gap: 0.85rem;
+  }
+
+  .dashboard-detail-side-stack {
     grid-template-rows: auto;
     gap: 0.85rem;
   }

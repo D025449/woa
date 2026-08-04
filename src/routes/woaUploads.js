@@ -13,7 +13,7 @@ import { FileDBService } from "../services/fileDBService.js";
 import pool from "../services/database.js";
 import SegmentTrackBlobService from "../services/segmentTrackBlobService.js";
 import { parsePostgresBox } from "../shared/postgresSpatial.js";
-import { decodeWoa1Buffer, decodeWoa1BufferLight, inspectWoa1Header } from "../services/woa1Service.js";
+import { decodeWoa1BufferLight } from "../services/woa1Service.js";
 import { decodeWoaTransportContainer } from "../public/js/woa-transport-container.js";
 import { decodeWorkoutLocalPostprocessTransport } from "../shared/WorkoutLocalPostprocess.js";
 import { decodeBrowserGpsBestEffortsTransport } from "../shared/BrowserGpsBestEffortsTransport.js";
@@ -224,28 +224,15 @@ async function importWoaEntryReaders({
       profile.readEntryMs += Date.now() - readEntryStartedAt;
 
       const decodeStartedAt = Date.now();
-      const header = inspectWoa1Header(entryBuffer);
-      const decoded = header.majorVersion >= 2
-        ? decodeWoa1BufferLight(entryBuffer)
-        : await decodeWoa1Buffer(entryBuffer);
+      const decoded = decodeWoa1BufferLight(entryBuffer);
       profile.decodeWoaMs += Date.now() - decodeStartedAt;
 
       const prepareStartedAt = Date.now();
-      const preparedInsert = decoded.majorVersion >= 2
-        ? FileDBService.preparePersistedWoaInsertPayload(decoded.meta, {
-            uid: userId,
-            workoutStreamStoredBytes: decoded.workoutStreamStoredBytes,
-            gpsTrackStoredBytes: decoded.gpsTrackStoredBytes
-          })
-        : await FileDBService.prepareInsertFilePayload(
-            {
-              ...decoded.fileRow,
-              uid: userId,
-              gps_source: decoded.meta?.gpsSource === "manual_lookup" ? "manual_lookup" : null
-            },
-            decoded.gpsTrack,
-            decoded.workoutObject
-          );
+      const preparedInsert = FileDBService.preparePersistedWoaInsertPayload(decoded.meta, {
+        uid: userId,
+        workoutStreamStoredBytes: decoded.workoutStreamStoredBytes,
+        gpsTrackStoredBytes: decoded.gpsTrackStoredBytes
+      });
       profile.prepareInsertMs += Date.now() - prepareStartedAt;
 
       for (const step of Array.isArray(preparedInsert?.timingSteps) ? preparedInsert.timingSteps : []) {
@@ -275,7 +262,6 @@ async function importWoaEntryReaders({
         validGps: !!(
           preparedInsert?.gps_track?.validGps
           ?? preparedInsert?.fileRow?.validGps
-          ?? decoded?.gpsTrack?.validGps
           ?? decoded?.meta?.persistedRow?.validGps
         )
       });

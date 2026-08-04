@@ -5,6 +5,7 @@ import { createTranslator } from "./i18n.js";
 import {
   DEFAULT_SEGMENT_VISIBILITY,
   SEGMENT_COLORS,
+  getSegmentColor,
   isSegmentVisible
 } from "./segment-visibility.js";
 import {
@@ -226,6 +227,8 @@ export default class ChartView {
     this.isHoveringSegmentArea = false;
     this.baseMarkAreas = [];
     this.previewMarkArea = null;
+    this.focusedSegment = null;
+    this.hoveredSegment = null;
     this.activePointerId = null;
     this.createButton = document.getElementById('draw-segment-toggle');
     this.createGpsButton = document.getElementById('draw-gps-segment-toggle');
@@ -950,6 +953,7 @@ export default class ChartView {
       }
 
       this.segmentVisibility[segmentKey] = !this.segmentVisibility[segmentKey];
+      this.clearHiddenSegmentFocus();
       this.syncSegmentToggleState();
       this.baseMarkAreas = this.buildMarkAreasForMode(this.currentWorkout);
       this.applyMarkAreas();
@@ -1184,9 +1188,16 @@ export default class ChartView {
   }
 
   applyMarkAreas() {
-    const data = this.previewMarkArea
-      ? [...this.baseMarkAreas, this.previewMarkArea]
-      : this.baseMarkAreas;
+    const highlightedSegment = this.hoveredSegment || this.focusedSegment;
+    const highlightedMarkArea = this.buildHighlightedSegmentArea(
+      highlightedSegment,
+      this.hoveredSegment ? "hover" : "focus"
+    );
+    const data = [
+      ...this.baseMarkAreas,
+      ...(highlightedMarkArea ? [highlightedMarkArea] : []),
+      ...(this.previewMarkArea ? [this.previewMarkArea] : [])
+    ];
 
     this.chart.setOption({
       series: [{
@@ -1212,6 +1223,114 @@ export default class ChartView {
       startValue: this.xIndexToValue(start),
       endValue: this.xIndexToValue(end)
     });
+  }
+
+  buildHighlightedSegmentArea(segment, mode = "focus") {
+    if (!segment || !this.isSegmentTypeVisible(segment)) {
+      return null;
+    }
+
+    const start = Number(segment.start_offset);
+    const end = Number(segment.end_offset);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      return null;
+    }
+
+    const displayId = Utils.getSegmentDisplayId(segment);
+    const color = getSegmentColor(segment);
+    return [
+      {
+        xAxis: this.xIndexToValue(Math.min(start, end)),
+        segmentId: segment.id,
+        sid: segment.sid,
+        itemStyle: {
+          color: getSegmentColor(segment, "area"),
+          borderColor: color,
+          borderWidth: 2,
+          opacity: mode === "hover" ? 0.62 : 0.8
+        },
+        label: {
+          show: displayId != null,
+          position: "insideTop",
+          formatter: displayId == null ? "" : `S-${displayId}`,
+          color,
+          backgroundColor: "rgba(255, 255, 255, 0.94)",
+          borderColor: color,
+          borderWidth: 1,
+          borderRadius: 2,
+          padding: [2, 5],
+          fontSize: 10,
+          fontWeight: 800
+        }
+      },
+      {
+        xAxis: this.xIndexToValue(Math.max(start, end))
+      }
+    ];
+  }
+
+  focusSegment(segment) {
+    if (!segment || !this.isSegmentTypeVisible(segment)) {
+      return;
+    }
+
+    this.focusedSegment = segment;
+    this.applyMarkAreas();
+
+    const start = Number(segment.start_offset);
+    const end = Number(segment.end_offset);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      return;
+    }
+
+    const left = Math.min(start, end);
+    const right = Math.max(start, end);
+    const context = Math.max(5, (right - left) * 0.12);
+    const maxIndex = Math.max(0, Number(this.currentWorkout?.workoutObject?.length || 1) - 1);
+    this.zoomToSegment(
+      Math.max(0, left - context),
+      Math.min(maxIndex, right + context)
+    );
+  }
+
+  hoverSegment(segment) {
+    if (!segment || !this.isSegmentTypeVisible(segment)) {
+      return;
+    }
+    this.hoveredSegment = segment;
+    this.applyMarkAreas();
+  }
+
+  clearSegmentHover() {
+    if (!this.hoveredSegment) {
+      return;
+    }
+    this.hoveredSegment = null;
+    this.applyMarkAreas();
+  }
+
+  clearSegmentFocus({ resetZoom = false } = {}) {
+    if (this.focusedSegment) {
+      this.focusedSegment = null;
+      this.applyMarkAreas();
+    }
+
+    if (resetZoom) {
+      this.chart.dispatchAction({
+        type: "dataZoom",
+        start: 0,
+        end: 100
+      });
+    }
+  }
+
+  clearHiddenSegmentFocus() {
+    if (this.focusedSegment && !this.isSegmentTypeVisible(this.focusedSegment)) {
+      this.focusedSegment = null;
+    }
+    if (this.hoveredSegment && !this.isSegmentTypeVisible(this.hoveredSegment)) {
+      this.hoveredSegment = null;
+    }
   }
 
   formatTooltip(params) {
@@ -1804,6 +1923,7 @@ export default class ChartView {
       ...DEFAULT_SEGMENT_VISIBILITY,
       ...visibility
     };
+    this.clearHiddenSegmentFocus();
     this.syncSegmentToggleState();
 
     if (this.currentWorkout) {

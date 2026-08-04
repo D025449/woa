@@ -604,20 +604,37 @@
                             </aside>
                         </div>
 
-                        <article id="dashboard-similar-workouts-panel" class="dashboard-surface dashboard-detail-panel dashboard-similar-workouts-panel">
-                            <div class="dashboard-section-header">
-                                <div>
-                                    <span class="dashboard-eyebrow"><%= t("dashboardNewPage.similarWorkoutsEyebrow") %></span>
-                                    <h2 class="dashboard-section-title"><%= t("dashboardNewPage.similarWorkoutsTitle") %></h2>
-                                    <p id="dashboard-similar-workouts-copy" class="dashboard-section-copy"><%= t("dashboardNewPage.similarWorkoutsCopy") %></p>
+                        <div class="dashboard-detail-side-stack">
+                            <article id="dashboard-workout-segments-panel" class="dashboard-surface dashboard-detail-panel dashboard-workout-segments-panel">
+                                <div class="dashboard-section-header">
+                                    <div>
+                                        <span class="dashboard-eyebrow"><%= t("dashboardNewPage.workoutSegmentsEyebrow") %></span>
+                                        <h2 class="dashboard-section-title"><%= t("dashboardNewPage.workoutSegmentsTitle") %></h2>
+                                        <p id="dashboard-workout-segments-copy" class="dashboard-section-copy"><%= t("dashboardNewPage.workoutSegmentsCopy") %></p>
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="dashboard-surface-body">
-                                <div id="dashboard-similar-workouts-list" class="dashboard-similar-workouts-list">
-                                    <div class="dashboard-similar-workouts-empty"><%= t("dashboardNewPage.similarWorkoutsEmpty") %></div>
+                                <div class="dashboard-surface-body">
+                                    <div id="dashboard-workout-segments-list" class="dashboard-workout-segments-list">
+                                        <div class="dashboard-workout-segments-empty"><%= t("dashboardNewPage.workoutSegmentsEmpty") %></div>
+                                    </div>
                                 </div>
-                            </div>
-                        </article>
+                            </article>
+
+                            <article id="dashboard-similar-workouts-panel" class="dashboard-surface dashboard-detail-panel dashboard-similar-workouts-panel">
+                                <div class="dashboard-section-header">
+                                    <div>
+                                        <span class="dashboard-eyebrow"><%= t("dashboardNewPage.similarWorkoutsEyebrow") %></span>
+                                        <h2 class="dashboard-section-title"><%= t("dashboardNewPage.similarWorkoutsTitle") %></h2>
+                                        <p id="dashboard-similar-workouts-copy" class="dashboard-section-copy"><%= t("dashboardNewPage.similarWorkoutsCopy") %></p>
+                                    </div>
+                                </div>
+                                <div class="dashboard-surface-body">
+                                    <div id="dashboard-similar-workouts-list" class="dashboard-similar-workouts-list">
+                                        <div class="dashboard-similar-workouts-empty"><%= t("dashboardNewPage.similarWorkoutsEmpty") %></div>
+                                    </div>
+                                </div>
+                            </article>
+                        </div>
                     </section>
                 </section>
                 <div id="dashboard-mobile-library-backdrop" class="dashboard-mobile-library-backdrop"></div>

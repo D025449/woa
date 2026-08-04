@@ -7,7 +7,11 @@ import WorkoutLibraryView from "./workout-library-view.js";
 import ViewPreferenceService from "./view-preference-service.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
 import Utils from "../../shared/Utils.js";
-import { WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION } from "../../shared/SegmentAppearance.js";
+import {
+  WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION,
+  getSegmentColor,
+  getSegmentVisibilityKey
+} from "../../shared/SegmentAppearance.js";
 import confirmModal from "./confirm-modal.js";
 
 const WORKOUT_LIBRARY_VIEW_KEY = "workout-library";
@@ -65,6 +69,9 @@ export default class Controller {
     this.similarWorkoutsPanelElement = document.getElementById("dashboard-similar-workouts-panel");
     this.similarWorkoutsListElement = document.getElementById("dashboard-similar-workouts-list");
     this.similarWorkoutsCopyElement = document.getElementById("dashboard-similar-workouts-copy");
+    this.workoutSegmentsListElement = document.getElementById("dashboard-workout-segments-list");
+    this.workoutSegmentsCopyElement = document.getElementById("dashboard-workout-segments-copy");
+    this.focusedWorkoutSegmentKey = null;
     this.sharedMetaElement = document.getElementById("dashboard-shared-meta");
     this.sharedMetaTextElement = document.getElementById("dashboard-shared-meta-text");
     this.toastElement = document.getElementById("dashboard-toast");
@@ -208,6 +215,7 @@ export default class Controller {
         this.chartView.updateWorkout(workout);
         this.mapView.renderTrack(workout);
         this.flyoverView?.setWorkout(workout);
+        this.renderWorkoutSegments(workout);
         this.update3dMapButton();
       },
 
@@ -237,6 +245,7 @@ export default class Controller {
 
         this.chartView.updateWorkout(workout);
         this.mapView.renderTrack(workout);
+        this.renderWorkoutSegments(workout);
       },
 
       onToast: (message) => {
@@ -247,6 +256,17 @@ export default class Controller {
         this.chartViewState = state;
         this.uiState.set("chartViewState", state);
         this.mapView.setSegmentVisibility(state.segmentVisibility);
+        const workout = this.chartView.currentWorkout;
+        if (this.focusedWorkoutSegmentKey && workout) {
+          const focusedSegment = workout.segments?.find(
+            (segment) => this.getWorkoutSegmentKey(segment) === this.focusedWorkoutSegmentKey
+          );
+          if (!focusedSegment || !this.chartView.isSegmentTypeVisible(focusedSegment)) {
+            this.focusedWorkoutSegmentKey = null;
+            this.chartView.clearSegmentFocus();
+          }
+        }
+        this.renderWorkoutSegments(workout);
         this.scheduleWorkoutLibraryPreferenceSave(this.libraryState);
       }
     });
@@ -310,15 +330,6 @@ export default class Controller {
         const data = await WorkoutService.updateWorkoutSharing(workout.id, payload);
         this.showToast(this.t("messages.workoutShareUpdated"));
         return data;
-      },
-      onWorkoutSimilarityClassify: async (workout) => {
-        const result = await WorkoutService.classifySimilarWorkouts(workout.id);
-        const count = Number(result?.count || 0);
-        this.showToast(this.t("messages.similarWorkoutsClassified", { count }));
-        if (String(workout?.id) === String(this.currentWorkoutId)) {
-          this.renderSimilarWorkouts(result?.edges || [], workout);
-        }
-        return result;
       },
       onFavoriteChange: async ({ workoutId, isFavorite }) => {
         await WorkoutService.setWorkoutFavorite(workoutId, isFavorite);
@@ -635,6 +646,9 @@ export default class Controller {
       this.libraryView.setWorkoutFavoriteState(workout.id, workout.isFavorite);
 
       stepStartedAt = performance.now();
+      this.focusedWorkoutSegmentKey = null;
+      this.chartView.clearSegmentHover();
+      this.chartView.clearSegmentFocus();
       this.chartView.updateWorkout(workout);
       profile.chartRenderMs = performance.now() - stepStartedAt;
 
@@ -649,6 +663,7 @@ export default class Controller {
       this.libraryView.setSelectedWorkout(workout.id);
       this.updateWorkoutMeta(workout);
       this.updateDeviceInfo(workout);
+      this.renderWorkoutSegments(workout);
 
       stepStartedAt = performance.now();
       this.scheduleDesktopLayoutMeasure(true);
@@ -1043,6 +1058,7 @@ export default class Controller {
       this.detailCopyElement.textContent = "";
     }
     this.resetDeviceInfo();
+    this.resetWorkoutSegments();
     this.resetSimilarWorkouts();
     this.flyoverView?.setWorkout(null);
     this.update3dMapButton();
@@ -1237,6 +1253,238 @@ export default class Controller {
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit"
+    });
+  }
+
+  escapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  getWorkoutSegmentTypeLabel(segment) {
+    const labels = {
+      criticalPower: "workoutSegmentTypeCriticalPower",
+      auto: "workoutSegmentTypeAuto",
+      manual: "workoutSegmentTypeManual",
+      gps: "workoutSegmentTypeGps"
+    };
+    return this.t(labels[getSegmentVisibilityKey(segment)] || labels.manual);
+  }
+
+  getWorkoutSegmentTitle(segment) {
+    const explicitName = String(segment?.segmentname ?? "").trim();
+    if (explicitName) {
+      return explicitName;
+    }
+
+    if (getSegmentVisibilityKey(segment) === "gps") {
+      const startName = String(segment?.start_name ?? segment?.startName ?? "").trim();
+      const endName = String(segment?.end_name ?? segment?.endName ?? "").trim();
+      if (startName && endName) {
+        return `${startName} → ${endName}`;
+      }
+      if (startName || endName) {
+        return startName || endName;
+      }
+    }
+
+    return this.getWorkoutSegmentTypeLabel(segment);
+  }
+
+  getWorkoutSegmentDistance(workout, segment) {
+    const workoutObject = workout?.workoutObject;
+    if (!workoutObject || typeof workoutObject.getDistanceAt !== "function") {
+      return null;
+    }
+    if (typeof workoutObject.hasDistanceSeries === "function" && !workoutObject.hasDistanceSeries()) {
+      return null;
+    }
+
+    const length = Number(workoutObject.length);
+    const startOffset = Number(segment?.start_offset);
+    const endOffset = Number(segment?.end_offset);
+    if (!Number.isInteger(length) || length <= 0 || !Number.isFinite(startOffset) || !Number.isFinite(endOffset)) {
+      return null;
+    }
+
+    const startIndex = Math.max(0, Math.min(length - 1, Math.floor(startOffset)));
+    const endIndex = Math.max(startIndex, Math.min(length - 1, Math.floor(endOffset)));
+
+    try {
+      const startDistance = Number(workoutObject.getDistanceAt(startIndex));
+      const endDistance = Number(workoutObject.getDistanceAt(endIndex));
+      const distance = endDistance - startDistance;
+      return Number.isFinite(distance) && distance >= 0 ? distance : null;
+    } catch {
+      return null;
+    }
+  }
+
+  formatWorkoutSegmentDistance(distanceMeters) {
+    if (distanceMeters == null) {
+      return this.libraryT("na");
+    }
+    const distance = Number(distanceMeters);
+    if (!Number.isFinite(distance) || distance < 0) {
+      return this.libraryT("na");
+    }
+    if (distance < 1000) {
+      return `${Math.round(distance)} m`;
+    }
+    return `${new Intl.NumberFormat(this.locale, { maximumFractionDigits: 1 }).format(distance / 1000)} km`;
+  }
+
+  resetWorkoutSegments() {
+    if (!this.workoutSegmentsListElement || !this.workoutSegmentsCopyElement) {
+      return;
+    }
+
+    this.workoutSegmentsCopyElement.textContent = this.t("workoutSegmentsCopy");
+    this.focusedWorkoutSegmentKey = null;
+    this.workoutSegmentsListElement.innerHTML = `
+      <div class="dashboard-workout-segments-empty">${this.t("workoutSegmentsEmpty")}</div>
+    `;
+  }
+
+  getWorkoutSegmentKey(segment) {
+    const displayId = Utils.getSegmentDisplayId(segment);
+    if (displayId != null) {
+      return `${getSegmentVisibilityKey(segment)}:${displayId}`;
+    }
+    return [
+      getSegmentVisibilityKey(segment),
+      Number(segment?.start_offset || 0),
+      Number(segment?.end_offset || 0)
+    ].join(":");
+  }
+
+  renderWorkoutSegments(workout) {
+    if (!this.workoutSegmentsListElement || !this.workoutSegmentsCopyElement) {
+      return;
+    }
+
+    const segments = (Array.isArray(workout?.segments) ? workout.segments : [])
+      .filter((segment) => (
+        segment?.rowstate !== "DEL"
+        && this.chartView.isSegmentTypeVisible(segment)
+      ))
+      .slice()
+      .sort((left, right) => Number(left?.start_offset || 0) - Number(right?.start_offset || 0));
+
+    if (!segments.length) {
+      this.resetWorkoutSegments();
+      return;
+    }
+
+    this.workoutSegmentsCopyElement.textContent = this.t("workoutSegmentsCount", { count: segments.length });
+    this.workoutSegmentsListElement.innerHTML = segments.map((segment) => {
+      const segmentKey = this.getWorkoutSegmentKey(segment);
+      const isFocused = segmentKey === this.focusedWorkoutSegmentKey;
+      const displayId = Utils.getSegmentDisplayId(segment);
+      const identifier = displayId == null ? this.libraryT("na") : `S-${displayId}`;
+      const typeLabel = this.getWorkoutSegmentTypeLabel(segment);
+      const title = this.getWorkoutSegmentTitle(segment);
+      const duration = segment?.duration != null && Number.isFinite(Number(segment.duration))
+        ? Utils.formatDuration(Number(segment.duration))
+        : this.libraryT("na");
+      const averagePower = segment?.avg_power != null && Number.isFinite(Number(segment.avg_power))
+        ? `${Math.round(Number(segment.avg_power))} W`
+        : this.libraryT("na");
+      const distance = this.formatWorkoutSegmentDistance(this.getWorkoutSegmentDistance(workout, segment));
+      const averageHeartRate = segment?.avg_heart_rate != null && Number(segment.avg_heart_rate) > 0
+        ? `${Math.round(Number(segment.avg_heart_rate))} bpm`
+        : null;
+      const averageCadence = segment?.avg_cadence != null && Number(segment.avg_cadence) > 0
+        ? `${Math.round(Number(segment.avg_cadence))} rpm`
+        : null;
+      const averageSpeed = segment?.avg_speed != null && Number(segment.avg_speed) > 0
+        ? `${new Intl.NumberFormat(this.locale, { maximumFractionDigits: 1 }).format(Number(segment.avg_speed))} km/h`
+        : null;
+      const stats = [
+        [this.libraryT("durationShort"), duration],
+        [this.libraryT("distanceShort"), distance],
+        ["PW", averagePower],
+        ...(averageHeartRate ? [["HR", averageHeartRate]] : []),
+        ...(averageCadence ? [["CD", averageCadence]] : []),
+        ...(averageSpeed ? [["SP", averageSpeed]] : [])
+      ];
+
+      return `
+        <button
+          type="button"
+          class="dashboard-workout-segment${isFocused ? " is-focused" : ""}"
+          style="--segment-color:${getSegmentColor(segment)}"
+          data-workout-segment-focus="${this.escapeHtml(segmentKey)}"
+          aria-pressed="${isFocused ? "true" : "false"}"
+        >
+          <span class="dashboard-workout-segment__accent" aria-hidden="true"></span>
+          <span class="dashboard-workout-segment__content">
+            <span class="dashboard-workout-segment__header">
+              <span class="dashboard-workout-segment__title">${this.escapeHtml(title)}</span>
+              <span class="dashboard-workout-segment__id">${this.escapeHtml(identifier)}</span>
+            </span>
+            ${title !== typeLabel ? `<span class="dashboard-workout-segment__meta">${this.escapeHtml(typeLabel)}</span>` : ""}
+            <span class="dashboard-workout-segment__stats">
+              ${stats.map(([label, value]) => `
+                <span class="dashboard-workout-segment__stat">
+                  <strong>${this.escapeHtml(label)}</strong>
+                  <span>${this.escapeHtml(value)}</span>
+                </span>
+              `).join("")}
+            </span>
+          </span>
+        </button>
+      `;
+    }).join("");
+
+    this.workoutSegmentsListElement.querySelectorAll("[data-workout-segment-focus]").forEach((button) => {
+      const getSegment = () => {
+        const segmentKey = button.dataset.workoutSegmentFocus;
+        return segments.find((candidate) => this.getWorkoutSegmentKey(candidate) === segmentKey);
+      };
+
+      const highlightSegment = () => {
+        const segment = getSegment();
+        if (segment) {
+          this.chartView.hoverSegment(segment);
+          this.mapView.hoverSegmentOverlay(segment);
+        }
+      };
+
+      const clearSegmentHover = () => {
+        this.chartView.clearSegmentHover();
+        this.mapView.clearSegmentHover();
+      };
+
+      button.addEventListener("mouseenter", highlightSegment);
+      button.addEventListener("mouseleave", clearSegmentHover);
+      button.addEventListener("focus", highlightSegment);
+      button.addEventListener("blur", clearSegmentHover);
+      button.addEventListener("click", () => {
+        const segmentKey = button.dataset.workoutSegmentFocus;
+        const segment = getSegment();
+        if (!segment) {
+          return;
+        }
+
+        if (this.focusedWorkoutSegmentKey === segmentKey) {
+          this.focusedWorkoutSegmentKey = null;
+          this.chartView.clearSegmentFocus({ resetZoom: true });
+          this.mapView.fitTrackBounds();
+        } else {
+          this.focusedWorkoutSegmentKey = segmentKey;
+          this.chartView.focusSegment(segment);
+          this.mapView.highlightSegment({
+            start: segment.start_offset,
+            end: segment.end_offset
+          });
+        }
+        this.renderWorkoutSegments(workout);
+      });
     });
   }
 
