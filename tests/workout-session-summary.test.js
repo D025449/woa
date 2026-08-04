@@ -72,3 +72,14 @@ test("maps an aggregated workout to the persisted summary row", () => {
   assert.equal(row.month, 1);
   assert.equal(row.year_quarter, 20261);
 });
+
+test("derives persisted average speed when the session summary has none", () => {
+  const row = mapWorkoutSummaryToFileRow({
+    start_time: "2026-01-01T10:00:00.000Z",
+    total_timer_time: 3389.499,
+    total_distance: 27766.63,
+    avg_speed: 0
+  }, { uid: "1" }, 0);
+
+  assert.ok(Math.abs(row.avg_speed - 29.491) < 0.001);
+});

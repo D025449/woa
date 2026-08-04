@@ -2267,6 +2267,20 @@ function speedMsToKmh(value) {
   return Number(value) * 3.6;
 }
 
+function resolveAverageSpeedMs(aggregated) {
+  const sessionAverage = Number(aggregated?.avg_speed);
+  if (Number.isFinite(sessionAverage) && sessionAverage > 0) {
+    return sessionAverage;
+  }
+
+  const distanceMeters = Number(aggregated?.total_distance);
+  const durationSeconds = Number(aggregated?.total_timer_time);
+  return Number.isFinite(distanceMeters) && distanceMeters > 0
+    && Number.isFinite(durationSeconds) && durationSeconds > 0
+    ? distanceMeters / durationSeconds
+    : 0;
+}
+
 function calculateGpsPathDistanceMeters(gpsTrack) {
   const segments = Array.isArray(gpsTrack?.segments) ? gpsTrack.segments : [];
   const metersPerDegree = 111_320;
@@ -2445,7 +2459,7 @@ function derivePersistedRowFromCompact(parsedCompact, gpsTrack, sourceName = "")
     total_calories: aggregated.total_calories,
     total_ascent: needsDerivedAscent ? derivedElevation.totalAscent : aggregated.total_ascent,
     total_descent: needsDerivedDescent ? derivedElevation.totalDescent : aggregated.total_descent,
-    avg_speed: speedMsToKmh(aggregated.avg_speed),
+    avg_speed: speedMsToKmh(resolveAverageSpeedMs(aggregated)),
     max_speed: speedMsToKmh(aggregated.max_speed),
     avg_power: aggregated.avg_power,
     max_power: aggregated.max_power,

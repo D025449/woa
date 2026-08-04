@@ -84,6 +84,15 @@ export function mapWorkoutSummaryToFileRow(aggregated, fileMeta, normalizedPower
   }
 
   const speedMsToKmh = (value) => Number.isFinite(value) ? value * 3.6 : 0;
+  const sessionAverageSpeed = Number(aggregated.avg_speed);
+  const distanceMeters = Number(aggregated.total_distance);
+  const durationSeconds = Number(aggregated.total_timer_time);
+  const averageSpeedMs = Number.isFinite(sessionAverageSpeed) && sessionAverageSpeed > 0
+    ? sessionAverageSpeed
+    : Number.isFinite(distanceMeters) && distanceMeters > 0
+      && Number.isFinite(durationSeconds) && durationSeconds > 0
+      ? distanceMeters / durationSeconds
+      : 0;
   const date = new Date(aggregated.start_time);
   const year = date.getUTCFullYear();
   const month = date.getUTCMonth() + 1;
@@ -103,7 +112,7 @@ export function mapWorkoutSummaryToFileRow(aggregated, fileMeta, normalizedPower
     total_calories: aggregated.total_calories,
     total_ascent: aggregated.total_ascent,
     total_descent: aggregated.total_descent,
-    avg_speed: speedMsToKmh(aggregated.avg_speed),
+    avg_speed: speedMsToKmh(averageSpeedMs),
     max_speed: speedMsToKmh(aggregated.max_speed),
     avg_power: aggregated.avg_power,
     avg_normalized_power: Math.round(normalizedPower),
