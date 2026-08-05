@@ -287,3 +287,17 @@ test("production switch validates the admin through a psql file", async () => {
   assert.doesNotMatch(switchSource, /"--command"[\s\S]*admin_auth_sub/u);
   assert.match(validationSql, /u\.auth_sub = :'admin_auth_sub'/u);
 });
+
+test("admin database cleanup submits DELETE and renders local feedback", async () => {
+  const source = await fs.readFile(
+    new URL("../src/public/js/admin-accounts.js", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(
+    source,
+    /"drop-database",\s*\{ method: "DELETE" \}/u
+  );
+  assert.match(source, /setDatabaseDeleteResult\(\s*"success"/u);
+  assert.match(source, /setDatabaseDeleteResult\("danger", error\.message\)/u);
+});

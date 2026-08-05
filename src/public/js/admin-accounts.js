@@ -204,6 +204,7 @@ const databaseDeleteTarget = document.getElementById("database-delete-target");
 const databaseDeleteName = document.getElementById("database-delete-name");
 const databaseDeleteCancel = document.getElementById("database-delete-cancel");
 const databaseDeleteStart = document.getElementById("database-delete-start");
+const databaseDeleteResult = document.getElementById("database-delete-result");
 const databaseWizardSteps = [...document.querySelectorAll("[data-database-step]")];
 
 let databaseBackups = [];
@@ -294,12 +295,18 @@ function closeDatabaseDeleteConfirmation() {
   databaseDeleteStart.disabled = true;
 }
 
+function setDatabaseDeleteResult(type, message) {
+  databaseDeleteResult.className = `alert alert-${type} m-3`;
+  databaseDeleteResult.textContent = message;
+}
+
 function selectCleanupDatabase(database) {
   selectedCleanupDatabase = database;
   databaseDeleteTarget.textContent = database.name;
   databaseDeleteName.value = "";
   databaseDeleteConfirmation.classList.remove("d-none");
   databaseDeleteStart.disabled = true;
+  databaseDeleteResult.classList.add("d-none");
   databaseDeleteName.focus();
 }
 
@@ -535,10 +542,10 @@ async function pollDatabaseJob(jobId, operation) {
   }
 }
 
-async function startDatabaseOperation(path, body, operation) {
+async function startDatabaseOperation(path, body, operation, { method = "POST" } = {}) {
   try {
     const payload = await databaseApi(path, {
-      method: "POST",
+      method,
       body: JSON.stringify(body)
     });
     const result = await pollDatabaseJob(payload.jobId, operation);
@@ -658,15 +665,24 @@ databaseDeleteStart?.addEventListener("click", async () => {
   if (!selectedCleanupDatabase || databaseDeleteName.value !== selectedCleanupDatabase.name) return;
   const databaseName = selectedCleanupDatabase.name;
   try {
-    await startDatabaseOperation(
+    setDatabaseDeleteResult(
+      "info",
+      `Sicherheitsbackup für ${databaseName} wird erstellt. Danach wird die Datenbank gelöscht ...`
+    );
+    const result = await startDatabaseOperation(
       `/admin/accounts/database/databases/${encodeURIComponent(databaseName)}`,
       { confirmDatabase: databaseName },
-      "drop-database"
+      "drop-database",
+      { method: "DELETE" }
     );
     closeDatabaseDeleteConfirmation();
     await loadDatabaseBackups();
-  } catch {
-    // The job panel already contains the actionable error.
+    setDatabaseDeleteResult(
+      "success",
+      `${databaseName} wurde gelöscht. Sicherheitsbackup: ${result.safetyBackup?.rootKey || "vollständig erstellt"}.`
+    );
+  } catch (error) {
+    setDatabaseDeleteResult("danger", error.message);
   }
 });
 
