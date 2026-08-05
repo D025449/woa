@@ -11,6 +11,7 @@
     "migrate": "node src/migrate.js",
     "account-deletion:sweep": "node src/scripts/run-account-deletion-sweep.js",
     "backup:create": "node ops/postgres-backup/create-backup.mjs",
+    "backup:prod": "./backup-prod.sh",
     "backup:verify": "node ops/postgres-backup/verify-backup.mjs",
     "db:rebuild": "node src/db-rebuild.js",
     "bench:persistence": "node src/scripts/benchmark-workout-persistence.js",
