@@ -9,6 +9,10 @@ import AdminSegmentBackupService, {
   ADMIN_SEGMENT_BACKUP_MAX_BYTES,
   buildAdminSegmentBackupFilename
 } from "../services/adminSegmentBackupService.js";
+import AdminWorkoutBackupService, {
+  ADMIN_WORKOUT_BACKUP_MAX_BYTES,
+  buildAdminWorkoutBackupFilename
+} from "../services/adminWorkoutBackupService.js";
 import { enqueueSegmentBestEfforts } from "../services/segment-best-efforts-service.js";
 import PostgresBackupCatalogService from "../services/postgresBackupCatalogService.js";
 import { postgresBackupOpsQueue } from "../queue/postgres-backup-ops-queue.js";
@@ -21,6 +25,10 @@ const upload = multer({
 const segmentUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: ADMIN_SEGMENT_BACKUP_MAX_BYTES, files: 1 }
+});
+const workoutUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: ADMIN_WORKOUT_BACKUP_MAX_BYTES, files: 1 }
 });
 
 router.use(requireAdmin);
@@ -117,6 +125,44 @@ router.post("/segments/import", segmentUpload.single("archive"), async (req, res
         owners: result.owners
       }
     });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/workouts/export", async (_req, res, next) => {
+  try {
+    const { archive } = await AdminWorkoutBackupService.exportAll();
+    res.set({
+      "Cache-Control": "no-store",
+      "Content-Type": "application/zip",
+      "Content-Disposition": `attachment; filename="${buildAdminWorkoutBackupFilename()}"`,
+      "Content-Length": String(archive.byteLength)
+    });
+    return res.send(archive);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/workouts/preview", workoutUpload.single("archive"), async (req, res, next) => {
+  try {
+    if (!req.file?.buffer) return res.status(400).json({ error: "Missing workout ZIP backup" });
+    const preview = await AdminWorkoutBackupService.preview(req.file.buffer);
+    return res.json({ ok: true, preview });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/workouts/import", workoutUpload.single("archive"), async (req, res, next) => {
+  try {
+    if (!req.file?.buffer) return res.status(400).json({ error: "Missing workout ZIP backup" });
+    if (req.body?.confirmed !== "true") {
+      return res.status(400).json({ error: "Workout import must be explicitly confirmed" });
+    }
+    const result = await AdminWorkoutBackupService.importAll(req.file.buffer);
+    return res.json({ ok: true, result });
   } catch (error) {
     return next(error);
   }

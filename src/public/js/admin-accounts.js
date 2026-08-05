@@ -167,6 +167,116 @@ segmentForm?.querySelector("input[name='archive']")?.addEventListener("change", 
   segmentResult.classList.add("d-none");
 });
 
+const workoutForm = document.getElementById("workout-backup-import-form");
+const workoutResult = document.getElementById("workout-backup-result");
+const workoutConfirm = document.getElementById("workout-backup-confirm");
+const workoutPreviewWrap = document.getElementById("workout-backup-preview-wrap");
+const workoutPreviewBody = document.getElementById("workout-backup-preview");
+let workoutPreviewIsCurrent = false;
+
+function setWorkoutResult(kind, message) {
+  workoutResult.className = `alert alert-${kind} mt-3 mb-0`;
+  workoutResult.textContent = message;
+}
+
+function renderWorkoutPreview(preview) {
+  workoutPreviewBody.replaceChildren();
+  for (const mapping of preview.owners || []) {
+    const row = document.createElement("tr");
+    const values = [
+      mapping.sourceEmail || mapping.sourceAuthSub,
+      mapping.targetEmail || "-",
+      mappingLabel(mapping),
+      mapping.workoutCount || 0,
+      mapping.importCount || 0,
+      mapping.duplicateCount || 0
+    ];
+    values.forEach((value, index) => {
+      const cell = document.createElement("td");
+      cell.textContent = String(value);
+      if (index >= 3) cell.className = "text-end";
+      row.append(cell);
+    });
+    workoutPreviewBody.append(row);
+  }
+  workoutPreviewWrap.classList.remove("d-none");
+}
+
+function selectedWorkoutArchive() {
+  return workoutForm?.querySelector("input[name='archive']")?.files?.[0] || null;
+}
+
+async function sendWorkoutArchive(path, confirmed = false) {
+  const archive = selectedWorkoutArchive();
+  if (!archive) throw new Error("Bitte zuerst ein Workout-ZIP auswählen.");
+  const body = new FormData();
+  body.append("archive", archive);
+  if (confirmed) body.append("confirmed", "true");
+  const response = await fetch(path, { method: "POST", body, credentials: "include" });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || `Workout-Restore fehlgeschlagen (${response.status})`);
+  return payload;
+}
+
+workoutForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const previewButton = workoutForm.querySelector("button[type='submit']");
+  previewButton.disabled = true;
+  workoutConfirm.disabled = true;
+  workoutPreviewIsCurrent = false;
+  setWorkoutResult("info", "Archiv und Benutzerzuordnung werden geprüft ...");
+  try {
+    const { preview } = await sendWorkoutArchive("/admin/accounts/workouts/preview");
+    renderWorkoutPreview(preview);
+    const totals = preview.totals || {};
+    const hasConflicts = Number(totals.conflicts) > 0;
+    const canImport = !hasConflicts && Number(totals.importable) > 0;
+    workoutPreviewIsCurrent = true;
+    workoutConfirm.classList.toggle("d-none", !canImport);
+    workoutConfirm.disabled = !canImport;
+    setWorkoutResult(hasConflicts ? "danger" : (Number(totals.unmatched) ? "warning" : "success"), [
+      `${totals.workouts || 0} Workouts`, `${totals.importable || 0} neu`,
+      `${totals.duplicates || 0} Duplikate`, `${totals.unmatched || 0} ohne Benutzer`,
+      `${totals.conflicts || 0} in Konflikten`
+    ].join(" · "));
+  } catch (error) {
+    workoutConfirm.classList.add("d-none");
+    setWorkoutResult("danger", error.message);
+  } finally {
+    previewButton.disabled = false;
+  }
+});
+
+workoutConfirm?.addEventListener("click", async () => {
+  if (!workoutPreviewIsCurrent) return;
+  const previewButton = workoutForm.querySelector("button[type='submit']");
+  previewButton.disabled = true;
+  workoutConfirm.disabled = true;
+  setWorkoutResult("info", "Workouts werden transaktional importiert ...");
+  try {
+    const { result: imported } = await sendWorkoutArchive("/admin/accounts/workouts/import", true);
+    setWorkoutResult("success", [
+      `${imported.imported || 0} Workouts importiert`,
+      `${imported.importedSegments || 0} Workout-Segmente`,
+      `${imported.importedFavorites || 0} Favoriten`
+    ].join(" · "));
+    workoutPreviewIsCurrent = false;
+    workoutConfirm.classList.add("d-none");
+  } catch (error) {
+    setWorkoutResult("danger", error.message);
+    workoutConfirm.disabled = false;
+  } finally {
+    previewButton.disabled = false;
+  }
+});
+
+workoutForm?.querySelector("input[name='archive']")?.addEventListener("change", () => {
+  workoutPreviewIsCurrent = false;
+  workoutConfirm.classList.add("d-none");
+  workoutPreviewWrap.classList.add("d-none");
+  workoutResult.classList.add("d-none");
+});
+
 const databaseBackupList = document.getElementById("database-backup-list");
 const databaseBackupEmpty = document.getElementById("database-backup-empty");
 const databaseBackupEnvironment = document.getElementById("database-backup-environment");

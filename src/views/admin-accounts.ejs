@@ -238,10 +238,37 @@
                         </table>
                     </div>
                 </section>
+
+                <section class="ui-surface admin-accounts-card">
+                    <p class="admin-accounts-step">05 · Workoutexport</p>
+                    <h2>Alle Workouts herunterladen</h2>
+                    <p>Exportiert Metadaten, kompakte Messwert-Streams, GPS-Tracks, Workout-Segmente und Favoriten mit stabiler Besitzerkennung.</p>
+                    <a class="btn btn-primary" href="/admin/accounts/workouts/export">Workout-ZIP exportieren</a>
+                </section>
+
+                <section class="ui-surface admin-accounts-card admin-accounts-card--wide">
+                    <p class="admin-accounts-step">06 · Workout-Restore</p>
+                    <h2>Workouts wiederherstellen</h2>
+                    <p>Prüft zuerst die Benutzerzuordnung. Vorhandene Workouts mit identischem Startzeitpunkt werden sicher übersprungen; es wird nichts gelöscht.</p>
+                    <form id="workout-backup-import-form">
+                        <input class="form-control mb-3" type="file" name="archive" accept="application/zip,.zip" required>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button class="btn btn-outline-primary" type="submit">Zuordnung prüfen</button>
+                            <button class="btn btn-dark d-none" id="workout-backup-confirm" type="button">Import bestätigen</button>
+                        </div>
+                    </form>
+                    <div class="alert d-none mt-3 mb-0" id="workout-backup-result" role="status"></div>
+                    <div class="table-responsive d-none mt-3" id="workout-backup-preview-wrap">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead><tr><th>Quelle</th><th>Ziel</th><th>Zuordnung</th><th class="text-end">Workouts</th><th class="text-end">Neu</th><th class="text-end">Duplikate</th></tr></thead>
+                            <tbody id="workout-backup-preview"></tbody>
+                        </table>
+                    </div>
+                </section>
             </div>
         </div>
     </main>
 
-    <script src="/js/admin-accounts.js?v=db-cleanup-2"></script>
+    <script src="/js/admin-accounts.js?v=workout-backup-1"></script>
 </body>
 </html>
