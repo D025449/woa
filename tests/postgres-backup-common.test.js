@@ -203,3 +203,18 @@ test("database creation uses local sudo without exposing a PostgreSQL password",
     else process.env.DB_PORT = previousPort;
   }
 });
+
+test("production switch validates the admin through a psql file", async () => {
+  const switchSource = await fs.readFile(
+    new URL("../ops/postgres-backup/switch-database.mjs", import.meta.url),
+    "utf8"
+  );
+  const validationSql = await fs.readFile(
+    new URL("../ops/postgres-backup/validate-admin-database.sql", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(switchSource, /"--file", validateAdminSqlFile/u);
+  assert.doesNotMatch(switchSource, /"--command"[\s\S]*admin_auth_sub/u);
+  assert.match(validationSql, /u\.auth_sub = :'admin_auth_sub'/u);
+});

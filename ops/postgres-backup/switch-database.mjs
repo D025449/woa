@@ -20,6 +20,7 @@ import {
 } from "./runtime-database.mjs";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
+const validateAdminSqlFile = path.join(currentDirectory, "validate-admin-database.sql");
 
 function printHelp() {
   console.log(`Usage: node ops/postgres-backup/switch-database.mjs --operation <activate|rollback> [options]
@@ -42,19 +43,9 @@ async function validateAdminDatabase(tools, database, authSub, childEnv) {
     "--username", process.env.DB_USER,
     "--dbname", database,
     "--no-psqlrc", "--tuples-only", "--no-align",
+    "--set", "ON_ERROR_STOP=1",
     "--set", `admin_auth_sub=${authSub}`,
-    "--command", `SELECT json_build_object(
-      'database', current_database(),
-      'adminPresent', EXISTS (
-        SELECT 1
-        FROM users u
-        JOIN user_roles r ON r.uid = u.id AND r.role = 'admin'
-        WHERE u.auth_sub = :'admin_auth_sub'
-      ),
-      'users', (SELECT count(*) FROM users),
-      'workouts', (SELECT count(*) FROM workouts),
-      'segments', (SELECT count(*) FROM gps_segments)
-    )::text;`
+    "--file", validateAdminSqlFile
   ], { env: childEnv });
   const validation = JSON.parse(result.stdout);
   if (!validation.adminPresent) {
