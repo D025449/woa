@@ -291,11 +291,64 @@ export async function resolveDatabaseCreator({
     }
   }
 
+  if (String(process.env.BACKUP_DB_ADMIN_USE_SUDO || "") === "1") {
+    const sudoUser = String(process.env.BACKUP_DB_ADMIN_SUDO_USER || "postgres").trim();
+    try {
+      const result = await runCommand("sudo", [
+        "-n", "-u", sudoUser,
+        tools.psql,
+        "--port", process.env.DB_PORT,
+        "--dbname", "postgres",
+        "--no-psqlrc", "--tuples-only", "--no-align",
+        "--command", "SELECT (rolsuper OR rolcreatedb)::text FROM pg_roles WHERE rolname = current_user;"
+      ]);
+      if (result.stdout === "true" || result.stdout === "t") {
+        const env = { ...process.env };
+        delete env.PGPASSWORD;
+        return {
+          user: sudoUser,
+          env,
+          source: "sudo-local",
+          sudoUser
+        };
+      }
+      failures.push(`${sudoUser} via sudo: connected, but role has no CREATEDB permission`);
+    } catch (error) {
+      failures.push(`${sudoUser} via sudo: ${error.message}`);
+    }
+  }
+
   throw new Error(
     "No usable PostgreSQL role with CREATEDB permission was found. "
-    + "Set BACKUP_DB_ADMIN_USER and optionally BACKUP_DB_ADMIN_PASSWORD. "
+    + "Set BACKUP_DB_ADMIN_USER and optionally BACKUP_DB_ADMIN_PASSWORD, "
+    + "or enable BACKUP_DB_ADMIN_USE_SUDO for a trusted local PostgreSQL host. "
     + `Checked: ${failures.join("; ")}`
   );
+}
+
+export function buildCreateDatabaseInvocation({ tools, creator, targetDatabase, owner }) {
+  const args = [
+    "--port", process.env.DB_PORT,
+    "--owner", owner,
+    "--maintenance-db", "postgres",
+    targetDatabase
+  ];
+  if (creator.source === "sudo-local") {
+    return {
+      command: "sudo",
+      args: ["-n", "-u", creator.sudoUser, tools.createdb, ...args],
+      env: creator.env
+    };
+  }
+  return {
+    command: tools.createdb,
+    args: [
+      "--host", process.env.DB_HOST,
+      "--username", creator.user,
+      ...args
+    ],
+    env: creator.env
+  };
 }
 
 export async function runCommand(command, args, {

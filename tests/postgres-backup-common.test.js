@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   acquireBackupLock,
   buildBackupLocation,
+  buildCreateDatabaseInvocation,
   buildDatabaseCreatorCandidates,
   buildRestoreDatabaseName,
   normalizeS3Prefix,
@@ -170,5 +171,35 @@ test("development ignores the production runtime pointer", async () => {
     assert.equal(resolved.pointerFile, null);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("database creation uses local sudo without exposing a PostgreSQL password", () => {
+  const previousPort = process.env.DB_PORT;
+  process.env.DB_PORT = "5432";
+  try {
+    const invocation = buildCreateDatabaseInvocation({
+      tools: { createdb: "/usr/bin/createdb" },
+      creator: {
+        user: "postgres",
+        source: "sudo-local",
+        sudoUser: "postgres",
+        env: { NODE_ENV: "production" }
+      },
+      targetDatabase: "cwa24_prod_restore_20260805_140000",
+      owner: "cwa24user"
+    });
+    assert.equal(invocation.command, "sudo");
+    assert.deepEqual(invocation.args, [
+      "-n", "-u", "postgres", "/usr/bin/createdb",
+      "--port", "5432",
+      "--owner", "cwa24user",
+      "--maintenance-db", "postgres",
+      "cwa24_prod_restore_20260805_140000"
+    ]);
+    assert.equal(invocation.env.PGPASSWORD, undefined);
+  } finally {
+    if (previousPort === undefined) delete process.env.DB_PORT;
+    else process.env.DB_PORT = previousPort;
   }
 });

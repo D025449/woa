@@ -119,6 +119,8 @@ const backupOpsEnv = {
   BACKUP_CREATEDB_PATH: asString(process.env.BACKUP_CREATEDB_PATH),
   BACKUP_DB_ADMIN_USER: asString(process.env.BACKUP_DB_ADMIN_USER),
   BACKUP_DB_ADMIN_PASSWORD: asString(process.env.BACKUP_DB_ADMIN_PASSWORD),
+  BACKUP_DB_ADMIN_USE_SUDO: asString(process.env.BACKUP_DB_ADMIN_USE_SUDO, "1"),
+  BACKUP_DB_ADMIN_SUDO_USER: asString(process.env.BACKUP_DB_ADMIN_SUDO_USER, "postgres"),
   REDIS_URL: asString(process.env.REDIS_URL, "redis://127.0.0.1:6379")
 };
 

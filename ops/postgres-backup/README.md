@@ -78,6 +78,8 @@ BACKUP_CREATEDB_PATH=
 BACKUP_AWS_CLI_PATH=
 BACKUP_DB_ADMIN_USER=
 BACKUP_DB_ADMIN_PASSWORD=
+BACKUP_DB_ADMIN_USE_SUDO=1
+BACKUP_DB_ADMIN_SUDO_USER=postgres
 ```
 
 Auf dem Dev-Mac werden für PostgreSQL 16 typischerweise diese Pfade verwendet:
@@ -400,6 +402,10 @@ npm run backup:restore:dev
 ```
 
 Dem App-User sollte nicht dauerhaft `CREATEDB` erteilt werden.
+Auf der Production-EC2 verwendet der Ops-Worker stattdessen den explizit
+aktivierten lokalen Fallback `sudo -n -u postgres`. Dieser wird nur zum Prüfen
+der Creator-Rolle und für `createdb` verwendet; `pg_restore` läuft weiterhin
+mit dem eingeschränkten `DB_USER`.
 
 ### Kein vollständiges Backup gefunden
 

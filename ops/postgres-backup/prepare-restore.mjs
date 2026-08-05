@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   acquireBackupLock,
   buildAwsS3CpArgs,
+  buildCreateDatabaseInvocation,
   buildRestoreDatabaseName,
   getPostgresTools,
   loadBackupEnvironment,
@@ -127,14 +128,13 @@ async function prepareRestore() {
     }
     await runCommand(tools.pgRestore, ["--list", dumpFile]);
 
-    await runCommand(tools.createdb, [
-      "--host", process.env.DB_HOST,
-      "--port", process.env.DB_PORT,
-      "--username", databaseCreator.user,
-      "--owner", process.env.DB_USER,
-      "--maintenance-db", "postgres",
-      targetDatabase
-    ], { env: databaseCreator.env });
+    const createDatabase = buildCreateDatabaseInvocation({
+      tools,
+      creator: databaseCreator,
+      targetDatabase,
+      owner: process.env.DB_USER
+    });
+    await runCommand(createDatabase.command, createDatabase.args, { env: createDatabase.env });
     databaseCreated = true;
 
     await runCommand(tools.pgRestore, [

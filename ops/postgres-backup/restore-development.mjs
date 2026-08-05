@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   buildAwsS3CpArgs,
+  buildCreateDatabaseInvocation,
   buildRestoreDatabaseName,
   getPostgresTools,
   loadBackupEnvironment,
@@ -146,14 +147,13 @@ async function restoreDevelopmentBackup() {
     await runCommand(tools.pgRestore, ["--list", dumpFile]);
 
     console.log("Creating isolated restore database", { targetDatabase, owner: process.env.DB_USER });
-    await runCommand(tools.createdb, [
-      "--host", process.env.DB_HOST,
-      "--port", process.env.DB_PORT,
-      "--username", databaseCreator.user,
-      "--owner", process.env.DB_USER,
-      "--maintenance-db", "postgres",
-      targetDatabase
-    ], { env: databaseCreator.env });
+    const createDatabase = buildCreateDatabaseInvocation({
+      tools,
+      creator: databaseCreator,
+      targetDatabase,
+      owner: process.env.DB_USER
+    });
+    await runCommand(createDatabase.command, createDatabase.args, { env: createDatabase.env });
     databaseCreated = true;
 
     console.log("Restoring PostgreSQL archive", { targetDatabase });
