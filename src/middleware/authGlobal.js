@@ -74,6 +74,11 @@ export default async function authGlobal(req, res, next) {
         return next();
       }
 
+      if (typeof req.session.user.is_admin !== "boolean") {
+        const appSettings = await UserDBService.getUserAppSettings(req.session.user_id);
+        req.session.user.is_admin = appSettings.isAdmin;
+      }
+
       req.user = {
         id: req.session.user_id,
         sub: req.session.user.sub,
@@ -81,6 +86,7 @@ export default async function authGlobal(req, res, next) {
         display_name: req.session?.user?.display_name,
         language: req.session?.user?.language || "en",
         show_sudoku: Boolean(req.session?.user?.show_sudoku),
+        is_admin: Boolean(req.session?.user?.is_admin),
         account_status: req.session?.user?.account_status || "active",
         deletion_requested_at: req.session?.user?.deletion_requested_at || null,
         deletion_scheduled_for: req.session?.user?.deletion_scheduled_for || null,
@@ -159,6 +165,7 @@ export default async function authGlobal(req, res, next) {
       display_name: dbuser.display_name,
       language: normalizedLanguage,
       show_sudoku: appSettings.showSudoku,
+      is_admin: appSettings.isAdmin,
       account_status: dbuser.account_status || "active",
       deletion_requested_at: dbuser.deletion_requested_at || null,
       deletion_scheduled_for: dbuser.deletion_scheduled_for || null,
@@ -174,6 +181,7 @@ export default async function authGlobal(req, res, next) {
       display_name: dbuser.display_name,
       language: normalizedLanguage,
       show_sudoku: appSettings.showSudoku,
+      is_admin: appSettings.isAdmin,
       account_status: dbuser.account_status || "active",
       deletion_requested_at: dbuser.deletion_requested_at || null,
       deletion_scheduled_for: dbuser.deletion_scheduled_for || null,
@@ -202,6 +210,7 @@ export default async function authGlobal(req, res, next) {
         display_name: req.session?.user?.display_name,
         language: req.session?.user?.language || "en",
         show_sudoku: Boolean(req.session?.user?.show_sudoku),
+        is_admin: Boolean(req.session?.user?.is_admin),
         account_status: req.session?.user?.account_status || "active",
         deletion_requested_at: req.session?.user?.deletion_requested_at || null,
         deletion_scheduled_for: req.session?.user?.deletion_scheduled_for || null,

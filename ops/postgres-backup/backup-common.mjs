@@ -201,8 +201,101 @@ export function getPostgresTools() {
     pgRestore: process.env.BACKUP_PG_RESTORE_PATH
       || (hasExplicitDirectory ? path.join(toolDirectory, "pg_restore") : "pg_restore"),
     psql: process.env.BACKUP_PSQL_PATH
-      || (hasExplicitDirectory ? path.join(toolDirectory, "psql") : "psql")
+      || (hasExplicitDirectory ? path.join(toolDirectory, "psql") : "psql"),
+    createdb: process.env.BACKUP_CREATEDB_PATH
+      || (hasExplicitDirectory ? path.join(toolDirectory, "createdb") : "createdb")
   };
+}
+
+export function buildRestoreDatabaseName(sourceDatabase, timestamp = new Date()) {
+  const source = String(sourceDatabase || "database")
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/gu, "_")
+    .replace(/^_+|_+$/gu, "") || "database";
+  const timestampPart = new Date(timestamp).toISOString()
+    .replace(/[-:]/gu, "")
+    .replace(/T(\d{6}).*$/u, "_$1")
+    .slice(0, 15);
+  const suffix = `_restore_${timestampPart}`;
+  return `${source.slice(0, 63 - suffix.length)}${suffix}`;
+}
+
+export function selectLatestManifestKey(contents, expectedPrefix) {
+  const prefix = String(expectedPrefix || "").replace(/^\/+|\/+$/gu, "");
+  const manifests = (Array.isArray(contents) ? contents : [])
+    .filter((entry) => (
+      typeof entry?.Key === "string"
+      && entry.Key.startsWith(`${prefix}/`)
+      && entry.Key.endsWith("/manifest.json")
+    ))
+    .sort((left, right) => (
+      new Date(right.LastModified || 0).getTime() - new Date(left.LastModified || 0).getTime()
+    ));
+  return manifests[0]?.Key || null;
+}
+
+export function buildDatabaseCreatorCandidates({ explicitUser, operatingSystemUser, appUser }) {
+  return [...new Set([
+    explicitUser ? String(explicitUser).trim() : "",
+    operatingSystemUser ? String(operatingSystemUser).trim() : "",
+    appUser ? String(appUser).trim() : ""
+  ].filter(Boolean))];
+}
+
+export function databaseUserEnvironment(user, appUser = process.env.DB_USER) {
+  const env = { ...process.env };
+  if (user === appUser) {
+    env.PGPASSWORD = process.env.DB_PASSWORD;
+  } else if (process.env.BACKUP_DB_ADMIN_PASSWORD) {
+    env.PGPASSWORD = process.env.BACKUP_DB_ADMIN_PASSWORD;
+  } else {
+    delete env.PGPASSWORD;
+  }
+  return env;
+}
+
+export async function resolveDatabaseCreator({
+  tools,
+  explicitUser,
+  operatingSystemUser,
+  appUser = process.env.DB_USER
+}) {
+  const candidates = buildDatabaseCreatorCandidates({
+    explicitUser,
+    operatingSystemUser,
+    appUser
+  });
+  const failures = [];
+
+  for (const user of candidates) {
+    try {
+      const env = databaseUserEnvironment(user, appUser);
+      const result = await runCommand(tools.psql, [
+        "--host", process.env.DB_HOST,
+        "--port", process.env.DB_PORT,
+        "--username", user,
+        "--dbname", "postgres",
+        "--no-psqlrc", "--tuples-only", "--no-align",
+        "--command", "SELECT (rolsuper OR rolcreatedb)::text FROM pg_roles WHERE rolname = current_user;"
+      ], { env });
+      if (result.stdout === "true" || result.stdout === "t") {
+        return {
+          user,
+          env,
+          source: user === explicitUser ? "explicit" : "auto-detected"
+        };
+      }
+      failures.push(`${user}: connected, but role has no CREATEDB permission`);
+    } catch (error) {
+      failures.push(`${user}: ${error.message}`);
+    }
+  }
+
+  throw new Error(
+    "No usable PostgreSQL role with CREATEDB permission was found. "
+    + "Set BACKUP_DB_ADMIN_USER and optionally BACKUP_DB_ADMIN_PASSWORD. "
+    + `Checked: ${failures.join("; ")}`
+  );
 }
 
 export async function runCommand(command, args, {

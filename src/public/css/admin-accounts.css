@@ -1,0 +1,284 @@
+:root {
+  --admin-ink: #17324a;
+  --admin-accent: #176b9c;
+  --admin-mist: #eaf4f8;
+}
+
+.admin-accounts-page {
+  min-height: 100vh;
+  color: var(--admin-ink);
+  background:
+    radial-gradient(circle at 82% 14%, rgba(31, 137, 179, 0.14), transparent 32rem),
+    linear-gradient(145deg, #f4f8f9 0%, #edf4f6 52%, #f8faf9 100%);
+}
+
+.admin-accounts-shell {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.admin-accounts-hero {
+  border-left: 4px solid var(--admin-accent);
+}
+
+.admin-database-wizard {
+  margin-top: 1rem;
+  padding: 1.6rem;
+  border-top: 3px solid var(--admin-accent);
+}
+
+.admin-database-wizard__header,
+.admin-database-catalog__meta,
+.admin-database-actions,
+.admin-database-restore,
+.admin-database-activation,
+.admin-database-rollback,
+.admin-database-job__heading,
+.admin-restore-result__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-database-wizard__header h2,
+.admin-database-catalog h3,
+.admin-restore-result h3 {
+  margin: 0;
+}
+
+.admin-database-wizard__header p:not(.admin-accounts-step),
+.admin-database-restore p,
+.admin-database-rollback p,
+.admin-database-job p,
+.admin-restore-result__note {
+  margin: 0.35rem 0 0;
+  color: #587083;
+}
+
+.admin-wizard-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  margin: 1.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-wizard-steps li {
+  position: relative;
+  padding: 0.75rem 0.5rem 0.75rem 2.4rem;
+  color: #6f8290;
+  border-bottom: 2px solid #ccdae0;
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.admin-wizard-steps li span {
+  position: absolute;
+  left: 0.25rem;
+  color: #91a2ad;
+  font-size: 0.7rem;
+}
+
+.admin-wizard-steps li.is-active,
+.admin-wizard-steps li.is-complete {
+  color: var(--admin-ink);
+  border-color: var(--admin-accent);
+}
+
+.admin-wizard-steps li.is-complete span,
+.admin-wizard-steps li.is-active span {
+  color: var(--admin-accent);
+}
+
+.admin-database-create {
+  max-width: 690px;
+}
+
+.admin-database-catalog {
+  overflow: hidden;
+  border: 1px solid #d7e2e7;
+  border-radius: 0.45rem;
+}
+
+.admin-database-catalog__meta {
+  padding: 0.9rem 1rem;
+  background: #f1f7f9;
+}
+
+.admin-database-catalog__meta h3 {
+  font-size: 1rem;
+}
+
+.admin-database-catalog__meta span,
+.admin-database-actions small {
+  color: #667d8d;
+  font-size: 0.78rem;
+}
+
+.admin-database-select-column {
+  width: 2.5rem;
+}
+
+.admin-database-empty {
+  padding: 2rem 1rem;
+  color: #6a7e8c;
+  text-align: center;
+}
+
+.admin-database-actions,
+.admin-database-restore,
+.admin-database-rollback,
+.admin-database-job,
+.admin-restore-result {
+  padding: 1rem;
+  border: 1px solid #d4e0e5;
+  border-radius: 0.45rem;
+  background: rgba(247, 251, 252, 0.92);
+}
+
+.admin-database-actions > div,
+.admin-database-restore > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.admin-database-activation,
+.admin-database-rollback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-database-rollback {
+  border-color: #e7c8c8;
+  background: #fffafa;
+}
+
+.admin-database-job .progress {
+  height: 0.45rem;
+  margin-top: 0.8rem;
+  background: #dce8ec;
+}
+
+.admin-database-job .progress-bar {
+  background: var(--admin-accent);
+  transition: width 240ms ease;
+}
+
+.admin-database-job__heading span {
+  color: var(--admin-accent);
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.admin-restore-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.admin-restore-metrics div {
+  padding: 0.75rem;
+  background: #eaf3f6;
+}
+
+.admin-restore-metrics dt {
+  color: #637987;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.admin-restore-metrics dd {
+  margin: 0.15rem 0 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.admin-accounts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.admin-accounts-card {
+  min-height: 250px;
+  padding: 1.5rem;
+}
+
+.admin-accounts-card--wide {
+  grid-column: 1 / -1;
+}
+
+.admin-backup-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.74rem;
+  font-weight: 750;
+}
+
+.admin-backup-status--matched {
+  color: #0a5a78;
+  background: #dff2f8;
+}
+
+.admin-backup-status--unmatched {
+  color: #785512;
+  background: #fff1ca;
+}
+
+.admin-backup-status--conflict {
+  color: #8b2635;
+  background: #fbe0e4;
+}
+
+.admin-accounts-card h2 {
+  margin-bottom: 0.75rem;
+  font-size: 1.35rem;
+}
+
+.admin-accounts-card p:not(.admin-accounts-step) {
+  max-width: 34rem;
+  color: #587083;
+}
+
+.admin-accounts-step {
+  margin-bottom: 0.45rem;
+  color: var(--admin-accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 760px) {
+  .admin-accounts-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-database-wizard__header,
+  .admin-database-actions,
+  .admin-database-restore,
+  .admin-database-activation,
+  .admin-database-rollback,
+  .admin-restore-result__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-wizard-steps {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .admin-restore-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+}

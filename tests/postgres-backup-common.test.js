@@ -7,11 +7,18 @@ import test from "node:test";
 import {
   acquireBackupLock,
   buildBackupLocation,
+  buildDatabaseCreatorCandidates,
+  buildRestoreDatabaseName,
   normalizeS3Prefix,
   parseCliArgs,
   parseEnvText,
-  sanitizeKeyPart
+  sanitizeKeyPart,
+  selectLatestManifestKey
 } from "../ops/postgres-backup/backup-common.mjs";
+import {
+  applyRuntimeDatabasePointer,
+  writeRuntimeDatabasePointer
+} from "../ops/postgres-backup/runtime-database.mjs";
 
 test("backup CLI arguments support values and flags", () => {
   assert.deepEqual(
@@ -73,6 +80,94 @@ test("backup lock prevents a concurrent backup and can be released", async () =>
     await release();
     const releaseAgain = await acquireBackupLock("localhost/test", { directory });
     await releaseAgain();
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("restore database names are isolated and stay within PostgreSQL limits", () => {
+  const name = buildRestoreDatabaseName(
+    "cwa24_dev",
+    new Date("2026-08-05T08:45:12.000Z")
+  );
+  assert.equal(name, "cwa24_dev_restore_20260805_084512");
+  assert.ok(name.length <= 63);
+  assert.ok(buildRestoreDatabaseName("x".repeat(100)).length <= 63);
+});
+
+test("latest backup selection only considers manifests below the expected prefix", () => {
+  const prefix = "backups/postgres/development/cwa24_dev";
+  const key = selectLatestManifestKey([
+    {
+      Key: `${prefix}/2026/08/04/old/manifest.json`,
+      LastModified: "2026-08-04T10:00:00Z"
+    },
+    {
+      Key: `${prefix}/2026/08/05/new/manifest.json`,
+      LastModified: "2026-08-05T10:00:00Z"
+    },
+    {
+      Key: "backups/postgres/production/cwa24_prod/latest/manifest.json",
+      LastModified: "2026-08-06T10:00:00Z"
+    }
+  ], prefix);
+  assert.equal(key, `${prefix}/2026/08/05/new/manifest.json`);
+});
+
+test("database creator candidates prefer explicit and OS users without duplicates", () => {
+  assert.deepEqual(buildDatabaseCreatorCandidates({
+    explicitUser: "postgres",
+    operatingSystemUser: "D025449",
+    appUser: "cwa24user"
+  }), ["postgres", "D025449", "cwa24user"]);
+  assert.deepEqual(buildDatabaseCreatorCandidates({
+    explicitUser: "D025449",
+    operatingSystemUser: "D025449",
+    appUser: "cwa24user"
+  }), ["D025449", "cwa24user"]);
+});
+
+test("production runtime pointer separates physical and logical database names", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "cwa24-db-pointer-test-"));
+  const pointerFile = path.join(directory, "active-database.env");
+  try {
+    await writeRuntimeDatabasePointer({
+      file: pointerFile,
+      databaseName: "cwa24_prod_restore_20260805_084512",
+      previousDatabase: "cwa24_prod",
+      backupId: "backup-123",
+      activatedAt: new Date("2026-08-05T09:00:00Z")
+    });
+    const environment = {
+      NODE_ENV: "production",
+      DB_NAME: "cwa24_prod",
+      BACKUP_DATABASE_ID: "cwa24_prod",
+      BACKUP_ACTIVE_DATABASE_FILE: pointerFile
+    };
+    const resolved = applyRuntimeDatabasePointer(environment);
+    assert.equal(environment.DB_NAME, "cwa24_prod_restore_20260805_084512");
+    assert.equal(environment.BACKUP_DATABASE_ID, "cwa24_prod");
+    assert.equal(resolved.previousDatabase, "cwa24_prod");
+    assert.equal(resolved.activatedBackupId, "backup-123");
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("development ignores the production runtime pointer", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "cwa24-db-pointer-dev-test-"));
+  const pointerFile = path.join(directory, "active-database.env");
+  try {
+    await fs.writeFile(pointerFile, "DB_NAME=wrong_for_dev\n");
+    const environment = {
+      NODE_ENV: "development",
+      DB_NAME: "cwa24_dev",
+      BACKUP_ACTIVE_DATABASE_FILE: pointerFile
+    };
+    const resolved = applyRuntimeDatabasePointer(environment);
+    assert.equal(resolved.databaseName, "cwa24_dev");
+    assert.equal(environment.DB_NAME, "cwa24_dev");
+    assert.equal(resolved.pointerFile, null);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }

@@ -6,9 +6,11 @@ APP_DIR="${APP_DIR:-/home/ec2-user/woa}"
 ECOSYSTEM_FILE="${ECOSYSTEM_FILE:-ecosystem.config.cjs}"
 APP_NAME="${APP_NAME:-cwa24}"
 WORKER_NAME="${WORKER_NAME:-import-worker}"
+BACKUP_OPS_WORKER_NAME="${BACKUP_OPS_WORKER_NAME:-postgres-backup-ops-worker}"
 BATCH_WORKER_NAME="${BATCH_WORKER_NAME:-import-batch-worker}"
 NODE_ENV="${NODE_ENV:-production}"
 ENV_FILE="${ENV_FILE:-.env.production}"
+BACKUP_ACTIVE_DATABASE_FILE="${BACKUP_ACTIVE_DATABASE_FILE:-/etc/cwa24/active-database.env}"
 
 REQUIRED_DB_ENV_VARS=(DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD)
 
@@ -47,7 +49,10 @@ Optional env overrides:
   ENV_FILE=.env.production
   APP_NAME=cwa24
   WORKER_NAME=import-worker
+  BACKUP_OPS_WORKER_NAME=postgres-backup-ops-worker
   BATCH_WORKER_NAME=import-batch-worker
+  BACKUP_ACTIVE_DATABASE_FILE=/etc/cwa24/active-database.env
+  BACKUP_DATABASE_ID=cwa24_prod
 EOF
 }
 
@@ -62,6 +67,37 @@ load_env_file() {
   # shellcheck disable=SC1090
   source "${ENV_FILE}"
   set +a
+}
+
+configure_production_database_pointer() {
+  if [[ "${NODE_ENV}" != "production" ]]; then
+    return
+  fi
+
+  local configured_database="${DB_NAME:-cwa24_prod}"
+  export BACKUP_DATABASE_ID="${BACKUP_DATABASE_ID:-${configured_database}}"
+  export BACKUP_ACTIVE_DATABASE_FILE
+
+  if [[ ! -f "${BACKUP_ACTIVE_DATABASE_FILE}" ]]; then
+    log "Initializing production database pointer at ${BACKUP_ACTIVE_DATABASE_FILE}"
+    local pointer_dir
+    pointer_dir="$(dirname "${BACKUP_ACTIVE_DATABASE_FILE}")"
+    sudo install -d -o "$(id -un)" -g "$(id -gn)" -m 0750 "${pointer_dir}"
+    printf '# Managed by the CWA24 PostgreSQL backup wizard.\nDB_NAME=%s\nPREVIOUS_DB_NAME=\nACTIVATED_AT=\nACTIVATED_BACKUP_ID=\n' \
+      "${configured_database}" \
+      | sudo tee "${BACKUP_ACTIVE_DATABASE_FILE}" >/dev/null
+  fi
+  sudo chown "$(id -un):$(id -gn)" "${BACKUP_ACTIVE_DATABASE_FILE}"
+  sudo chmod 0640 "${BACKUP_ACTIVE_DATABASE_FILE}"
+
+  local active_database
+  active_database="$(sed -n 's/^DB_NAME=//p' "${BACKUP_ACTIVE_DATABASE_FILE}" | tail -n 1)"
+  if [[ ! "${active_database}" =~ ^[A-Za-z_][A-Za-z0-9_\$]{0,62}$ ]]; then
+    echo "[deploy] ERROR: Invalid DB_NAME in ${BACKUP_ACTIVE_DATABASE_FILE}" >&2
+    exit 1
+  fi
+  export DB_NAME="${active_database}"
+  log "Production database pointer active (logical=${BACKUP_DATABASE_ID}, physical=${DB_NAME})"
 }
 
 ensure_valkey() {
@@ -159,6 +195,9 @@ reload_services() {
   log "Deploying import worker (reload env from ${ECOSYSTEM_FILE})"
   pm2 start "${ECOSYSTEM_FILE}" --only "${WORKER_NAME}" --env "${NODE_ENV}" --update-env
 
+  log "Deploying PostgreSQL backup ops worker (reload env from ${ECOSYSTEM_FILE})"
+  pm2 start "${ECOSYSTEM_FILE}" --only "${BACKUP_OPS_WORKER_NAME}" --env "${NODE_ENV}" --update-env
+
   if pm2 describe "${BATCH_WORKER_NAME}" >/dev/null 2>&1; then
     log "Removing deprecated import batch worker process (${BATCH_WORKER_NAME})"
     pm2 delete "${BATCH_WORKER_NAME}"
@@ -179,6 +218,7 @@ main() {
   load_env_file
   ensure_valkey
   run_pull_and_install
+  configure_production_database_pointer
 
   case "${MODE}" in
     code-only)

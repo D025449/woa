@@ -12,6 +12,7 @@ import profileRoutes from "./routes/profileRoutes.js";
 import paymentsRoutes from "./routes/paymentsRoutes.js";
 import coachingRoutes from "./routes/coachingRoutes.js";
 import viewPreferenceRoutes from "./routes/viewPreferenceRoutes.js";
+import adminAccountBackupRoutes from "./routes/adminAccountBackupRoutes.js";
 
 import { Issuer, generators } from "openid-client";
 import { InitiateAuthCommand } from "@aws-sdk/client-cognito-identity-provider";
@@ -99,6 +100,7 @@ export async function createApp() {
     app.use('/api/payments', paymentsRoutes);
     app.use('/api/coaching', coachingRoutes);
     app.use('/api/view-preferences', viewPreferenceRoutes);
+    app.use('/admin/accounts', adminAccountBackupRoutes);
 
     app.use('/api/uploads', woaUploadsRouter);
 
@@ -244,8 +246,8 @@ export async function createApp() {
         };
 
         const dbuser = await UserDBService.ensureUserExists(user);
-        const language = await UserDBService.getUserLanguage(dbuser.id);
-        const normalizedLanguage = normalizeSupportedLocale(language, "en");
+        const appSettings = await UserDBService.getUserAppSettings(dbuser.id);
+        const normalizedLanguage = normalizeSupportedLocale(appSettings.language, "en");
 
         session.user_id = dbuser.id;
         session.user = {
@@ -254,6 +256,8 @@ export async function createApp() {
             email: dbuser.email,
             display_name: dbuser.display_name,
             language: normalizedLanguage,
+            show_sudoku: appSettings.showSudoku,
+            is_admin: appSettings.isAdmin,
             account_status: dbuser.account_status || "active",
             deletion_requested_at: dbuser.deletion_requested_at || null,
             deletion_scheduled_for: dbuser.deletion_scheduled_for || null,

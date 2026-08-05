@@ -10,6 +10,12 @@ const asNumber = (value, fallback) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const { resolveRuntimeDatabaseEnvironment } = require("./ops/postgres-backup/runtime-database.cjs");
+const runtimeDatabase = resolveRuntimeDatabaseEnvironment({
+  ...process.env,
+  NODE_ENV: asString(process.env.NODE_ENV, "production")
+});
+
 const appEnv = {
   NODE_ENV: asString(process.env.NODE_ENV, "production"),
   PORT: asNumber(process.env.PORT, 3000),
@@ -23,13 +29,18 @@ const appEnv = {
   SESSION_SECRET: asString(process.env.SESSION_SECRET),
   DB_HOST: asString(process.env.DB_HOST, "localhost"),
   DB_PORT: asNumber(process.env.DB_PORT, 5432),
-  DB_NAME: asString(process.env.DB_NAME, "cwa24_prod"),
+  DB_NAME: runtimeDatabase.databaseName,
   DB_USER: asString(process.env.DB_USER, "cwa24user"),
   DB_PASSWORD: asString(process.env.DB_PASSWORD),
   AWS_ACCESS_KEY_ID: asString(process.env.AWS_ACCESS_KEY_ID),
   AWS_SECRET_ACCESS_KEY: asString(process.env.AWS_SECRET_ACCESS_KEY),
   AWS_REGION: asString(process.env.AWS_REGION, "eu-central-1"),
   S3_BUCKET: asString(process.env.S3_BUCKET, "cwa24bucketprod"),
+  BACKUP_S3_BUCKET: asString(process.env.BACKUP_S3_BUCKET),
+  BACKUP_S3_PREFIX: asString(process.env.BACKUP_S3_PREFIX),
+  BACKUP_ENVIRONMENT: asString(process.env.BACKUP_ENVIRONMENT, process.env.NODE_ENV || "production"),
+  BACKUP_DATABASE_ID: runtimeDatabase.logicalDatabase,
+  BACKUP_ACTIVE_DATABASE_FILE: runtimeDatabase.pointerFile,
   REDIS_URL: asString(process.env.REDIS_URL, "redis://127.0.0.1:6379"),
   WOA_TEMP_DIR: asString(process.env.WOA_TEMP_DIR),
   PAYPAL_ENV: asString(process.env.PAYPAL_ENV, "live"),
@@ -50,7 +61,7 @@ const dbEnv = {
   NODE_ENV: asString(process.env.NODE_ENV, "production"),
   DB_HOST: asString(process.env.DB_HOST, "localhost"),
   DB_PORT: asNumber(process.env.DB_PORT, 5432),
-  DB_NAME: asString(process.env.DB_NAME, "cwa24_prod"),
+  DB_NAME: runtimeDatabase.databaseName,
   DB_USER: asString(process.env.DB_USER, "cwa24user"),
   DB_PASSWORD: asString(process.env.DB_PASSWORD)
 };
@@ -83,6 +94,34 @@ const workerEnv = {
   FEATURE_THUMBNAILS_ON_DEMAND: asString(process.env.FEATURE_THUMBNAILS_ON_DEMAND, "1")
 };
 
+const backupOpsEnv = {
+  ...dbEnv,
+  AWS_ACCESS_KEY_ID: asString(process.env.AWS_ACCESS_KEY_ID),
+  AWS_SECRET_ACCESS_KEY: asString(process.env.AWS_SECRET_ACCESS_KEY),
+  AWS_REGION: asString(process.env.AWS_REGION, "eu-central-1"),
+  S3_BUCKET: asString(process.env.S3_BUCKET, "cwa24bucketprod"),
+  BACKUP_S3_BUCKET: asString(process.env.BACKUP_S3_BUCKET),
+  BACKUP_S3_PREFIX: asString(process.env.BACKUP_S3_PREFIX),
+  BACKUP_S3_SSE: asString(process.env.BACKUP_S3_SSE),
+  BACKUP_S3_KMS_KEY_ID: asString(process.env.BACKUP_S3_KMS_KEY_ID),
+  BACKUP_ENVIRONMENT: asString(process.env.BACKUP_ENVIRONMENT, process.env.NODE_ENV || "production"),
+  BACKUP_DATABASE_ID: runtimeDatabase.logicalDatabase,
+  BACKUP_ACTIVE_DATABASE_FILE: runtimeDatabase.pointerFile,
+  BACKUP_PM2_PATH: asString(process.env.BACKUP_PM2_PATH, "pm2"),
+  BACKUP_ECOSYSTEM_FILE: asString(process.env.BACKUP_ECOSYSTEM_FILE, "ecosystem.config.cjs"),
+  BACKUP_APP_PROCESS_NAME: asString(process.env.BACKUP_APP_PROCESS_NAME, "cwa24"),
+  BACKUP_IMPORT_WORKER_NAME: asString(process.env.BACKUP_IMPORT_WORKER_NAME, "import-worker"),
+  BACKUP_ENV_FILE: asString(process.env.BACKUP_ENV_FILE),
+  BACKUP_AWS_CLI_PATH: asString(process.env.BACKUP_AWS_CLI_PATH),
+  BACKUP_PG_DUMP_PATH: asString(process.env.BACKUP_PG_DUMP_PATH),
+  BACKUP_PG_RESTORE_PATH: asString(process.env.BACKUP_PG_RESTORE_PATH),
+  BACKUP_PSQL_PATH: asString(process.env.BACKUP_PSQL_PATH),
+  BACKUP_CREATEDB_PATH: asString(process.env.BACKUP_CREATEDB_PATH),
+  BACKUP_DB_ADMIN_USER: asString(process.env.BACKUP_DB_ADMIN_USER),
+  BACKUP_DB_ADMIN_PASSWORD: asString(process.env.BACKUP_DB_ADMIN_PASSWORD),
+  REDIS_URL: asString(process.env.REDIS_URL, "redis://127.0.0.1:6379")
+};
+
 module.exports = {
   apps: [
     {
@@ -105,6 +144,14 @@ module.exports = {
       exec_mode: "fork",
       env: workerEnv,
       env_production: workerEnv
+    },
+    {
+      name: "postgres-backup-ops-worker",
+      script: "src/workers/postgres-backup-ops-worker.js",
+      instances: 1,
+      exec_mode: "fork",
+      env: backupOpsEnv,
+      env_production: backupOpsEnv
     }
   ]
 };

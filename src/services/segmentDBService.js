@@ -542,8 +542,8 @@ export default class SegmentDBService {
     }]));
   }
 
-  static async getOwnedSegmentsForArchive(uid) {
-    const result = await pool.query(`
+  static async getOwnedSegmentsForArchive(uid, queryable = pool) {
+    const result = await queryable.query(`
       SELECT
         s.id,
         s.uid,
@@ -574,6 +574,46 @@ export default class SegmentDBService {
       result.rows.map((row) => SegmentDBService.hydrateSegmentTrackRow(row))
     );
     return rows.map((row) => SegmentDBService.mapSegment(row));
+  }
+
+  static async getAllSegmentsForAdminArchive(queryable = pool) {
+    const result = await queryable.query(`
+      SELECT
+        s.id,
+        s.uid,
+        owner.auth_sub AS owner_auth_sub,
+        owner.email AS owner_email,
+        s.distance,
+        s.duration,
+        s.start_lat,
+        s.start_lng,
+        s.start_name,
+        s.start_altitude,
+        s.end_lat,
+        s.end_lng,
+        s.end_name,
+        s.end_altitude,
+        s.ascent,
+        s.altitudes,
+        s.points_count,
+        s.best_efforts_status,
+        0::int AS share_group_count,
+        s.track_blob,
+        s.track_blob_codec,
+        s.gps_bounds::text AS gps_bounds_text
+      FROM gps_segments s
+      INNER JOIN users owner ON owner.id = s.uid
+      ORDER BY s.uid, s.id
+    `);
+
+    const rows = await Promise.all(
+      result.rows.map((row) => SegmentDBService.hydrateSegmentTrackRow(row))
+    );
+    return rows.map((row) => ({
+      ...SegmentDBService.mapSegment(row),
+      ownerAuthSub: row.owner_auth_sub,
+      ownerEmail: row.owner_email
+    }));
   }
 
   static async getSegmentById(uid, segmentId) {
@@ -2040,7 +2080,7 @@ export default class SegmentDBService {
     });
   }
 
-  static async insertGpsSegmentsBulk(uid, segments) {
+  static async insertGpsSegmentsBulk(uid, segments, queryable = pool) {
     if (!segments || segments.length === 0) return [];
 
     const ids = [];
@@ -2244,7 +2284,7 @@ export default class SegmentDBService {
       trackBlobCodecs
     ];
 
-    const result = await pool.query(query, values);
+    const result = await queryable.query(query, values);
     return Promise.all(result.rows.map((row) => SegmentDBService.hydrateSegmentTrackRow(row)));
   }
 

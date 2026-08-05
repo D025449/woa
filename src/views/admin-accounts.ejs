@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <%- include("partials/favicon") %>
+    <title>Administration</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/css/ui-system.css?v=atlas-blue-4">
+    <link rel="stylesheet" href="/css/admin-accounts.css?v=atlas-blue-1">
+</head>
+<body class="admin-accounts-page">
+    <%- include("partials/app-topbar", {
+        title: "Administration",
+        currentPage: "admin",
+        userInfo,
+        showDashboardNewLink: true,
+        showSegmentsLink: true,
+        showAnalyticsLink: true,
+        showUploadLink: true,
+        showGroupsLink: true
+    }) %>
+
+    <main class="container-xl py-4">
+        <div class="admin-accounts-shell ui-page-shell">
+            <section class="ui-hero ui-hero--compact admin-accounts-hero">
+                <div>
+                    <p class="ui-hero__kicker">Administration</p>
+                    <h1 class="ui-hero__title">Backup &amp; Wiederherstellung</h1>
+                    <p class="ui-hero__subtitle">
+                        Vollständige PostgreSQL-Snapshots verwalten sowie portable Benutzer- und Segmentdaten sichern.
+                    </p>
+                </div>
+            </section>
+
+            <section class="ui-surface admin-database-wizard" id="database-backup-wizard">
+                <div class="admin-database-wizard__header">
+                    <div>
+                        <p class="admin-accounts-step">PostgreSQL · S3</p>
+                        <h2>Datenbank-Backup-Wizard</h2>
+                        <p>Erstellt vollständige Snapshots, prüft Restores isoliert und kann sie in Production kontrolliert aktivieren.</p>
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm" id="database-backup-refresh" type="button">Liste aktualisieren</button>
+                </div>
+
+                <ol class="admin-wizard-steps" aria-label="Backup- und Restore-Schritte">
+                    <li class="is-active" data-database-step="catalog"><span>01</span> Backup</li>
+                    <li data-database-step="select"><span>02</span> Auswählen</li>
+                    <li data-database-step="verify"><span>03</span> Verifizieren</li>
+                    <li data-database-step="restore"><span>04</span> Restore prüfen</li>
+                    <li data-database-step="activate"><span>05</span> Aktivieren</li>
+                </ol>
+
+                <div class="admin-database-create">
+                    <label class="form-label" for="database-backup-label">Optionale Bezeichnung</label>
+                    <div class="input-group">
+                        <input class="form-control" id="database-backup-label" maxlength="80" placeholder="z. B. vor Stream-Migration">
+                        <button class="btn btn-primary" id="database-backup-create" type="button">Neues Backup erstellen</button>
+                    </div>
+                </div>
+
+                <div class="admin-database-catalog mt-4">
+                    <div class="admin-database-catalog__meta">
+                        <h3>Vorhandene Backups</h3>
+                        <span id="database-backup-environment">Wird geladen ...</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th class="admin-database-select-column"></th>
+                                    <th>Erstellt</th>
+                                    <th>Bezeichnung</th>
+                                    <th>Datenbank</th>
+                                    <th class="text-end">DB-Größe</th>
+                                    <th class="text-end">Dump</th>
+                                    <th>Version</th>
+                                </tr>
+                            </thead>
+                            <tbody id="database-backup-list"></tbody>
+                        </table>
+                    </div>
+                    <div class="admin-database-empty d-none" id="database-backup-empty">Noch keine vollständigen Backups gefunden.</div>
+                </div>
+
+                <div class="admin-database-actions mt-4">
+                    <div>
+                        <strong id="database-backup-selected-title">Kein Backup ausgewählt</strong>
+                        <small id="database-backup-selected-detail">Wähle einen Snapshot aus der Liste.</small>
+                    </div>
+                    <button class="btn btn-outline-primary" id="database-backup-verify" type="button" disabled>Backup verifizieren</button>
+                </div>
+
+                <div class="admin-database-restore d-none mt-3" id="database-restore-confirmation">
+                    <div>
+                        <strong>Isolierten Restore vorbereiten</strong>
+                        <p>Die aktive Datenbank bleibt unverändert. Es wird eine neue Datenbank mit dem Suffix <code>_restore_…</code> angelegt.</p>
+                        <label class="form-check">
+                            <input class="form-check-input" id="database-restore-confirm" type="checkbox">
+                            <span class="form-check-label">Ich möchte das verifizierte Backup in eine neue Prüfdatenbank restaurieren.</span>
+                        </label>
+                    </div>
+                    <button class="btn btn-dark" id="database-restore-prepare" type="button" disabled>Restore vorbereiten</button>
+                </div>
+
+                <div class="admin-database-job d-none mt-4" id="database-backup-job" role="status">
+                    <div class="admin-database-job__heading">
+                        <strong id="database-backup-job-title">Operation läuft</strong>
+                        <span id="database-backup-job-state">wartet</span>
+                    </div>
+                    <div class="progress" aria-label="Fortschritt">
+                        <div class="progress-bar" id="database-backup-job-progress" style="width: 0%"></div>
+                    </div>
+                    <p id="database-backup-job-message">Der Ops-Worker übernimmt den Auftrag.</p>
+                </div>
+
+                <div class="admin-restore-result d-none mt-4" id="database-restore-result">
+                    <div class="admin-restore-result__header">
+                        <div>
+                            <p class="admin-accounts-step">Restore vorbereitet</p>
+                            <h3 id="database-restore-target">Prüfdatenbank</h3>
+                        </div>
+                        <span class="admin-backup-status" id="database-restore-compatibility"></span>
+                    </div>
+                    <dl class="admin-restore-metrics" id="database-restore-metrics"></dl>
+                    <p class="admin-restore-result__note" id="database-restore-note">Es wurde noch nichts umgeschaltet.</p>
+                    <div class="admin-database-activation d-none mt-3" id="database-activation-controls">
+                        <label class="form-check">
+                            <input class="form-check-input" id="database-activation-confirm" type="checkbox">
+                            <span class="form-check-label">Sicherheitsbackup erstellen, diese Datenbank aktivieren und Anwendung sowie Import-Worker neu starten.</span>
+                        </label>
+                        <button class="btn btn-danger" id="database-activation-start" type="button" disabled>Restore aktivieren</button>
+                    </div>
+                </div>
+
+                <div class="admin-database-rollback d-none mt-4" id="database-rollback-controls">
+                    <div>
+                        <p class="admin-accounts-step">Sicherheitsnetz</p>
+                        <strong id="database-rollback-title">Vorherige Datenbank verfügbar</strong>
+                        <p id="database-rollback-detail"></p>
+                    </div>
+                    <label class="form-check">
+                        <input class="form-check-input" id="database-rollback-confirm" type="checkbox">
+                        <span class="form-check-label">Vor dem Rollback ein weiteres Sicherheitsbackup erstellen.</span>
+                    </label>
+                    <button class="btn btn-outline-danger" id="database-rollback-start" type="button" disabled>Zur vorherigen DB zurück</button>
+                </div>
+            </section>
+
+            <div class="admin-accounts-grid">
+                <section class="ui-surface admin-accounts-card">
+                    <p class="admin-accounts-step">01 · Export</p>
+                    <h2>Konten herunterladen</h2>
+                    <p>Erzeugt einen konsistenten Snapshot aller Benutzerkonten. Workout- und Segmentdaten sind nicht enthalten.</p>
+                    <a class="btn btn-primary" href="/admin/accounts/export">JSON exportieren</a>
+                </section>
+
+                <section class="ui-surface admin-accounts-card">
+                    <p class="admin-accounts-step">02 · Restore</p>
+                    <h2>Konten wiederherstellen</h2>
+                    <p>Vorhandene Datensätze werden über stabile Schlüssel aktualisiert. Der Import läuft vollständig in einer Transaktion.</p>
+                    <form id="account-backup-import-form">
+                        <input class="form-control mb-3" type="file" name="backup" accept="application/json,.json" required>
+                        <button class="btn btn-dark" type="submit">JSON importieren</button>
+                    </form>
+                    <div class="alert d-none mt-3 mb-0" id="account-backup-result" role="status"></div>
+                </section>
+
+                <section class="ui-surface admin-accounts-card">
+                    <p class="admin-accounts-step">03 · Segmentexport</p>
+                    <h2>Alle Segmente herunterladen</h2>
+                    <p>Exportiert sämtliche GPS-Segmente mit Besitzerkennung als portables ZIP-Archiv. Berechnete Best Efforts sind nicht enthalten.</p>
+                    <a class="btn btn-primary" href="/admin/accounts/segments/export">Segment-ZIP exportieren</a>
+                </section>
+
+                <section class="ui-surface admin-accounts-card admin-accounts-card--wide">
+                    <p class="admin-accounts-step">04 · Segment-Restore</p>
+                    <h2>Segmente wiederherstellen</h2>
+                    <p>Ordnet Besitzer zuerst über Cognito-ID und ersatzweise über E-Mail zu. Vor dem Import wird eine vollständige Vorschau angezeigt.</p>
+                    <form id="segment-backup-import-form">
+                        <input class="form-control mb-3" type="file" name="archive" accept="application/zip,.zip" required>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button class="btn btn-outline-primary" type="submit">Zuordnung prüfen</button>
+                            <button class="btn btn-dark d-none" id="segment-backup-confirm" type="button">Import bestätigen</button>
+                        </div>
+                    </form>
+                    <div class="alert d-none mt-3 mb-0" id="segment-backup-result" role="status"></div>
+                    <div class="table-responsive d-none mt-3" id="segment-backup-preview-wrap">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Quelle</th>
+                                    <th>Ziel</th>
+                                    <th>Zuordnung</th>
+                                    <th class="text-end">Segmente</th>
+                                    <th class="text-end">Neu</th>
+                                    <th class="text-end">Duplikate</th>
+                                </tr>
+                            </thead>
+                            <tbody id="segment-backup-preview"></tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </main>
+
+    <script src="/js/admin-accounts.js"></script>
+</body>
+</html>

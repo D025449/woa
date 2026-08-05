@@ -77,8 +77,8 @@
                     <% } %>
 
                     <li class="nav-item">
-                        <details class="app-topbar-menu" <%= ['home', 'groups', 'sudoku'].includes(currentPage) ? 'data-active="true"' : '' %>>
-                            <summary class="nav-link app-topbar-menu__summary <%= ['home', 'groups', 'sudoku'].includes(currentPage) ? 'active' : '' %>">
+                        <details class="app-topbar-menu" <%= ['home', 'groups', 'sudoku', 'admin'].includes(currentPage) ? 'data-active="true"' : '' %>>
+                            <summary class="nav-link app-topbar-menu__summary <%= ['home', 'groups', 'sudoku', 'admin'].includes(currentPage) ? 'active' : '' %>">
                                 <%= tr("common.nav.more") %>
                             </summary>
                             <div class="app-topbar-dropdown">
@@ -93,6 +93,11 @@
                                 <% if (typeof showFunLink === "undefined" || showFunLink !== false) { %>
                                     <a class="app-topbar-dropdown__item <%= currentPage === 'sudoku' ? 'active' : '' %>" href="/fun/sudoku">
                                         <%= tr("common.nav.sudoku") %>
+                                    </a>
+                                <% } %>
+                                <% if (userInfo?.is_admin) { %>
+                                    <a class="app-topbar-dropdown__item <%= currentPage === 'admin' ? 'active' : '' %>" href="/admin/accounts">
+                                        Administration
                                     </a>
                                 <% } %>
                                 <div class="app-topbar-dropdown__divider" aria-hidden="true"></div>

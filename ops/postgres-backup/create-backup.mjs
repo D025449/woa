@@ -19,6 +19,7 @@ import {
   sanitizeKeyPart,
   sha256File
 } from "./backup-common.mjs";
+import { applyRuntimeDatabasePointer } from "./runtime-database.mjs";
 
 function printHelp() {
   console.log(`Usage: node ops/postgres-backup/create-backup.mjs [options]
@@ -26,6 +27,7 @@ function printHelp() {
 Options:
   --env-file <path>  Explicit backup environment file
   --label <text>     Optional label stored in the manifest
+  --result-file <path> Write the machine-readable result as JSON
   --help             Show this help
 `);
 }
@@ -39,6 +41,7 @@ async function createBackup() {
 
   const startedAt = Date.now();
   const envFile = await loadBackupEnvironment(options["env-file"]);
+  const runtimeDatabase = applyRuntimeDatabasePointer();
   requireEnvironment(["DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD", "AWS_REGION"]);
 
   const bucket = String(process.env.BACKUP_S3_BUCKET || process.env.S3_BUCKET || "").trim();
@@ -54,7 +57,7 @@ async function createBackup() {
   const location = buildBackupLocation({
     prefix: process.env.BACKUP_S3_PREFIX,
     environment,
-    databaseName: process.env.DB_NAME,
+    databaseName: runtimeDatabase.logicalDatabase,
     timestamp,
     backupId
   });
@@ -67,6 +70,7 @@ async function createBackup() {
   console.log("Creating PostgreSQL backup", {
     environment,
     database: process.env.DB_NAME,
+    logicalDatabase: runtimeDatabase.logicalDatabase,
     bucket,
     rootKey: location.root,
     envFile
@@ -111,7 +115,7 @@ async function createBackup() {
     const gitCommit = await readOptionalGitCommit();
     const manifest = {
       format: "cwa24-postgres-backup-manifest",
-      version: 1,
+      version: 2,
       status: "complete",
       backupId,
       createdAt: timestamp.toISOString(),
@@ -119,6 +123,8 @@ async function createBackup() {
       environment,
       database: {
         name: process.env.DB_NAME,
+        physicalName: process.env.DB_NAME,
+        logicalName: runtimeDatabase.logicalDatabase,
         serverVersion: serverVersion.stdout,
         sourceSizeBytes: Number(databaseSize.stdout)
       },
@@ -161,15 +167,20 @@ async function createBackup() {
     ), { inheritStdout: true });
     const totalMs = Date.now() - startedAt;
 
-    console.log("PostgreSQL backup completed", {
+    const result = {
       backupId,
       manifest: s3Uri(bucket, location.manifestKey),
+      rootKey: location.root,
       dump: s3Uri(bucket, location.dumpKey),
       sizeBytes: dumpStat.size,
       sha256,
       manifestUploadMs: Date.now() - manifestUploadStartedAt,
       totalMs
-    });
+    };
+    if (options["result-file"]) {
+      await fs.writeFile(options["result-file"], `${JSON.stringify(result)}\n`, { mode: 0o600 });
+    }
+    console.log("PostgreSQL backup completed", result);
   } finally {
     if (tempDirectory) {
       await fs.rm(tempDirectory, { recursive: true, force: true });

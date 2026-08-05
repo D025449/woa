@@ -20,6 +20,7 @@ function printHelp() {
 Options:
   --backup-prefix <key>  S3 key prefix containing manifest.json
   --env-file <path>      Explicit backup environment file
+  --result-file <path>   Write the machine-readable result as JSON
   --help                 Show this help
 `);
 }
@@ -75,13 +76,18 @@ async function verifyBackup() {
     }
     await runCommand(tools.pgRestore, ["--list", dumpFile]);
 
-    console.log("PostgreSQL backup verified", {
+    const result = {
       backupId: manifest.backupId,
       createdAt: manifest.createdAt,
+      rootKey: root,
       archive: s3Uri(bucket, manifest.archive.key),
       sizeBytes: stat.size,
       sha256: actualSha256
-    });
+    };
+    if (options["result-file"]) {
+      await fs.writeFile(options["result-file"], `${JSON.stringify(result)}\n`, { mode: 0o600 });
+    }
+    console.log("PostgreSQL backup verified", result);
   } finally {
     await fs.rm(tempDirectory, { recursive: true, force: true });
   }
