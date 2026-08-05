@@ -5,7 +5,11 @@ import {
 } from "@aws-sdk/client-s3";
 
 import { normalizeS3Prefix, sanitizeKeyPart } from "../../ops/postgres-backup/backup-common.mjs";
-import { readRuntimeDatabasePointer } from "../../ops/postgres-backup/runtime-database.mjs";
+import {
+  isManagedDatabaseName,
+  readRuntimeDatabasePointer
+} from "../../ops/postgres-backup/runtime-database.mjs";
+import pool from "./database.js";
 
 function backupConfiguration() {
   const bucket = String(process.env.BACKUP_S3_BUCKET || process.env.S3_BUCKET || "").trim();
@@ -28,8 +32,30 @@ function backupConfiguration() {
     activeDatabase,
     previousDatabase: pointer.values.PREVIOUS_DB_NAME || null,
     activationSupported: environment === "production" && Boolean(process.env.BACKUP_ACTIVE_DATABASE_FILE),
+    deletionSupported: environment === "production" && Boolean(process.env.BACKUP_ACTIVE_DATABASE_FILE),
     prefix
   };
+}
+
+export function classifyManagedDatabases(rows, config) {
+  return (rows || [])
+    .filter((row) => isManagedDatabaseName(row.datname, config.database))
+    .map((row) => {
+      const name = String(row.datname);
+      const status = name === config.activeDatabase
+        ? "active"
+        : (name === config.previousDatabase ? "rollback" : "inactive");
+      return {
+        name,
+        sizeBytes: Number(row.size_bytes) || 0,
+        status,
+        deletable: Boolean(config.deletionSupported) && status === "inactive"
+      };
+    })
+    .sort((left, right) => {
+      const rank = { active: 0, rollback: 1, inactive: 2 };
+      return rank[left.status] - rank[right.status] || left.name.localeCompare(right.name);
+    });
 }
 
 export function normalizeBackupRoot(value) {
@@ -88,6 +114,7 @@ export default class PostgresBackupCatalogService {
 
   static async list({ limit = 50 } = {}) {
     const config = backupConfiguration();
+    const databasesPromise = this.listDatabases(config);
     const s3 = new S3Client({ region: process.env.AWS_REGION });
     const manifestKeys = [];
     let continuationToken;
@@ -125,7 +152,39 @@ export default class PostgresBackupCatalogService {
       }));
       manifests.push(...values.filter(Boolean));
     }
-    return { ...config, backups: manifests };
+    return { ...config, backups: manifests, databases: await databasesPromise };
+  }
+
+  static async listDatabases(config = backupConfiguration()) {
+    const result = await pool.query(
+      `SELECT datname, pg_database_size(datname)::text AS size_bytes
+       FROM pg_database
+       WHERE datistemplate = false
+         AND (datname = $1 OR starts_with(datname, $1 || '_restore_'))`,
+      [config.database]
+    );
+    return classifyManagedDatabases(result.rows, config);
+  }
+
+  static async assertDeletableDatabase(database) {
+    const config = backupConfiguration();
+    if (!config.deletionSupported) {
+      throw Object.assign(new Error("Managed database deletion is available only in production."), {
+        statusCode: 400
+      });
+    }
+    const target = (await this.listDatabases(config)).find((entry) => entry.name === database);
+    if (!target) {
+      throw Object.assign(new Error("Database is outside the managed namespace or no longer exists."), {
+        statusCode: 404
+      });
+    }
+    if (!target.deletable) {
+      throw Object.assign(new Error("Active and rollback databases cannot be deleted."), {
+        statusCode: 409
+      });
+    }
+    return target;
   }
 
   static validateRoot(root) {

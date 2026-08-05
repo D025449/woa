@@ -197,6 +197,13 @@ const databaseRollbackTitle = document.getElementById("database-rollback-title")
 const databaseRollbackDetail = document.getElementById("database-rollback-detail");
 const databaseRollbackConfirm = document.getElementById("database-rollback-confirm");
 const databaseRollbackStart = document.getElementById("database-rollback-start");
+const databaseCleanupList = document.getElementById("database-cleanup-list");
+const databaseCleanupEmpty = document.getElementById("database-cleanup-empty");
+const databaseDeleteConfirmation = document.getElementById("database-delete-confirmation");
+const databaseDeleteTarget = document.getElementById("database-delete-target");
+const databaseDeleteName = document.getElementById("database-delete-name");
+const databaseDeleteCancel = document.getElementById("database-delete-cancel");
+const databaseDeleteStart = document.getElementById("database-delete-start");
 const databaseWizardSteps = [...document.querySelectorAll("[data-database-step]")];
 
 let databaseBackups = [];
@@ -204,6 +211,7 @@ let selectedDatabaseBackup = null;
 let verifiedDatabaseBackupRoot = null;
 let databaseOperationRunning = false;
 let databaseCatalogConfiguration = null;
+let selectedCleanupDatabase = null;
 let preparedRestoreJobId = null;
 let preparedRestoreResult = null;
 
@@ -269,6 +277,71 @@ function setDatabaseControlsDisabled(disabled) {
   databaseRollbackStart.disabled = disabled
     || !databaseRollbackConfirm.checked
     || !databaseCatalogConfiguration?.previousDatabase;
+  for (const button of databaseCleanupList.querySelectorAll("button")) {
+    button.disabled = disabled;
+  }
+  databaseDeleteStart.disabled = disabled
+    || !selectedCleanupDatabase
+    || databaseDeleteName.value !== selectedCleanupDatabase.name;
+  databaseDeleteCancel.disabled = disabled;
+}
+
+function closeDatabaseDeleteConfirmation() {
+  selectedCleanupDatabase = null;
+  databaseDeleteName.value = "";
+  databaseDeleteTarget.textContent = "";
+  databaseDeleteConfirmation.classList.add("d-none");
+  databaseDeleteStart.disabled = true;
+}
+
+function selectCleanupDatabase(database) {
+  selectedCleanupDatabase = database;
+  databaseDeleteTarget.textContent = database.name;
+  databaseDeleteName.value = "";
+  databaseDeleteConfirmation.classList.remove("d-none");
+  databaseDeleteStart.disabled = true;
+  databaseDeleteName.focus();
+}
+
+function renderManagedDatabases() {
+  const databases = databaseCatalogConfiguration?.databases || [];
+  databaseCleanupList.replaceChildren();
+  databaseCleanupEmpty.classList.toggle("d-none", databases.length > 0);
+  for (const database of databases) {
+    const row = document.createElement("tr");
+    const nameCell = document.createElement("td");
+    const statusCell = document.createElement("td");
+    const sizeCell = document.createElement("td");
+    const actionCell = document.createElement("td");
+    const status = document.createElement("span");
+
+    nameCell.textContent = database.name;
+    nameCell.className = "admin-database-name";
+    status.className = `admin-database-state admin-database-state--${database.status}`;
+    status.textContent = {
+      active: "Aktiv",
+      rollback: "Rollback geschützt",
+      inactive: "Inaktiv"
+    }[database.status] || database.status;
+    statusCell.append(status);
+    sizeCell.className = "text-end";
+    sizeCell.textContent = formatBytes(database.sizeBytes);
+    actionCell.className = "text-end";
+    if (database.deletable) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "btn btn-outline-danger btn-sm";
+      button.textContent = "Löschen";
+      button.disabled = databaseOperationRunning;
+      button.addEventListener("click", () => selectCleanupDatabase(database));
+      actionCell.append(button);
+    } else {
+      actionCell.textContent = "Geschützt";
+      actionCell.classList.add("admin-database-protected");
+    }
+    row.append(nameCell, statusCell, sizeCell, actionCell);
+    databaseCleanupList.append(row);
+  }
 }
 
 function resetDatabaseVerification() {
@@ -357,6 +430,7 @@ async function loadDatabaseBackups(preselectRoot = null) {
       ) || null;
     }
     renderDatabaseBackups();
+    renderManagedDatabases();
     selectDatabaseBackup(selectedDatabaseBackup);
     const previousDatabase = databaseCatalogConfiguration?.previousDatabase;
     databaseRollbackControls.classList.toggle("d-none", !previousDatabase);
@@ -417,7 +491,8 @@ async function pollDatabaseJob(jobId, operation) {
     verify: "Backup wird vollständig verifiziert",
     "prepare-restore": "Isolierter Restore wird vorbereitet",
     "activate-restore": "Restore wird sicher aktiviert",
-    rollback: "Datenbank-Rollback wird vorbereitet"
+    rollback: "Datenbank-Rollback wird vorbereitet",
+    "drop-database": "Inaktive Datenbank wird gesichert und gelöscht"
   }[operation] || "Backup-Operation läuft";
   setDatabaseControlsDisabled(true);
   let restartPollFailures = 0;
@@ -568,6 +643,30 @@ databaseRollbackStart?.addEventListener("click", async () => {
     window.location.reload();
   } catch {
     // During process restart the job panel keeps the latest actionable status.
+  }
+});
+
+databaseDeleteName?.addEventListener("input", () => {
+  databaseDeleteStart.disabled = databaseOperationRunning
+    || !selectedCleanupDatabase
+    || databaseDeleteName.value !== selectedCleanupDatabase.name;
+});
+
+databaseDeleteCancel?.addEventListener("click", closeDatabaseDeleteConfirmation);
+
+databaseDeleteStart?.addEventListener("click", async () => {
+  if (!selectedCleanupDatabase || databaseDeleteName.value !== selectedCleanupDatabase.name) return;
+  const databaseName = selectedCleanupDatabase.name;
+  try {
+    await startDatabaseOperation(
+      `/admin/accounts/database/databases/${encodeURIComponent(databaseName)}`,
+      { confirmDatabase: databaseName },
+      "drop-database"
+    );
+    closeDatabaseDeleteConfirmation();
+    await loadDatabaseBackups();
+  } catch {
+    // The job panel already contains the actionable error.
   }
 });
 

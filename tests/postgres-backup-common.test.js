@@ -9,6 +9,8 @@ import {
   buildBackupLocation,
   buildCreateDatabaseInvocation,
   buildDatabaseCreatorCandidates,
+  buildDropDatabaseInvocation,
+  buildPgDumpArgs,
   buildRestoreDatabaseName,
   normalizeS3Prefix,
   parseCliArgs,
@@ -18,6 +20,8 @@ import {
 } from "../ops/postgres-backup/backup-common.mjs";
 import {
   applyRuntimeDatabasePointer,
+  assertManagedDatabaseName,
+  isManagedDatabaseName,
   writeRuntimeDatabasePointer
 } from "../ops/postgres-backup/runtime-database.mjs";
 
@@ -195,6 +199,71 @@ test("database creation uses local sudo without exposing a PostgreSQL password",
       "--port", "5432",
       "--owner", "cwa24user",
       "--maintenance-db", "postgres",
+      "cwa24_prod_restore_20260805_140000"
+    ]);
+    assert.equal(invocation.env.PGPASSWORD, undefined);
+  } finally {
+    if (previousPort === undefined) delete process.env.DB_PORT;
+    else process.env.DB_PORT = previousPort;
+  }
+});
+
+test("managed database names include only the logical database and generated restores", () => {
+  assert.equal(isManagedDatabaseName("cwa24_prod", "cwa24_prod"), true);
+  assert.equal(isManagedDatabaseName("cwa24_prod_restore_20260805_140000", "cwa24_prod"), true);
+  assert.equal(isManagedDatabaseName("cwa24_prod_restore_manual", "cwa24_prod"), false);
+  assert.equal(isManagedDatabaseName("another_restore_20260805_140000", "cwa24_prod"), false);
+  assert.equal(isManagedDatabaseName("cwa24_prod_restore_bad-name", "cwa24_prod"), false);
+  assert.throws(
+    () => assertManagedDatabaseName("postgres", "cwa24_prod"),
+    /outside the managed cwa24_prod namespace/
+  );
+});
+
+test("targeted backup passes the managed physical database to pg_dump", () => {
+  const previous = {
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
+    user: process.env.DB_USER
+  };
+  process.env.DB_HOST = "localhost";
+  process.env.DB_PORT = "5432";
+  process.env.DB_USER = "cwa24user";
+  try {
+    const args = buildPgDumpArgs({
+      outputFile: "/tmp/database.dump",
+      databaseName: "cwa24_prod_restore_20260805_140000"
+    });
+    assert.equal(args[args.indexOf("--dbname") + 1], "cwa24_prod_restore_20260805_140000");
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      const environmentKey = key === "host" ? "DB_HOST" : (key === "port" ? "DB_PORT" : "DB_USER");
+      if (value === undefined) delete process.env[environmentKey];
+      else process.env[environmentKey] = value;
+    }
+  }
+});
+
+test("database deletion uses local sudo and force for the selected database", () => {
+  const previousPort = process.env.DB_PORT;
+  process.env.DB_PORT = "5432";
+  try {
+    const invocation = buildDropDatabaseInvocation({
+      tools: { dropdb: "/usr/bin/dropdb" },
+      creator: {
+        user: "postgres",
+        source: "sudo-local",
+        sudoUser: "postgres",
+        env: { NODE_ENV: "production" }
+      },
+      targetDatabase: "cwa24_prod_restore_20260805_140000"
+    });
+    assert.equal(invocation.command, "sudo");
+    assert.deepEqual(invocation.args, [
+      "-n", "-u", "postgres", "/usr/bin/dropdb",
+      "--port", "5432",
+      "--maintenance-db", "postgres",
+      "--force",
       "cwa24_prod_restore_20260805_140000"
     ]);
     assert.equal(invocation.env.PGPASSWORD, undefined);

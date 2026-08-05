@@ -19,7 +19,10 @@ import {
   sanitizeKeyPart,
   sha256File
 } from "./backup-common.mjs";
-import { applyRuntimeDatabasePointer } from "./runtime-database.mjs";
+import {
+  applyRuntimeDatabasePointer,
+  assertManagedDatabaseName
+} from "./runtime-database.mjs";
 
 function printHelp() {
   console.log(`Usage: node ops/postgres-backup/create-backup.mjs [options]
@@ -27,6 +30,7 @@ function printHelp() {
 Options:
   --env-file <path>  Explicit backup environment file
   --label <text>     Optional label stored in the manifest
+  --source-db <name> Internal managed database to back up instead of the active database
   --result-file <path> Write the machine-readable result as JSON
   --help             Show this help
 `);
@@ -50,6 +54,9 @@ async function createBackup() {
   }
 
   const awsCli = process.env.BACKUP_AWS_CLI_PATH || "aws";
+  const sourceDatabase = options["source-db"]
+    ? assertManagedDatabaseName(options["source-db"], runtimeDatabase.logicalDatabase, "backup source")
+    : process.env.DB_NAME;
   const tools = getPostgresTools();
   const backupId = randomUUID();
   const timestamp = new Date();
@@ -62,14 +69,14 @@ async function createBackup() {
     backupId
   });
   const releaseLock = await acquireBackupLock(
-    `${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`
+    `${process.env.DB_HOST}:${process.env.DB_PORT}/${sourceDatabase}`
   );
   let tempDirectory = null;
   const childEnv = { ...process.env, PGPASSWORD: process.env.DB_PASSWORD };
 
   console.log("Creating PostgreSQL backup", {
     environment,
-    database: process.env.DB_NAME,
+    database: sourceDatabase,
     logicalDatabase: runtimeDatabase.logicalDatabase,
     bucket,
     rootKey: location.root,
@@ -87,7 +94,7 @@ async function createBackup() {
         "--host", process.env.DB_HOST,
         "--port", process.env.DB_PORT,
         "--username", process.env.DB_USER,
-        "--dbname", process.env.DB_NAME,
+        "--dbname", sourceDatabase,
         "--no-psqlrc", "--tuples-only", "--no-align",
         "--command", "SHOW server_version;"
       ], { env: childEnv }),
@@ -95,7 +102,7 @@ async function createBackup() {
         "--host", process.env.DB_HOST,
         "--port", process.env.DB_PORT,
         "--username", process.env.DB_USER,
-        "--dbname", process.env.DB_NAME,
+        "--dbname", sourceDatabase,
         "--no-psqlrc", "--tuples-only", "--no-align",
         "--command", "SELECT pg_database_size(current_database());"
       ], { env: childEnv }),
@@ -103,7 +110,10 @@ async function createBackup() {
     ]);
 
     const dumpStartedAt = Date.now();
-    await runCommand(tools.pgDump, buildPgDumpArgs({ outputFile: dumpFile }), { env: childEnv });
+    await runCommand(tools.pgDump, buildPgDumpArgs({
+      outputFile: dumpFile,
+      databaseName: sourceDatabase
+    }), { env: childEnv });
     const dumpMs = Date.now() - dumpStartedAt;
 
     const verifyStartedAt = Date.now();
@@ -122,8 +132,8 @@ async function createBackup() {
       label: options.label ? sanitizeKeyPart(options.label) : null,
       environment,
       database: {
-        name: process.env.DB_NAME,
-        physicalName: process.env.DB_NAME,
+        name: sourceDatabase,
+        physicalName: sourceDatabase,
         logicalName: runtimeDatabase.logicalDatabase,
         serverVersion: serverVersion.stdout,
         sourceSizeBytes: Number(databaseSize.stdout)

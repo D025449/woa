@@ -109,6 +109,16 @@ const worker = new Worker(
     if (job.name === "rollback") {
       return executeDatabaseSwitch(job, "rollback");
     }
+    if (job.name === "drop-database") {
+      const targetDatabase = String(job.data?.targetDatabase || "");
+      if (String(job.data?.confirmDatabase || "") !== targetDatabase) {
+        throw new Error("Database deletion confirmation does not match the target.");
+      }
+      return executeOperation(job, "drop-database.mjs", [
+        "--target-db", targetDatabase,
+        "--confirm", targetDatabase
+      ]);
+    }
     throw new Error(`Unsupported PostgreSQL backup operation: ${job.name}`);
   },
   { connection: redisConnection, concurrency: 1 }

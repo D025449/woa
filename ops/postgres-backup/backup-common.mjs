@@ -178,12 +178,12 @@ export function buildBackupLocation({
   };
 }
 
-export function buildPgDumpArgs({ outputFile }) {
+export function buildPgDumpArgs({ outputFile, databaseName = process.env.DB_NAME }) {
   return [
     "--host", process.env.DB_HOST,
     "--port", process.env.DB_PORT,
     "--username", process.env.DB_USER,
-    "--dbname", process.env.DB_NAME,
+    "--dbname", databaseName,
     "--format=custom",
     "--compress=1",
     "--no-owner",
@@ -203,7 +203,9 @@ export function getPostgresTools() {
     psql: process.env.BACKUP_PSQL_PATH
       || (hasExplicitDirectory ? path.join(toolDirectory, "psql") : "psql"),
     createdb: process.env.BACKUP_CREATEDB_PATH
-      || (hasExplicitDirectory ? path.join(toolDirectory, "createdb") : "createdb")
+      || (hasExplicitDirectory ? path.join(toolDirectory, "createdb") : "createdb"),
+    dropdb: process.env.BACKUP_DROPDB_PATH
+      || (hasExplicitDirectory ? path.join(toolDirectory, "dropdb") : "dropdb")
   };
 }
 
@@ -342,6 +344,31 @@ export function buildCreateDatabaseInvocation({ tools, creator, targetDatabase, 
   }
   return {
     command: tools.createdb,
+    args: [
+      "--host", process.env.DB_HOST,
+      "--username", creator.user,
+      ...args
+    ],
+    env: creator.env
+  };
+}
+
+export function buildDropDatabaseInvocation({ tools, creator, targetDatabase }) {
+  const args = [
+    "--port", process.env.DB_PORT,
+    "--maintenance-db", "postgres",
+    "--force",
+    targetDatabase
+  ];
+  if (creator.source === "sudo-local") {
+    return {
+      command: "sudo",
+      args: ["-n", "-u", creator.sudoUser, tools.dropdb, ...args],
+      env: creator.env
+    };
+  }
+  return {
+    command: tools.dropdb,
     args: [
       "--host", process.env.DB_HOST,
       "--username", creator.user,

@@ -223,6 +223,25 @@ router.post("/database/restores/rollback", async (req, res, next) => {
   }
 });
 
+router.delete("/database/databases/:database", async (req, res, next) => {
+  try {
+    const database = String(req.params.database || "").trim();
+    if (req.body?.confirmDatabase !== database) {
+      return res.status(400).json({
+        error: "Database deletion requires the exact database name as confirmation."
+      });
+    }
+    await PostgresBackupCatalogService.assertDeletableDatabase(database);
+    const job = await postgresBackupOpsQueue.add("drop-database", {
+      targetDatabase: database,
+      confirmDatabase: database
+    });
+    return res.status(202).json({ ok: true, jobId: String(job.id), operation: job.name });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get("/database/jobs/:jobId", async (req, res, next) => {
   try {
     const jobId = String(req.params.jobId || "");

@@ -117,6 +117,7 @@ const backupOpsEnv = {
   BACKUP_PG_RESTORE_PATH: asString(process.env.BACKUP_PG_RESTORE_PATH),
   BACKUP_PSQL_PATH: asString(process.env.BACKUP_PSQL_PATH),
   BACKUP_CREATEDB_PATH: asString(process.env.BACKUP_CREATEDB_PATH),
+  BACKUP_DROPDB_PATH: asString(process.env.BACKUP_DROPDB_PATH),
   BACKUP_DB_ADMIN_USER: asString(process.env.BACKUP_DB_ADMIN_USER),
   BACKUP_DB_ADMIN_PASSWORD: asString(process.env.BACKUP_DB_ADMIN_PASSWORD),
   BACKUP_DB_ADMIN_USE_SUDO: asString(process.env.BACKUP_DB_ADMIN_USE_SUDO, "1"),

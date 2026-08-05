@@ -7,6 +7,8 @@ const runtimeDatabase = require("./runtime-database.cjs");
 
 export const {
   assertDatabaseName,
+  assertManagedDatabaseName,
+  isManagedDatabaseName,
   pointerFileForEnvironment,
   readRuntimeDatabasePointer,
   resolveRuntimeDatabaseEnvironment

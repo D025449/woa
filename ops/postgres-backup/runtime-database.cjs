@@ -11,6 +11,28 @@ function assertDatabaseName(value, label = "database name") {
   return name;
 }
 
+function isManagedDatabaseName(value, logicalDatabase) {
+  try {
+    const name = assertDatabaseName(value);
+    const logical = assertDatabaseName(logicalDatabase, "logical database name");
+    const restorePrefix = `${logical}_restore_`;
+    return name === logical || (
+      name.startsWith(restorePrefix)
+      && /^\d{8}_\d{6}$/u.test(name.slice(restorePrefix.length))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function assertManagedDatabaseName(value, logicalDatabase, label = "managed database") {
+  const name = assertDatabaseName(value, label);
+  if (!isManagedDatabaseName(name, logicalDatabase)) {
+    throw new Error(`Database ${name} is outside the managed ${logicalDatabase} namespace.`);
+  }
+  return name;
+}
+
 function parsePointerText(text) {
   const values = {};
   for (const rawLine of String(text || "").split(/\r?\n/u)) {
@@ -67,6 +89,8 @@ module.exports = {
   DATABASE_NAME_PATTERN,
   DEFAULT_PRODUCTION_POINTER_FILE,
   assertDatabaseName,
+  assertManagedDatabaseName,
+  isManagedDatabaseName,
   parsePointerText,
   pointerFileForEnvironment,
   readRuntimeDatabasePointer,

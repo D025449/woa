@@ -14,7 +14,7 @@ NODE_ENV=development npm run backup:worker
 ```
 
 In Production wird `postgres-backup-ops-worker` über `ecosystem.config.cjs` und
-`deploy.sh` automatisch mit PM2 gestartet. Der Worker unterstützt nur fünf fest
+`deploy.sh` automatisch mit PM2 gestartet. Der Worker unterstützt nur sechs fest
 definierte Operationen:
 
 - `create`: vollständiges Backup mit dem vorhandenen `pg_dump`-S3-Verfahren
@@ -24,6 +24,7 @@ definierte Operationen:
 - `activate-restore`: Sicherheitsbackup erstellen, den Production-Pointer atomar
   auf den geprüften Restore setzen und App sowie Import-Worker neu starten
 - `rollback`: erneut sichern und den Pointer auf die vorherige Datenbank setzen
+- `drop-database`: eine inaktive verwaltete DB sichern und anschließend löschen
 
 `prepare-restore` verändert oder aktiviert niemals die laufende Datenbank. Eine
 Aktivierung ist ausschließlich in Production, nach expliziter Bestätigung und
@@ -54,7 +55,7 @@ verhindern.
 Benötigt werden:
 
 - eine zum PostgreSQL-Server passende Version von `pg_dump`, `pg_restore`,
-  `psql` und `createdb`,
+  `psql`, `createdb` und `dropdb`,
 - die AWS CLI mit Zugriff auf den konfigurierten S3-Bucket,
 - eine Env-Datei mit Datenbank- und AWS-Konfiguration,
 - für das Anlegen einer Restore-DB eine lokal verwendbare PostgreSQL-Rolle mit
@@ -75,6 +76,7 @@ BACKUP_PG_DUMP_PATH=
 BACKUP_PG_RESTORE_PATH=
 BACKUP_PSQL_PATH=
 BACKUP_CREATEDB_PATH=
+BACKUP_DROPDB_PATH=
 BACKUP_AWS_CLI_PATH=
 BACKUP_DB_ADMIN_USER=
 BACKUP_DB_ADMIN_PASSWORD=
@@ -89,6 +91,7 @@ BACKUP_PG_DUMP_PATH=/opt/homebrew/opt/postgresql@16/bin/pg_dump
 BACKUP_PG_RESTORE_PATH=/opt/homebrew/opt/postgresql@16/bin/pg_restore
 BACKUP_PSQL_PATH=/opt/homebrew/opt/postgresql@16/bin/psql
 BACKUP_CREATEDB_PATH=/opt/homebrew/opt/postgresql@16/bin/createdb
+BACKUP_DROPDB_PATH=/opt/homebrew/opt/postgresql@16/bin/dropdb
 ```
 
 `pg_dump` darf nicht älter als der PostgreSQL-Server sein. Ein Versionskonflikt
@@ -377,11 +380,15 @@ ersetzt werden.
 ## Alte Testdatenbanken aufräumen
 
 Restore-, Rollback- und fehlgeschlagene Testdatenbanken werden bewusst nicht
-automatisch gelöscht. Erst nach erfolgreicher Prüfung und wenn kein Rollback
-mehr benötigt wird, kann eine alte DB manuell entfernt werden.
+automatisch gelöscht. Der Admin-Wizard zeigt ausschließlich die logische
+Production-Datenbank und die daraus erzeugten `_restore_<timestamp>`-Datenbanken.
+Die aktive DB und `PREVIOUS_DB_NAME` sind grundsätzlich geschützt.
 
-Vor jedem `DROP DATABASE` müssen Name, Inhalt und aktive Verbindungen nochmals
-geprüft werden. Das Löschen ist kein Bestandteil der automatisierten Skripte.
+Eine inaktive DB kann erst nach Eingabe ihres exakten Namens gelöscht werden.
+Der Ops-Worker prüft den Runtime-Pointer unmittelbar vor und nach einem
+vollständigen S3-Sicherheitsbackup erneut und führt erst danach `dropdb --force`
+aus. Ein frei eingegebener Name außerhalb des verwalteten Namespace wird
+serverseitig abgewiesen. In Development bleibt das manuelle Aufräumen bestehen.
 
 ## Fehlerfälle
 
