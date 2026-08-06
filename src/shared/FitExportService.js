@@ -195,33 +195,109 @@ function normalizeFitDeviceMetadata(value, fallbackSerialNumber, fallbackTimesta
   return { fileId, devices };
 }
 
+const FIT_CRC_TABLE = new Uint16Array(256);
+for (let value = 0; value < FIT_CRC_TABLE.length; value += 1) {
+  let crc = value;
+  for (let bit = 0; bit < 8; bit += 1) {
+    crc = (crc & 1) !== 0 ? (crc >> 1) ^ 0xa001 : crc >> 1;
+  }
+  FIT_CRC_TABLE[value] = crc;
+}
+
 function crc16Fit(buffer, seed = 0) {
   let crc = seed & 0xffff;
   for (let i = 0; i < buffer.length; i += 1) {
-    crc ^= buffer[i];
-    for (let j = 0; j < 8; j += 1) {
-      if ((crc & 1) !== 0) {
-        crc = (crc >> 1) ^ 0xa001;
-      } else {
-        crc >>= 1;
-      }
-    }
+    crc = (crc >> 8) ^ FIT_CRC_TABLE[(crc ^ buffer[i]) & 0xff];
   }
   return crc & 0xffff;
 }
 
+class GrowableFitWriter {
+  constructor(initialCapacity = 64 * 1024) {
+    this.bytes = new FitBytes(Math.max(256, initialCapacity));
+    this.view = new DataView(this.bytes.buffer);
+    this.length = 0;
+  }
+
+  ensureCapacity(additionalBytes) {
+    const requiredLength = this.length + additionalBytes;
+    if (requiredLength <= this.bytes.length) return;
+
+    let capacity = this.bytes.length;
+    while (capacity < requiredLength) capacity *= 2;
+    const grown = new FitBytes(capacity);
+    grown.set(this.bytes.subarray(0, this.length));
+    this.bytes = grown;
+    this.view = new DataView(grown.buffer);
+  }
+
+  reserve(size) {
+    this.ensureCapacity(size);
+    const offset = this.length;
+    this.length += size;
+    return offset;
+  }
+
+  writeUInt8(value) {
+    this.ensureCapacity(1);
+    this.view.setUint8(this.length, value);
+    this.length += 1;
+  }
+
+  writeInt8(value) {
+    this.ensureCapacity(1);
+    this.view.setInt8(this.length, value);
+    this.length += 1;
+  }
+
+  writeUInt16LE(value) {
+    this.ensureCapacity(2);
+    this.view.setUint16(this.length, value, true);
+    this.length += 2;
+  }
+
+  writeUInt32LE(value) {
+    this.ensureCapacity(4);
+    this.view.setUint32(this.length, value, true);
+    this.length += 4;
+  }
+
+  writeInt32LE(value) {
+    this.ensureCapacity(4);
+    this.view.setInt32(this.length, value, true);
+    this.length += 4;
+  }
+
+  writeBytes(value, size = value.byteLength) {
+    const writeLength = Math.min(value.byteLength, size);
+    this.ensureCapacity(size);
+    this.bytes.set(value.subarray(0, writeLength), this.length);
+    if (writeLength < size) this.bytes.fill(0, this.length + writeLength, this.length + size);
+    this.length += size;
+  }
+
+  setUInt8(offset, value) {
+    this.view.setUint8(offset, value);
+  }
+
+  setUInt16LE(offset, value) {
+    this.view.setUint16(offset, value, true);
+  }
+
+  setUInt32LE(offset, value) {
+    this.view.setUint32(offset, value, true);
+  }
+
+  toBuffer() {
+    return new FitBytes(this.bytes.buffer.slice(0, this.length));
+  }
+}
+
 class FitMessageBuilder {
   constructor() {
-    this.parts = [];
+    this.writer = new GrowableFitWriter();
+    this.writer.reserve(14);
     this.definitionKeys = new Set();
-  }
-
-  pushBytes(bytes) {
-    this.parts.push(FitBytes.from(bytes));
-  }
-
-  pushBuffer(buf) {
-    this.parts.push(buf);
   }
 
   ensureDefinition(localId, globalId, fields, developerFields = []) {
@@ -231,40 +307,33 @@ class FitMessageBuilder {
     }
 
     const hasDeveloperFields = developerFields.length > 0;
-    const size = 1 + 1 + 1 + 2 + 1 + (fields.length * 3) + (hasDeveloperFields ? 1 + (developerFields.length * 3) : 0);
-    const def = FitBytes.alloc(size);
-    let offset = 0;
-    def.writeUInt8(0x40 | (hasDeveloperFields ? 0x20 : 0) | (localId & 0x0f), offset); offset += 1; // definition header
-    def.writeUInt8(0, offset); offset += 1; // reserved
-    def.writeUInt8(0, offset); offset += 1; // little-endian architecture
-    def.writeUInt16LE(globalId, offset); offset += 2;
-    def.writeUInt8(fields.length, offset); offset += 1;
+    this.writer.writeUInt8(0x40 | (hasDeveloperFields ? 0x20 : 0) | (localId & 0x0f));
+    this.writer.writeUInt8(0); // reserved
+    this.writer.writeUInt8(0); // little-endian architecture
+    this.writer.writeUInt16LE(globalId);
+    this.writer.writeUInt8(fields.length);
 
     for (const field of fields) {
-      def.writeUInt8(field.num, offset); offset += 1;
-      def.writeUInt8(field.size, offset); offset += 1;
-      def.writeUInt8(field.type, offset); offset += 1;
+      this.writer.writeUInt8(field.num);
+      this.writer.writeUInt8(field.size);
+      this.writer.writeUInt8(field.type);
     }
 
     if (hasDeveloperFields) {
-      def.writeUInt8(developerFields.length, offset); offset += 1;
+      this.writer.writeUInt8(developerFields.length);
       for (const field of developerFields) {
-        def.writeUInt8(field.num, offset); offset += 1;
-        def.writeUInt8(field.size, offset); offset += 1;
-        def.writeUInt8(field.developerDataIndex, offset); offset += 1;
+        this.writer.writeUInt8(field.num);
+        this.writer.writeUInt8(field.size);
+        this.writer.writeUInt8(field.developerDataIndex);
       }
     }
 
-    this.pushBuffer(def);
     this.definitionKeys.add(key);
   }
 
   writeDataMessage(localId, fields, values, developerFields = []) {
     const allFields = [...fields, ...developerFields];
-    const messageSize = 1 + allFields.reduce((acc, f) => acc + f.size, 0);
-    const row = FitBytes.alloc(messageSize);
-    let offset = 0;
-    row.writeUInt8(localId & 0x0f, offset); offset += 1;
+    this.writer.writeUInt8(localId & 0x0f);
 
     for (const field of allFields) {
       const valueKey = field.valueKey ?? field.num;
@@ -272,50 +341,42 @@ class FitMessageBuilder {
       switch (field.type) {
         case FIT_BASE_TYPES.enum:
         case FIT_BASE_TYPES.uint8: {
-          row.writeUInt8(value ?? 0xff, offset);
-          offset += 1;
+          this.writer.writeUInt8(value ?? 0xff);
           break;
         }
         case FIT_BASE_TYPES.uint8z: {
-          row.writeUInt8(value ?? 0, offset);
-          offset += 1;
+          this.writer.writeUInt8(value ?? 0);
           break;
         }
         case FIT_BASE_TYPES.sint8: {
-          row.writeInt8(value ?? 0x7f, offset);
-          offset += 1;
+          this.writer.writeInt8(value ?? 0x7f);
           break;
         }
         case FIT_BASE_TYPES.uint16: {
-          row.writeUInt16LE(value ?? 0xffff, offset);
-          offset += 2;
+          this.writer.writeUInt16LE(value ?? 0xffff);
           break;
         }
         case FIT_BASE_TYPES.uint16z: {
-          row.writeUInt16LE(value ?? 0, offset);
-          offset += 2;
+          this.writer.writeUInt16LE(value ?? 0);
           break;
         }
         case FIT_BASE_TYPES.uint32: {
-          row.writeUInt32LE(value ?? 0xffffffff, offset);
-          offset += 4;
+          this.writer.writeUInt32LE(value ?? 0xffffffff);
           break;
         }
         case FIT_BASE_TYPES.uint32z: {
-          row.writeUInt32LE(value ?? 0, offset);
-          offset += 4;
+          this.writer.writeUInt32LE(value ?? 0);
           break;
         }
         case FIT_BASE_TYPES.sint32: {
-          row.writeInt32LE(value ?? 0x7fffffff, offset);
-          offset += 4;
+          this.writer.writeInt32LE(value ?? 0x7fffffff);
           break;
         }
         case FIT_BASE_TYPES.string: {
           const raw = typeof value === "string" ? FitBytes.from(value, "utf8") : FitBytes.alloc(0);
-          raw.copy(row, offset, 0, Math.min(raw.length, field.size > 0 ? field.size - 1 : 0));
-          row.writeUInt8(0, offset + Math.max(0, field.size - 1));
-          offset += field.size;
+          const contentSize = Math.max(0, field.size - 1);
+          this.writer.writeBytes(raw.subarray(0, contentSize), contentSize);
+          if (field.size > 0) this.writer.writeUInt8(0);
           break;
         }
         case FIT_BASE_TYPES.byte: {
@@ -324,20 +385,25 @@ class FitMessageBuilder {
             : Array.isArray(value)
               ? FitBytes.from(value)
               : FitBytes.alloc(0);
-          raw.copy(row, offset, 0, Math.min(raw.length, field.size));
-          offset += field.size;
+          this.writer.writeBytes(raw, field.size);
           break;
         }
         default:
           throw new Error(`Unsupported FIT base type: ${field.type}`);
       }
     }
-
-    this.pushBuffer(row);
   }
 
-  toBuffer() {
-    return FitBytes.concat(this.parts);
+  toFitFile() {
+    const dataLength = this.writer.length - 14;
+    this.writer.setUInt8(0, 14);
+    this.writer.setUInt8(1, 0x20);
+    this.writer.setUInt16LE(2, 2200);
+    this.writer.setUInt32LE(4, dataLength);
+    this.writer.bytes.set([46, 70, 73, 84], 8);
+    this.writer.setUInt16LE(12, crc16Fit(this.writer.bytes.subarray(0, 12)));
+    this.writer.writeUInt16LE(crc16Fit(this.writer.bytes.subarray(14, this.writer.length)));
+    return this.writer.toBuffer();
   }
 }
 
@@ -952,22 +1018,7 @@ export default class FitExportService {
       253: lastTs
     });
 
-    const data = msg.toBuffer();
-
-    const header = FitBytes.alloc(14);
-    header.writeUInt8(14, 0);           // header size
-    header.writeUInt8(0x20, 1);         // protocol version
-    header.writeUInt16LE(2200, 2);      // profile version
-    header.writeUInt32LE(data.length, 4);
-    header.write(".FIT", 8, 4, "ascii");
-    header.writeUInt16LE(crc16Fit(header.subarray(0, 12)), 12);
-
-    const fullWithoutCrc = FitBytes.concat([header, data]);
-    const fileCrc = crc16Fit(fullWithoutCrc.subarray(14));
-    const crc = FitBytes.alloc(2);
-    crc.writeUInt16LE(fileCrc, 0);
-
-    return FitBytes.concat([fullWithoutCrc, crc]);
+    return msg.toFitFile();
   }
 }
 
