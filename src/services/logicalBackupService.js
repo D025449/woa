@@ -24,7 +24,7 @@ import AdminWorkoutBackupService, {
 import UserAccountBackupService from "./userAccountBackupService.js";
 import { decodeWoa1BufferLight } from "./woa1Service.js";
 import { enqueueSegmentBestEfforts } from "./segment-best-efforts-service.js";
-import FileDBService from "./fileDBService.js";
+import { FileDBService } from "./fileDBService.js";
 
 export const LOGICAL_BACKUP_FORMAT = "cwa24-logical-backup-manifest";
 export const LOGICAL_BACKUP_VERSION = 1;
