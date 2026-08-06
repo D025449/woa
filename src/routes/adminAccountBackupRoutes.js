@@ -145,15 +145,27 @@ router.get("/workouts/export", async (_req, res, next) => {
   }
 });
 
-router.post("/workouts/preview", workoutUpload.single("archive"), async (req, res, next) => {
-  try {
-    if (!req.file?.buffer) return res.status(400).json({ error: "Missing workout ZIP backup" });
-    const preview = await AdminWorkoutBackupService.preview(req.file.buffer);
-    return res.json({ ok: true, preview });
-  } catch (error) {
-    return next(error);
+router.post(
+  "/workouts/preview",
+  express.raw({ type: "application/vnd.cwa24.workout-preview+json", limit: "5mb" }),
+  async (req, res, next) => {
+    try {
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return res.status(400).json({ error: "Missing workout preview metadata" });
+      }
+      let metadata;
+      try {
+        metadata = JSON.parse(req.body.toString("utf8"));
+      } catch {
+        return res.status(400).json({ error: "Invalid workout preview metadata" });
+      }
+      const preview = await AdminWorkoutBackupService.previewMetadata(metadata);
+      return res.json({ ok: true, preview });
+    } catch (error) {
+      return next(error);
+    }
   }
-});
+);
 
 router.post("/workouts/import", workoutUpload.single("archive"), async (req, res, next) => {
   try {

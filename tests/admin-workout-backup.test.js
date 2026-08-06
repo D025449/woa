@@ -4,7 +4,8 @@ import test from "node:test";
 import {
   buildAdminWorkoutBackup,
   buildAdminWorkoutBackupFilename,
-  decodeAdminWorkoutBackup
+  decodeAdminWorkoutBackup,
+  validateAdminWorkoutPreviewPayload
 } from "../src/services/adminWorkoutBackupService.js";
 
 function workout(id, uid, authSub, email, startTime) {
@@ -83,4 +84,39 @@ test("admin workout backup filename is stable and UTC based", () => {
     buildAdminWorkoutBackupFilename(new Date("2026-08-05T12:34:56.789Z")),
     "cwa24-admin-workouts-20260805T123456Z.zip"
   );
+});
+
+test("compact workout preview validates owner counts and null-start hashes", () => {
+  const preview = validateAdminWorkoutPreviewPayload({
+    format: "cwa24-admin-workouts",
+    version: 1,
+    createdAt: "2026-08-05T12:34:56.789Z",
+    workoutCount: 2,
+    owners: [{
+      key: "owner-1",
+      authSub: "stable-a",
+      email: "A@example.com",
+      sourceUid: "7",
+      workoutCount: 2
+    }],
+    workouts: [
+      [0, "2026-08-05T09:00:00.000Z", null],
+      [0, null, "a".repeat(64)]
+    ]
+  });
+
+  assert.equal(preview.owners[0].email, "a@example.com");
+  assert.equal(preview.workouts[0].startTime, "2026-08-05T09:00:00.000Z");
+  assert.equal(preview.workouts[1].streamHash, "a".repeat(64));
+});
+
+test("compact workout preview rejects missing null-start fingerprints", () => {
+  assert.throws(() => validateAdminWorkoutPreviewPayload({
+    format: "cwa24-admin-workouts",
+    version: 1,
+    createdAt: "2026-08-05T12:34:56.789Z",
+    workoutCount: 1,
+    owners: [{ key: "owner-1", authSub: "stable", workoutCount: 1 }],
+    workouts: [[0, null, null]]
+  }), /Missing stream hash/u);
 });

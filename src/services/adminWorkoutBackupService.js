@@ -1,5 +1,6 @@
 import { strToU8, zipSync } from "fflate";
 import unzipper from "unzipper";
+import { createHash } from "node:crypto";
 
 import pool from "./database.js";
 import { resolveAdminSegmentOwners } from "./adminSegmentBackupService.js";
@@ -12,6 +13,7 @@ const MAX_WORKOUTS = 100000;
 const MAX_ENTRY_BYTES = 128 * 1024 * 1024;
 const MAX_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024;
 const INSERT_BATCH_SIZE = 100;
+const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 
 const WORKOUT_COLUMNS = [
   "uploaded_at", "start_time", "end_time", "year", "month", "week", "year_quarter",
@@ -38,6 +40,17 @@ function requiredString(value, field) {
   const normalized = String(value || "").trim();
   if (!normalized) throw new Error(`Invalid ${field}.`);
   return normalized;
+}
+
+function optionalStartTime(value, field) {
+  if (value == null || value === "") return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new Error(`Invalid ${field}.`);
+  return date.toISOString();
+}
+
+function streamSha256(value) {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function jsonValue(value) {
@@ -232,6 +245,57 @@ export async function decodeAdminWorkoutBackup(buffer) {
   return { manifest, owners, workouts };
 }
 
+export function validateAdminWorkoutPreviewPayload(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("Workout preview must be an object.");
+  }
+  if (payload.format !== ADMIN_WORKOUT_BACKUP_FORMAT
+    || Number(payload.version) !== ADMIN_WORKOUT_BACKUP_VERSION) {
+    throw new Error("Unsupported admin workout preview format.");
+  }
+  const rawOwners = Array.isArray(payload.owners) ? payload.owners : [];
+  const owners = rawOwners.map((owner, index) => ({
+    key: requiredString(owner?.key, `owners[${index}].key`),
+    authSub: requiredString(owner?.authSub, `owners[${index}].authSub`),
+    email: normalizeEmail(owner?.email),
+    sourceUid: owner?.sourceUid == null ? null : String(owner.sourceUid),
+    declaredWorkoutCount: Number(owner?.workoutCount) || 0
+  }));
+  if (new Set(owners.map((owner) => owner.key)).size !== owners.length) {
+    throw new Error("Duplicate owner key in workout preview.");
+  }
+  const rawWorkouts = Array.isArray(payload.workouts) ? payload.workouts : [];
+  if (rawWorkouts.length > MAX_WORKOUTS || rawWorkouts.length !== Number(payload.workoutCount)) {
+    throw new Error("Workout preview count does not match its manifest.");
+  }
+  const actualCounts = new Map();
+  const workouts = rawWorkouts.map((row, index) => {
+    if (!Array.isArray(row) || row.length < 2) {
+      throw new Error(`Invalid workouts[${index}].`);
+    }
+    const ownerIndex = Number(row[0]);
+    const owner = Number.isInteger(ownerIndex) ? owners[ownerIndex] : null;
+    if (!owner) throw new Error(`Unknown owner in workouts[${index}].`);
+    const startTime = optionalStartTime(row[1], `workouts[${index}].startTime`);
+    const streamHash = row[2] == null ? null : String(row[2]).toLowerCase();
+    if (!startTime && !SHA256_PATTERN.test(streamHash || "")) {
+      throw new Error(`Missing stream hash in workouts[${index}].`);
+    }
+    actualCounts.set(owner.key, (actualCounts.get(owner.key) || 0) + 1);
+    return { ownerKey: owner.key, startTime, streamHash };
+  });
+  for (const owner of owners) {
+    if ((actualCounts.get(owner.key) || 0) !== owner.declaredWorkoutCount) {
+      throw new Error(`Workout count does not match owner ${owner.key}.`);
+    }
+  }
+  return {
+    createdAt: optionalStartTime(payload.createdAt, "createdAt"),
+    owners,
+    workouts
+  };
+}
+
 function publicPreview(prepared) {
   return {
     createdAt: prepared.decoded.manifest.createdAt || null,
@@ -250,6 +314,60 @@ function publicPreview(prepared) {
       targetEmail: mapping.targetEmail
     }))
   };
+}
+
+async function prepareMetadataPreview(decoded, queryable) {
+  const users = (await queryable.query("SELECT id, auth_sub, email FROM users ORDER BY id")).rows;
+  const mappings = resolveAdminSegmentOwners(
+    decoded.owners.map((owner) => ({ ...owner, declaredSegmentCount: owner.declaredWorkoutCount })),
+    users
+  ).map((mapping) => ({
+    ...mapping,
+    workoutCount: mapping.segmentCount,
+    importCount: 0,
+    duplicateCount: 0
+  }));
+  const workoutsByOwner = new Map();
+  for (const workout of decoded.workouts) {
+    const rows = workoutsByOwner.get(workout.ownerKey) || [];
+    rows.push(workout);
+    workoutsByOwner.set(workout.ownerKey, rows);
+  }
+  for (const mapping of mappings) {
+    if (mapping.status !== "matched") continue;
+    const workouts = workoutsByOwner.get(mapping.ownerKey) || [];
+    const startTimes = workouts.map((workout) => workout.startTime).filter(Boolean);
+    const existingTimes = new Set(startTimes.length === 0 ? [] : (await queryable.query(
+      "SELECT start_time FROM workouts WHERE uid = $1 AND start_time = ANY($2::timestamptz[])",
+      [mapping.targetUid, startTimes]
+    )).rows.map((row) => new Date(row.start_time).toISOString()));
+    const existingNullHashes = new Set(workouts.some((workout) => !workout.startTime)
+      ? (await queryable.query(
+        "SELECT stream FROM workouts WHERE uid = $1 AND start_time IS NULL",
+        [mapping.targetUid]
+      )).rows.map((row) => streamSha256(row.stream))
+      : []);
+    for (const workout of workouts) {
+      const duplicate = workout.startTime
+        ? existingTimes.has(workout.startTime)
+        : existingNullHashes.has(workout.streamHash);
+      if (duplicate) mapping.duplicateCount += 1;
+      else mapping.importCount += 1;
+    }
+  }
+  const totals = mappings.reduce((result, mapping) => {
+    result.workouts += mapping.workoutCount;
+    result.importable += mapping.importCount;
+    result.duplicates += mapping.duplicateCount;
+    if (mapping.status === "unmatched") result.unmatched += mapping.workoutCount;
+    if (mapping.status === "conflict") result.conflicts += mapping.workoutCount;
+    return result;
+  }, { workouts: 0, importable: 0, duplicates: 0, unmatched: 0, conflicts: 0 });
+  return publicPreview({
+    decoded: { manifest: { createdAt: decoded.createdAt } },
+    mappings,
+    totals
+  });
 }
 
 async function prepareBackup(buffer, queryable) {
@@ -372,6 +490,19 @@ export default class AdminWorkoutBackupService {
 
   static async preview(buffer) {
     return publicPreview(await prepareBackup(buffer, pool));
+  }
+
+  static async previewMetadata(payload) {
+    let decoded;
+    try {
+      decoded = validateAdminWorkoutPreviewPayload(payload);
+    } catch (error) {
+      throw Object.assign(
+        error instanceof Error ? error : new Error("Invalid workout preview metadata."),
+        { statusCode: 400 }
+      );
+    }
+    return prepareMetadataPreview(decoded, pool);
   }
 
   static async importAll(buffer) {

@@ -1,3 +1,11 @@
+import {
+  BlobReader,
+  TextWriter,
+  Uint8ArrayWriter,
+  ZipReader,
+  configure as configureZipJs
+} from "/vendor/zipjs/index.js";
+
 const form = document.getElementById("account-backup-import-form");
 const result = document.getElementById("account-backup-result");
 
@@ -206,13 +214,109 @@ function selectedWorkoutArchive() {
   return workoutForm?.querySelector("input[name='archive']")?.files?.[0] || null;
 }
 
-async function sendWorkoutArchive(path, confirmed = false) {
+async function sha256Hex(bytes) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+async function buildLocalWorkoutPreview(file) {
+  configureZipJs({ useWebWorkers: false, useCompressionStream: false });
+  const reader = new ZipReader(new BlobReader(file), {
+    useWebWorkers: false,
+    useCompressionStream: false
+  });
+  try {
+    const entries = (await reader.getEntries()).filter((entry) => !entry.directory);
+    const byName = new Map(entries.map((entry) => [entry.filename, entry]));
+    const manifestEntry = byName.get("manifest.json");
+    if (!manifestEntry) throw new Error("Workout-Archiv enthält kein Manifest.");
+    const manifest = JSON.parse(await manifestEntry.getData(new TextWriter()));
+    if (manifest?.format !== "cwa24-admin-workouts" || Number(manifest?.version) !== 1) {
+      throw new Error("Nicht unterstütztes Workout-Archivformat.");
+    }
+    const owners = Array.isArray(manifest.owners) ? manifest.owners : [];
+    const ownerIndexByKey = new Map();
+    owners.forEach((owner, index) => {
+      const key = String(owner?.key || "");
+      if (!key || ownerIndexByKey.has(key)) throw new Error("Ungültige Besitzerliste im Workout-Archiv.");
+      ownerIndexByKey.set(key, index);
+    });
+    const metadataEntries = entries
+      .filter((entry) => /^workouts\/[^/]+\/W-[^/]+\.json$/u.test(entry.filename))
+      .sort((left, right) => left.filename.localeCompare(right.filename));
+    if (metadataEntries.length !== Number(manifest.workoutCount)) {
+      throw new Error("Workout-Anzahl stimmt nicht mit dem Manifest überein.");
+    }
+
+    const workouts = new Array(metadataEntries.length);
+    let segmentCount = 0;
+    let favoriteCount = 0;
+    let cursor = 0;
+    const readNext = async () => {
+      while (cursor < metadataEntries.length) {
+        const index = cursor++;
+        const entry = metadataEntries[index];
+        const metadata = JSON.parse(await entry.getData(new TextWriter()));
+        const ownerIndex = ownerIndexByKey.get(String(metadata.ownerKey || ""));
+        if (ownerIndex == null) throw new Error(`${entry.filename} verweist auf einen unbekannten Benutzer.`);
+        const base = entry.filename.slice(0, -5);
+        const streamEntry = byName.get(`${base}.stream`);
+        if (!streamEntry) throw new Error(`${entry.filename} enthält keinen Workout-Stream.`);
+        const startTime = metadata.start_time == null ? null : new Date(metadata.start_time).toISOString();
+        let streamHash = null;
+        if (!startTime) {
+          const stream = await streamEntry.getData(new Uint8ArrayWriter());
+          streamHash = await sha256Hex(stream);
+        }
+        segmentCount += Array.isArray(metadata.segments) ? metadata.segments.length : 0;
+        favoriteCount += Array.isArray(metadata.favoriteOwnerKeys) ? metadata.favoriteOwnerKeys.length : 0;
+        workouts[index] = [ownerIndex, startTime, streamHash];
+      }
+    };
+    await Promise.all(Array.from(
+      { length: Math.min(8, Math.max(1, metadataEntries.length)) },
+      () => readNext()
+    ));
+    if (segmentCount !== Number(manifest.segmentCount)
+      || favoriteCount !== Number(manifest.favoriteCount)) {
+      throw new Error("Segment- oder Favoritenanzahl stimmt nicht mit dem Manifest überein.");
+    }
+    return {
+      format: manifest.format,
+      version: manifest.version,
+      createdAt: manifest.createdAt,
+      workoutCount: manifest.workoutCount,
+      owners,
+      workouts
+    };
+  } finally {
+    await reader.close();
+  }
+}
+
+async function sendWorkoutPreview(metadata) {
+  const response = await fetch("/admin/accounts/workouts/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/vnd.cwa24.workout-preview+json" },
+    body: JSON.stringify(metadata),
+    credentials: "include"
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || `Workout-Vorschau fehlgeschlagen (${response.status})`);
+  return payload;
+}
+
+async function sendWorkoutArchive() {
   const archive = selectedWorkoutArchive();
   if (!archive) throw new Error("Bitte zuerst ein Workout-ZIP auswählen.");
   const body = new FormData();
   body.append("archive", archive);
-  if (confirmed) body.append("confirmed", "true");
-  const response = await fetch(path, { method: "POST", body, credentials: "include" });
+  body.append("confirmed", "true");
+  const response = await fetch("/admin/accounts/workouts/import", {
+    method: "POST",
+    body,
+    credentials: "include"
+  });
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error || `Workout-Restore fehlgeschlagen (${response.status})`);
   return payload;
@@ -226,7 +330,11 @@ workoutForm?.addEventListener("submit", async (event) => {
   workoutPreviewIsCurrent = false;
   setWorkoutResult("info", "Archiv und Benutzerzuordnung werden geprüft ...");
   try {
-    const { preview } = await sendWorkoutArchive("/admin/accounts/workouts/preview");
+    const archive = selectedWorkoutArchive();
+    if (!archive) throw new Error("Bitte zuerst ein Workout-ZIP auswählen.");
+    const metadata = await buildLocalWorkoutPreview(archive);
+    setWorkoutResult("info", "Lokale Prüfung abgeschlossen, Zielzuordnung wird abgefragt ...");
+    const { preview } = await sendWorkoutPreview(metadata);
     renderWorkoutPreview(preview);
     const totals = preview.totals || {};
     const hasConflicts = Number(totals.conflicts) > 0;
@@ -254,7 +362,7 @@ workoutConfirm?.addEventListener("click", async () => {
   workoutConfirm.disabled = true;
   setWorkoutResult("info", "Workouts werden transaktional importiert ...");
   try {
-    const { result: imported } = await sendWorkoutArchive("/admin/accounts/workouts/import", true);
+    const { result: imported } = await sendWorkoutArchive();
     setWorkoutResult("success", [
       `${imported.imported || 0} Workouts importiert`,
       `${imported.importedSegments || 0} Workout-Segmente`,

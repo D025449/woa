@@ -46,6 +46,12 @@ dem gleichen Tupel aus Zielbenutzer und `start_time` werden übersprungen. Der
 bestätigte Import läuft in einer Datenbanktransaktion und löscht keine vorhandenen
 Daten.
 
+Die Vorschau lädt das große ZIP nicht hoch. Der Browser liest lokal nur Manifest
+und Workout-Metadaten und sendet eine kompakte Liste aus Besitzerindex und
+Startzeit an das Backend. Nur für seltene Workouts ohne Startzeit wird lokal ein
+SHA-256-Fingerprint des Streams gebildet. Erst nach der Bestätigung wird das
+vollständige Archiv genau einmal übertragen und serverseitig erneut validiert.
+
 ## Formatentwicklung
 
 Die Archivversion und die Codec-Angaben der eingebetteten Streams sind getrennt.
