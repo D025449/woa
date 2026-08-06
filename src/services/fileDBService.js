@@ -1591,6 +1591,53 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     return result.rows;
   }
 
+  static async deleteManualSegment(uid, workoutId, segmentId) {
+    const result = await pool.query(`
+      DELETE FROM workout_segments
+      WHERE id = $1
+        AND wid = $2
+        AND uid = $3
+        AND segmenttype = 'manual'
+      RETURNING id, wid, segmenttype
+    `, [segmentId, workoutId, uid]);
+
+    return result.rows[0] || null;
+  }
+
+  static async updateManualSegment(uid, workoutId, segmentId, segment) {
+    const result = await pool.query(`
+      UPDATE workout_segments
+      SET
+        start_offset = $4,
+        end_offset = $5,
+        duration = $6,
+        avg_power = $7,
+        avg_heart_rate = $8,
+        avg_cadence = $9,
+        avg_speed = $10,
+        altimeters = $11
+      WHERE id = $1
+        AND wid = $2
+        AND uid = $3
+        AND segmenttype = 'manual'
+      RETURNING *
+    `, [
+      segmentId,
+      workoutId,
+      uid,
+      segment.start_offset,
+      segment.end_offset,
+      segment.duration,
+      segment.avg_power,
+      segment.avg_heart_rate,
+      segment.avg_cadence,
+      segment.avg_speed,
+      segment.altimeters
+    ]);
+
+    return result.rows[0] || null;
+  }
+
   static async getWorkoutSegmentProcessingStatus(uid, workoutId) {
     await WorkoutSharingService.getAccessibleWorkout(uid, workoutId);
 

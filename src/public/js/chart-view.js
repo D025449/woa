@@ -16,6 +16,66 @@ import {
 
 const MIN_DISTANCE_AXIS_SPAN_METERS = 100;
 const ADAPTIVE_CHART_ZOOM_DELAY_MS = 100;
+const SEGMENT_RESIZE_HIT_RADIUS_PX = 10;
+const SEGMENT_RESIZE_MIN_DURATION_SECONDS = 2;
+
+function isPersistedManualSegment(segment) {
+  const segmentId = Number(segment?.id);
+  return !segment?.isGPSSegment
+    && String(segment?.segmenttype || "").toLowerCase() === "manual"
+    && segment?.rowstate !== "DEL"
+    && Number.isInteger(segmentId)
+    && segmentId > 0;
+}
+
+export function findManualSegmentResizeEdge({
+  segments,
+  focusedSegment,
+  pointerPixel,
+  toPixel,
+  isVisible = () => true,
+  hitRadius = SEGMENT_RESIZE_HIT_RADIUS_PX
+}) {
+  if (!Number.isFinite(pointerPixel) || typeof toPixel !== "function") {
+    return null;
+  }
+
+  const focusedId = focusedSegment?.id == null ? null : String(focusedSegment.id);
+  const candidates = [];
+  for (const segment of Array.isArray(segments) ? segments : []) {
+    if (!isPersistedManualSegment(segment) || !isVisible(segment)) {
+      continue;
+    }
+
+    const startPixel = Number(toPixel(Number(segment.start_offset)));
+    const endPixel = Number(toPixel(Number(segment.end_offset)));
+    if (!Number.isFinite(startPixel) || !Number.isFinite(endPixel)) {
+      continue;
+    }
+
+    for (const [edge, edgePixel] of [["start", startPixel], ["end", endPixel]]) {
+      const distance = Math.abs(pointerPixel - edgePixel);
+      if (distance <= hitRadius) {
+        candidates.push({
+          segment,
+          edge,
+          distance,
+          span: Math.abs(endPixel - startPixel),
+          focused: focusedId != null && String(segment.id) === focusedId
+        });
+      }
+    }
+  }
+
+  candidates.sort((left, right) => (
+    Number(right.focused) - Number(left.focused)
+    || left.distance - right.distance
+    || left.span - right.span
+    || Number(left.segment.id) - Number(right.segment.id)
+    || left.edge.localeCompare(right.edge)
+  ));
+  return candidates[0] || null;
+}
 
 function isValidLeftRightBalance(value) {
   return value !== null
@@ -230,6 +290,8 @@ export default class ChartView {
     this.focusedSegment = null;
     this.hoveredSegment = null;
     this.activePointerId = null;
+    this.resizeDrag = null;
+    this.resizeSavePending = false;
     this.createButton = document.getElementById('draw-segment-toggle');
     this.createGpsButton = document.getElementById('draw-gps-segment-toggle');
     this.deleteButton = document.getElementById('delete-segments');
@@ -671,6 +733,7 @@ export default class ChartView {
 
     this.chart.on("dataZoom", () => {
       this.scheduleAdaptiveResolutionUpdate();
+      window.requestAnimationFrame(() => this.syncResizeHandles());
     });
   }
 
@@ -683,6 +746,7 @@ export default class ChartView {
     dom.addEventListener("pointerdown", (event) => {
       if (!this.isWorkoutEditable()) return;
       if (this.mode !== "create" && this.mode !== "gps-create") return;
+      if (this.resizeSavePending) return;
       if (!event.isPrimary) return;
       if (event.pointerType === "mouse" && event.button !== 0) return;
 
@@ -692,6 +756,16 @@ export default class ChartView {
       }
 
       this.activePointerId = event.pointerId;
+      const resizeHit = this.mode === "create"
+        ? this.getResizeEdgeHit(event, event.pointerType === "touch" ? 16 : SEGMENT_RESIZE_HIT_RADIUS_PX)
+        : null;
+      if (resizeHit) {
+        this.startResizeDrag(resizeHit);
+        dom.setPointerCapture?.(event.pointerId);
+        event.preventDefault();
+        return;
+      }
+
       this.selectionStart = this.xValueToIndex(xValue);
       this.updateSelectionPreview(xValue);
       dom.setPointerCapture?.(event.pointerId);
@@ -699,7 +773,10 @@ export default class ChartView {
     }, { passive: false });
 
     dom.addEventListener("pointermove", (event) => {
-      if (this.selectionStart == null) return;
+      if (this.selectionStart == null && !this.resizeDrag) {
+        this.updateCreateModeCursor(event);
+        return;
+      }
       if (this.activePointerId != null && event.pointerId !== this.activePointerId) return;
 
       const xValue = this.getPointerXValue(event);
@@ -707,18 +784,30 @@ export default class ChartView {
         return;
       }
 
-      this.updateSelectionPreview(xValue);
+      if (this.resizeDrag) {
+        this.updateResizePreview(xValue);
+      } else {
+        this.updateSelectionPreview(xValue);
+      }
       event.preventDefault();
     }, { passive: false });
 
     const finish = async (event) => {
-      if (this.selectionStart == null) return;
+      if (this.selectionStart == null && !this.resizeDrag) return;
       if (this.activePointerId != null && event.pointerId !== this.activePointerId) return;
 
       const xValue = this.getPointerXValue(event);
-      await this.finishSelectionDrag(xValue);
+      const completion = this.resizeDrag
+        ? this.finishResizeDrag(xValue)
+        : this.finishSelectionDrag(xValue);
       dom.releasePointerCapture?.(event.pointerId);
       event.preventDefault();
+
+      if (this.resizeDrag) {
+        this.chart.getZr().setCursorStyle("ew-resize");
+      }
+      await completion;
+      this.updateCreateModeCursor(event);
     };
 
     dom.addEventListener("pointerup", (event) => {
@@ -729,7 +818,15 @@ export default class ChartView {
       if (this.activePointerId != null && event.pointerId !== this.activePointerId) return;
       this.selectionStart = null;
       this.activePointerId = null;
+      this.resizeDrag = null;
       this.clearSelectionPreview();
+      this.updateCreateModeCursor(event);
+    });
+
+    dom.addEventListener("pointerleave", () => {
+      if (this.selectionStart == null && !this.resizeDrag) {
+        this.chart.getZr().setCursorStyle(this.mode === "create" || this.mode === "gps-create" ? "crosshair" : "default");
+      }
     });
   }
 
@@ -745,11 +842,13 @@ export default class ChartView {
     this.mode = mode;
     this.selectionStart = null;
     this.activePointerId = null;
+    this.resizeDrag = null;
     this.clearSelectionPreview();
     this.setDrawingMode(mode === "create" || mode === "gps-create");
     this.syncModeButtons();
     this.syncModeStatus();
     this.actionsMenu?.removeAttribute("open");
+    this.syncResizeHandles();
   }
 
   syncModeStatus() {
@@ -1118,6 +1217,133 @@ export default class ChartView {
     ];
   }
 
+  getResizeEdgeHit(event, hitRadius = SEGMENT_RESIZE_HIT_RADIUS_PX) {
+    const rect = this.chart?.getDom?.().getBoundingClientRect?.();
+    if (!rect) {
+      return null;
+    }
+
+    return findManualSegmentResizeEdge({
+      segments: this.currentWorkout?.segments,
+      focusedSegment: this.focusedSegment,
+      pointerPixel: event.clientX - rect.left,
+      toPixel: (offset) => this.chart.convertToPixel(
+        { xAxisIndex: 0 },
+        this.xIndexToValue(offset)
+      ),
+      isVisible: (segment) => this.isSegmentTypeVisible(segment),
+      hitRadius
+    });
+  }
+
+  updateCreateModeCursor(event) {
+    if (this.mode !== "create" || this.resizeDrag) {
+      this.chart.getZr().setCursorStyle(
+        this.mode === "create" || this.mode === "gps-create" ? "crosshair" : "default"
+      );
+      return;
+    }
+
+    const hit = this.getResizeEdgeHit(
+      event,
+      event.pointerType === "touch" ? 16 : SEGMENT_RESIZE_HIT_RADIUS_PX
+    );
+    this.chart.getZr().setCursorStyle(hit ? "ew-resize" : "crosshair");
+  }
+
+  startResizeDrag(hit) {
+    const segment = hit.segment;
+    this.focusedSegment = segment;
+    this.hoveredSegment = null;
+    this.resizeDrag = {
+      segment,
+      edge: hit.edge,
+      original: { ...segment },
+      startOffset: Number(segment.start_offset),
+      endOffset: Number(segment.end_offset)
+    };
+    this.hideSegmentHoverTooltip();
+    this.handlers.onSegmentFocusRequested?.(segment);
+    this.chart.getZr().setCursorStyle("ew-resize");
+    this.applyMarkAreas();
+  }
+
+  updateResizePreview(xValue) {
+    if (!this.resizeDrag || xValue == null || Number.isNaN(xValue)) {
+      return;
+    }
+
+    const maximumIndex = Math.max(
+      0,
+      Number(this.currentWorkout?.workoutObject?.length || 1) - 1
+    );
+    const nextIndex = Math.max(0, Math.min(maximumIndex, this.xValueToIndex(xValue)));
+    if (this.resizeDrag.edge === "start") {
+      this.resizeDrag.startOffset = Math.min(
+        nextIndex,
+        this.resizeDrag.endOffset - SEGMENT_RESIZE_MIN_DURATION_SECONDS
+      );
+    } else {
+      this.resizeDrag.endOffset = Math.max(
+        nextIndex,
+        this.resizeDrag.startOffset + SEGMENT_RESIZE_MIN_DURATION_SECONDS
+      );
+    }
+
+    this.previewMarkArea = this.buildSelectionPreviewArea(
+      this.resizeDrag.startOffset,
+      this.resizeDrag.endOffset
+    );
+    this.applyMarkAreas();
+  }
+
+  async finishResizeDrag(xValue) {
+    const drag = this.resizeDrag;
+    if (!drag) {
+      return;
+    }
+    if (xValue != null && !Number.isNaN(xValue)) {
+      this.updateResizePreview(xValue);
+    }
+
+    const startIndex = Math.round(drag.startOffset);
+    const endIndex = Math.round(drag.endOffset);
+    const changed = startIndex !== Number(drag.original.start_offset)
+      || endIndex !== Number(drag.original.end_offset);
+    this.activePointerId = null;
+
+    if (!changed) {
+      this.resizeDrag = null;
+      this.clearSelectionPreview();
+      return;
+    }
+
+    this.resizeSavePending = true;
+    try {
+      const updated = await SegmentService.updateManualSegment(
+        this.currentWorkout,
+        drag.segment,
+        { startIndex, endIndex }
+      );
+      Object.assign(drag.segment, updated);
+      this.resizeDrag = null;
+      this.previewMarkArea = null;
+      this.handlers.onUpdateWorkout?.(this.currentWorkout);
+      this.handlers.onToast?.(this.t("segmentResizeSuccess"));
+    } catch (error) {
+      Object.assign(drag.segment, drag.original);
+      this.resizeDrag = null;
+      this.previewMarkArea = null;
+      this.applyMarkAreas();
+      this.handlers.onToast?.(this.t("segmentResizeFailed"));
+      console.error("Failed to resize manual segment", error);
+    } finally {
+      this.resizeSavePending = false;
+      this.chart.getZr().setCursorStyle(this.mode === "create" ? "crosshair" : "default");
+      this.syncResizeHandles();
+    }
+  }
+
   getPointerXValue(event) {
     const rect = this.chart?.getDom?.().getBoundingClientRect?.();
     if (!rect) {
@@ -1202,8 +1428,62 @@ export default class ChartView {
     this.chart.setOption({
       series: [{
         markArea: { data }
-      }]
-    });
+      }],
+      graphic: this.buildResizeHandleGraphics()
+    }, { replaceMerge: ["graphic"] });
+  }
+
+  buildResizeHandleGraphics() {
+    const segment = this.resizeDrag?.segment || this.focusedSegment;
+    if (
+      this.mode !== "create"
+      || !isPersistedManualSegment(segment)
+      || !this.isSegmentTypeVisible(segment)
+    ) {
+      return [];
+    }
+
+    const startOffset = this.resizeDrag?.startOffset ?? Number(segment.start_offset);
+    const endOffset = this.resizeDrag?.endOffset ?? Number(segment.end_offset);
+    const startPixel = Number(this.chart.convertToPixel(
+      { xAxisIndex: 0 },
+      this.xIndexToValue(startOffset)
+    ));
+    const endPixel = Number(this.chart.convertToPixel(
+      { xAxisIndex: 0 },
+      this.xIndexToValue(endOffset)
+    ));
+    if (!Number.isFinite(startPixel) || !Number.isFinite(endPixel)) {
+      return [];
+    }
+
+    const top = 40;
+    const bottom = Math.max(top + 24, this.chart.getHeight() - 70);
+    const color = getSegmentColor(segment);
+    return [startPixel, endPixel].map((x, index) => ({
+      id: `manual-segment-resize-${index === 0 ? "start" : "end"}`,
+      type: "group",
+      silent: true,
+      z: 200,
+      children: [
+        {
+          type: "rect",
+          shape: { x: x - 1.5, y: top, width: 3, height: bottom - top },
+          style: { fill: color, opacity: 0.92, shadowBlur: 4, shadowColor: "rgba(15, 23, 42, 0.28)" }
+        },
+        {
+          type: "rect",
+          shape: { x: x - 6, y: top - 2, width: 12, height: 18, r: 4 },
+          style: { fill: "#ffffff", stroke: color, lineWidth: 2 }
+        }
+      ]
+    }));
+  }
+
+  syncResizeHandles() {
+    this.chart.setOption({
+      graphic: this.buildResizeHandleGraphics()
+    }, { replaceMerge: ["graphic"] });
   }
 
   setDrawingMode(enabled) {

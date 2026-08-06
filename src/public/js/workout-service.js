@@ -109,6 +109,29 @@ export default class WorkoutService {
     return Array.isArray(result.deletedIds) ? result.deletedIds : [];
   }
 
+  static async deleteManualSegment(workoutId, segmentId) {
+    const response = await fetch(
+      `/files/workouts/${encodeURIComponent(workoutId)}/segments/${encodeURIComponent(segmentId)}`,
+      { method: "DELETE" }
+    );
+
+    if (response.status === 401) {
+      window.location.href = "/";
+      return null;
+    }
+    if (!response.ok) {
+      let message = `Delete failed (${response.status})`;
+      try {
+        const payload = await response.json();
+        message = payload.error || message;
+      } catch {
+        // Keep the status-based fallback for non-JSON errors.
+      }
+      throw new Error(message);
+    }
+    return response.json();
+  }
+
   static async loadWorkoutByRow(wid) {
     return this.loadWorkoutByRowV2(wid);
   }

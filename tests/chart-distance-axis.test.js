@@ -3,10 +3,80 @@ import test from "node:test";
 
 import {
   calculateStableYAxisBounds,
+  findManualSegmentResizeEdge,
   getChartSeriesSamplingOption,
   getAvailableWorkoutSeries,
   hasMeaningfulDistanceSeries
 } from "../src/public/js/chart-view.js";
+
+test("manual segment resize hit testing is independent of render order", () => {
+  const longerSegment = {
+    id: 20,
+    segmenttype: "manual",
+    rowstate: "DB",
+    start_offset: 10,
+    end_offset: 90
+  };
+  const shorterSegment = {
+    id: 10,
+    segmenttype: "manual",
+    rowstate: "DB",
+    start_offset: 12,
+    end_offset: 40
+  };
+
+  const hit = findManualSegmentResizeEdge({
+    segments: [longerSegment, shorterSegment],
+    pointerPixel: 12,
+    toPixel: (offset) => offset,
+    hitRadius: 10
+  });
+
+  assert.equal(hit.segment, shorterSegment);
+  assert.equal(hit.edge, "start");
+});
+
+test("focused manual segment wins resize collision detection", () => {
+  const focusedSegment = {
+    id: 20,
+    segmenttype: "manual",
+    rowstate: "DB",
+    start_offset: 10,
+    end_offset: 90
+  };
+  const nearerSegment = {
+    id: 10,
+    segmenttype: "manual",
+    rowstate: "DB",
+    start_offset: 14,
+    end_offset: 40
+  };
+
+  const hit = findManualSegmentResizeEdge({
+    segments: [nearerSegment, focusedSegment],
+    focusedSegment,
+    pointerPixel: 15,
+    toPixel: (offset) => offset,
+    hitRadius: 10
+  });
+
+  assert.equal(hit.segment, focusedSegment);
+  assert.equal(hit.edge, "start");
+});
+
+test("segment resize ignores non-manual and GPS segments", () => {
+  const hit = findManualSegmentResizeEdge({
+    segments: [
+      { id: 1, segmenttype: "critical_power", rowstate: "DB", start_offset: 10, end_offset: 20 },
+      { id: 2, segmenttype: "manual", isGPSSegment: true, rowstate: "DB", start_offset: 10, end_offset: 20 }
+    ],
+    pointerPixel: 10,
+    toPixel: (offset) => offset,
+    hitRadius: 10
+  });
+
+  assert.equal(hit, null);
+});
 
 test("chart disables ECharts sampling when smoothing is off", () => {
   assert.deepEqual(getChartSeriesSamplingOption("power", "off"), {});

@@ -415,6 +415,17 @@
                                     </div>
                                 </div>
 
+                                <div
+                                    id="dashboard-chart-mode-status"
+                                    class="dashboard-chart-mode-status"
+                                    role="status"
+                                    aria-live="polite"
+                                    hidden>
+                                    <span class="dashboard-chart-mode-status__dot" aria-hidden="true"></span>
+                                    <span id="dashboard-chart-mode-status-text"></span>
+                                    <kbd>Esc</kbd>
+                                </div>
+
                                 <div class="dashboard-toolbar dashboard-workspace-toolbar">
                                     <div class="dashboard-detail-nav" role="group" aria-label="<%= t('dashboardNewPage.detailNavigationAria') %>">
                                         <button id="dashboard-workout-prev" class="dashboard-detail-nav__button" type="button" aria-label="<%= t('dashboardNewPage.previousItem') %>">‹</button>
@@ -516,16 +527,6 @@
                             </div>
 
                             <div class="dashboard-surface-body dashboard-chart-stage ui-surface-body ui-surface-body--flush">
-                                <div
-                                    id="dashboard-chart-mode-status"
-                                    class="dashboard-chart-mode-status"
-                                    role="status"
-                                    aria-live="polite"
-                                    hidden>
-                                    <span class="dashboard-chart-mode-status__dot" aria-hidden="true"></span>
-                                    <span id="dashboard-chart-mode-status-text"></span>
-                                    <kbd>Esc</kbd>
-                                </div>
                                 <div id="workout-chart"></div>
                             </div>
                             </article>

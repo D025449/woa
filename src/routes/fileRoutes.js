@@ -376,6 +376,88 @@ router.post("/workouts/:id/segments", authMiddleware, requireActiveAccountWrite,
   }
 });
 
+router.delete(
+  "/workouts/:id/segments/:segmentId",
+  authMiddleware,
+  requireActiveAccountWrite,
+  async (req, res, next) => {
+    try {
+      const workoutId = Number(req.params.id);
+      const segmentId = Number(req.params.segmentId);
+      if (!Number.isInteger(workoutId) || workoutId <= 0 || !Number.isInteger(segmentId) || segmentId <= 0) {
+        return res.status(400).json({ error: "Invalid workout or segment id" });
+      }
+
+      const deleted = await FileDBService.deleteManualSegment(req.user.id, workoutId, segmentId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Manual segment not found" });
+      }
+
+      return res.json({ ok: true, segment: deleted });
+    } catch (err) {
+      console.error("DELETE /files/workouts/:id/segments/:segmentId failed:", err);
+      return next(err);
+    }
+  }
+);
+
+router.patch(
+  "/workouts/:id/segments/:segmentId",
+  authMiddleware,
+  requireActiveAccountWrite,
+  async (req, res, next) => {
+    try {
+      const workoutId = Number(req.params.id);
+      const segmentId = Number(req.params.segmentId);
+      const payload = req.body?.segment || req.body || {};
+      const startOffset = Number(payload.start_offset);
+      const endOffset = Number(payload.end_offset);
+
+      if (!Number.isInteger(workoutId) || workoutId <= 0 || !Number.isInteger(segmentId) || segmentId <= 0) {
+        return res.status(400).json({ error: "Invalid workout or segment id" });
+      }
+      if (
+        !Number.isInteger(startOffset)
+        || !Number.isInteger(endOffset)
+        || startOffset < 0
+        || endOffset - startOffset < 2
+      ) {
+        return res.status(400).json({ error: "Invalid manual segment range" });
+      }
+
+      const normalizeMetric = (value) => {
+        const metric = Number(value);
+        return Number.isFinite(metric) ? metric : 0;
+      };
+      const segment = {
+        start_offset: startOffset,
+        end_offset: endOffset,
+        duration: endOffset - startOffset,
+        avg_power: normalizeMetric(payload.avg_power),
+        avg_heart_rate: normalizeMetric(payload.avg_heart_rate),
+        avg_cadence: normalizeMetric(payload.avg_cadence),
+        avg_speed: normalizeMetric(payload.avg_speed),
+        altimeters: normalizeMetric(payload.altimeters)
+      };
+
+      const updated = await FileDBService.updateManualSegment(
+        req.user.id,
+        workoutId,
+        segmentId,
+        segment
+      );
+      if (!updated) {
+        return res.status(404).json({ error: "Manual segment not found" });
+      }
+
+      return res.json({ ok: true, segment: updated });
+    } catch (err) {
+      console.error("PATCH /files/workouts/:id/segments/:segmentId failed:", err);
+      return next(err);
+    }
+  }
+);
+
 router.get("/workouts/:id/segments", authMiddleware, async (req, res, next) => {
   try {
     const workoutId = req.params.id;

@@ -89,6 +89,68 @@ export default class SegmentService {
         return workout;
     }
 
+    static buildResizedManualSegment(workout, segment, startEnd) {
+        const recalculated = workout?.workoutObject?.createNewSegment?.(startEnd, 'manual');
+        if (!recalculated) {
+            return null;
+        }
+
+        return {
+            ...segment,
+            ...recalculated,
+            id: segment.id,
+            segmenttype: 'manual',
+            segmentname: segment.segmentname ?? '',
+            rowstate: 'DB',
+            isGPSSegment: false
+        };
+    }
+
+    static async updateManualSegment(workout, segment, startEnd) {
+        const updatedSegment = SegmentService.buildResizedManualSegment(
+            workout,
+            segment,
+            startEnd
+        );
+        if (!updatedSegment) {
+            throw new Error("Invalid manual segment range");
+        }
+
+        const response = await fetch(
+            `/files/workouts/${encodeURIComponent(workout.id)}/segments/${encodeURIComponent(segment.id)}`,
+            {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ segment: updatedSegment })
+            }
+        );
+
+        if (response.status === 401) {
+            window.location.href = '/';
+            throw new Error("Authentication required");
+        }
+        if (!response.ok) {
+            let message = `Segment update failed (${response.status})`;
+            try {
+                const payload = await response.json();
+                message = payload.error || message;
+            } catch {
+                // Keep the status-based fallback for non-JSON errors.
+            }
+            throw new Error(message);
+        }
+
+        const result = await response.json();
+        return {
+            ...updatedSegment,
+            ...(result.segment || {}),
+            rowstate: 'DB',
+            isGPSSegment: false
+        };
+    }
+
     static async createAddNewGpsSegment(workout, startEnd) {
         if (!workout?.validGps || !Array.isArray(workout.track) || workout.track.length === 0) {
             return null;

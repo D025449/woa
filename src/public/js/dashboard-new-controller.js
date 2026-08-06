@@ -214,6 +214,17 @@ export default class Controller {
       onUpdateWorkout: (workout) => {
         this.chartView.updateWorkout(workout);
         this.mapView.renderTrack(workout);
+        if (this.focusedWorkoutSegmentKey) {
+          const focusedSegment = workout?.segments?.find(
+            (segment) => this.getWorkoutSegmentKey(segment) === this.focusedWorkoutSegmentKey
+          );
+          if (focusedSegment) {
+            this.mapView.highlightSegment({
+              start: focusedSegment.start_offset,
+              end: focusedSegment.end_offset
+            });
+          }
+        }
         this.flyoverView?.setWorkout(workout);
         this.renderWorkoutSegments(workout);
         this.update3dMapButton();
@@ -245,6 +256,20 @@ export default class Controller {
 
         this.chartView.updateWorkout(workout);
         this.mapView.renderTrack(workout);
+        this.renderWorkoutSegments(workout);
+      },
+
+      onSegmentFocusRequested: (segment) => {
+        const workout = this.chartView.currentWorkout;
+        if (!workout || !segment) {
+          return;
+        }
+
+        this.focusedWorkoutSegmentKey = this.getWorkoutSegmentKey(segment);
+        this.mapView.highlightSegment({
+          start: segment.start_offset,
+          end: segment.end_offset
+        });
         this.renderWorkoutSegments(workout);
       },
 
@@ -1362,6 +1387,54 @@ export default class Controller {
     ].join(":");
   }
 
+  canDeleteWorkoutSegment(workout, segment) {
+    const segmentId = Number(segment?.id);
+    const isOwner = workout?.access?.isOwner !== false && workout?.is_owned !== false;
+    return isOwner
+      && !segment?.isGPSSegment
+      && getSegmentVisibilityKey(segment) === "manual"
+      && Number.isInteger(segmentId)
+      && segmentId > 0;
+  }
+
+  async deleteWorkoutSegment(workout, segment) {
+    if (!this.canDeleteWorkoutSegment(workout, segment)) {
+      return false;
+    }
+
+    const label = this.getWorkoutSegmentTitle(segment);
+    const confirmed = await confirmModal({
+      title: this.t("workoutSegmentDeleteTitle"),
+      message: this.t("workoutSegmentDeletePrompt", { label }),
+      acceptLabel: this.t("workoutSegmentDeleteConfirm"),
+      cancelLabel: this.t("workoutSegmentDeleteCancel"),
+      acceptClass: "btn-danger"
+    });
+    if (!confirmed) {
+      return false;
+    }
+
+    await WorkoutService.deleteManualSegment(workout.id, segment.id);
+    workout.segments = (Array.isArray(workout.segments) ? workout.segments : [])
+      .filter((candidate) => String(candidate?.id) !== String(segment.id));
+
+    if (String(this.currentWorkoutId) !== String(workout.id)) {
+      return true;
+    }
+
+    if (this.focusedWorkoutSegmentKey === this.getWorkoutSegmentKey(segment)) {
+      this.focusedWorkoutSegmentKey = null;
+      this.chartView.clearSegmentFocus({ resetZoom: true });
+    }
+    this.chartView.clearSegmentHover();
+    this.mapView.clearSegmentHover();
+    this.chartView.updateWorkout(workout);
+    this.mapView.renderTrack(workout);
+    this.renderWorkoutSegments(workout);
+    this.showToast(this.t("workoutSegmentDeleteSuccess"));
+    return true;
+  }
+
   renderWorkoutSegments(workout) {
     if (!this.workoutSegmentsListElement || !this.workoutSegmentsCopyElement) {
       return;
@@ -1412,32 +1485,51 @@ export default class Controller {
         ...(averageCadence ? [["CD", averageCadence]] : []),
         ...(averageSpeed ? [["SP", averageSpeed]] : [])
       ];
+      const canDelete = this.canDeleteWorkoutSegment(workout, segment);
+      const deleteAction = this.t("workoutSegmentDeleteAction");
 
       return `
-        <button
-          type="button"
-          class="dashboard-workout-segment${isFocused ? " is-focused" : ""}"
+        <div
+          class="dashboard-workout-segment${isFocused ? " is-focused" : ""}${canDelete ? " has-delete" : ""}"
           style="--segment-color:${getSegmentColor(segment)}"
-          data-workout-segment-focus="${this.escapeHtml(segmentKey)}"
-          aria-pressed="${isFocused ? "true" : "false"}"
         >
-          <span class="dashboard-workout-segment__accent" aria-hidden="true"></span>
-          <span class="dashboard-workout-segment__content">
-            <span class="dashboard-workout-segment__header">
-              <span class="dashboard-workout-segment__title">${this.escapeHtml(title)}</span>
-              <span class="dashboard-workout-segment__id">${this.escapeHtml(identifier)}</span>
+          <button
+            type="button"
+            class="dashboard-workout-segment__focus"
+            data-workout-segment-focus="${this.escapeHtml(segmentKey)}"
+            aria-pressed="${isFocused ? "true" : "false"}"
+          >
+            <span class="dashboard-workout-segment__accent" aria-hidden="true"></span>
+            <span class="dashboard-workout-segment__content">
+              <span class="dashboard-workout-segment__header">
+                <span class="dashboard-workout-segment__title">${this.escapeHtml(title)}</span>
+                <span class="dashboard-workout-segment__id">${this.escapeHtml(identifier)}</span>
+              </span>
+              ${title !== typeLabel ? `<span class="dashboard-workout-segment__meta">${this.escapeHtml(typeLabel)}</span>` : ""}
+              <span class="dashboard-workout-segment__stats">
+                ${stats.map(([label, value]) => `
+                  <span class="dashboard-workout-segment__stat">
+                    <strong>${this.escapeHtml(label)}</strong>
+                    <span>${this.escapeHtml(value)}</span>
+                  </span>
+                `).join("")}
+              </span>
             </span>
-            ${title !== typeLabel ? `<span class="dashboard-workout-segment__meta">${this.escapeHtml(typeLabel)}</span>` : ""}
-            <span class="dashboard-workout-segment__stats">
-              ${stats.map(([label, value]) => `
-                <span class="dashboard-workout-segment__stat">
-                  <strong>${this.escapeHtml(label)}</strong>
-                  <span>${this.escapeHtml(value)}</span>
-                </span>
-              `).join("")}
-            </span>
-          </span>
-        </button>
+          </button>
+          ${canDelete ? `
+            <button
+              type="button"
+              class="dashboard-workout-segment__delete"
+              data-workout-segment-delete="${this.escapeHtml(segmentKey)}"
+              title="${this.escapeHtml(deleteAction)}"
+              aria-label="${this.escapeHtml(deleteAction)}"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h10l-.7 11H7.7L7 9Zm3 2v7h2v-7h-2Zm4 0v7h2v-7h-2Z" />
+              </svg>
+            </button>
+          ` : ""}
+        </div>
       `;
     }).join("");
 
@@ -1484,6 +1576,28 @@ export default class Controller {
           });
         }
         this.renderWorkoutSegments(workout);
+      });
+    });
+
+    this.workoutSegmentsListElement.querySelectorAll("[data-workout-segment-delete]").forEach((button) => {
+      button.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const segmentKey = button.dataset.workoutSegmentDelete;
+        const segment = segments.find((candidate) => this.getWorkoutSegmentKey(candidate) === segmentKey);
+        if (!segment) {
+          return;
+        }
+
+        button.disabled = true;
+        try {
+          await this.deleteWorkoutSegment(workout, segment);
+        } catch (error) {
+          console.error("Failed to delete manual workout segment", error);
+          this.showToast(this.t("workoutSegmentDeleteFailed"));
+          if (button.isConnected) {
+            button.disabled = false;
+          }
+        }
       });
     });
   }
