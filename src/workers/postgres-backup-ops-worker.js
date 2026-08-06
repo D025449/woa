@@ -113,6 +113,13 @@ const worker = new Worker(
     if (job.name === "logical-restore") {
       return LogicalBackupService.restore(job.data?.backupRoot, job.data?.selections, logicalProgress);
     }
+    if (job.name === "logical-delete") {
+      return LogicalBackupService.remove(
+        job.data?.backupRoot,
+        job.data?.confirmation,
+        logicalProgress
+      );
+    }
     if (job.name === "create") {
       const args = job.data?.label ? ["--label", String(job.data.label)] : [];
       return executeOperation(job, "create-backup.mjs", args);

@@ -41,6 +41,7 @@ import {
   validateLogicalWorkoutChunkIndex
 } from "./logicalWorkoutChunkFormat.js";
 import StreamingZipFileWriter from "./streamingZipFileWriter.js";
+import deleteLogicalBackupObjects from "./logicalBackupDelete.js";
 import UserAccountBackupService from "./userAccountBackupService.js";
 import { decodeWoa1BufferLight } from "./woa1Service.js";
 
@@ -740,6 +741,45 @@ export default class LogicalBackupService {
       throw new Error("Unsupported logical backup manifest.");
     }
     return { config, root, s3, manifest };
+  }
+
+  static async remove(rootValue, confirmation, progress = null) {
+    const loaded = await this.loadManifest(rootValue);
+    const confirmationToken = String(loaded.manifest.backupId || "").slice(0, 8);
+    if (!confirmationToken || String(confirmation || "") !== confirmationToken) {
+      throw Object.assign(new Error("Logical backup deletion confirmation does not match the backup ID."), { statusCode: 400 });
+    }
+
+    const objects = [];
+    let continuationToken;
+    do {
+      const response = await loaded.s3.send(new ListObjectsV2Command({
+        Bucket: loaded.config.bucket,
+        Prefix: `${loaded.root}/`,
+        ContinuationToken: continuationToken
+      }));
+      objects.push(...(response.Contents || []));
+      continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+    } while (continuationToken);
+
+    const { deletedObjects, deletedBytes } = await deleteLogicalBackupObjects({
+      s3: loaded.s3,
+      bucket: loaded.config.bucket,
+      root: loaded.root,
+      objects,
+      progress
+    });
+    console.info("[logical-backup] delete.profile", {
+      backupId: loaded.manifest.backupId,
+      deletedObjects,
+      deletedBytes
+    });
+    return {
+      backupId: loaded.manifest.backupId,
+      rootKey: loaded.root,
+      deletedObjects,
+      deletedBytes
+    };
   }
 
   static async preview(rootValue, { accounts = true, segments = true, workouts = true, workoutSource = "native" } = {}) {

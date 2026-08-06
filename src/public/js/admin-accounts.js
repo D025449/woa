@@ -995,8 +995,27 @@ function renderLogicalBackups() {
       const cell = document.createElement("td");
       cell.textContent = String(value);
       if (index >= 3) cell.className = "text-end";
+      if (index === 0 && backup === logicalBackups[0]) {
+        const badge = document.createElement("span");
+        badge.className = "badge text-bg-primary ms-2";
+        badge.textContent = "Aktuellstes";
+        cell.append(badge);
+      }
       row.append(cell);
     });
+    const actionCell = document.createElement("td");
+    actionCell.className = "text-end";
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "btn btn-outline-danger btn-sm";
+    deleteButton.dataset.logicalBackupDelete = "true";
+    deleteButton.textContent = "Löschen";
+    deleteButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await deleteLogicalBackup(backup);
+    });
+    actionCell.append(deleteButton);
+    row.append(actionCell);
     row.addEventListener("click", (event) => {
       if (event.target !== radio) {
         radio.checked = true;
@@ -1016,11 +1035,12 @@ async function loadLogicalBackups(preselectRoot = null) {
   selectLogicalBackup(selectedLogicalBackup);
 }
 
-async function runLogicalJob(path, body) {
-  const queued = await databaseApi(path, { method: "POST", body: JSON.stringify(body) });
+async function runLogicalJob(path, body, method = "POST") {
+  const queued = await databaseApi(path, { method, body: JSON.stringify(body) });
   logicalBackupCreate.disabled = true;
   logicalBackupPreview.disabled = true;
   logicalBackupRestore.disabled = true;
+  document.querySelectorAll("[data-logical-backup-delete]").forEach((button) => { button.disabled = true; });
   try {
     while (true) {
       const payload = await databaseApi(`/admin/accounts/database/jobs/${encodeURIComponent(queued.jobId)}`);
@@ -1049,6 +1069,41 @@ async function runLogicalJob(path, body) {
     logicalBackupCreate.disabled = false;
     logicalBackupPreview.disabled = !selectedLogicalBackup;
     logicalBackupRestore.disabled = false;
+    document.querySelectorAll("[data-logical-backup-delete]").forEach((button) => { button.disabled = false; });
+  }
+}
+
+async function deleteLogicalBackup(backup) {
+  const confirmation = String(backup.backupId || "").slice(0, 8);
+  const isLatest = backup === logicalBackups[0];
+  const isLast = logicalBackups.length === 1;
+  const warning = isLast
+    ? "\n\nDies ist das letzte vorhandene logische Backup."
+    : isLatest
+      ? "\n\nDies ist das aktuellste logische Backup."
+      : "";
+  const entered = window.prompt(
+    `Backup ${confirmation} dauerhaft aus S3 löschen?${warning}\n\nZur Bestätigung ${confirmation} eingeben:`
+  );
+  if (entered !== confirmation) {
+    if (entered !== null) setLogicalResult("warning", "Backup-ID stimmt nicht. Es wurde nichts gelöscht.");
+    return;
+  }
+
+  try {
+    setLogicalResult("info", `Backup ${confirmation} wird aus S3 gelöscht ...`);
+    const result = await runLogicalJob("/admin/accounts/logical/backups", {
+      backupRoot: backup.rootKey,
+      confirmation
+    }, "DELETE");
+    if (selectedLogicalBackup?.rootKey === backup.rootKey) selectedLogicalBackup = null;
+    await loadLogicalBackups();
+    setLogicalResult(
+      "success",
+      `Backup ${confirmation} gelöscht: ${result.deletedObjects} aktuelle Objekte (${formatBytes(result.deletedBytes)}).`
+    );
+  } catch (error) {
+    setLogicalResult("danger", error.message);
   }
 }
 
