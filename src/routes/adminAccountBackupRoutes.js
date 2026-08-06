@@ -17,6 +17,9 @@ import { enqueueSegmentBestEfforts } from "../services/segment-best-efforts-serv
 import PostgresBackupCatalogService from "../services/postgresBackupCatalogService.js";
 import { postgresBackupOpsQueue } from "../queue/postgres-backup-ops-queue.js";
 import LogicalBackupService from "../services/logicalBackupService.js";
+import AdminUserRoleService, {
+  AdminUserRoleError
+} from "../services/adminUserRoleService.js";
 
 const router = express.Router();
 const upload = multer({
@@ -39,6 +42,60 @@ router.get("/", (req, res) => {
     userInfo: req.user,
     isAuthenticated: true
   });
+});
+
+function parseUserId(value) {
+  const normalized = String(value || "").trim();
+  return /^\d+$/u.test(normalized) && normalized !== "0" ? normalized : null;
+}
+
+function handleAdminRoleError(error, res, next) {
+  if (error instanceof AdminUserRoleError) {
+    return res.status(error.status).json({ error: error.message, code: error.code });
+  }
+  return next(error);
+}
+
+router.get("/users", async (req, res, next) => {
+  try {
+    const result = await AdminUserRoleService.listUsers({
+      search: req.query?.search,
+      role: req.query?.role
+    });
+    return res.json({
+      ok: true,
+      ...result,
+      currentUserId: String(req.user.id)
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.put("/users/:userId/admin-role", async (req, res, next) => {
+  const targetUserId = parseUserId(req.params.userId);
+  if (!targetUserId) {
+    return res.status(400).json({ error: "Invalid user id", code: "INVALID_USER_ID" });
+  }
+  try {
+    const result = await AdminUserRoleService.grantAdmin(req.user.id, targetUserId);
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    return handleAdminRoleError(error, res, next);
+  }
+});
+
+router.delete("/users/:userId/admin-role", async (req, res, next) => {
+  const targetUserId = parseUserId(req.params.userId);
+  if (!targetUserId) {
+    return res.status(400).json({ error: "Invalid user id", code: "INVALID_USER_ID" });
+  }
+  try {
+    const result = await AdminUserRoleService.revokeAdmin(req.user.id, targetUserId);
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    return handleAdminRoleError(error, res, next);
+  }
 });
 
 router.get("/export", async (_req, res, next) => {

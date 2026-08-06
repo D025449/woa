@@ -5,6 +5,207 @@ import {
   ZipReader,
   configure as configureZipJs
 } from "/vendor/zipjs/index.js";
+import confirmModal from "./confirm-modal.js";
+
+const adminUserRolesList = document.getElementById("admin-user-roles-list");
+const adminUserRolesEmpty = document.getElementById("admin-user-roles-empty");
+const adminUserRolesResult = document.getElementById("admin-user-roles-result");
+const adminUserRolesSummary = document.getElementById("admin-user-roles-summary");
+const adminUserRolesSearch = document.getElementById("admin-user-roles-search");
+const adminUserRolesFilter = document.getElementById("admin-user-roles-filter");
+const adminUserRolesRefresh = document.getElementById("admin-user-roles-refresh");
+let adminUserRolesSearchTimer = null;
+let adminUserRolesState = {
+  users: [],
+  currentUserId: null,
+  adminCount: 0,
+  filteredCount: 0
+};
+
+function setAdminUserRolesResult(kind, message) {
+  if (!adminUserRolesResult) return;
+  adminUserRolesResult.className = `alert alert-${kind} mt-3 mb-0`;
+  adminUserRolesResult.textContent = message;
+}
+
+function formatAdminUserDate(value) {
+  if (!value) return "–";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "–"
+    : new Intl.DateTimeFormat("de-DE", { dateStyle: "medium" }).format(date);
+}
+
+function createAdminUserRoleCard(user) {
+  const isSelf = String(user.id) === String(adminUserRolesState.currentUserId);
+  const card = document.createElement("article");
+  card.className = `admin-user-role-card${user.isAdmin ? " is-admin" : ""}`;
+  card.dataset.userId = user.id;
+
+  const identity = document.createElement("div");
+  identity.className = "admin-user-role-card__identity";
+  const avatar = document.createElement("span");
+  avatar.className = "admin-user-role-card__avatar";
+  avatar.textContent = String(user.displayName || user.email || "?").trim().charAt(0).toUpperCase() || "?";
+  const copy = document.createElement("div");
+  const heading = document.createElement("div");
+  heading.className = "admin-user-role-card__heading";
+  const name = document.createElement("strong");
+  name.textContent = user.displayName || user.email;
+  heading.append(name);
+  if (isSelf) {
+    const selfBadge = document.createElement("span");
+    selfBadge.className = "admin-user-role-card__self";
+    selfBadge.textContent = "Du";
+    heading.append(selfBadge);
+  }
+  const email = document.createElement("span");
+  email.className = "admin-user-role-card__email";
+  email.textContent = user.email;
+  copy.append(heading, email);
+  identity.append(avatar, copy);
+
+  const badges = document.createElement("div");
+  badges.className = "admin-user-role-card__badges";
+  const roleBadge = document.createElement("span");
+  roleBadge.className = `admin-user-role-card__role admin-user-role-card__role--${user.isAdmin ? "admin" : "user"}`;
+  roleBadge.textContent = user.isAdmin ? "Administrator" : "Standardbenutzer";
+  const statusBadge = document.createElement("span");
+  statusBadge.className = `admin-user-role-card__status admin-user-role-card__status--${user.accountStatus}`;
+  statusBadge.textContent = user.accountStatus === "active" ? "Aktiv" : user.accountStatus;
+  badges.append(roleBadge, statusBadge);
+
+  const facts = document.createElement("div");
+  facts.className = "admin-user-role-card__facts";
+  const factValues = [
+    ["UID", user.id],
+    ["Angelegt", formatAdminUserDate(user.createdAt)],
+    ...(user.isAdmin ? [["Admin seit", formatAdminUserDate(user.grantedAt)]] : [])
+  ];
+  for (const [label, value] of factValues) {
+    const fact = document.createElement("span");
+    const labelElement = document.createElement("small");
+    labelElement.textContent = label;
+    const valueElement = document.createElement("strong");
+    valueElement.textContent = String(value);
+    fact.append(labelElement, valueElement);
+    facts.append(fact);
+  }
+
+  const action = document.createElement("button");
+  action.type = "button";
+  action.className = user.isAdmin ? "btn btn-outline-danger btn-sm" : "btn btn-outline-primary btn-sm";
+  action.dataset.adminRoleAction = user.isAdmin ? "revoke" : "grant";
+  action.dataset.userId = user.id;
+  action.textContent = user.isAdmin ? "Adminrechte entziehen" : "Zum Admin machen";
+
+  if (isSelf && user.isAdmin) {
+    action.disabled = true;
+    action.textContent = "Eigener Adminzugang";
+    action.title = "Du kannst dir deine eigenen Administratorrechte nicht entziehen.";
+  } else if (!user.isAdmin && user.accountStatus !== "active") {
+    action.disabled = true;
+    action.title = "Nur aktive Benutzer können Administratoren werden.";
+  } else if (user.isAdmin && adminUserRolesState.adminCount <= 1) {
+    action.disabled = true;
+    action.title = "Mindestens ein Administrator muss erhalten bleiben.";
+  }
+
+  card.append(identity, badges, facts, action);
+  return card;
+}
+
+function renderAdminUserRoles() {
+  if (!adminUserRolesList) return;
+  adminUserRolesList.replaceChildren(
+    ...adminUserRolesState.users.map(createAdminUserRoleCard)
+  );
+  adminUserRolesEmpty?.classList.toggle("d-none", adminUserRolesState.users.length > 0);
+  if (adminUserRolesSummary) {
+    adminUserRolesSummary.textContent = `${adminUserRolesState.filteredCount} Treffer · ${adminUserRolesState.adminCount} Admin${adminUserRolesState.adminCount === 1 ? "" : "s"}`;
+  }
+}
+
+async function loadAdminUserRoles() {
+  if (!adminUserRolesList) return;
+  adminUserRolesList.classList.add("is-loading");
+  if (adminUserRolesRefresh) adminUserRolesRefresh.disabled = true;
+  const params = new URLSearchParams({
+    search: adminUserRolesSearch?.value?.trim() || "",
+    role: adminUserRolesFilter?.value || "all"
+  });
+  try {
+    const response = await fetch(`/admin/accounts/users?${params}`, { credentials: "include" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || `Benutzer konnten nicht geladen werden (${response.status})`);
+    adminUserRolesState = {
+      users: Array.isArray(payload.users) ? payload.users : [],
+      currentUserId: payload.currentUserId,
+      adminCount: Number(payload.adminCount || 0),
+      filteredCount: Number(payload.filteredCount || 0)
+    };
+    renderAdminUserRoles();
+  } catch (error) {
+    setAdminUserRolesResult("danger", error.message);
+  } finally {
+    adminUserRolesList.classList.remove("is-loading");
+    if (adminUserRolesRefresh) adminUserRolesRefresh.disabled = false;
+  }
+}
+
+async function changeAdminRole(action, user) {
+  const granting = action === "grant";
+  const accepted = await confirmModal({
+    title: granting ? "Administrator ernennen" : "Adminrechte entziehen",
+    message: granting
+      ? `${user.displayName} (${user.email}) Administratorrechte geben?`
+      : `${user.displayName} (${user.email}) die Administratorrechte entziehen?\n\nDer Benutzer verliert unmittelbar den Zugriff auf die Administration.`,
+    acceptLabel: granting ? "Zum Admin machen" : "Adminrechte entziehen",
+    cancelLabel: "Abbrechen",
+    acceptClass: granting ? "btn-primary" : "btn-danger"
+  });
+  if (!accepted) return;
+
+  const response = await fetch(`/admin/accounts/users/${encodeURIComponent(user.id)}/admin-role`, {
+    method: granting ? "PUT" : "DELETE",
+    credentials: "include"
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || `Rollenänderung fehlgeschlagen (${response.status})`);
+  setAdminUserRolesResult(
+    "success",
+    granting
+      ? `${user.displayName} ist jetzt Administrator.`
+      : `${user.displayName} hat keine Administratorrechte mehr.`
+  );
+  await loadAdminUserRoles();
+}
+
+adminUserRolesList?.addEventListener("click", async (event) => {
+  const button = event.target?.closest?.("[data-admin-role-action]");
+  if (!button || button.disabled) return;
+  const user = adminUserRolesState.users.find((candidate) => String(candidate.id) === String(button.dataset.userId));
+  if (!user) return;
+  button.disabled = true;
+  try {
+    await changeAdminRole(button.dataset.adminRoleAction, user);
+  } catch (error) {
+    setAdminUserRolesResult("danger", error.message);
+  } finally {
+    if (button.isConnected) button.disabled = false;
+  }
+});
+
+adminUserRolesSearch?.addEventListener("input", () => {
+  clearTimeout(adminUserRolesSearchTimer);
+  adminUserRolesSearchTimer = setTimeout(() => loadAdminUserRoles(), 250);
+});
+adminUserRolesFilter?.addEventListener("change", () => loadAdminUserRoles());
+adminUserRolesRefresh?.addEventListener("click", () => loadAdminUserRoles());
+
+if (adminUserRolesList) {
+  loadAdminUserRoles();
+}
 
 const form = document.getElementById("account-backup-import-form");
 const result = document.getElementById("account-backup-result");

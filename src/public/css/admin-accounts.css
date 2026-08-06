@@ -21,6 +21,204 @@
   border-left: 4px solid var(--admin-accent);
 }
 
+.admin-user-roles {
+  margin-top: 1rem;
+  padding: 1.4rem;
+  border-top: 3px solid #26906b;
+}
+
+.admin-user-roles__header,
+.admin-user-roles__controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-user-roles__header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.admin-user-roles__header p:not(.admin-accounts-step) {
+  margin: 0.3rem 0 0;
+  color: #587083;
+}
+
+.admin-user-roles__controls {
+  justify-content: flex-start;
+  margin-top: 1.15rem;
+}
+
+.admin-user-roles__search {
+  flex: 1 1 22rem;
+  max-width: 34rem;
+}
+
+.admin-user-roles__controls .form-select {
+  min-width: 13rem;
+}
+
+.admin-user-roles__summary {
+  margin-left: auto;
+  color: #607888;
+  font-size: 0.8rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.admin-user-roles__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+  transition: opacity 120ms ease;
+}
+
+.admin-user-roles__list.is-loading {
+  opacity: 0.5;
+}
+
+.admin-user-role-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.7rem 1rem;
+  align-items: center;
+  padding: 0.9rem;
+  border: 1px solid #d8e3e7;
+  border-radius: 0.85rem;
+  background: rgba(249, 252, 252, 0.94);
+}
+
+.admin-user-role-card.is-admin {
+  border-color: rgba(38, 144, 107, 0.38);
+  background: linear-gradient(135deg, rgba(232, 247, 240, 0.96), rgba(249, 252, 252, 0.96));
+}
+
+.admin-user-role-card__identity {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.admin-user-role-card__avatar {
+  display: grid;
+  place-items: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  flex: 0 0 auto;
+  border-radius: 0.72rem;
+  background: #dcebf0;
+  color: #1b5875;
+  font-size: 1rem;
+  font-weight: 850;
+}
+
+.admin-user-role-card.is-admin .admin-user-role-card__avatar {
+  background: #ccebdd;
+  color: #176247;
+}
+
+.admin-user-role-card__heading {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.admin-user-role-card__heading strong,
+.admin-user-role-card__email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-user-role-card__email {
+  display: block;
+  color: #647b8a;
+  font-size: 0.78rem;
+}
+
+.admin-user-role-card__self,
+.admin-user-role-card__role,
+.admin-user-role-card__status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.16rem 0.42rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.admin-user-role-card__self {
+  color: #315467;
+  background: #e2ebef;
+}
+
+.admin-user-role-card__badges {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.admin-user-role-card__role--admin {
+  color: #126044;
+  background: #caeadb;
+}
+
+.admin-user-role-card__role--user {
+  color: #526875;
+  background: #e7edef;
+}
+
+.admin-user-role-card__status--active {
+  color: #155a42;
+  background: #e0f2e9;
+}
+
+.admin-user-role-card__status--pending_deletion {
+  color: #785512;
+  background: #fff1ca;
+}
+
+.admin-user-role-card__status--deleted {
+  color: #8b2635;
+  background: #fbe0e4;
+}
+
+.admin-user-role-card__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 1rem;
+  padding-left: 3.05rem;
+}
+
+.admin-user-role-card__facts span {
+  display: grid;
+  gap: 0.05rem;
+}
+
+.admin-user-role-card__facts small {
+  color: #7b8d98;
+  font-size: 0.62rem;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.admin-user-role-card__facts strong {
+  color: #344f60;
+  font-size: 0.74rem;
+}
+
+.admin-user-role-card > .btn {
+  align-self: end;
+  justify-self: end;
+  white-space: nowrap;
+}
+
 .admin-database-wizard {
   margin-top: 1rem;
   padding: 1.6rem;
@@ -331,6 +529,40 @@
 }
 
 @media (max-width: 760px) {
+  .admin-user-roles__header,
+  .admin-user-roles__controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-user-roles__search,
+  .admin-user-roles__controls .form-select {
+    width: 100%;
+    max-width: none;
+  }
+
+  .admin-user-roles__summary {
+    margin-left: 0;
+  }
+
+  .admin-user-roles__list {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-user-role-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-user-role-card__badges {
+    justify-content: flex-start;
+    padding-left: 3.05rem;
+  }
+
+  .admin-user-role-card > .btn {
+    justify-self: stretch;
+    margin-left: 3.05rem;
+  }
+
   .admin-accounts-grid {
     grid-template-columns: 1fr;
   }
