@@ -207,8 +207,9 @@
         let warningTimer = null;
         let logoutTimer = null;
         let countdownTimer = null;
-        let warningShownAt = 0;
+        let lastActivityAt = Date.now();
         let isWarningOpen = false;
+        let isLoggingOut = false;
 
         const trackedEvents = ["pointerdown", "keydown", "mousemove", "scroll", "touchstart"];
 
@@ -227,36 +228,47 @@
             }
         };
 
-        const updateCountdown = () => {
-            if (!warningShownAt) {
-                countdownElement.textContent = String(Math.round((logoutMs - warningMs) / 1000));
-                return;
-            }
+        const logout = () => {
+            if (isLoggingOut) return;
+            isLoggingOut = true;
+            window.location.href = "/logout";
+        };
 
-            const elapsed = Date.now() - warningShownAt;
-            const remainingMs = Math.max(0, logoutMs - warningMs - elapsed);
+        const updateCountdown = () => {
+            const elapsed = Date.now() - lastActivityAt;
+            const remainingMs = Math.max(0, logoutMs - elapsed);
             countdownElement.textContent = String(Math.ceil(remainingMs / 1000));
+            if (remainingMs <= 0) logout();
         };
 
         const scheduleIdleTimers = () => {
             clearTimers();
 
-            warningTimer = window.setTimeout(() => {
-                warningShownAt = Date.now();
+            const elapsed = Date.now() - lastActivityAt;
+            const warningRemainingMs = warningMs - elapsed;
+            const logoutRemainingMs = logoutMs - elapsed;
+
+            if (logoutRemainingMs <= 0) {
+                logout();
+                return;
+            }
+
+            logoutTimer = window.setTimeout(scheduleIdleTimers, logoutRemainingMs);
+
+            if (warningRemainingMs <= 0) {
                 isWarningOpen = true;
                 updateCountdown();
                 modal.show();
-
                 countdownTimer = window.setInterval(updateCountdown, 250);
-                logoutTimer = window.setTimeout(() => {
-                    window.location.href = "/logout";
-                }, logoutMs - warningMs);
-            }, warningMs);
+                return;
+            }
+
+            warningTimer = window.setTimeout(scheduleIdleTimers, warningRemainingMs);
         };
 
         const dismissWarning = () => {
             isWarningOpen = false;
-            warningShownAt = 0;
+            lastActivityAt = Date.now();
             modal.hide();
             scheduleIdleTimers();
         };
@@ -265,11 +277,18 @@
             if (isWarningOpen) {
                 return;
             }
+            lastActivityAt = Date.now();
             scheduleIdleTimers();
         };
 
         trackedEvents.forEach((eventName) => {
             window.addEventListener(eventName, recordActivity, { passive: true });
+        });
+
+        window.addEventListener("focus", scheduleIdleTimers);
+        window.addEventListener("pageshow", scheduleIdleTimers);
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible") scheduleIdleTimers();
         });
 
         keepAliveButton.addEventListener("click", async () => {
