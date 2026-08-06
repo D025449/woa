@@ -24,7 +24,12 @@ function validBackup() {
       membership: {
         planCode: "pro-yearly"
       },
-      roles: [{ role: "admin" }]
+      roles: [{ role: "admin" }],
+      viewPreferences: [{
+        viewKey: "workout-library",
+        state: { sort: "newest" },
+        version: 1
+      }]
     }]
   };
 }
@@ -69,4 +74,14 @@ test("account backup rejects unknown formats and roles", () => {
   const wrongRole = validBackup();
   wrongRole.users[0].roles = [{ role: "super-admin" }];
   assert.throws(() => validateUserAccountBackup(wrongRole), /Unsupported account role/);
+});
+
+test("account backup validates persisted view preferences", () => {
+  const invalidState = validBackup();
+  invalidState.users[0].viewPreferences[0].state = [];
+  assert.throws(() => validateUserAccountBackup(invalidState), /state must be an object/);
+
+  const invalidKey = validBackup();
+  invalidKey.users[0].viewPreferences[0].viewKey = "";
+  assert.throws(() => validateUserAccountBackup(invalidKey), /viewKey/);
 });

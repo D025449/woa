@@ -33,7 +33,8 @@ form?.addEventListener("submit", async (event) => {
       `${counts.profiles || 0} Profile`,
       `${counts.paymentOrders || 0} Käufe`,
       `${counts.memberships || 0} Memberships`,
-      `${counts.roles || 0} Rollen`
+      `${counts.roles || 0} Rollen`,
+      `${counts.viewPreferences || 0} UI-Einstellungen`
     ].join(" · ");
     form.reset();
   } catch (error) {
@@ -906,4 +907,205 @@ databaseDeleteStart?.addEventListener("click", async () => {
 
 if (databaseBackupList) {
   loadDatabaseBackups();
+}
+
+const logicalBackupList = document.getElementById("logical-backup-list");
+const logicalBackupEmpty = document.getElementById("logical-backup-empty");
+const logicalBackupRefresh = document.getElementById("logical-backup-refresh");
+const logicalBackupCreate = document.getElementById("logical-backup-create");
+const logicalBackupMode = document.getElementById("logical-backup-mode");
+const logicalBackupLabel = document.getElementById("logical-backup-label");
+const logicalBackupSelected = document.getElementById("logical-backup-selected");
+const logicalBackupDetail = document.getElementById("logical-backup-detail");
+const logicalRestoreAccounts = document.getElementById("logical-restore-accounts");
+const logicalRestoreSegments = document.getElementById("logical-restore-segments");
+const logicalRestoreWorkouts = document.getElementById("logical-restore-workouts");
+const logicalRestoreSource = document.getElementById("logical-restore-source");
+const logicalBackupPreview = document.getElementById("logical-backup-preview");
+const logicalBackupRestore = document.getElementById("logical-backup-restore");
+const logicalBackupResult = document.getElementById("logical-backup-result");
+let logicalBackups = [];
+let selectedLogicalBackup = null;
+let logicalPreviewCurrent = false;
+
+function logicalSelections() {
+  return {
+    accounts: logicalRestoreAccounts.checked,
+    segments: logicalRestoreSegments.checked,
+    workouts: logicalRestoreWorkouts.checked,
+    workoutSource: logicalRestoreSource.value
+  };
+}
+
+function setLogicalResult(kind, message) {
+  logicalBackupResult.className = `alert alert-${kind} mb-0`;
+  logicalBackupResult.textContent = message;
+}
+
+function updateLogicalSourceOptions() {
+  const artifacts = selectedLogicalBackup?.artifacts || {};
+  for (const option of logicalRestoreSource.options) {
+    option.disabled = option.value === "fit" ? !artifacts.workoutsFit : !artifacts.workoutsNative;
+  }
+  if (logicalRestoreSource.selectedOptions[0]?.disabled) {
+    logicalRestoreSource.value = artifacts.workoutsNative ? "native" : "fit";
+  }
+  logicalRestoreSource.disabled = !logicalRestoreWorkouts.checked;
+}
+
+function invalidateLogicalPreview() {
+  logicalPreviewCurrent = false;
+  logicalBackupRestore.classList.add("d-none");
+  updateLogicalSourceOptions();
+}
+
+function selectLogicalBackup(backup) {
+  selectedLogicalBackup = backup;
+  logicalBackupSelected.textContent = backup ? (backup.label || `Backup ${backup.backupId}`) : "Kein Backup ausgewählt";
+  logicalBackupDetail.textContent = backup
+    ? `${formatBackupDate(backup.createdAt)} · ${backup.mode.toUpperCase()} · ${backup.rootKey}`
+    : "Wähle ein Backup und die gewünschten Komponenten.";
+  logicalBackupPreview.disabled = !backup;
+  invalidateLogicalPreview();
+}
+
+function renderLogicalBackups() {
+  logicalBackupList.replaceChildren();
+  logicalBackupEmpty.classList.toggle("d-none", logicalBackups.length > 0);
+  for (const backup of logicalBackups) {
+    const row = document.createElement("tr");
+    const radioCell = document.createElement("td");
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "logical-backup-selection";
+    radio.className = "form-check-input";
+    radio.checked = selectedLogicalBackup?.rootKey === backup.rootKey;
+    radio.addEventListener("change", () => selectLogicalBackup(backup));
+    radioCell.append(radio);
+    const values = [
+      formatBackupDate(backup.createdAt),
+      backup.label || "-",
+      String(backup.mode || "-").toUpperCase(),
+      backup.counts?.users || 0,
+      backup.counts?.segments || 0,
+      backup.counts?.workouts || 0
+    ];
+    row.append(radioCell);
+    values.forEach((value, index) => {
+      const cell = document.createElement("td");
+      cell.textContent = String(value);
+      if (index >= 3) cell.className = "text-end";
+      row.append(cell);
+    });
+    row.addEventListener("click", (event) => {
+      if (event.target !== radio) {
+        radio.checked = true;
+        selectLogicalBackup(backup);
+      }
+    });
+    logicalBackupList.append(row);
+  }
+}
+
+async function loadLogicalBackups(preselectRoot = null) {
+  const payload = await databaseApi("/admin/accounts/logical/backups");
+  logicalBackups = payload.catalog?.backups || [];
+  if (preselectRoot) selectedLogicalBackup = logicalBackups.find((item) => item.rootKey === preselectRoot) || null;
+  else if (selectedLogicalBackup) selectedLogicalBackup = logicalBackups.find((item) => item.rootKey === selectedLogicalBackup.rootKey) || null;
+  renderLogicalBackups();
+  selectLogicalBackup(selectedLogicalBackup);
+}
+
+async function runLogicalJob(path, body) {
+  const queued = await databaseApi(path, { method: "POST", body: JSON.stringify(body) });
+  logicalBackupCreate.disabled = true;
+  logicalBackupPreview.disabled = true;
+  logicalBackupRestore.disabled = true;
+  try {
+    while (true) {
+      const payload = await databaseApi(`/admin/accounts/database/jobs/${encodeURIComponent(queued.jobId)}`);
+      const job = payload.job;
+      const percent = Number(job.progress?.percent ?? job.progress ?? 0) || 0;
+      setLogicalResult("info", `${job.progress?.phase || job.state} · ${percent}%`);
+      if (job.state === "failed") throw new Error(job.error || "Logische Backup-Operation fehlgeschlagen.");
+      if (job.state === "completed") return job.result;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  } finally {
+    logicalBackupCreate.disabled = false;
+    logicalBackupPreview.disabled = !selectedLogicalBackup;
+    logicalBackupRestore.disabled = false;
+  }
+}
+
+logicalBackupRefresh?.addEventListener("click", async () => {
+  try { await loadLogicalBackups(); } catch (error) { setLogicalResult("danger", error.message); }
+});
+
+logicalBackupCreate?.addEventListener("click", async () => {
+  try {
+    setLogicalResult("info", "Logisches Backup wird vorbereitet ...");
+    const created = await runLogicalJob("/admin/accounts/logical/backups", {
+      mode: logicalBackupMode.value,
+      label: logicalBackupLabel.value
+    });
+    await loadLogicalBackups(created.rootKey);
+    setLogicalResult("success", `${created.counts.workouts} Workouts, ${created.counts.segments} Segmente und ${created.counts.users} Konten gesichert.`);
+  } catch (error) {
+    setLogicalResult("danger", error.message);
+  }
+});
+
+for (const control of [logicalRestoreAccounts, logicalRestoreSegments, logicalRestoreWorkouts, logicalRestoreSource]) {
+  control?.addEventListener("change", invalidateLogicalPreview);
+}
+
+logicalBackupPreview?.addEventListener("click", async () => {
+  if (!selectedLogicalBackup) return;
+  const selections = logicalSelections();
+  if (!selections.accounts && !selections.segments && !selections.workouts) {
+    setLogicalResult("warning", "Bitte mindestens eine Komponente auswählen.");
+    return;
+  }
+  try {
+    const preview = await runLogicalJob("/admin/accounts/logical/backups/preview", {
+      backupRoot: selectedLogicalBackup.rootKey,
+      selections
+    });
+    const parts = [];
+    if (selections.accounts) parts.push(`${preview.manifest.counts.users} Konten`);
+    if (selections.segments) parts.push(`${preview.segments.totals.importable} neue Segmente, ${preview.segments.totals.duplicates} Duplikate`);
+    if (selections.workouts) parts.push(`${preview.workouts.totals.importable} neue Workouts, ${preview.workouts.totals.duplicates} Duplikate`);
+    const conflicts = Number(preview.segments?.totals?.conflicts || 0) + Number(preview.workouts?.totals?.conflicts || 0);
+    logicalPreviewCurrent = conflicts === 0;
+    logicalBackupRestore.classList.toggle("d-none", !logicalPreviewCurrent);
+    setLogicalResult(conflicts ? "danger" : "success", `${parts.join(" · ")}${conflicts ? ` · ${conflicts} Zuordnungskonflikte` : ""}`);
+  } catch (error) {
+    invalidateLogicalPreview();
+    setLogicalResult("danger", error.message);
+  }
+});
+
+logicalBackupRestore?.addEventListener("click", async () => {
+  if (!selectedLogicalBackup || !logicalPreviewCurrent) return;
+  if (!window.confirm("Ausgewählte Komponenten jetzt per Safe Merge wiederherstellen? Es wird nichts gelöscht.")) return;
+  try {
+    const restored = await runLogicalJob("/admin/accounts/logical/restores", {
+      backupRoot: selectedLogicalBackup.rootKey,
+      selections: logicalSelections(),
+      confirmed: true
+    });
+    const parts = [];
+    if (restored.accounts) parts.push(`${restored.accounts.users || 0} Konten`);
+    if (restored.segments) parts.push(`${restored.segments.imported || 0} Segmente`);
+    if (restored.workouts) parts.push(`${restored.workouts.imported || 0} Workouts`);
+    invalidateLogicalPreview();
+    setLogicalResult("success", `${parts.join(" · ")} wiederhergestellt.`);
+  } catch (error) {
+    setLogicalResult("danger", error.message);
+  }
+});
+
+if (logicalBackupList) {
+  loadLogicalBackups().catch((error) => setLogicalResult("danger", error.message));
 }

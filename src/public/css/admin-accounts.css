@@ -358,3 +358,37 @@
     grid-template-columns: 1fr 1fr;
   }
 }
+.admin-logical-create {
+    display: grid;
+    grid-template-columns: minmax(220px, .8fr) minmax(260px, 1.4fr) auto;
+    gap: 1rem;
+    align-items: end;
+}
+
+.admin-logical-restore {
+    display: grid;
+    gap: 1rem;
+}
+
+.admin-logical-restore small {
+    display: block;
+    color: var(--ui-muted, #64748b);
+}
+
+.admin-logical-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .75rem 1.25rem;
+    align-items: center;
+}
+
+.admin-logical-options .form-select {
+    width: auto;
+    min-width: 180px;
+}
+
+@media (max-width: 760px) {
+    .admin-logical-create {
+        grid-template-columns: 1fr;
+    }
+}

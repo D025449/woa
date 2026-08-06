@@ -14,8 +14,8 @@ NODE_ENV=development npm run backup:worker
 ```
 
 In Production wird `postgres-backup-ops-worker` über `ecosystem.config.cjs` und
-`deploy.sh` automatisch mit PM2 gestartet. Der Worker unterstützt nur sechs fest
-definierte Operationen:
+`deploy.sh` automatisch mit PM2 gestartet. Der Worker unterstützt fest
+definierte PostgreSQL- und logische Backup-Operationen:
 
 - `create`: vollständiges Backup mit dem vorhandenen `pg_dump`-S3-Verfahren
 - `verify`: SHA-256, Dateigröße und `pg_restore --list` prüfen
@@ -25,6 +25,9 @@ definierte Operationen:
   auf den geprüften Restore setzen und App sowie Import-Worker neu starten
 - `rollback`: erneut sichern und den Pointer auf die vorherige Datenbank setzen
 - `drop-database`: eine inaktive verwaltete DB sichern und anschließend löschen
+- `logical-create`: portables S3-Backup als Native, FIT oder beides erzeugen
+- `logical-preview`: Besitzerzuordnung und Duplikate ohne Schreibzugriff prüfen
+- `logical-restore`: ausgewählte Komponenten per Safe Merge wiederherstellen
 
 `prepare-restore` verändert oder aktiviert niemals die laufende Datenbank. Eine
 Aktivierung ist ausschließlich in Production, nach expliziter Bestätigung und
@@ -49,6 +52,42 @@ verhindern.
   gelöscht. Der Pointer merkt sich beide physischen Namen.
 - Development verwendet weiterhin die bestehende CLI-Promotion per DB-Rename;
   der Runtime-Pointer wird dort bewusst ignoriert.
+
+## Logisches S3-Backup
+
+Der zweite Wizard unter `/admin/accounts` ist für systemübergreifende Transfers
+gedacht. Er sichert Benutzer inklusive Profile, Käufe, Memberships, Rollen und
+UI-Einstellungen, außerdem GPS-Segmente und Workouts. Die S3-Struktur ist vom
+PostgreSQL-Dump getrennt:
+
+```text
+backups/logical/<environment>/<logical-database>/YYYY/MM/DD/<timestamp>-<uuid>/
+  accounts.json
+  segments.zip
+  workouts-native.zip   # bei native oder both
+  workouts-fit.zip      # bei fit oder both
+  manifest.json
+```
+
+Das Manifest wird zuletzt geschrieben. Jedes Artefakt besitzt Größe und
+SHA-256-Prüfsumme, die vor Vorschau und Restore erneut geprüft werden. Native
+Workouts übernehmen die gespeicherten Streams verlustfrei. FIT-Workouts werden
+beim Backup als echte FIT-Dateien erzeugt und beim Restore mit dem aktuellen
+Compact-FIT-Parser und WOA-Encoder neu aufgebaut.
+
+Ein Restore ist standardmäßig ein Safe Merge und löscht keine Daten. Komponenten
+sind einzeln auswählbar. Die Reihenfolge ist Konten, Segmente, Workouts. Vor dem
+bestätigten Restore prüft der Wizard Besitzerzuordnung und Duplikate. Bei einem
+`both`-Backup wird für Workouts explizit zwischen Native und FIT gewählt.
+
+Optional können Bucket und Prefix unabhängig vom PostgreSQL-Backup gesetzt
+werden; ohne diese Variablen gelten `BACKUP_S3_BUCKET` beziehungsweise
+`S3_BUCKET` und der Standardprefix `backups/logical`:
+
+```env
+LOGICAL_BACKUP_S3_BUCKET=
+LOGICAL_BACKUP_S3_PREFIX=backups/logical
+```
 
 ## Voraussetzungen
 

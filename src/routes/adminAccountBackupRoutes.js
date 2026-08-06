@@ -16,6 +16,7 @@ import AdminWorkoutBackupService, {
 import { enqueueSegmentBestEfforts } from "../services/segment-best-efforts-service.js";
 import PostgresBackupCatalogService from "../services/postgresBackupCatalogService.js";
 import { postgresBackupOpsQueue } from "../queue/postgres-backup-ops-queue.js";
+import LogicalBackupService from "../services/logicalBackupService.js";
 
 const router = express.Router();
 const upload = multer({
@@ -175,6 +176,63 @@ router.post("/workouts/import", workoutUpload.single("archive"), async (req, res
     }
     const result = await AdminWorkoutBackupService.importAll(req.file.buffer);
     return res.json({ ok: true, result });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+function logicalSelections(body = {}) {
+  return {
+    accounts: body.accounts !== false,
+    segments: body.segments !== false,
+    workouts: body.workouts !== false,
+    workoutSource: body.workoutSource === "fit" ? "fit" : "native"
+  };
+}
+
+router.get("/logical/backups", async (_req, res, next) => {
+  try {
+    return res.json({ ok: true, catalog: await LogicalBackupService.list({ limit: 50 }) });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/logical/backups", async (req, res, next) => {
+  try {
+    const mode = String(req.body?.mode || "native").toLowerCase();
+    const label = String(req.body?.label || "").trim().slice(0, 80);
+    const job = await postgresBackupOpsQueue.add("logical-create", { mode, label: label || null });
+    return res.status(202).json({ ok: true, jobId: String(job.id), operation: job.name });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/logical/backups/preview", async (req, res, next) => {
+  try {
+    const backupRoot = LogicalBackupService.validateRoot(req.body?.backupRoot);
+    const job = await postgresBackupOpsQueue.add("logical-preview", {
+      backupRoot,
+      selections: logicalSelections(req.body?.selections)
+    });
+    return res.status(202).json({ ok: true, jobId: String(job.id), operation: job.name });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/logical/restores", async (req, res, next) => {
+  try {
+    if (req.body?.confirmed !== true) {
+      return res.status(400).json({ error: "Logical restore must be explicitly confirmed." });
+    }
+    const backupRoot = LogicalBackupService.validateRoot(req.body?.backupRoot);
+    const job = await postgresBackupOpsQueue.add("logical-restore", {
+      backupRoot,
+      selections: logicalSelections(req.body?.selections)
+    });
+    return res.status(202).json({ ok: true, jobId: String(job.id), operation: job.name });
   } catch (error) {
     return next(error);
   }

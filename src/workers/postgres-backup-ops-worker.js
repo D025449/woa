@@ -11,6 +11,7 @@ import { runCommand } from "../../ops/postgres-backup/backup-common.mjs";
 import { redisConnection } from "../queue/connection.js";
 import { POSTGRES_BACKUP_OPS_QUEUE } from "../queue/postgres-backup-ops-queue.js";
 import PostgresBackupCatalogService from "../services/postgresBackupCatalogService.js";
+import LogicalBackupService from "../services/logicalBackupService.js";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDirectory, "../..");
@@ -91,6 +92,23 @@ async function executeDatabaseSwitch(job, operation) {
 const worker = new Worker(
   POSTGRES_BACKUP_OPS_QUEUE,
   async (job) => {
+    const logicalProgress = async (percent, phase) => job.updateProgress({ percent, phase });
+    if (job.name === "logical-create") {
+      return LogicalBackupService.create({
+        mode: job.data?.mode,
+        label: job.data?.label,
+        progress: logicalProgress
+      });
+    }
+    if (job.name === "logical-preview") {
+      await logicalProgress(10, "loading-backup");
+      const result = await LogicalBackupService.preview(job.data?.backupRoot, job.data?.selections);
+      await logicalProgress(100, "completed");
+      return result;
+    }
+    if (job.name === "logical-restore") {
+      return LogicalBackupService.restore(job.data?.backupRoot, job.data?.selections, logicalProgress);
+    }
     if (job.name === "create") {
       const args = job.data?.label ? ["--label", String(job.data.label)] : [];
       return executeOperation(job, "create-backup.mjs", args);

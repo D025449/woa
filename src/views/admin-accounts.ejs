@@ -184,6 +184,56 @@
                 </div>
             </section>
 
+            <section class="ui-surface admin-database-wizard" id="logical-backup-wizard">
+                <div class="admin-database-wizard__header">
+                    <div>
+                        <p class="admin-accounts-step">Logisches Backup · S3</p>
+                        <h2>Portables System-Backup</h2>
+                        <p>Sichert Konten, Segmente und Workouts systemübergreifend. Native Streams sind verlustfrei; FIT ermöglicht einen vollständigen Reparse.</p>
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm" id="logical-backup-refresh" type="button">Liste aktualisieren</button>
+                </div>
+                <div class="admin-logical-create">
+                    <div>
+                        <label class="form-label" for="logical-backup-mode">Workout-Format</label>
+                        <select class="form-select" id="logical-backup-mode">
+                            <option value="native">Nativ, schnell und verlustfrei</option>
+                            <option value="fit">FIT, vollständiger Reparse</option>
+                            <option value="both">Nativ und FIT</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="form-label" for="logical-backup-label">Optionale Bezeichnung</label>
+                        <input class="form-control" id="logical-backup-label" maxlength="80" placeholder="z. B. vor Formatwechsel">
+                    </div>
+                    <button class="btn btn-primary" id="logical-backup-create" type="button">Backup nach S3</button>
+                </div>
+                <div class="table-responsive mt-4">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead><tr><th></th><th>Erstellt</th><th>Bezeichnung</th><th>Format</th><th class="text-end">Konten</th><th class="text-end">Segmente</th><th class="text-end">Workouts</th></tr></thead>
+                        <tbody id="logical-backup-list"></tbody>
+                    </table>
+                </div>
+                <div class="admin-database-empty d-none" id="logical-backup-empty">Noch keine logischen Backups gefunden.</div>
+                <div class="admin-logical-restore mt-4">
+                    <div>
+                        <strong id="logical-backup-selected">Kein Backup ausgewählt</strong>
+                        <small id="logical-backup-detail">Wähle ein Backup und die gewünschten Komponenten.</small>
+                    </div>
+                    <div class="admin-logical-options">
+                        <label class="form-check"><input class="form-check-input" id="logical-restore-accounts" type="checkbox" checked> Konten</label>
+                        <label class="form-check"><input class="form-check-input" id="logical-restore-segments" type="checkbox" checked> Segmente</label>
+                        <label class="form-check"><input class="form-check-input" id="logical-restore-workouts" type="checkbox" checked> Workouts</label>
+                        <select class="form-select form-select-sm" id="logical-restore-source"><option value="native">Native Streams</option><option value="fit">FIT neu parsen</option></select>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button class="btn btn-outline-primary" id="logical-backup-preview" type="button" disabled>Zuordnung prüfen</button>
+                        <button class="btn btn-danger d-none" id="logical-backup-restore" type="button">Auswahl wiederherstellen</button>
+                    </div>
+                    <div class="alert d-none mb-0" id="logical-backup-result" role="status"></div>
+                </div>
+            </section>
+
             <div class="admin-accounts-grid">
                 <section class="ui-surface admin-accounts-card">
                     <p class="admin-accounts-step">01 · Export</p>
@@ -269,6 +319,6 @@
         </div>
     </main>
 
-    <script type="module" src="/js/admin-accounts.js?v=workout-preview-local-1"></script>
+    <script type="module" src="/js/admin-accounts.js?v=logical-s3-backup-1"></script>
 </body>
 </html>

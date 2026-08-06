@@ -108,6 +108,15 @@ export function validateUserAccountBackup(payload) {
         throw new Error(`Unsupported account role: ${role?.role || "missing"}`);
       }
     }
+    for (const [preferenceIndex, preference] of arrayOrEmpty(
+      user.viewPreferences,
+      `users[${index}].viewPreferences`
+    ).entries()) {
+      requiredString(preference?.viewKey, `users[${index}].viewPreferences[${preferenceIndex}].viewKey`, 80);
+      if (!preference?.state || typeof preference.state !== "object" || Array.isArray(preference.state)) {
+        throw new Error(`users[${index}].viewPreferences[${preferenceIndex}].state must be an object.`);
+      }
+    }
   }
   return payload;
 }
@@ -150,12 +159,18 @@ export default class UserAccountBackupService {
         LEFT JOIN users grantor ON grantor.id = r.granted_by_uid
         ORDER BY r.uid, r.role
       `);
+      const preferencesResult = await client.query(`
+        SELECT p.uid, p.view_key, p.state, p.version, p.updated_at
+        FROM user_view_preferences p
+        ORDER BY p.uid, p.view_key
+      `);
       await client.query("COMMIT");
 
       const profiles = mapBy(profilesResult.rows, "user_id");
       const memberships = mapBy(membershipsResult.rows, "user_id");
       const orders = groupBy(ordersResult.rows, "user_id");
       const roles = groupBy(rolesResult.rows, "uid");
+      const preferences = groupBy(preferencesResult.rows, "uid");
       const users = usersResult.rows.map((user) => {
         const profile = profiles.get(String(user.id));
         const membership = memberships.get(String(user.id));
@@ -212,6 +227,12 @@ export default class UserAccountBackupService {
             role: role.role,
             grantedAt: role.granted_at,
             grantedByAuthSub: role.granted_by_auth_sub
+          })),
+          viewPreferences: (preferences.get(String(user.id)) || []).map((preference) => ({
+            viewKey: preference.view_key,
+            state: preference.state,
+            version: preference.version,
+            updatedAt: preference.updated_at
           }))
         };
       });
@@ -236,7 +257,7 @@ export default class UserAccountBackupService {
     const client = await pool.connect();
     const userIds = new Map();
     const paymentOrderIds = new Map();
-    const counts = { users: 0, profiles: 0, paymentOrders: 0, memberships: 0, roles: 0 };
+    const counts = { users: 0, profiles: 0, paymentOrders: 0, memberships: 0, roles: 0, viewPreferences: 0 };
 
     try {
       await client.query("BEGIN");
@@ -334,6 +355,24 @@ export default class UserAccountBackupService {
             optionalDate(profile.updatedAt, "profile.updatedAt")
           ]);
           counts.profiles += 1;
+        }
+
+        for (const preference of user.viewPreferences || []) {
+          await client.query(`
+            INSERT INTO user_view_preferences (uid, view_key, state, version, updated_at)
+            VALUES ($1, $2, $3::jsonb, $4, COALESCE($5, NOW()))
+            ON CONFLICT (uid, view_key) DO UPDATE SET
+              state = EXCLUDED.state,
+              version = EXCLUDED.version,
+              updated_at = EXCLUDED.updated_at
+          `, [
+            userId,
+            requiredString(preference.viewKey, "viewPreference.viewKey", 80),
+            JSON.stringify(preference.state),
+            Math.max(1, Number.parseInt(String(preference.version || 1), 10) || 1),
+            optionalDate(preference.updatedAt, "viewPreference.updatedAt")
+          ]);
+          counts.viewPreferences += 1;
         }
 
         for (const order of user.paymentOrders || []) {
