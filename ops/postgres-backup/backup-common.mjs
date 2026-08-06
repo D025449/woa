@@ -178,6 +178,28 @@ export function buildBackupLocation({
   };
 }
 
+export function validatePostgresBackupDeletion({ manifest, bucket, root, confirmation }) {
+  const normalizedRoot = String(root || "").replace(/^\/+|\/+$/gu, "");
+  if (manifest?.format !== "cwa24-postgres-backup-manifest" || manifest?.status !== "complete") {
+    throw new Error("S3 object is not a complete CWA24 PostgreSQL backup manifest.");
+  }
+  const backupId = String(manifest.backupId || "");
+  const expectedConfirmation = backupId.slice(0, 8);
+  if (!expectedConfirmation || String(confirmation || "") !== expectedConfirmation) {
+    throw new Error("PostgreSQL backup deletion confirmation does not match the backup ID.");
+  }
+  const archiveKey = String(manifest.archive?.key || "");
+  if (manifest.archive?.bucket !== bucket || !archiveKey.startsWith(`${normalizedRoot}/`)) {
+    throw new Error("Backup manifest references an archive outside the selected backup root.");
+  }
+  return {
+    backupId,
+    archiveKey,
+    manifestKey: `${normalizedRoot}/manifest.json`,
+    archiveSizeBytes: Number(manifest.archive?.sizeBytes) || 0
+  };
+}
+
 export function buildPgDumpArgs({ outputFile, databaseName = process.env.DB_NAME }) {
   return [
     "--host", process.env.DB_HOST,

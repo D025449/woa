@@ -500,6 +500,9 @@ function setDatabaseControlsDisabled(disabled) {
   for (const button of databaseCleanupList.querySelectorAll("button")) {
     button.disabled = disabled;
   }
+  document.querySelectorAll("[data-database-backup-delete]").forEach((button) => {
+    button.disabled = disabled;
+  });
   databaseDeleteStart.disabled = disabled
     || !selectedCleanupDatabase
     || databaseDeleteName.value !== selectedCleanupDatabase.name;
@@ -607,6 +610,7 @@ function renderDatabaseBackups() {
     const sourceSizeCell = document.createElement("td");
     const sizeCell = document.createElement("td");
     const versionCell = document.createElement("td");
+    const actionCell = document.createElement("td");
     const radio = document.createElement("input");
     radio.type = "radio";
     radio.name = "database-backup-selection";
@@ -621,6 +625,12 @@ function renderDatabaseBackups() {
     });
     selectCell.append(radio);
     dateCell.textContent = formatBackupDate(backup.createdAt);
+    if (backup === databaseBackups[0]) {
+      const badge = document.createElement("span");
+      badge.className = "badge text-bg-primary ms-2";
+      badge.textContent = "Aktuellstes";
+      dateCell.append(badge);
+    }
     labelCell.textContent = backup.label || "-";
     databaseCell.textContent = backup.database || "-";
     sourceSizeCell.className = "text-end";
@@ -629,8 +639,66 @@ function renderDatabaseBackups() {
     sizeCell.textContent = formatBytes(backup.archiveSizeBytes);
     versionCell.textContent = backup.gitCommit ? backup.gitCommit.slice(0, 9) : "-";
     versionCell.title = backup.gitCommit || "Kein Git-Commit im Manifest";
-    row.append(selectCell, dateCell, labelCell, databaseCell, sourceSizeCell, sizeCell, versionCell);
+    actionCell.className = "text-end";
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "btn btn-outline-danger btn-sm";
+    deleteButton.dataset.databaseBackupDelete = "true";
+    deleteButton.textContent = "Löschen";
+    deleteButton.disabled = databaseOperationRunning;
+    deleteButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await deleteDatabaseBackup(backup);
+    });
+    actionCell.append(deleteButton);
+    row.append(
+      selectCell,
+      dateCell,
+      labelCell,
+      databaseCell,
+      sourceSizeCell,
+      sizeCell,
+      versionCell,
+      actionCell
+    );
     databaseBackupList.append(row);
+  }
+}
+
+async function deleteDatabaseBackup(backup) {
+  const confirmation = String(backup.backupId || "").slice(0, 8);
+  const isLatest = backup === databaseBackups[0];
+  const isLast = databaseBackups.length === 1;
+  const warning = isLast
+    ? "\n\nDies ist das letzte vorhandene PostgreSQL-Backup."
+    : isLatest
+      ? "\n\nDies ist das aktuellste PostgreSQL-Backup."
+      : "";
+  const entered = window.prompt(
+    `PostgreSQL-Backup ${confirmation} dauerhaft aus S3 löschen?${warning}\n\nZur Bestätigung ${confirmation} eingeben:`
+  );
+  if (entered !== confirmation) {
+    if (entered !== null) {
+      databaseBackupJob.classList.remove("d-none");
+      databaseBackupJobState.textContent = "Abgebrochen";
+      databaseBackupJobMessage.textContent = "Backup-ID stimmt nicht. Es wurde nichts gelöscht.";
+    }
+    return;
+  }
+
+  try {
+    const result = await startDatabaseOperation(
+      "/admin/accounts/database/backups",
+      { backupRoot: backup.rootKey, confirmation },
+      "delete-backup",
+      { method: "DELETE" }
+    );
+    if (selectedDatabaseBackup?.rootKey === backup.rootKey) selectedDatabaseBackup = null;
+    await loadDatabaseBackups();
+    databaseBackupJobState.textContent = "completed";
+    databaseBackupJobMessage.textContent = `Backup ${confirmation} gelöscht: ${result.deletedObjects} aktuelle Objekte (${formatBytes(result.deletedBytes)}).`;
+  } catch {
+    // The shared job panel already contains the actionable error.
   }
 }
 
@@ -718,6 +786,7 @@ async function pollDatabaseJob(jobId, operation) {
     "prepare-restore": "Isolierter Restore wird vorbereitet",
     "activate-restore": "Restore wird sicher aktiviert",
     rollback: "Datenbank-Rollback wird vorbereitet",
+    "delete-backup": "PostgreSQL-Backup wird aus S3 gelöscht",
     "drop-database": "Inaktive Datenbank wird gesichert und gelöscht"
   }[operation] || "Backup-Operation läuft";
   setDatabaseControlsDisabled(true);

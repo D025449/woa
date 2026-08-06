@@ -128,6 +128,13 @@ const worker = new Worker(
       const root = PostgresBackupCatalogService.validateRoot(job.data?.backupRoot);
       return executeOperation(job, "verify-backup.mjs", ["--backup-prefix", root]);
     }
+    if (job.name === "delete-backup") {
+      const root = PostgresBackupCatalogService.validateRoot(job.data?.backupRoot);
+      return executeOperation(job, "delete-backup.mjs", [
+        "--backup-prefix", root,
+        "--confirm", String(job.data?.confirmation || "")
+      ]);
+    }
     if (job.name === "prepare-restore") {
       const root = PostgresBackupCatalogService.validateRoot(job.data?.backupRoot);
       return executeOperation(job, "prepare-restore.mjs", ["--backup-prefix", root]);

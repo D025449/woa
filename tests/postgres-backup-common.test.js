@@ -16,7 +16,8 @@ import {
   parseCliArgs,
   parseEnvText,
   sanitizeKeyPart,
-  selectLatestManifestKey
+  selectLatestManifestKey,
+  validatePostgresBackupDeletion
 } from "../ops/postgres-backup/backup-common.mjs";
 import {
   applyRuntimeDatabasePointer,
@@ -72,6 +73,52 @@ test("backup S3 keys are deterministic and folder-like", () => {
 test("backup key sanitization removes unsafe separators", () => {
   assert.equal(sanitizeKeyPart(" before / migration "), "before-migration");
   assert.equal(normalizeS3Prefix("//backups///postgres//"), "backups/postgres");
+});
+
+test("PostgreSQL backup deletion validates confirmation and archive namespace", () => {
+  const root = "backups/postgres/production/cwa24_prod/2026/08/06/backup-123";
+  const manifest = {
+    format: "cwa24-postgres-backup-manifest",
+    status: "complete",
+    backupId: "12345678-abcd-efgh",
+    archive: {
+      bucket: "cwa24bucketprod",
+      key: `${root}/database.dump`,
+      sizeBytes: 1024
+    }
+  };
+  assert.deepEqual(validatePostgresBackupDeletion({
+    manifest,
+    bucket: "cwa24bucketprod",
+    root,
+    confirmation: "12345678"
+  }), {
+    backupId: manifest.backupId,
+    archiveKey: `${root}/database.dump`,
+    manifestKey: `${root}/manifest.json`,
+    archiveSizeBytes: 1024
+  });
+  assert.throws(
+    () => validatePostgresBackupDeletion({
+      manifest,
+      bucket: "cwa24bucketprod",
+      root,
+      confirmation: "wrong-id"
+    }),
+    /confirmation does not match/
+  );
+  assert.throws(
+    () => validatePostgresBackupDeletion({
+      manifest: {
+        ...manifest,
+        archive: { ...manifest.archive, key: "backups/postgres/production/other/database.dump" }
+      },
+      bucket: "cwa24bucketprod",
+      root,
+      confirmation: "12345678"
+    }),
+    /outside the selected backup root/
+  );
 });
 
 test("backup lock prevents a concurrent backup and can be released", async () => {

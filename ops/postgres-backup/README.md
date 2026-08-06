@@ -40,6 +40,12 @@ Restore-Verfahren für CWA24. Die Werkzeuge liegen bewusst unter
 in der Anwendung soll weder das Erstellen noch das Prüfen eines Backups
 verhindern.
 
+Vollständige PostgreSQL-Backups können im Admin-Wizard gelöscht werden. Die
+Operation läuft serialisiert über den Backup-Ops-Worker, verlangt die ersten
+acht Zeichen der Backup-ID und entfernt zuerst `database.dump` und zuletzt
+`manifest.json`. Dadurch bleibt ein unvollständig gelöschtes Backup im Katalog
+sichtbar und kann gezielt bereinigt werden.
+
 ## Sicherheitsprinzipien
 
 - Ein Backup besteht aus einem PostgreSQL-Dump und einem Manifest in S3.

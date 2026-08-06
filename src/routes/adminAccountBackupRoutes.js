@@ -271,6 +271,20 @@ router.post("/database/backups", async (req, res, next) => {
   }
 });
 
+router.delete("/database/backups", async (req, res, next) => {
+  try {
+    const backupRoot = PostgresBackupCatalogService.validateRoot(req.body?.backupRoot);
+    const confirmation = String(req.body?.confirmation || "").trim();
+    if (!confirmation) {
+      return res.status(400).json({ error: "Backup deletion requires the backup ID confirmation." });
+    }
+    const job = await postgresBackupOpsQueue.add("delete-backup", { backupRoot, confirmation });
+    return res.status(202).json({ ok: true, jobId: String(job.id), operation: job.name });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.post("/database/backups/verify", async (req, res, next) => {
   try {
     const backupRoot = PostgresBackupCatalogService.validateRoot(req.body?.backupRoot);
