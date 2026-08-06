@@ -53,7 +53,7 @@ export default class WorkoutService {
     });
 
     if (response.status === 401) {
-      window.location.href = "/";
+      window.location.href = "/login";
       return;
     }
 
@@ -87,7 +87,7 @@ export default class WorkoutService {
     });
 
     if (response.status === 401) {
-      window.location.href = "/";
+      window.location.href = "/login";
       return [];
     }
 
@@ -116,7 +116,7 @@ export default class WorkoutService {
     );
 
     if (response.status === 401) {
-      window.location.href = "/";
+      window.location.href = "/login";
       return null;
     }
     if (!response.ok) {

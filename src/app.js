@@ -627,7 +627,7 @@ export async function createApp() {
         res.clearCookie("idToken");
 
         req.session.destroy(() => {
-            res.redirect("/");
+            res.redirect("/login");
         });
     });
 
