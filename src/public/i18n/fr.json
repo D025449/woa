@@ -59,6 +59,47 @@
     "submit": "Confirmer le compte",
     "backToSignIn": "Retour à la connexion"
   },
+  "passwordReset": {
+    "brand": "Workout Dashboard",
+    "chipLabel": "Accès au compte",
+    "username": "E-mail ou nom d’utilisateur",
+    "backToSignIn": "Retour à la connexion",
+    "success": "Votre mot de passe a été modifié. Vous pouvez maintenant vous connecter.",
+    "request": {
+      "title": "Réinitialiser le mot de passe",
+      "heroKicker": "Récupération du compte",
+      "heroTitle": "Mot de passe oublié ?",
+      "heroSubtitle": "Demandez un code pour votre compte CWA24 local.",
+      "chipValue": "Demander un code",
+      "cardTitle": "Récupérer l’accès",
+      "neutralHint": "Si un compte local existe, Cognito enverra un code au contact enregistré.",
+      "submit": "Demander le code"
+    },
+    "confirm": {
+      "title": "Définir un nouveau mot de passe",
+      "heroKicker": "Récupération du compte",
+      "heroTitle": "Définir un nouveau mot de passe",
+      "heroSubtitle": "Saisissez le code reçu et choisissez un nouveau mot de passe.",
+      "chipValue": "Renouveler le mot de passe",
+      "cardTitle": "Confirmer le code",
+      "codeSent": "Si un compte local existe, un code de confirmation a été envoyé.",
+      "code": "Code de confirmation",
+      "newPassword": "Nouveau mot de passe",
+      "repeatPassword": "Répéter le nouveau mot de passe",
+      "submit": "Modifier le mot de passe",
+      "requestAgain": "Demander un nouveau code"
+    },
+    "errors": {
+      "usernameRequired": "Saisissez votre e-mail ou nom d’utilisateur.",
+      "fieldsRequired": "Remplissez tous les champs.",
+      "passwordMismatch": "Les mots de passe ne correspondent pas.",
+      "codeMismatch": "Le code de confirmation est incorrect.",
+      "codeExpired": "Le code a expiré. Demandez-en un nouveau.",
+      "invalidPassword": "Le nouveau mot de passe ne respecte pas les exigences.",
+      "rateLimited": "Trop de tentatives. Réessayez plus tard.",
+      "failed": "Le mot de passe n’a pas pu être modifié. Demandez un nouveau code."
+    }
+  },
   "profile": {
     "title": "Profil",
     "topbarTitle": "Profil",
@@ -222,6 +263,7 @@
     "cardTitle": "Se connecter",
     "emailOrUsername": "Email or Username",
     "password": "Mot de passe",
+    "forgotPassword": "Mot de passe oublié ?",
     "submit": "Se connecter",
     "divider": "ou",
     "continueWithGoogle": "Continuer avec Google",

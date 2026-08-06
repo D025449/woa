@@ -15,9 +15,11 @@ import viewPreferenceRoutes from "./routes/viewPreferenceRoutes.js";
 import adminAccountBackupRoutes from "./routes/adminAccountBackupRoutes.js";
 
 import { Issuer, generators } from "openid-client";
-import { InitiateAuthCommand } from "@aws-sdk/client-cognito-identity-provider";
-import { ConfirmSignUpCommand } from "@aws-sdk/client-cognito-identity-provider";
-import { SignUpCommand } from "@aws-sdk/client-cognito-identity-provider";
+import {
+    ConfirmSignUpCommand,
+    InitiateAuthCommand,
+    SignUpCommand
+} from "@aws-sdk/client-cognito-identity-provider";
 import cookieParser from "cookie-parser";
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import { CognitoJwtVerifier } from "aws-jwt-verify";
@@ -27,6 +29,10 @@ import fs from "fs";
 import woaUploadsRouter from "./routes/woaUploads.js";
 import { createI18nMiddleware, normalizeSupportedLocale } from "./i18n/index.js";
 import UserDBService from "./services/userDBService.js";
+import {
+    confirmPasswordReset,
+    requestPasswordReset
+} from "./services/passwordResetService.js";
 
 let client;
 
@@ -157,11 +163,28 @@ export async function createApp() {
         }
     })();
 
-    const renderLogin = (res, redirect = "", error = null) => {
+    const renderLogin = (res, redirect = "", error = null, notice = null) => {
         res.render("login", {
             redirect,
-            error
+            error,
+            notice
         });
+    };
+
+    const renderForgotPassword = (res, error = null) => res.render("forgot-password", { error });
+    const renderResetPassword = (res, error = null) => res.render("reset-password", { error });
+
+    const normalizePasswordResetUsername = (value) => String(value || "").trim().slice(0, 320);
+
+    const passwordResetErrorMessage = (res, error) => {
+        const errorName = error?.name || "";
+        if (errorName === "CodeMismatchException") return res.locals.t("passwordReset.errors.codeMismatch");
+        if (errorName === "ExpiredCodeException") return res.locals.t("passwordReset.errors.codeExpired");
+        if (errorName === "InvalidPasswordException") return res.locals.t("passwordReset.errors.invalidPassword");
+        if (errorName === "LimitExceededException" || errorName === "TooManyRequestsException") {
+            return res.locals.t("passwordReset.errors.rateLimited");
+        }
+        return res.locals.t("passwordReset.errors.failed");
     };
 
     const isSecureCookie = process.env.NODE_ENV === "production";
@@ -403,6 +426,68 @@ export async function createApp() {
 
     });
 
+    app.get("/forgot-password", (_req, res) => {
+        renderForgotPassword(res);
+    });
+
+    app.post("/forgot-password", async (req, res, next) => {
+        const username = normalizePasswordResetUsername(req.body?.username);
+        if (!username) {
+            return renderForgotPassword(res, res.locals.t("passwordReset.errors.usernameRequired"));
+        }
+
+        try {
+            await requestPasswordReset(username);
+        } catch (error) {
+            // Keep this response neutral so the endpoint cannot disclose account existence.
+            console.warn("[auth] password reset request was not delivered", {
+                error: error?.name || "UnknownError"
+            });
+        }
+
+        req.session.passwordResetUsername = username;
+        return req.session.save((error) => {
+            if (error) return next(error);
+            return res.redirect("/reset-password");
+        });
+    });
+
+    app.get("/reset-password", (req, res) => {
+        if (!req.session?.passwordResetUsername) {
+            return res.redirect("/forgot-password");
+        }
+        return renderResetPassword(res);
+    });
+
+    app.post("/reset-password", async (req, res, next) => {
+        const username = normalizePasswordResetUsername(req.session?.passwordResetUsername);
+        const confirmationCode = String(req.body?.code || "").trim();
+        const password = String(req.body?.password || "");
+        const passwordConfirmation = String(req.body?.passwordConfirmation || "");
+
+        if (!username) return res.redirect("/forgot-password");
+        if (!confirmationCode || !password) {
+            return renderResetPassword(res, res.locals.t("passwordReset.errors.fieldsRequired"));
+        }
+        if (password !== passwordConfirmation) {
+            return renderResetPassword(res, res.locals.t("passwordReset.errors.passwordMismatch"));
+        }
+
+        try {
+            await confirmPasswordReset({ username, confirmationCode, password });
+            delete req.session.passwordResetUsername;
+            return req.session.save((error) => {
+                if (error) return next(error);
+                return res.redirect("/login?passwordReset=true");
+            });
+        } catch (error) {
+            console.warn("[auth] password reset confirmation failed", {
+                error: error?.name || "UnknownError"
+            });
+            return renderResetPassword(res, passwordResetErrorMessage(res, error));
+        }
+    });
+
 
     app.get("/login", async (req, res) => {
         const redirect = req.query.redirect || "";
@@ -417,7 +502,10 @@ export async function createApp() {
             }
         }
 
-        renderLogin(res, redirect);
+        const notice = req.query.passwordReset === "true"
+            ? res.locals.t("passwordReset.success")
+            : null;
+        renderLogin(res, redirect, null, notice);
     });
 
     app.get("/auth/google", (req, res, next) => {

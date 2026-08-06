@@ -59,6 +59,47 @@
     "submit": "Conferma account",
     "backToSignIn": "Back to sign in"
   },
+  "passwordReset": {
+    "brand": "Workout Dashboard",
+    "chipLabel": "Accesso account",
+    "username": "Email o nome utente",
+    "backToSignIn": "Torna al login",
+    "success": "La password è stata modificata. Ora puoi accedere con la nuova password.",
+    "request": {
+      "title": "Reimposta password",
+      "heroKicker": "Recupero account",
+      "heroTitle": "Password dimenticata?",
+      "heroSubtitle": "Richiedi un codice per il tuo account CWA24 locale.",
+      "chipValue": "Richiedi codice",
+      "cardTitle": "Recupera accesso",
+      "neutralHint": "Se esiste un account locale, Cognito invierà un codice al contatto registrato.",
+      "submit": "Richiedi codice"
+    },
+    "confirm": {
+      "title": "Imposta nuova password",
+      "heroKicker": "Recupero account",
+      "heroTitle": "Imposta nuova password",
+      "heroSubtitle": "Inserisci il codice ricevuto e scegli una nuova password.",
+      "chipValue": "Rinnova password",
+      "cardTitle": "Conferma codice",
+      "codeSent": "Se esiste un account locale, è stato inviato un codice di conferma.",
+      "code": "Codice di conferma",
+      "newPassword": "Nuova password",
+      "repeatPassword": "Ripeti nuova password",
+      "submit": "Cambia password",
+      "requestAgain": "Richiedi un nuovo codice"
+    },
+    "errors": {
+      "usernameRequired": "Inserisci email o nome utente.",
+      "fieldsRequired": "Compila tutti i campi.",
+      "passwordMismatch": "Le password non corrispondono.",
+      "codeMismatch": "Il codice non è corretto.",
+      "codeExpired": "Il codice è scaduto. Richiedine uno nuovo.",
+      "invalidPassword": "La nuova password non rispetta i requisiti.",
+      "rateLimited": "Troppi tentativi. Riprova più tardi.",
+      "failed": "Impossibile modificare la password. Richiedi un nuovo codice."
+    }
+  },
   "profile": {
     "title": "Profilo",
     "topbarTitle": "Profilo",
@@ -222,6 +263,7 @@
     "cardTitle": "Accedi",
     "emailOrUsername": "Email or Username",
     "password": "Password",
+    "forgotPassword": "Password dimenticata?",
     "submit": "Accedi",
     "divider": "oppure",
     "continueWithGoogle": "Continua con Google",

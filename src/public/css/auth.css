@@ -158,6 +158,11 @@ body.auth-page {
   box-shadow: none;
 }
 
+.auth-inline-link {
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
 .auth-primary-btn {
   border-radius: 999px;
   padding: 0.85rem 1rem;

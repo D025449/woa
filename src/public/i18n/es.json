@@ -61,6 +61,47 @@
     "submit": "Confirmar cuenta",
     "backToSignIn": "Volver a iniciar sesión"
   },
+  "passwordReset": {
+    "brand": "Workout Dashboard",
+    "chipLabel": "Acceso a la cuenta",
+    "username": "Correo electrónico o usuario",
+    "backToSignIn": "Volver a iniciar sesión",
+    "success": "Tu contraseña se ha cambiado. Ya puedes iniciar sesión con la nueva contraseña.",
+    "request": {
+      "title": "Restablecer contraseña",
+      "heroKicker": "Recuperación de cuenta",
+      "heroTitle": "¿Olvidaste tu contraseña?",
+      "heroSubtitle": "Solicita un código para tu cuenta local de CWA24.",
+      "chipValue": "Solicitar código",
+      "cardTitle": "Recuperar acceso",
+      "neutralHint": "Si existe una cuenta local, Cognito enviará un código al contacto registrado.",
+      "submit": "Solicitar código"
+    },
+    "confirm": {
+      "title": "Establecer nueva contraseña",
+      "heroKicker": "Recuperación de cuenta",
+      "heroTitle": "Establecer nueva contraseña",
+      "heroSubtitle": "Introduce el código recibido y elige una nueva contraseña.",
+      "chipValue": "Renovar contraseña",
+      "cardTitle": "Confirmar código",
+      "codeSent": "Si existe una cuenta local, se ha enviado un código de confirmación.",
+      "code": "Código de confirmación",
+      "newPassword": "Nueva contraseña",
+      "repeatPassword": "Repetir nueva contraseña",
+      "submit": "Cambiar contraseña",
+      "requestAgain": "Solicitar otro código"
+    },
+    "errors": {
+      "usernameRequired": "Introduce tu correo electrónico o usuario.",
+      "fieldsRequired": "Completa todos los campos.",
+      "passwordMismatch": "Las contraseñas no coinciden.",
+      "codeMismatch": "El código no es correcto.",
+      "codeExpired": "El código ha caducado. Solicita uno nuevo.",
+      "invalidPassword": "La nueva contraseña no cumple los requisitos.",
+      "rateLimited": "Demasiados intentos. Espera un momento.",
+      "failed": "No se pudo cambiar la contraseña. Solicita un código nuevo."
+    }
+  },
   "profile": {
     "title": "Perfil",
     "topbarTitle": "Perfil",
@@ -224,6 +265,7 @@
     "cardTitle": "Iniciar sesión",
     "emailOrUsername": "Email or Username",
     "password": "Contraseña",
+    "forgotPassword": "¿Olvidaste tu contraseña?",
     "submit": "Iniciar sesión",
     "divider": "o",
     "continueWithGoogle": "Continuar con Google",

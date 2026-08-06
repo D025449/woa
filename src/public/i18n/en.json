@@ -61,6 +61,47 @@
     "submit": "Confirm account",
     "backToSignIn": "Back to sign in"
   },
+  "passwordReset": {
+    "brand": "Workout Dashboard",
+    "chipLabel": "Account access",
+    "username": "Email or username",
+    "backToSignIn": "Back to sign in",
+    "success": "Your password has been changed. You can now sign in with the new password.",
+    "request": {
+      "title": "Reset password",
+      "heroKicker": "Account recovery",
+      "heroTitle": "Forgot your password?",
+      "heroSubtitle": "Request a confirmation code for your local CWA24 account.",
+      "chipValue": "Request code",
+      "cardTitle": "Recover access",
+      "neutralHint": "If a local account exists, Cognito sends a code to its registered contact.",
+      "submit": "Request confirmation code"
+    },
+    "confirm": {
+      "title": "Set a new password",
+      "heroKicker": "Account recovery",
+      "heroTitle": "Set a new password",
+      "heroSubtitle": "Enter the code you received and choose a new password.",
+      "chipValue": "Renew password",
+      "cardTitle": "Confirm code",
+      "codeSent": "If a local account exists, a confirmation code has been sent.",
+      "code": "Confirmation code",
+      "newPassword": "New password",
+      "repeatPassword": "Repeat new password",
+      "submit": "Change password",
+      "requestAgain": "Request a new code"
+    },
+    "errors": {
+      "usernameRequired": "Enter your email address or username.",
+      "fieldsRequired": "Complete all fields.",
+      "passwordMismatch": "The passwords do not match.",
+      "codeMismatch": "The confirmation code is incorrect.",
+      "codeExpired": "The confirmation code has expired. Request a new one.",
+      "invalidPassword": "The new password does not meet the password requirements.",
+      "rateLimited": "Too many attempts. Wait a moment and try again.",
+      "failed": "The password could not be changed. Request a new code and try again."
+    }
+  },
   "profile": {
     "title": "Profile",
     "topbarTitle": "Profile",
@@ -296,6 +337,7 @@
     "cardTitle": "Sign in",
     "emailOrUsername": "Email or Username",
     "password": "Password",
+    "forgotPassword": "Forgot password?",
     "submit": "Sign in",
     "divider": "or",
     "continueWithGoogle": "Continue with Google",

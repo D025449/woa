@@ -59,6 +59,47 @@
     "submit": "Confirmar conta",
     "backToSignIn": "Back to sign in"
   },
+  "passwordReset": {
+    "brand": "Workout Dashboard",
+    "chipLabel": "Acesso à conta",
+    "username": "E-mail ou utilizador",
+    "backToSignIn": "Voltar ao login",
+    "success": "A palavra-passe foi alterada. Já pode iniciar sessão com a nova palavra-passe.",
+    "request": {
+      "title": "Repor palavra-passe",
+      "heroKicker": "Recuperação da conta",
+      "heroTitle": "Esqueceu a palavra-passe?",
+      "heroSubtitle": "Peça um código para a sua conta CWA24 local.",
+      "chipValue": "Pedir código",
+      "cardTitle": "Recuperar acesso",
+      "neutralHint": "Se existir uma conta local, o Cognito enviará um código ao contacto registado.",
+      "submit": "Pedir código"
+    },
+    "confirm": {
+      "title": "Definir nova palavra-passe",
+      "heroKicker": "Recuperação da conta",
+      "heroTitle": "Definir nova palavra-passe",
+      "heroSubtitle": "Introduza o código recebido e escolha uma nova palavra-passe.",
+      "chipValue": "Renovar palavra-passe",
+      "cardTitle": "Confirmar código",
+      "codeSent": "Se existir uma conta local, foi enviado um código de confirmação.",
+      "code": "Código de confirmação",
+      "newPassword": "Nova palavra-passe",
+      "repeatPassword": "Repetir nova palavra-passe",
+      "submit": "Alterar palavra-passe",
+      "requestAgain": "Pedir novo código"
+    },
+    "errors": {
+      "usernameRequired": "Introduza o e-mail ou nome de utilizador.",
+      "fieldsRequired": "Preencha todos os campos.",
+      "passwordMismatch": "As palavras-passe não coincidem.",
+      "codeMismatch": "O código não está correto.",
+      "codeExpired": "O código expirou. Peça um novo.",
+      "invalidPassword": "A nova palavra-passe não cumpre os requisitos.",
+      "rateLimited": "Demasiadas tentativas. Tente novamente mais tarde.",
+      "failed": "Não foi possível alterar a palavra-passe. Peça um novo código."
+    }
+  },
   "profile": {
     "title": "Perfil",
     "topbarTitle": "Perfil",
@@ -222,6 +263,7 @@
     "cardTitle": "Iniciar sessão",
     "emailOrUsername": "Email or Username",
     "password": "Palavra-passe",
+    "forgotPassword": "Esqueceu a palavra-passe?",
     "submit": "Iniciar sessão",
     "divider": "ou",
     "continueWithGoogle": "Continuar com Google",

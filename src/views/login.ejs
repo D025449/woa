@@ -76,8 +76,12 @@
                                 <div class="alert alert-danger">
                                     <%= error %>
                                 </div>
-                                <% } %>
-
+                            <% } %>
+                            <% if (typeof notice !== "undefined" && notice) { %>
+                                <div class="alert alert-success">
+                                    <%= notice %>
+                                </div>
+                            <% } %>
                                     <form method="POST" action="/login">
                                     <input type="hidden" name="redirect" value="<%= typeof redirect !== 'undefined' ? redirect : '' %>">
                                         <div class="mb-3">
@@ -88,6 +92,9 @@
                                         <div class="mb-3">
                                             <label class="form-label"><%= t("login.password") %></label>
                                             <input type="password" class="form-control" name="password" autocomplete="current-password" required>
+                                            <div class="text-end mt-2">
+                                                <a class="auth-inline-link" href="/forgot-password"><%= t("login.forgotPassword") %></a>
+                                            </div>
                                         </div>
 
                                         <button class="btn btn-primary w-100 auth-primary-btn">

@@ -61,6 +61,47 @@
     "submit": "Konto bestätigen",
     "backToSignIn": "Zurück zur Anmeldung"
   },
+  "passwordReset": {
+    "brand": "Workout Dashboard",
+    "chipLabel": "Kontozugriff",
+    "username": "E-Mail oder Benutzername",
+    "backToSignIn": "Zurück zur Anmeldung",
+    "success": "Dein Passwort wurde geändert. Du kannst dich jetzt mit dem neuen Passwort anmelden.",
+    "request": {
+      "title": "Passwort zurücksetzen",
+      "heroKicker": "Kontowiederherstellung",
+      "heroTitle": "Passwort vergessen?",
+      "heroSubtitle": "Fordere einen Bestätigungscode für dein lokales CWA24-Konto an.",
+      "chipValue": "Code anfordern",
+      "cardTitle": "Zugang wiederherstellen",
+      "neutralHint": "Falls ein lokales Konto existiert, sendet Cognito einen Code an den hinterlegten Kontakt.",
+      "submit": "Bestätigungscode anfordern"
+    },
+    "confirm": {
+      "title": "Neues Passwort festlegen",
+      "heroKicker": "Kontowiederherstellung",
+      "heroTitle": "Neues Passwort festlegen",
+      "heroSubtitle": "Gib den zugesandten Code ein und wähle ein neues Passwort.",
+      "chipValue": "Passwort erneuern",
+      "cardTitle": "Code bestätigen",
+      "codeSent": "Falls ein lokales Konto existiert, wurde ein Bestätigungscode versendet.",
+      "code": "Bestätigungscode",
+      "newPassword": "Neues Passwort",
+      "repeatPassword": "Neues Passwort wiederholen",
+      "submit": "Passwort ändern",
+      "requestAgain": "Neuen Code anfordern"
+    },
+    "errors": {
+      "usernameRequired": "Bitte gib deine E-Mail-Adresse oder deinen Benutzernamen ein.",
+      "fieldsRequired": "Bitte fülle alle Felder aus.",
+      "passwordMismatch": "Die eingegebenen Passwörter stimmen nicht überein.",
+      "codeMismatch": "Der Bestätigungscode ist nicht korrekt.",
+      "codeExpired": "Der Bestätigungscode ist abgelaufen. Bitte fordere einen neuen an.",
+      "invalidPassword": "Das neue Passwort erfüllt die Passwortregeln nicht.",
+      "rateLimited": "Zu viele Versuche. Bitte warte kurz und versuche es erneut.",
+      "failed": "Das Passwort konnte nicht geändert werden. Bitte fordere einen neuen Code an."
+    }
+  },
   "profile": {
     "title": "Profil",
     "topbarTitle": "Profil",
@@ -296,6 +337,7 @@
     "cardTitle": "Anmelden",
     "emailOrUsername": "E-Mail oder Benutzername",
     "password": "Passwort",
+    "forgotPassword": "Passwort vergessen?",
     "submit": "Anmelden",
     "divider": "oder",
     "continueWithGoogle": "Weiter mit Google",
