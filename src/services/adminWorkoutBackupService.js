@@ -278,11 +278,17 @@ export function validateAdminWorkoutPreviewPayload(payload) {
     if (!owner) throw new Error(`Unknown owner in workouts[${index}].`);
     const startTime = optionalStartTime(row[1], `workouts[${index}].startTime`);
     const streamHash = row[2] == null ? null : String(row[2]).toLowerCase();
+    const sourceId = row[3] == null ? null : String(row[3]);
+    const chunkIndex = row[4] == null ? null : Number(row[4]);
     if (!startTime && !SHA256_PATTERN.test(streamHash || "")) {
       throw new Error(`Missing stream hash in workouts[${index}].`);
     }
+    if (sourceId != null && !sourceId) throw new Error(`Invalid source id in workouts[${index}].`);
+    if (chunkIndex != null && (!Number.isInteger(chunkIndex) || chunkIndex < 0)) {
+      throw new Error(`Invalid chunk index in workouts[${index}].`);
+    }
     actualCounts.set(owner.key, (actualCounts.get(owner.key) || 0) + 1);
-    return { ownerKey: owner.key, startTime, streamHash };
+    return { ownerKey: owner.key, startTime, streamHash, sourceId, chunkIndex };
   });
   for (const owner of owners) {
     if ((actualCounts.get(owner.key) || 0) !== owner.declaredWorkoutCount) {
@@ -328,6 +334,7 @@ async function prepareMetadataPreview(decoded, queryable) {
     duplicateCount: 0
   }));
   const workoutsByOwner = new Map();
+  const importableWorkouts = [];
   for (const workout of decoded.workouts) {
     const rows = workoutsByOwner.get(workout.ownerKey) || [];
     rows.push(workout);
@@ -352,7 +359,10 @@ async function prepareMetadataPreview(decoded, queryable) {
         ? existingTimes.has(workout.startTime)
         : existingNullHashes.has(workout.streamHash);
       if (duplicate) mapping.duplicateCount += 1;
-      else mapping.importCount += 1;
+      else {
+        mapping.importCount += 1;
+        importableWorkouts.push(workout);
+      }
     }
   }
   const totals = mappings.reduce((result, mapping) => {
@@ -363,11 +373,27 @@ async function prepareMetadataPreview(decoded, queryable) {
     if (mapping.status === "conflict") result.conflicts += mapping.workoutCount;
     return result;
   }, { workouts: 0, importable: 0, duplicates: 0, unmatched: 0, conflicts: 0 });
-  return publicPreview({
-    decoded: { manifest: { createdAt: decoded.createdAt } },
-    mappings,
-    totals
-  });
+  return {
+    preview: publicPreview({
+      decoded: { manifest: { createdAt: decoded.createdAt } },
+      mappings,
+      totals
+    }),
+    importableWorkouts
+  };
+}
+
+export async function planAdminWorkoutMetadataImport(payload, queryable = pool) {
+  let decoded;
+  try {
+    decoded = validateAdminWorkoutPreviewPayload(payload);
+  } catch (error) {
+    throw Object.assign(
+      error instanceof Error ? error : new Error("Invalid workout preview metadata."),
+      { statusCode: 400 }
+    );
+  }
+  return prepareMetadataPreview(decoded, queryable);
 }
 
 async function prepareBackup(buffer, queryable) {
@@ -493,16 +519,7 @@ export default class AdminWorkoutBackupService {
   }
 
   static async previewMetadata(payload) {
-    let decoded;
-    try {
-      decoded = validateAdminWorkoutPreviewPayload(payload);
-    } catch (error) {
-      throw Object.assign(
-        error instanceof Error ? error : new Error("Invalid workout preview metadata."),
-        { statusCode: 400 }
-      );
-    }
-    return prepareMetadataPreview(decoded, pool);
+    return (await planAdminWorkoutMetadataImport(payload, pool)).preview;
   }
 
   static async importAll(buffer) {

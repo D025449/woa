@@ -28,19 +28,26 @@ import AdminWorkoutBackupService, {
   ADMIN_WORKOUT_BACKUP_FORMAT,
   ADMIN_WORKOUT_BACKUP_VERSION,
   buildAdminWorkoutBackup,
+  planAdminWorkoutMetadataImport,
   serializeAdminWorkout
 } from "./adminWorkoutBackupService.js";
 import pool from "./database.js";
 import { FileDBService } from "./fileDBService.js";
 import { enqueueSegmentBestEfforts } from "./segment-best-efforts-service.js";
+import {
+  buildLogicalWorkoutChunkCollection,
+  LOGICAL_WORKOUT_CHUNK_SIZE,
+  validateLogicalWorkoutChunkCollection,
+  validateLogicalWorkoutChunkIndex
+} from "./logicalWorkoutChunkFormat.js";
 import StreamingZipFileWriter from "./streamingZipFileWriter.js";
 import UserAccountBackupService from "./userAccountBackupService.js";
 import { decodeWoa1BufferLight } from "./woa1Service.js";
 
 export const LOGICAL_BACKUP_FORMAT = "cwa24-logical-backup-manifest";
-export const LOGICAL_BACKUP_VERSION = 1;
+export const LOGICAL_BACKUP_VERSION = 2;
 const LOGICAL_FIT_FORMAT = "cwa24-logical-fit-workouts";
-const LOGICAL_FIT_VERSION = 2;
+const LOGICAL_FIT_VERSION = 3;
 const WORKOUT_BATCH_SIZE = 25;
 const MODES = new Set(["native", "fit", "both"]);
 
@@ -202,16 +209,37 @@ async function buildFit(workoutRow, metadata, segments) {
   });
 }
 
-async function exportWorkoutFiles({ mode, tempDirectory, progress }) {
+function chunkOwners(owners, workoutCounts, referencedOwnerKeys) {
+  return owners.filter((owner) => referencedOwnerKeys.has(owner.key)).map((owner) => ({
+    ...owner,
+    workoutCount: workoutCounts.get(owner.key) || 0
+  }));
+}
+
+async function exportWorkoutFiles({ mode, tempDirectory, s3, config, root, progress }) {
   const client = await pool.connect();
-  const nativeWriter = mode === "native" || mode === "both"
-    ? new StreamingZipFileWriter(path.join(tempDirectory, "workouts-native.zip"))
-    : null;
-  const fitWriter = mode === "fit" || mode === "both"
-    ? new StreamingZipFileWriter(path.join(tempDirectory, "workouts-fit.zip"))
-    : null;
+  const includeNative = mode === "native" || mode === "both";
+  const includeFit = mode === "fit" || mode === "both";
   const startedAt = Date.now();
   let peakRssBytes = process.memoryUsage().rss;
+  let chunkUploadMs = 0;
+  let activeChunk = null;
+
+  const startChunk = (index) => ({
+    index,
+    workoutCount: 0,
+    segmentCount: 0,
+    favoriteCount: 0,
+    workoutCounts: new Map(),
+    referencedOwnerKeys: new Set(),
+    nativeWriter: includeNative
+      ? new StreamingZipFileWriter(path.join(tempDirectory, `workouts-native-${index}.zip`))
+      : null,
+    fitWriter: includeFit
+      ? new StreamingZipFileWriter(path.join(tempDirectory, `workouts-fit-${index}.zip`))
+      : null
+  });
+
   try {
     await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
     const users = (await client.query(`
@@ -237,8 +265,65 @@ async function exportWorkoutFiles({ mode, tempDirectory, progress }) {
     `)).rows[0];
     const total = Number(totals.workouts) || 0;
     const previewRows = [];
+    const nativeChunks = [];
+    const fitChunks = [];
     let processed = 0;
     let cursor = 0;
+    let chunkIndex = 0;
+
+    const finishChunk = async () => {
+      if (!activeChunk || activeChunk.workoutCount === 0) return;
+      const createdAt = new Date().toISOString();
+      const ownersForChunk = chunkOwners(owners, activeChunk.workoutCounts, activeChunk.referencedOwnerKeys);
+      if (activeChunk.nativeWriter) {
+        await activeChunk.nativeWriter.add("manifest.json", strToU8(JSON.stringify({
+          format: ADMIN_WORKOUT_BACKUP_FORMAT,
+          version: ADMIN_WORKOUT_BACKUP_VERSION,
+          createdAt,
+          workoutCount: activeChunk.workoutCount,
+          segmentCount: activeChunk.segmentCount,
+          favoriteCount: activeChunk.favoriteCount,
+          owners: ownersForChunk
+        })));
+      }
+      if (activeChunk.fitWriter) {
+        await activeChunk.fitWriter.add("manifest.json", strToU8(JSON.stringify({
+          format: LOGICAL_FIT_FORMAT,
+          version: LOGICAL_FIT_VERSION,
+          createdAt,
+          workoutCount: activeChunk.workoutCount,
+          owners: ownersForChunk
+        })));
+      }
+      const [nativeFile, fitFile] = await Promise.all([
+        activeChunk.nativeWriter?.finish() || null,
+        activeChunk.fitWriter?.finish() || null
+      ]);
+      const uploadStartedAt = Date.now();
+      await report(progress, 10 + Math.round((processed / Math.max(1, total)) * 70), "uploading-workout-chunk", {
+        processed,
+        total,
+        chunk: activeChunk.index + 1,
+        chunks: Math.ceil(total / LOGICAL_WORKOUT_CHUNK_SIZE),
+        etaMs: estimateEtaMs(startedAt, processed, total)
+      });
+      const chunkName = String(activeChunk.index).padStart(5, "0");
+      const [nativeArtifact, fitArtifact] = await Promise.all([
+        nativeFile
+          ? uploadFile(s3, config, `${root}/workouts/native/chunk-${chunkName}.zip`, nativeFile, "application/zip")
+          : null,
+        fitFile
+          ? uploadFile(s3, config, `${root}/workouts/fit/chunk-${chunkName}.zip`, fitFile, "application/zip")
+          : null
+      ]);
+      chunkUploadMs += Date.now() - uploadStartedAt;
+      if (nativeArtifact) nativeChunks.push({ ...nativeArtifact, index: activeChunk.index, workoutCount: activeChunk.workoutCount });
+      if (fitArtifact) fitChunks.push({ ...fitArtifact, index: activeChunk.index, workoutCount: activeChunk.workoutCount });
+      await Promise.all([nativeFile?.filePath, fitFile?.filePath].filter(Boolean).map((filePath) => fs.rm(filePath, { force: true })));
+      activeChunk = null;
+      peakRssBytes = Math.max(peakRssBytes, process.memoryUsage().rss);
+      await yieldToEventLoop();
+    };
 
     while (true) {
       const workouts = (await client.query(`
@@ -264,6 +349,7 @@ async function exportWorkoutFiles({ mode, tempDirectory, progress }) {
       const favoritesByWorkout = groupBy(favorites, "workout_id");
 
       for (const workout of workouts) {
+        activeChunk ||= startChunk(chunkIndex);
         const owner = ownerByUid.get(String(workout.uid));
         if (!owner) throw new Error(`Workout ${workout.id} has no logical backup owner.`);
         const workoutSegments = segmentsByWorkout.get(String(workout.id)) || [];
@@ -272,27 +358,40 @@ async function exportWorkoutFiles({ mode, tempDirectory, progress }) {
           .filter(Boolean);
         const metadata = serializeAdminWorkout(workout, owner.key, workoutSegments, favoriteOwnerKeys);
         const base = `workouts/${owner.key}/W-${workout.id}`;
+        const startTime = metadata.start_time ? new Date(metadata.start_time).toISOString() : null;
+        activeChunk.workoutCount += 1;
+        activeChunk.segmentCount += workoutSegments.length;
+        activeChunk.favoriteCount += favoriteOwnerKeys.length;
+        activeChunk.workoutCounts.set(owner.key, (activeChunk.workoutCounts.get(owner.key) || 0) + 1);
+        activeChunk.referencedOwnerKeys.add(owner.key);
+        favoriteOwnerKeys.forEach((ownerKey) => activeChunk.referencedOwnerKeys.add(ownerKey));
         previewRows.push([
           ownerIndexByUid.get(owner.sourceUid),
-          metadata.start_time ? new Date(metadata.start_time).toISOString() : null,
-          createHash("sha256").update(workout.stream).digest("hex")
+          startTime,
+          startTime ? null : createHash("sha256").update(workout.stream).digest("hex"),
+          String(workout.id),
+          activeChunk.index
         ]);
 
-        if (nativeWriter) {
-          await nativeWriter.add(`${base}.json`, strToU8(JSON.stringify(metadata)));
-          await nativeWriter.add(`${base}.stream`, workout.stream);
-          if (workout.gps_track_blob) await nativeWriter.add(`${base}.gps`, workout.gps_track_blob);
+        if (activeChunk.nativeWriter) {
+          await activeChunk.nativeWriter.add(`${base}.json`, strToU8(JSON.stringify(metadata)));
+          await activeChunk.nativeWriter.add(`${base}.stream`, workout.stream);
+          if (workout.gps_track_blob) await activeChunk.nativeWriter.add(`${base}.gps`, workout.gps_track_blob);
         }
-        if (fitWriter) {
+        if (activeChunk.fitWriter) {
           const fit = await buildFit(workout, metadata, workoutSegments);
-          await fitWriter.add(`${base}.fit`, fit);
-          await fitWriter.add(`${base}.json`, strToU8(JSON.stringify(metadata)));
+          await activeChunk.fitWriter.add(`${base}.fit`, fit);
+          await activeChunk.fitWriter.add(`${base}.json`, strToU8(JSON.stringify(metadata)));
         }
         processed += 1;
+        if (activeChunk.workoutCount >= LOGICAL_WORKOUT_CHUNK_SIZE) {
+          await finishChunk();
+          chunkIndex += 1;
+        }
       }
       cursor = Number(workouts.at(-1).id);
       const percent = 10 + Math.round((processed / Math.max(1, total)) * 70);
-      await report(progress, percent, fitWriter ? "encoding-workouts-fit" : "encoding-workouts-native", {
+      await report(progress, percent, includeFit ? "encoding-workouts-fit" : "encoding-workouts-native", {
         processed,
         total,
         etaMs: estimateEtaMs(startedAt, processed, total)
@@ -300,50 +399,28 @@ async function exportWorkoutFiles({ mode, tempDirectory, progress }) {
       peakRssBytes = Math.max(peakRssBytes, process.memoryUsage().rss);
       await yieldToEventLoop();
     }
-
-    const nativeManifest = {
-      format: ADMIN_WORKOUT_BACKUP_FORMAT,
-      version: ADMIN_WORKOUT_BACKUP_VERSION,
-      createdAt: new Date().toISOString(),
-      workoutCount: total,
-      segmentCount: Number(totals.segments) || 0,
-      favoriteCount: Number(totals.favorites) || 0,
-      owners
-    };
-    const fitManifest = {
-      format: LOGICAL_FIT_FORMAT,
-      version: LOGICAL_FIT_VERSION,
-      createdAt: nativeManifest.createdAt,
-      workoutCount: total,
-      owners
-    };
+    await finishChunk();
+    const createdAt = new Date().toISOString();
     const previewIndex = Buffer.from(JSON.stringify({
       format: ADMIN_WORKOUT_BACKUP_FORMAT,
       version: ADMIN_WORKOUT_BACKUP_VERSION,
-      createdAt: nativeManifest.createdAt,
+      createdAt,
       workoutCount: total,
       owners,
       workouts: previewRows
     }));
-
-    if (nativeWriter) await nativeWriter.add("manifest.json", strToU8(JSON.stringify(nativeManifest)));
-    if (fitWriter) await fitWriter.add("manifest.json", strToU8(JSON.stringify(fitManifest)));
-    const [nativeFile, fitFile] = await Promise.all([
-      nativeWriter?.finish() || null,
-      fitWriter?.finish() || null
-    ]);
     await client.query("COMMIT");
     return {
       workoutCount: total,
       previewIndex,
-      nativeFile,
-      fitFile,
-      profile: { elapsedMs: Date.now() - startedAt, peakRssBytes }
+      nativeCollection: includeNative ? buildLogicalWorkoutChunkCollection(nativeChunks) : null,
+      fitCollection: includeFit ? buildLogicalWorkoutChunkCollection(fitChunks) : null,
+      profile: { elapsedMs: Date.now() - startedAt, peakRssBytes, chunkUploadMs }
     };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
-    nativeWriter?.abort(error);
-    fitWriter?.abort(error);
+    activeChunk?.nativeWriter?.abort(error);
+    activeChunk?.fitWriter?.abort(error);
     throw error;
   } finally {
     client.release();
@@ -357,63 +434,6 @@ function entryMap(directory) {
 async function readJsonEntry(entry, label) {
   if (!entry) throw new Error(`${label} is missing.`);
   try { return JSON.parse((await entry.buffer()).toString("utf8")); } catch { throw new Error(`${label} is invalid JSON.`); }
-}
-
-async function compactPreviewFromArchive(filePath, source) {
-  const directory = await unzipper.Open.file(filePath);
-  const files = entryMap(directory);
-  const manifest = await readJsonEntry(files.get("manifest.json"), "Workout manifest");
-  const owners = Array.isArray(manifest.owners) ? manifest.owners.map((owner) => ({
-    ...owner,
-    workoutCount: Number(owner.workoutCount ?? owner.declaredWorkoutCount) || 0
-  })) : [];
-  const ownerIndex = new Map(owners.map((owner, index) => [String(owner.key), index]));
-  const workouts = [];
-  if (source === "fit" && Number(manifest.version) === 1 && Array.isArray(manifest.workouts)) {
-    const ownerByKey = new Map(owners.map((owner) => [String(owner.key), owner]));
-    for (const row of manifest.workouts) {
-      let streamHash = null;
-      if (!row.sourceMetadata?.start_time) {
-        const decoded = await fitEntryToWorkout(row, files, ownerByKey);
-        streamHash = sha256(decoded.stream);
-      }
-      workouts.push([
-        ownerIndex.get(String(row.ownerKey)),
-        row.sourceMetadata?.start_time ? new Date(row.sourceMetadata.start_time).toISOString() : null,
-        streamHash
-      ]);
-    }
-  } else {
-    const metadataEntries = [...files.values()].filter((entry) => /^workouts\/[^/]+\/W-[^/]+\.json$/u.test(entry.path));
-    for (const entry of metadataEntries) {
-      const metadata = await readJsonEntry(entry, entry.path);
-      let streamHash = null;
-      if (!metadata.start_time && source === "native") {
-        const streamEntry = files.get(entry.path.replace(/\.json$/u, ".stream"));
-        if (streamEntry) streamHash = sha256(await streamEntry.buffer());
-      }
-      workouts.push([
-        ownerIndex.get(String(metadata.ownerKey)),
-        metadata.start_time ? new Date(metadata.start_time).toISOString() : null,
-        streamHash || "0".repeat(64)
-      ]);
-    }
-  }
-  return {
-    format: ADMIN_WORKOUT_BACKUP_FORMAT,
-    version: ADMIN_WORKOUT_BACKUP_VERSION,
-    createdAt: manifest.createdAt || null,
-    workoutCount: workouts.length,
-    owners,
-    workouts
-  };
-}
-
-function fitSourceEntries(manifest, files) {
-  if (Number(manifest.version) === 1 && Array.isArray(manifest.workouts)) return manifest.workouts;
-  return [...files.values()]
-    .filter((entry) => /^workouts\/[^/]+\/W-[^/]+\.json$/u.test(entry.path))
-    .map((entry) => ({ metadataEntry: entry }));
 }
 
 async function fitEntryToWorkout(source, files, ownerByKey) {
@@ -514,7 +534,7 @@ async function importWorkoutBatch(entries, ownerByKey) {
   return AdminWorkoutBackupService.importAll(buildAdminWorkoutBackup({ workouts, segments, favorites }));
 }
 
-async function restoreWorkoutFile(filePath, source, progress) {
+async function restoreWorkoutChunk(filePath, source, selectedWorkouts, owners) {
   const directory = await unzipper.Open.file(filePath);
   const files = entryMap(directory);
   const manifest = await readJsonEntry(files.get("manifest.json"), "Workout manifest");
@@ -523,41 +543,35 @@ async function restoreWorkoutFile(filePath, source, progress) {
     && Number(manifest.version) === ADMIN_WORKOUT_BACKUP_VERSION;
   const fitFormatValid = source === "fit"
     && manifest.format === LOGICAL_FIT_FORMAT
-    && [1, LOGICAL_FIT_VERSION].includes(Number(manifest.version));
+    && Number(manifest.version) === LOGICAL_FIT_VERSION;
   if (!nativeFormatValid && !fitFormatValid) {
     throw new Error(`Unsupported logical ${source.toUpperCase()} workout artifact.`);
   }
-  const owners = Array.isArray(manifest.owners) ? manifest.owners.map((owner) => ({
-    ...owner,
-    workoutCount: Number(owner.workoutCount ?? owner.declaredWorkoutCount) || 0
-  })) : [];
   const ownerByKey = new Map(owners.map((owner) => [String(owner.key), owner]));
-  const sources = source === "fit"
-    ? fitSourceEntries(manifest, files)
-    : [...files.values()].filter((entry) => /^workouts\/[^/]+\/W-[^/]+\.json$/u.test(entry.path));
-  if (sources.length !== Number(manifest.workoutCount)) {
+  const metadataEntries = [...files.values()].filter((entry) => /^workouts\/[^/]+\/W-[^/]+\.json$/u.test(entry.path));
+  if (metadataEntries.length !== Number(manifest.workoutCount)) {
     throw new Error("Logical workout artifact count does not match its manifest.");
   }
   const aggregate = { imported: 0, importedSegments: 0, importedFavorites: 0 };
-  const startedAt = Date.now();
-  for (let offset = 0; offset < sources.length; offset += WORKOUT_BATCH_SIZE) {
-    const batchSources = sources.slice(offset, offset + WORKOUT_BATCH_SIZE);
+  for (let offset = 0; offset < selectedWorkouts.length; offset += WORKOUT_BATCH_SIZE) {
+    const selectedBatch = selectedWorkouts.slice(offset, offset + WORKOUT_BATCH_SIZE);
     const batch = [];
-    for (const item of batchSources) {
-      batch.push(source === "fit"
-        ? await fitEntryToWorkout(item, files, ownerByKey)
-        : await nativeEntryToWorkout(item, files, ownerByKey));
+    for (const selected of selectedBatch) {
+      const metadataPath = `workouts/${selected.ownerKey}/W-${selected.sourceId}.json`;
+      const metadataEntry = files.get(metadataPath);
+      if (!metadataEntry) throw new Error(`Workout ${selected.sourceId} is missing from its declared chunk.`);
+      const restored = source === "fit"
+        ? await fitEntryToWorkout({ metadataEntry }, files, ownerByKey)
+        : await nativeEntryToWorkout(metadataEntry, files, ownerByKey);
+      if (restored.sourceId !== selected.sourceId || restored.owner.key !== selected.ownerKey) {
+        throw new Error(`Workout ${selected.sourceId} does not match its chunk index entry.`);
+      }
+      batch.push(restored);
     }
     const result = await importWorkoutBatch(batch, ownerByKey);
     aggregate.imported += Number(result.imported) || 0;
     aggregate.importedSegments += Number(result.importedSegments) || 0;
     aggregate.importedFavorites += Number(result.importedFavorites) || 0;
-    const processed = Math.min(offset + batch.length, sources.length);
-    await report(progress, 60 + Math.round((processed / Math.max(1, sources.length)) * 38), `restoring-workouts-${source}`, {
-      processed,
-      total: sources.length,
-      etaMs: estimateEtaMs(startedAt, processed, sources.length)
-    });
     await yieldToEventLoop();
   }
   return aggregate;
@@ -587,7 +601,14 @@ export default class LogicalBackupService {
       const segmentResult = await AdminSegmentBackupService.exportAll();
       const segmentsMs = Date.now() - segmentsStartedAt;
       await report(progress, 10, "exporting-workouts", { processed: 0, total: null, etaMs: null });
-      const workoutResult = await exportWorkoutFiles({ mode: selectedMode, tempDirectory, progress });
+      const workoutResult = await exportWorkoutFiles({
+        mode: selectedMode,
+        tempDirectory,
+        s3,
+        config,
+        root,
+        progress
+      });
 
       await report(progress, 82, "uploading-s3");
       const uploadStartedAt = Date.now();
@@ -596,13 +617,8 @@ export default class LogicalBackupService {
         segments: await uploadBuffer(s3, config, `${root}/segments.zip`, segmentResult.archive, "application/zip"),
         workoutIndex: await uploadBuffer(s3, config, `${root}/workout-index.json`, workoutResult.previewIndex, "application/json")
       };
-      if (workoutResult.nativeFile) {
-        artifacts.workoutsNative = await uploadFile(s3, config, `${root}/workouts-native.zip`, workoutResult.nativeFile, "application/zip");
-      }
-      await report(progress, 91, "uploading-s3", { processed: 1, total: workoutResult.fitFile ? 2 : 1 });
-      if (workoutResult.fitFile) {
-        artifacts.workoutsFit = await uploadFile(s3, config, `${root}/workouts-fit.zip`, workoutResult.fitFile, "application/zip");
-      }
+      if (workoutResult.nativeCollection) artifacts.workoutsNative = workoutResult.nativeCollection;
+      if (workoutResult.fitCollection) artifacts.workoutsFit = workoutResult.fitCollection;
       const manifest = {
         format: LOGICAL_BACKUP_FORMAT,
         version: LOGICAL_BACKUP_VERSION,
@@ -619,7 +635,11 @@ export default class LogicalBackupService {
           workouts: workoutResult.workoutCount
         },
         artifacts,
-        implementation: { workoutArchiveVersion: 2, batchSize: WORKOUT_BATCH_SIZE }
+        implementation: {
+          workoutArchiveVersion: 3,
+          batchSize: WORKOUT_BATCH_SIZE,
+          chunkSize: LOGICAL_WORKOUT_CHUNK_SIZE
+        }
       };
       await s3.send(new PutObjectCommand({
         Bucket: config.bucket,
@@ -634,11 +654,13 @@ export default class LogicalBackupService {
         accountsMs,
         segmentsMs,
         workoutsMs: workoutResult.profile.elapsedMs,
-        uploadMs: Date.now() - uploadStartedAt,
+        uploadMs: Date.now() - uploadStartedAt + workoutResult.profile.chunkUploadMs,
         totalMs: Date.now() - startedAt,
         peakRssBytes: workoutResult.profile.peakRssBytes,
-        nativeBytes: workoutResult.nativeFile?.sizeBytes || 0,
-        fitBytes: workoutResult.fitFile?.sizeBytes || 0
+        nativeBytes: workoutResult.nativeCollection?.chunks.reduce((sum, chunk) => sum + chunk.sizeBytes, 0) || 0,
+        fitBytes: workoutResult.fitCollection?.chunks.reduce((sum, chunk) => sum + chunk.sizeBytes, 0) || 0,
+        nativeChunks: workoutResult.nativeCollection?.chunks.length || 0,
+        fitChunks: workoutResult.fitCollection?.chunks.length || 0
       });
       await report(progress, 100, "completed", { processed: workoutResult.workoutCount, total: workoutResult.workoutCount, etaMs: 0 });
       return { ...manifest, rootKey: root };
@@ -668,7 +690,9 @@ export default class LogicalBackupService {
       try {
         const body = await bodyToBuffer((await s3.send(new GetObjectCommand({ Bucket: config.bucket, Key: item.Key }))).Body);
         const manifest = JSON.parse(body.toString("utf8"));
-        if (manifest.format === LOGICAL_BACKUP_FORMAT && manifest.status === "complete") {
+        if (manifest.format === LOGICAL_BACKUP_FORMAT
+          && Number(manifest.version) === LOGICAL_BACKUP_VERSION
+          && manifest.status === "complete") {
           backups.push({ ...manifest, rootKey: item.Key.replace(/\/manifest\.json$/u, "") });
         }
       } catch (error) {
@@ -684,7 +708,11 @@ export default class LogicalBackupService {
     const s3 = new S3Client({ region: process.env.AWS_REGION });
     const body = await bodyToBuffer((await s3.send(new GetObjectCommand({ Bucket: config.bucket, Key: `${root}/manifest.json` }))).Body);
     const manifest = JSON.parse(body.toString("utf8"));
-    if (manifest.format !== LOGICAL_BACKUP_FORMAT || manifest.status !== "complete") throw new Error("Invalid logical backup manifest.");
+    if (manifest.format !== LOGICAL_BACKUP_FORMAT
+      || Number(manifest.version) !== LOGICAL_BACKUP_VERSION
+      || manifest.status !== "complete") {
+      throw new Error("Unsupported logical backup manifest.");
+    }
     return { config, root, s3, manifest };
   }
 
@@ -697,30 +725,24 @@ export default class LogicalBackupService {
       );
     }
     if (workouts) {
-      if (loaded.manifest.artifacts.workoutIndex) {
-        const index = JSON.parse((await readArtifactBuffer(
-          loaded.s3,
-          loaded.config,
-          loaded.root,
-          loaded.manifest.artifacts.workoutIndex
-        )).toString("utf8"));
-        result.workouts = await AdminWorkoutBackupService.previewMetadata(index);
-      } else {
-        const descriptor = workoutSource === "fit" ? loaded.manifest.artifacts.workoutsFit : loaded.manifest.artifacts.workoutsNative;
-        if (!descriptor) throw Object.assign(new Error(`Backup has no ${workoutSource.toUpperCase()} workout artifact.`), { statusCode: 400 });
-        const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "cwa24-logical-preview-"));
-        try {
-          const file = await downloadArtifactToFile(loaded.s3, loaded.config, loaded.root, descriptor, path.join(tempDirectory, "workouts.zip"));
-          result.workouts = await AdminWorkoutBackupService.previewMetadata(await compactPreviewFromArchive(file.filePath, workoutSource));
-        } finally {
-          await fs.rm(tempDirectory, { recursive: true, force: true });
-        }
-      }
+      const collection = workoutSource === "fit"
+        ? loaded.manifest.artifacts.workoutsFit
+        : loaded.manifest.artifacts.workoutsNative;
+      const chunks = validateLogicalWorkoutChunkCollection(collection, workoutSource);
+      const index = JSON.parse((await readArtifactBuffer(
+        loaded.s3,
+        loaded.config,
+        loaded.root,
+        loaded.manifest.artifacts.workoutIndex
+      )).toString("utf8"));
+      validateLogicalWorkoutChunkIndex(index, chunks);
+      result.workouts = await AdminWorkoutBackupService.previewMetadata(index);
     }
     return result;
   }
 
   static async restore(rootValue, options = {}, progress = null) {
+    const restoreStartedAt = Date.now();
     const loaded = await this.loadManifest(rootValue);
     const selected = {
       accounts: options.accounts !== false,
@@ -745,13 +767,84 @@ export default class LogicalBackupService {
       result.segments.queueFailures = queueResults.filter((entry) => entry.status === "rejected").length;
     }
     if (selected.workouts) {
-      const descriptor = selected.workoutSource === "fit" ? loaded.manifest.artifacts.workoutsFit : loaded.manifest.artifacts.workoutsNative;
-      if (!descriptor) throw Object.assign(new Error(`Backup has no ${selected.workoutSource.toUpperCase()} workout artifact.`), { statusCode: 400 });
+      const collection = selected.workoutSource === "fit"
+        ? loaded.manifest.artifacts.workoutsFit
+        : loaded.manifest.artifacts.workoutsNative;
+      const chunks = validateLogicalWorkoutChunkCollection(collection, selected.workoutSource);
+      const index = JSON.parse((await readArtifactBuffer(
+        loaded.s3,
+        loaded.config,
+        loaded.root,
+        loaded.manifest.artifacts.workoutIndex
+      )).toString("utf8"));
+      validateLogicalWorkoutChunkIndex(index, chunks);
+      const plan = await planAdminWorkoutMetadataImport(index);
+      if (plan.preview.totals.conflicts > 0) {
+        throw Object.assign(new Error("Owner mapping contains conflicts. Import was not started."), { statusCode: 409 });
+      }
+      const workoutsByChunk = new Map();
+      for (const workout of plan.importableWorkouts) {
+        if (!workout.sourceId || !Number.isInteger(workout.chunkIndex)) {
+          throw new Error("Logical workout index has no source or chunk mapping.");
+        }
+        const rows = workoutsByChunk.get(workout.chunkIndex) || [];
+        rows.push(workout);
+        workoutsByChunk.set(workout.chunkIndex, rows);
+      }
       const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "cwa24-logical-restore-"));
       try {
-        await report(progress, 45, "downloading-workouts");
-        const file = await downloadArtifactToFile(loaded.s3, loaded.config, loaded.root, descriptor, path.join(tempDirectory, "workouts.zip"));
-        result.workouts = await restoreWorkoutFile(file.filePath, selected.workoutSource, progress);
+        const aggregate = {
+          imported: 0,
+          importedSegments: 0,
+          importedFavorites: 0,
+          selectedWorkouts: plan.importableWorkouts.length,
+          downloadedChunks: 0,
+          downloadedBytes: 0
+        };
+        const startedAt = Date.now();
+        let processed = 0;
+        for (const [chunkIndex, selectedWorkouts] of [...workoutsByChunk.entries()].sort((a, b) => a[0] - b[0])) {
+          const descriptor = chunks.get(chunkIndex);
+          if (!descriptor) throw new Error(`Workout chunk ${chunkIndex} is missing from the backup manifest.`);
+          await report(progress, 45 + Math.round((processed / Math.max(1, plan.importableWorkouts.length)) * 53), "downloading-workout-chunk", {
+            processed,
+            total: plan.importableWorkouts.length,
+            chunk: aggregate.downloadedChunks + 1,
+            chunks: workoutsByChunk.size,
+            etaMs: estimateEtaMs(startedAt, processed, plan.importableWorkouts.length)
+          });
+          const filePath = path.join(tempDirectory, `${selected.workoutSource}-${chunkIndex}.zip`);
+          const file = await downloadArtifactToFile(loaded.s3, loaded.config, loaded.root, descriptor, filePath);
+          const imported = await restoreWorkoutChunk(
+            file.filePath,
+            selected.workoutSource,
+            selectedWorkouts,
+            index.owners
+          );
+          aggregate.imported += Number(imported.imported) || 0;
+          aggregate.importedSegments += Number(imported.importedSegments) || 0;
+          aggregate.importedFavorites += Number(imported.importedFavorites) || 0;
+          aggregate.downloadedChunks += 1;
+          aggregate.downloadedBytes += Number(descriptor.sizeBytes) || 0;
+          processed += selectedWorkouts.length;
+          await fs.rm(filePath, { force: true });
+          await report(progress, 45 + Math.round((processed / Math.max(1, plan.importableWorkouts.length)) * 53), `restoring-workouts-${selected.workoutSource}`, {
+            processed,
+            total: plan.importableWorkouts.length,
+            chunk: aggregate.downloadedChunks,
+            chunks: workoutsByChunk.size,
+            etaMs: estimateEtaMs(startedAt, processed, plan.importableWorkouts.length)
+          });
+        }
+        result.workouts = aggregate;
+        console.info("[logical-backup] restore.profile", {
+          source: selected.workoutSource,
+          selectedWorkouts: aggregate.selectedWorkouts,
+          importedWorkouts: aggregate.imported,
+          downloadedChunks: aggregate.downloadedChunks,
+          downloadedBytes: aggregate.downloadedBytes,
+          totalMs: Date.now() - restoreStartedAt
+        });
       } finally {
         await fs.rm(tempDirectory, { recursive: true, force: true });
       }

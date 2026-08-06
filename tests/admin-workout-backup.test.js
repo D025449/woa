@@ -5,6 +5,7 @@ import {
   buildAdminWorkoutBackup,
   buildAdminWorkoutBackupFilename,
   decodeAdminWorkoutBackup,
+  planAdminWorkoutMetadataImport,
   validateAdminWorkoutPreviewPayload
 } from "../src/services/adminWorkoutBackupService.js";
 
@@ -119,4 +120,38 @@ test("compact workout preview rejects missing null-start fingerprints", () => {
     owners: [{ key: "owner-1", authSub: "stable", workoutCount: 1 }],
     workouts: [[0, null, null]]
   }), /Missing stream hash/u);
+});
+
+test("compact workout plan returns concrete missing source and chunk references", async () => {
+  const payload = {
+    format: "cwa24-admin-workouts",
+    version: 1,
+    createdAt: "2026-08-05T12:34:56.789Z",
+    workoutCount: 2,
+    owners: [{
+      key: "owner-1",
+      authSub: "stable-a",
+      email: "a@example.com",
+      sourceUid: "7",
+      workoutCount: 2
+    }],
+    workouts: [
+      [0, "2026-08-05T09:00:00.000Z", null, "10", 0],
+      [0, "2026-08-06T09:00:00.000Z", null, "11", 1]
+    ]
+  };
+  const queryable = {
+    async query(sql) {
+      if (sql.includes("FROM users")) return { rows: [{ id: 70, auth_sub: "stable-a", email: "a@example.com" }] };
+      if (sql.includes("start_time = ANY")) return { rows: [{ start_time: "2026-08-05T09:00:00.000Z" }] };
+      throw new Error(`Unexpected query: ${sql}`);
+    }
+  };
+
+  const plan = await planAdminWorkoutMetadataImport(payload, queryable);
+  assert.equal(plan.preview.totals.importable, 1);
+  assert.equal(plan.preview.totals.duplicates, 1);
+  assert.deepEqual(plan.importableWorkouts.map(({ sourceId, chunkIndex }) => ({ sourceId, chunkIndex })), [
+    { sourceId: "11", chunkIndex: 1 }
+  ]);
 });

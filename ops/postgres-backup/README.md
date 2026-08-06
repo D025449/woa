@@ -65,8 +65,10 @@ backups/logical/<environment>/<logical-database>/YYYY/MM/DD/<timestamp>-<uuid>/
   accounts.json
   segments.zip
   workout-index.json     # kleine Vorschau ohne Laden der Workout-Archive
-  workouts-native.zip   # bei native oder both
-  workouts-fit.zip      # bei fit oder both
+  workouts/native/chunk-00000.zip  # bei native oder both, je 100 Workouts
+  workouts/native/chunk-00001.zip
+  workouts/fit/chunk-00000.zip     # bei fit oder both, je 100 Workouts
+  workouts/fit/chunk-00001.zip
   manifest.json
 ```
 
@@ -76,19 +78,20 @@ Workouts übernehmen die gespeicherten Streams verlustfrei. FIT-Workouts werden
 beim Backup als echte FIT-Dateien erzeugt und beim Restore mit dem aktuellen
 Compact-FIT-Parser und WOA-Encoder neu aufgebaut.
 
-Workout-Archive ab Version 2 werden in Keyset-Batches zu je 25 Workouts
-verarbeitet. Der Worker hält dadurch weder den vollständigen nativen Export noch
-alle erzeugten FIT-Dateien im RAM. Er schreibt ZIP-Einträge fortlaufend in eine
-temporäre Datei, überträgt die fertige Datei als Stream nach S3 und entfernt sie
-anschließend. Fortschritt, Anzahl und geschätzte Restzeit werden nach jedem Batch
-aktualisiert. Vorschauen verwenden den separaten kompakten Index. Ältere logische
-Backups ohne Index bleiben lesbar und werden für die Vorschau dateibasiert
-analysiert.
+Das logische Backupformat Version 2 verarbeitet Datenbankzeilen in
+Keyset-Batches zu je 25 Workouts und bildet daraus S3-Chunks mit jeweils maximal
+100 Workouts. Der Worker hält dadurch weder den vollständigen nativen Export
+noch alle erzeugten FIT-Dateien im RAM. Er schreibt jeden Chunk fortlaufend in
+eine temporäre Datei, überträgt ihn als Stream nach S3 und entfernt ihn danach.
+Fortschritt, Anzahl und geschätzte Restzeit werden laufend aktualisiert.
 
-Auch der Workout-Restore lädt das S3-Artefakt zunächst in eine temporäre Datei
-und importiert anschließend in 25er-Batches. Der Safe Merge bleibt erhalten;
-bereits erfolgreich importierte Batches werden bei einem späteren Fehler nicht
-zurückgerollt und bei einem erneuten Lauf als Duplikate erkannt.
+Der kompakte Index enthält neben Besitzer, Startzeit und Fingerprint auch
+Workout-ID und Chunk-Zuordnung. Vor einem Restore wird damit erneut die konkrete
+Menge fehlender Workouts bestimmt. Nur betroffene Chunks werden aus S3 geladen
+und innerhalb eines Chunks werden nur fehlende Workouts dekodiert. Bereits
+erfolgreich importierte Batches werden bei einem späteren Fehler nicht
+zurückgerollt und bei einem erneuten Lauf als Duplikate erkannt. Frühere
+monolithische logische Backups sind mit Version 2 bewusst nicht kompatibel.
 
 Ein Restore ist standardmäßig ein Safe Merge und löscht keine Daten. Komponenten
 sind einzeln auswählbar. Die Reihenfolge ist Konten, Segmente, Workouts. Vor dem
