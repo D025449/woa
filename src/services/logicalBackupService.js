@@ -182,22 +182,32 @@ function groupBy(rows, key) {
   return result;
 }
 
-async function workoutFromStored(stream, codec) {
+async function workoutFromStored(stream, codec, profile = null) {
   const normalizedCodec = String(codec || "gzip").toLowerCase();
+  let startedAt = performance.now();
   const raw = normalizedCodec === "identity" ? stream : await Workout.decompress(stream, normalizedCodec);
-  return Workout.fromBuffer(raw);
+  if (profile) profile.decompressWorkoutMs += performance.now() - startedAt;
+  startedAt = performance.now();
+  const workout = Workout.fromBuffer(raw);
+  if (profile) profile.parseWorkoutMs += performance.now() - startedAt;
+  return workout;
 }
 
-async function buildFit(workoutRow, metadata, segments) {
-  const workout = await workoutFromStored(workoutRow.stream, metadata.stream_codec);
+async function buildFit(workoutRow, metadata, segments, profile = null) {
+  const workout = await workoutFromStored(workoutRow.stream, metadata.stream_codec, profile);
+  let startedAt = performance.now();
   const gps = workoutRow.gps_track_blob
     ? await GpsTrackBlobCodec.decodeCompressed(workoutRow.gps_track_blob, {
       codec: metadata.gps_track_blob_codec || "identity",
       includeGeoJson: false
     })
     : null;
+  if (profile) profile.decodeGpsTrackMs += performance.now() - startedAt;
+  startedAt = performance.now();
+  const gpsCoordinates = gps?.track?.map((point) => [point.lat, point.lng]) || [];
+  if (profile) profile.mapGpsTrackMs += performance.now() - startedAt;
   return FitExportService.buildFitFromWorkout(workout, {
-    gpsCoordinates: gps?.track?.map((point) => [point.lat, point.lng]) || [],
+    gpsCoordinates,
     sampleRateGps: Number(metadata.samplerategps || gps?.sampleRateGps || 1),
     includeGps: Boolean(metadata.validgps && gps?.validGps),
     gpsSource: metadata.gps_source,
@@ -205,7 +215,8 @@ async function buildFit(workoutRow, metadata, segments) {
     normalizedPower: metadata.avg_normalized_power,
     totalCalories: metadata.total_calories,
     workoutType: metadata.workout_type,
-    segments
+    segments,
+    profile
   });
 }
 
@@ -224,6 +235,20 @@ async function exportWorkoutFiles({ mode, tempDirectory, s3, config, root, progr
   let peakRssBytes = process.memoryUsage().rss;
   let chunkUploadMs = 0;
   let activeChunk = null;
+  const fitProfile = {
+    decompressWorkoutMs: 0,
+    parseWorkoutMs: 0,
+    decodeGpsTrackMs: 0,
+    mapGpsTrackMs: 0,
+    normalizeRecordsMs: 0,
+    analyzeRecordsMs: 0,
+    writeMetadataMs: 0,
+    writeRecordsMs: 0,
+    writeSummariesMs: 0,
+    finalizeMs: 0,
+    totalMs: 0,
+    recordCount: 0
+  };
 
   const startChunk = (index) => ({
     index,
@@ -379,7 +404,7 @@ async function exportWorkoutFiles({ mode, tempDirectory, s3, config, root, progr
           if (workout.gps_track_blob) await activeChunk.nativeWriter.add(`${base}.gps`, workout.gps_track_blob);
         }
         if (activeChunk.fitWriter) {
-          const fit = await buildFit(workout, metadata, workoutSegments);
+          const fit = await buildFit(workout, metadata, workoutSegments, fitProfile);
           await activeChunk.fitWriter.add(`${base}.fit`, fit);
           await activeChunk.fitWriter.add(`${base}.json`, strToU8(JSON.stringify(metadata)));
         }
@@ -415,7 +440,7 @@ async function exportWorkoutFiles({ mode, tempDirectory, s3, config, root, progr
       previewIndex,
       nativeCollection: includeNative ? buildLogicalWorkoutChunkCollection(nativeChunks) : null,
       fitCollection: includeFit ? buildLogicalWorkoutChunkCollection(fitChunks) : null,
-      profile: { elapsedMs: Date.now() - startedAt, peakRssBytes, chunkUploadMs }
+      profile: { elapsedMs: Date.now() - startedAt, peakRssBytes, chunkUploadMs, fit: fitProfile }
     };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
@@ -660,7 +685,8 @@ export default class LogicalBackupService {
         nativeBytes: workoutResult.nativeCollection?.chunks.reduce((sum, chunk) => sum + chunk.sizeBytes, 0) || 0,
         fitBytes: workoutResult.fitCollection?.chunks.reduce((sum, chunk) => sum + chunk.sizeBytes, 0) || 0,
         nativeChunks: workoutResult.nativeCollection?.chunks.length || 0,
-        fitChunks: workoutResult.fitCollection?.chunks.length || 0
+        fitChunks: workoutResult.fitCollection?.chunks.length || 0,
+        fitProfile: workoutResult.profile.fit
       });
       await report(progress, 100, "completed", { processed: workoutResult.workoutCount, total: workoutResult.workoutCount, etaMs: 0 });
       return { ...manifest, rootKey: root };

@@ -1,6 +1,15 @@
 const FIT_EPOCH_MS = Date.UTC(1989, 11, 31, 0, 0, 0);
 const TEXT_ENCODER = new TextEncoder();
 
+function monotonicNow() {
+  return globalThis.performance?.now?.() ?? Date.now();
+}
+
+function addProfileValue(profile, key, value) {
+  if (!profile) return;
+  profile[key] = (Number(profile[key]) || 0) + value;
+}
+
 class FitBytes extends Uint8Array {
   static alloc(size, fill = 0) {
     const bytes = new FitBytes(size);
@@ -87,6 +96,18 @@ const FIT_BASE_TYPES = {
   uint16z: 0x8b,
   uint32z: 0x8c,
   sint32: 0x85
+};
+
+const FIT_RECORD_SERIES = {
+  gps: 1 << 0,
+  altitude: 1 << 1,
+  heartRate: 1 << 2,
+  cadence: 1 << 3,
+  distance: 1 << 4,
+  speed: 1 << 5,
+  power: 1 << 6,
+  temperature: 1 << 7,
+  leftRightBalance: 1 << 8
 };
 
 function fitTimestampFromMs(ms) {
@@ -394,6 +415,43 @@ class FitMessageBuilder {
     }
   }
 
+  writeRecordMessage(localId, seriesMask, record) {
+    this.writer.writeUInt8(localId & 0x0f);
+    if ((seriesMask & FIT_RECORD_SERIES.gps) !== 0) {
+      this.writer.writeInt32LE(Number.isFinite(record.lat) ? toSemicircles(record.lat) : 0x7fffffff);
+      this.writer.writeInt32LE(Number.isFinite(record.lon) ? toSemicircles(record.lon) : 0x7fffffff);
+    }
+    if ((seriesMask & FIT_RECORD_SERIES.altitude) !== 0) {
+      this.writer.writeUInt16LE(Number.isFinite(record.altitudeM) ? fitAltitudeValue(record.altitudeM) : 0xffff);
+    }
+    if ((seriesMask & FIT_RECORD_SERIES.heartRate) !== 0) {
+      this.writer.writeUInt8(Number.isFinite(record.heartRate) ? clamp(Math.round(record.heartRate), 0, 0xfe) : 0xff);
+    }
+    if ((seriesMask & FIT_RECORD_SERIES.cadence) !== 0) {
+      this.writer.writeUInt8(Number.isFinite(record.cadence) ? clamp(Math.round(record.cadence), 0, 0xfe) : 0xff);
+    }
+    if ((seriesMask & FIT_RECORD_SERIES.distance) !== 0) {
+      this.writer.writeUInt32LE(Number.isFinite(record.distanceM) ? fitDistanceValue(record.distanceM) : 0xffffffff);
+    }
+    if ((seriesMask & FIT_RECORD_SERIES.speed) !== 0) {
+      this.writer.writeUInt16LE(Number.isFinite(record.speedMps) ? fitSpeedValue(record.speedMps) : 0xffff);
+    }
+    if ((seriesMask & FIT_RECORD_SERIES.power) !== 0) {
+      this.writer.writeUInt16LE(Number.isFinite(record.power) ? clamp(Math.round(record.power), 0, 0xfffe) : 0xffff);
+    }
+    if ((seriesMask & FIT_RECORD_SERIES.temperature) !== 0) {
+      this.writer.writeInt8(Number.isFinite(record.temperatureC)
+        ? clamp(Math.round(record.temperatureC), -128, 126)
+        : 0x7f);
+    }
+    if ((seriesMask & FIT_RECORD_SERIES.leftRightBalance) !== 0) {
+      this.writer.writeUInt8(Number.isFinite(record.leftRightBalancePct)
+        ? (0x80 | clamp(Math.round(record.leftRightBalancePct), 0, 100))
+        : 0xff);
+    }
+    this.writer.writeUInt32LE(fitTimestampFromMs(record.timestampMs));
+  }
+
   toFitFile() {
     const dataLength = this.writer.length - 14;
     this.writer.setUInt8(0, 14);
@@ -635,11 +693,17 @@ export default class FitExportService {
     }
 
     const serialNumber = Number(options.serialNumber || 1);
+    const profile = options.profile && typeof options.profile === "object" ? options.profile : null;
+    const totalStartedAt = monotonicNow();
+    let phaseStartedAt = totalStartedAt;
     const records = normalizeRecords(workout, {
       gpsCoordinates: options.gpsCoordinates,
       sampleRateGps: options.sampleRateGps,
       includeGps: options.includeGps
     });
+    addProfileValue(profile, "normalizeRecordsMs", monotonicNow() - phaseStartedAt);
+    addProfileValue(profile, "recordCount", records.length);
+    phaseStartedAt = monotonicNow();
     const firstTs = fitTimestampFromMs(records[0].timestampMs);
     const lastTs = fitTimestampFromMs(records[records.length - 1].timestampMs);
     const totalSeconds = Math.max(0, records.length - 1);
@@ -721,6 +785,15 @@ export default class FitExportService {
       ] : []),
       { num: 253, size: 4, type: FIT_BASE_TYPES.uint32 }  // timestamp
     ];
+    const recordSeriesMask = (hasGpsSeries ? FIT_RECORD_SERIES.gps : 0)
+      | (hasAltitudeSeries ? FIT_RECORD_SERIES.altitude : 0)
+      | (hasHeartRateSeries ? FIT_RECORD_SERIES.heartRate : 0)
+      | (hasCadenceSeries ? FIT_RECORD_SERIES.cadence : 0)
+      | (hasDistanceSeries ? FIT_RECORD_SERIES.distance : 0)
+      | (hasSpeedSeries ? FIT_RECORD_SERIES.speed : 0)
+      | (hasPowerSeries ? FIT_RECORD_SERIES.power : 0)
+      | (hasTemperatureSeries ? FIT_RECORD_SERIES.temperature : 0)
+      | (hasLeftRightBalanceSeries ? FIT_RECORD_SERIES.leftRightBalance : 0);
 
     const DEVICE_INFO_FIELDS = [
       { num: 0, size: 1, type: FIT_BASE_TYPES.uint8 },    // device_index
@@ -853,6 +926,8 @@ export default class FitExportService {
           }
         ]
       : [];
+    addProfileValue(profile, "analyzeRecordsMs", monotonicNow() - phaseStartedAt);
+    phaseStartedAt = monotonicNow();
 
     msg.ensureDefinition(0, 0, FILE_ID_FIELDS);
     msg.writeDataMessage(0, FILE_ID_FIELDS, {
@@ -911,25 +986,13 @@ export default class FitExportService {
     }
 
     msg.ensureDefinition(1, 20, RECORD_FIELDS);
+    addProfileValue(profile, "writeMetadataMs", monotonicNow() - phaseStartedAt);
+    phaseStartedAt = monotonicNow();
     for (const record of records) {
-      msg.writeDataMessage(1, RECORD_FIELDS, {
-        0: Number.isFinite(record.lat) ? toSemicircles(record.lat) : null,
-        1: Number.isFinite(record.lon) ? toSemicircles(record.lon) : null,
-        2: Number.isFinite(record.altitudeM) ? fitAltitudeValue(record.altitudeM) : null,
-        3: Number.isFinite(record.heartRate) ? clamp(Math.round(record.heartRate), 0, 0xfe) : null,
-        4: Number.isFinite(record.cadence) ? clamp(Math.round(record.cadence), 0, 0xfe) : null,
-        5: Number.isFinite(record.distanceM) ? fitDistanceValue(record.distanceM) : null,
-        6: Number.isFinite(record.speedMps) ? fitSpeedValue(record.speedMps) : null,
-        7: Number.isFinite(record.power) ? clamp(Math.round(record.power), 0, 0xfffe) : null,
-        13: Number.isFinite(record.temperatureC)
-          ? clamp(Math.round(record.temperatureC), -128, 126)
-          : null,
-        30: Number.isFinite(record.leftRightBalancePct)
-          ? (0x80 | clamp(Math.round(record.leftRightBalancePct), 0, 100))
-          : null,
-        253: fitTimestampFromMs(record.timestampMs)
-      });
+      msg.writeRecordMessage(1, recordSeriesMask, record);
     }
+    addProfileValue(profile, "writeRecordsMs", monotonicNow() - phaseStartedAt);
+    phaseStartedAt = monotonicNow();
 
     msg.ensureDefinition(2, 19, LAP_FIELDS);
     for (let lapIndex = 0; lapIndex < manualLapSegments.length; lapIndex += 1) {
@@ -1018,7 +1081,12 @@ export default class FitExportService {
       253: lastTs
     });
 
-    return msg.toFitFile();
+    addProfileValue(profile, "writeSummariesMs", monotonicNow() - phaseStartedAt);
+    phaseStartedAt = monotonicNow();
+    const result = msg.toFitFile();
+    addProfileValue(profile, "finalizeMs", monotonicNow() - phaseStartedAt);
+    addProfileValue(profile, "totalMs", monotonicNow() - totalStartedAt);
+    return result;
   }
 }
 
