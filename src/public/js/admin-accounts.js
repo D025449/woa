@@ -1026,7 +1026,16 @@ async function runLogicalJob(path, body) {
       const payload = await databaseApi(`/admin/accounts/database/jobs/${encodeURIComponent(queued.jobId)}`);
       const job = payload.job;
       const percent = Number(job.progress?.percent ?? job.progress ?? 0) || 0;
-      setLogicalResult("info", `${job.progress?.phase || job.state} · ${percent}%`);
+      const processed = Number(job.progress?.processed);
+      const total = Number(job.progress?.total);
+      const etaMs = Number(job.progress?.etaMs);
+      const count = Number.isFinite(processed) && Number.isFinite(total) && total > 0
+        ? ` · ${processed} / ${total}`
+        : "";
+      const eta = Number.isFinite(etaMs) && etaMs > 0
+        ? ` · noch ca. ${etaMs >= 60_000 ? `${Math.ceil(etaMs / 60_000)} min` : `${Math.ceil(etaMs / 1000)} s`}`
+        : "";
+      setLogicalResult("info", `${job.progress?.phase || job.state} · ${percent}%${count}${eta}`);
       if (job.state === "failed") throw new Error(job.error || "Logische Backup-Operation fehlgeschlagen.");
       if (job.state === "completed") return job.result;
       await new Promise((resolve) => setTimeout(resolve, 1000));

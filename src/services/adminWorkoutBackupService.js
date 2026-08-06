@@ -15,7 +15,7 @@ const MAX_UNCOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024;
 const INSERT_BATCH_SIZE = 100;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 
-const WORKOUT_COLUMNS = [
+export const ADMIN_WORKOUT_COLUMNS = [
   "uploaded_at", "start_time", "end_time", "year", "month", "week", "year_quarter",
   "year_month", "year_week", "total_elapsed_time", "total_timer_time", "total_distance",
   "total_cycles", "total_work", "total_calories", "total_ascent", "total_descent",
@@ -27,7 +27,7 @@ const WORKOUT_COLUMNS = [
   "gps_bounds", "track_start_lat", "track_start_lng", "track_end_lat", "track_end_lng"
 ];
 
-const SEGMENT_COLUMNS = [
+export const ADMIN_WORKOUT_SEGMENT_COLUMNS = [
   "segmenttype", "segmentname", "start_offset", "end_offset", "duration", "avg_power",
   "avg_heart_rate", "avg_cadence", "avg_speed", "altimeters", "position", "created_at"
 ];
@@ -63,13 +63,13 @@ function serializeValue(value) {
   return value;
 }
 
-function serializeWorkout(row, ownerKey, segments, favoriteOwnerKeys) {
+export function serializeAdminWorkout(row, ownerKey, segments, favoriteOwnerKeys) {
   const metadata = { ownerKey, sourceId: String(row.id) };
-  for (const column of WORKOUT_COLUMNS) {
+  for (const column of ADMIN_WORKOUT_COLUMNS) {
     metadata[column] = serializeValue(row[column]);
   }
   metadata.segments = segments.map((segment) => Object.fromEntries(
-    SEGMENT_COLUMNS.map((column) => [column, serializeValue(segment[column])])
+    ADMIN_WORKOUT_SEGMENT_COLUMNS.map((column) => [column, serializeValue(segment[column])])
   ));
   metadata.favoriteOwnerKeys = favoriteOwnerKeys;
   return metadata;
@@ -138,7 +138,7 @@ export function buildAdminWorkoutBackup({ workouts = [], segments = [], favorite
     favoriteCount += favoriteOwnerKeys.length;
     const base = `workouts/${owner.key}/W-${sourceId}`;
     entries[`${base}.json`] = strToU8(JSON.stringify(
-      serializeWorkout(workout, owner.key, workoutSegments, favoriteOwnerKeys)
+      serializeAdminWorkout(workout, owner.key, workoutSegments, favoriteOwnerKeys)
     ));
     entries[`${base}.stream`] = new Uint8Array(workout.stream || []);
     if (workout.gps_track_blob) {
@@ -425,7 +425,7 @@ async function prepareBackup(buffer, queryable) {
 
 function workoutInsertValues(workout, uid) {
   const metadata = workout.metadata;
-  return [uid, ...WORKOUT_COLUMNS.map((column) => {
+  return [uid, ...ADMIN_WORKOUT_COLUMNS.map((column) => {
     if (column === "fit_device_metadata" || column === "manual_gps_lookup_points") {
       return metadata[column] == null ? null : JSON.stringify(jsonValue(metadata[column]));
     }
@@ -434,7 +434,7 @@ function workoutInsertValues(workout, uid) {
 }
 
 async function insertWorkout(queryable, workout, uid) {
-  const columns = ["uid", ...WORKOUT_COLUMNS, "stream", "gps_track_blob"];
+  const columns = ["uid", ...ADMIN_WORKOUT_COLUMNS, "stream", "gps_track_blob"];
   const values = workoutInsertValues(workout, uid);
   const placeholders = values.map((_, index) => `$${index + 1}`);
   const result = await queryable.query(
@@ -447,10 +447,10 @@ async function insertWorkout(queryable, workout, uid) {
 async function insertSegments(queryable, workoutId, uid, segments) {
   for (const segment of segments) {
     await queryable.query(`
-      INSERT INTO workout_segments (${["wid", "uid", ...SEGMENT_COLUMNS].join(", ")})
-      VALUES (${Array.from({ length: SEGMENT_COLUMNS.length + 2 }, (_, i) => `$${i + 1}`).join(", ")})
+      INSERT INTO workout_segments (${["wid", "uid", ...ADMIN_WORKOUT_SEGMENT_COLUMNS].join(", ")})
+      VALUES (${Array.from({ length: ADMIN_WORKOUT_SEGMENT_COLUMNS.length + 2 }, (_, i) => `$${i + 1}`).join(", ")})
       ON CONFLICT (wid, segmenttype, start_offset, duration) DO NOTHING
-    `, [workoutId, uid, ...SEGMENT_COLUMNS.map((column) => segment[column] ?? null)]);
+    `, [workoutId, uid, ...ADMIN_WORKOUT_SEGMENT_COLUMNS.map((column) => segment[column] ?? null)]);
   }
 }
 

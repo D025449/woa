@@ -92,7 +92,11 @@ async function executeDatabaseSwitch(job, operation) {
 const worker = new Worker(
   POSTGRES_BACKUP_OPS_QUEUE,
   async (job) => {
-    const logicalProgress = async (percent, phase) => job.updateProgress({ percent, phase });
+    const logicalProgress = async (percent, phase, details = {}) => job.updateProgress({
+      percent,
+      phase,
+      ...details
+    });
     if (job.name === "logical-create") {
       return LogicalBackupService.create({
         mode: job.data?.mode,

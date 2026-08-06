@@ -64,6 +64,7 @@ PostgreSQL-Dump getrennt:
 backups/logical/<environment>/<logical-database>/YYYY/MM/DD/<timestamp>-<uuid>/
   accounts.json
   segments.zip
+  workout-index.json     # kleine Vorschau ohne Laden der Workout-Archive
   workouts-native.zip   # bei native oder both
   workouts-fit.zip      # bei fit oder both
   manifest.json
@@ -74,6 +75,20 @@ SHA-256-Prüfsumme, die vor Vorschau und Restore erneut geprüft werden. Native
 Workouts übernehmen die gespeicherten Streams verlustfrei. FIT-Workouts werden
 beim Backup als echte FIT-Dateien erzeugt und beim Restore mit dem aktuellen
 Compact-FIT-Parser und WOA-Encoder neu aufgebaut.
+
+Workout-Archive ab Version 2 werden in Keyset-Batches zu je 25 Workouts
+verarbeitet. Der Worker hält dadurch weder den vollständigen nativen Export noch
+alle erzeugten FIT-Dateien im RAM. Er schreibt ZIP-Einträge fortlaufend in eine
+temporäre Datei, überträgt die fertige Datei als Stream nach S3 und entfernt sie
+anschließend. Fortschritt, Anzahl und geschätzte Restzeit werden nach jedem Batch
+aktualisiert. Vorschauen verwenden den separaten kompakten Index. Ältere logische
+Backups ohne Index bleiben lesbar und werden für die Vorschau dateibasiert
+analysiert.
+
+Auch der Workout-Restore lädt das S3-Artefakt zunächst in eine temporäre Datei
+und importiert anschließend in 25er-Batches. Der Safe Merge bleibt erhalten;
+bereits erfolgreich importierte Batches werden bei einem späteren Fehler nicht
+zurückgerollt und bei einem erneuten Lauf als Duplikate erkannt.
 
 Ein Restore ist standardmäßig ein Safe Merge und löscht keine Daten. Komponenten
 sind einzeln auswählbar. Die Reihenfolge ist Konten, Segmente, Workouts. Vor dem
