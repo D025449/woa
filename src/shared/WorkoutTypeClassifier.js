@@ -30,6 +30,7 @@ export function classifyWorkoutType({
   totalTimerTime = 0,
   totalAscent = 0,
   avgSpeed = 0,
+  maxSpeed = 0,
   avgPower = 0,
   avgCadence = 0,
   gpsPathDistance = null,
@@ -46,6 +47,7 @@ export function classifyWorkoutType({
   const durationSeconds = Math.max(0, finiteNumber(totalTimerTime));
   const ascentMeters = Math.max(0, finiteNumber(totalAscent));
   const speedKmh = Math.max(0, finiteNumber(avgSpeed));
+  const maxSpeedKmh = Math.max(0, finiteNumber(maxSpeed));
   const distanceKm = distanceMeters / 1000;
   const ascentPerKm = distanceKm > 0 ? ascentMeters / distanceKm : 0;
   const hasTrainingSignal = distanceMeters >= 1000
@@ -78,6 +80,20 @@ export function classifyWorkoutType({
 
   if (validGps) {
     const spanMeters = gpsSpanMeters(bounds);
+    const hasCyclingDrivetrainSignal = finiteNumber(avgPower) > 0
+      || finiteNumber(avgCadence) > 0;
+    const compactCircuitRatio = spanMeters > 0 ? distanceMeters / spanMeters : 0;
+    if (
+      distanceMeters >= 5_000
+      && speedKmh >= 45
+      && maxSpeedKmh >= 100
+      && spanMeters >= 250
+      && spanMeters <= 1_500
+      && compactCircuitRatio >= 10
+      && !hasCyclingDrivetrainSignal
+    ) {
+      return "motorsport";
+    }
     if (distanceMeters <= INDOOR_MAX_DISTANCE_METERS && spanMeters <= 250) return "indoor";
     const measuredGpsPathMeters = Math.max(0, finiteNumber(gpsPathDistance));
     if (
@@ -119,6 +135,9 @@ export function classifyWorkoutType({
 export function classifyFitWorkoutType({ sport = null, subSport = null } = {}) {
   const normalizedSport = typeof sport === "string" ? sport.toLowerCase() : Number(sport);
   const normalizedSubSport = typeof subSport === "string" ? subSport.toLowerCase() : Number(subSport);
+  if (normalizedSport === 22 || normalizedSport === "motorcycling" || normalizedSport === "motorsport") {
+    return "motorsport";
+  }
   const isCycling = sport == null || normalizedSport === 2 || normalizedSport === "cycling";
   if (!isCycling) return "unknown";
 
@@ -130,6 +149,9 @@ export function classifyFitWorkoutType({ sport = null, subSport = null } = {}) {
 
 export function classifyWorkoutTypeWithFitFallback(input = {}) {
   const fitType = classifyFitWorkoutType(input);
+  if (fitType === "motorsport") {
+    return "motorsport";
+  }
   if (fitType === "indoor" && input.validGps !== true) {
     return "indoor";
   }

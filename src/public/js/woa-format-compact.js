@@ -2491,6 +2491,7 @@ function derivePersistedRowFromCompact(parsedCompact, gpsTrack, sourceName = "")
     totalTimerTime: persistedRow.total_timer_time,
     totalAscent: persistedRow.total_ascent,
     avgSpeed: persistedRow.avg_speed,
+    maxSpeed: persistedRow.max_speed,
     avgPower: persistedRow.avg_power,
     avgCadence: persistedRow.avg_cadence,
     gpsPathDistance,

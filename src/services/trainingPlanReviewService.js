@@ -268,6 +268,7 @@ export default class TrainingPlanReviewService {
         avg_normalized_power
       FROM workouts
       WHERE uid = $1
+        AND workout_type <> 'motorsport'
       ORDER BY start_time ASC
     `, [userId]);
     const workouts = workoutsResult.rows;

@@ -59,3 +59,44 @@ test("replaces GBE1 matches with one bulk insert", async () => {
   assert.equal(queryLog[0], "BEGIN");
   assert.equal(queryLog.at(-1), "COMMIT");
 });
+
+test("discards GPS best efforts for motorsport workouts", async () => {
+  const queryLog = [];
+  const client = {
+    async query(sql, params = []) {
+      const normalizedSql = String(sql).trim();
+      queryLog.push(normalizedSql);
+      if (normalizedSql.startsWith("SELECT id, start_time")) {
+        return {
+          rows: [{
+            id: 10,
+            start_time: params[1][0],
+            workout_type: "motorsport"
+          }]
+        };
+      }
+      if (normalizedSql.startsWith("DELETE FROM gps_segment_best_efforts")) return { rowCount: 0, rows: [] };
+      return { rowCount: 0, rows: [] };
+    },
+    release() {}
+  };
+
+  const result = await persistBrowserGpsBestEfforts({
+    uid: 49,
+    decoded: {
+      workoutCount: 1,
+      matchCount: 1,
+      workouts: [{
+        startTimeSec: 1_700_000_000,
+        matches: [{ segmentId: 42, startOffset: 100, endOffset: 140, avgPower: 0, avgHeartRate: 150, avgCadence: 0, avgSpeed: 120 }]
+      }]
+    },
+    pool: { connect: async () => client }
+  });
+
+  assert.equal(result.workoutCount, 0);
+  assert.equal(result.matchCount, 0);
+  assert.equal(result.insertedMatchCount, 0);
+  assert.equal(queryLog.some((sql) => sql.includes("FROM gps_segments")), false);
+  assert.equal(queryLog.some((sql) => sql.startsWith("INSERT INTO gps_segment_best_efforts")), false);
+});

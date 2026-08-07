@@ -365,6 +365,7 @@ export default class WorkoutDBService {
           w.id = $1
           AND w.uid = $2
           AND w.validgps = true
+          AND w.workout_type <> 'motorsport'
           AND w.gps_bounds IS NOT NULL
           AND w.track_start_lat IS NOT NULL
           AND w.track_start_lng IS NOT NULL
@@ -404,6 +405,7 @@ export default class WorkoutDBService {
             AND existing.workout_id_b = GREATEST(s.id, w.id)
         )` : ""}
         AND w.validgps = true
+        AND w.workout_type <> 'motorsport'
         AND w.gps_bounds IS NOT NULL
         AND w.track_start_lat IS NOT NULL
         AND w.track_start_lng IS NOT NULL
@@ -505,6 +507,7 @@ export default class WorkoutDBService {
           JOIN requested_sources ON requested_sources.id = w.id
           WHERE w.uid = $2
             AND w.validgps = true
+            AND w.workout_type <> 'motorsport'
             AND w.gps_bounds IS NOT NULL
             AND w.track_start_lat IS NOT NULL
             AND w.track_start_lng IS NOT NULL
@@ -533,6 +536,7 @@ export default class WorkoutDBService {
           ON w.uid = s.uid
           AND w.id <> s.id
           AND w.validgps = true
+          AND w.workout_type <> 'motorsport'
           AND w.gps_bounds IS NOT NULL
           AND w.track_start_lat IS NOT NULL
           AND w.track_start_lng IS NOT NULL

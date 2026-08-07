@@ -459,6 +459,7 @@
     "workoutTypeIndoor": "Intérieur",
     "workoutTypeRoad": "Route",
     "workoutTypeMountain": "VTT",
+    "workoutTypeMotorsport": "Sport automobile",
     "workoutTypeUnknown": "Indéterminé",
     "gpsFilterLabel": "Filtrer les données GPS",
     "gpsFilterAll": "Tous les statuts GPS",

@@ -463,6 +463,7 @@ export default class SegmentDBService {
         WHERE uid = $1
           AND id = ANY($2::bigint[])
           AND validgps = true
+          AND workout_type <> 'motorsport'
           AND gps_bounds IS NOT NULL
       )
       SELECT
@@ -1875,6 +1876,7 @@ export default class SegmentDBService {
       FROM workouts
       WHERE id = $1
         AND uid = $2
+        AND workout_type <> 'motorsport'
       LIMIT 1
     `, [workoutId, uid]);
     profile.loadWorkoutTrackMs += Date.now() - loadWorkoutTrackStartedAt;

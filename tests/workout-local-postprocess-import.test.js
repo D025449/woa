@@ -104,3 +104,45 @@ test("persists WPP1 workouts in one transaction and configured batches", async (
   assert.equal(queryLog[0], "BEGIN");
   assert.equal(queryLog.at(-1), "COMMIT");
 });
+
+test("discards workout-local segments for motorsport workouts", async () => {
+  const queryLog = [];
+  const startTimeSec = 1_700_000_000;
+  const client = {
+    async query(sql, params = []) {
+      const normalizedSql = String(sql).trim();
+      queryLog.push(normalizedSql);
+      if (normalizedSql.startsWith("SELECT id, start_time")) {
+        return {
+          rows: [{
+            id: 7,
+            start_time: params[1][0],
+            workout_type: "motorsport"
+          }]
+        };
+      }
+      if (normalizedSql.startsWith("DELETE FROM workout_segments")) return { rowCount: 0, rows: [] };
+      return { rowCount: 0, rows: [] };
+    },
+    release() {}
+  };
+
+  const result = await persistWorkoutLocalPostprocess({
+    uid: 49,
+    decoded: {
+      workoutCount: 1,
+      segmentCount: 1,
+      workouts: [{
+        startTimeSec,
+        recordCount: 100,
+        segments: [{ type: 2, start: 1, end: 5, duration: 5, avgPower: 300, avgHeartRate: 150, avgCadence: 90, avgSpeed: 8, altimeters: 0 }]
+      }]
+    },
+    pool: { connect: async () => client }
+  });
+
+  assert.equal(result.workoutCount, 1);
+  assert.equal(result.segmentCount, 0);
+  assert.equal(result.insertedSegmentCount, 0);
+  assert.equal(queryLog.some((sql) => sql.startsWith("INSERT INTO workout_segments")), false);
+});

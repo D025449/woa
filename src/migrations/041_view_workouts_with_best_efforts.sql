@@ -55,5 +55,6 @@ SELECT
 FROM workouts f
 INNER JOIN workout_segments b
     ON b.wid = f.id
-where b.segmenttype = 'crit';
+WHERE b.segmenttype = 'crit'
+  AND f.workout_type <> 'motorsport';
 END;

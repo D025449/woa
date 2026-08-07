@@ -80,7 +80,7 @@ export default class WorkoutLibraryView {
     this.sortValue = handlers.initialSort ?? "newest";
     this.scopeValue = handlers.initialScope ?? "mine";
     this.favoriteFilterActive = !!handlers.initialFavoriteFilterActive;
-    this.workoutTypeValue = ["indoor", "road", "mountain", "unknown"].includes(handlers.initialWorkoutType)
+    this.workoutTypeValue = ["indoor", "road", "mountain", "motorsport", "unknown"].includes(handlers.initialWorkoutType)
       ? handlers.initialWorkoutType
       : "all";
     this.gpsFilterValue = ["valid", "invalid"].includes(handlers.initialGpsFilter)
@@ -134,7 +134,7 @@ export default class WorkoutLibraryView {
     this.sortValue = allowedSorts.includes(state.sort) ? state.sort : "newest";
     this.scopeValue = ["mine", "shared", "all"].includes(state.scope) ? state.scope : "mine";
     this.favoriteFilterActive = state.favoritesOnly === true;
-    this.workoutTypeValue = ["indoor", "road", "mountain", "unknown"].includes(state.workoutType)
+    this.workoutTypeValue = ["indoor", "road", "mountain", "motorsport", "unknown"].includes(state.workoutType)
       ? state.workoutType
       : "all";
     this.gpsFilterValue = ["valid", "invalid"].includes(state.gpsFilter)
@@ -469,7 +469,7 @@ export default class WorkoutLibraryView {
   buildFilters() {
     const search = (this.searchInput?.value || this.searchInputValue || "").trim();
     const filters = search ? [{ field: "__search", type: "like", value: search }] : [];
-    if (["indoor", "road", "mountain", "unknown"].includes(this.workoutTypeValue)) {
+    if (["indoor", "road", "mountain", "motorsport", "unknown"].includes(this.workoutTypeValue)) {
       filters.push({ field: "workout_type", type: "=", value: this.workoutTypeValue });
     }
     if (["valid", "invalid"].includes(this.gpsFilterValue)) {
@@ -623,7 +623,7 @@ export default class WorkoutLibraryView {
   }
 
   applyWorkoutTypeValue(value) {
-    this.workoutTypeValue = ["indoor", "road", "mountain", "unknown"].includes(value)
+    this.workoutTypeValue = ["indoor", "road", "mountain", "motorsport", "unknown"].includes(value)
       ? value
       : "all";
     if (this.workoutTypeFilter) {
@@ -640,6 +640,7 @@ export default class WorkoutLibraryView {
       indoor: this.pageT("workoutTypeIndoor"),
       road: this.pageT("workoutTypeRoad"),
       mountain: this.pageT("workoutTypeMountain"),
+      motorsport: this.pageT("workoutTypeMotorsport"),
       unknown: this.pageT("workoutTypeUnknown")
     };
     return labels[type] || labels.all;
@@ -1423,7 +1424,7 @@ export default class WorkoutLibraryView {
     const isFavorite = !!workout.is_favorite;
     const isSelectable = this.selectionMode && isOwned;
     const isSelectedForBulk = this.selectedWorkoutIds.has(workoutId);
-    const workoutType = ["indoor", "road", "mountain", "unknown"].includes(workout.workout_type)
+    const workoutType = ["indoor", "road", "mountain", "motorsport", "unknown"].includes(workout.workout_type)
       ? workout.workout_type
       : "unknown";
     const workoutTypeLabel = this.pageT(

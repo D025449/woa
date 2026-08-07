@@ -105,7 +105,7 @@ export async function persistWorkoutLocalPostprocess({
     await client.query("BEGIN");
     let stepStartedAt = performance.now();
     const workoutResult = await client.query(`
-      SELECT id, start_time
+      SELECT id, start_time, workout_type
       FROM workouts
       WHERE uid = $1
         AND start_time = ANY($2::timestamptz[])
@@ -126,7 +126,10 @@ export async function persistWorkoutLocalPostprocess({
 
     const workoutSegments = normalized.workouts.map((workout) => {
       const row = rowsByStartTimeSec.get(workout.startTimeSec);
-      return { workoutId: Number(row.id), segments: workout.segments };
+      return {
+        workoutId: Number(row.id),
+        segments: row.workout_type === "motorsport" ? [] : workout.segments
+      };
     });
     const workoutIds = workoutSegments.map((item) => item.workoutId);
 
@@ -170,7 +173,7 @@ export async function persistWorkoutLocalPostprocess({
     profile.transactionMs = performance.now() - transactionStartedAt;
     return {
       workoutCount: workoutSegments.length,
-      segmentCount: normalized.segmentCount,
+      segmentCount: workoutSegments.reduce((sum, workout) => sum + workout.segments.length, 0),
       deletedSegmentCount: Number(deleteResult.rowCount || 0),
       insertedSegmentCount,
       batchCount,

@@ -461,6 +461,7 @@
     "workoutTypeIndoor": "Interior",
     "workoutTypeRoad": "Carretera",
     "workoutTypeMountain": "Montaña",
+    "workoutTypeMotorsport": "Deportes de motor",
     "workoutTypeUnknown": "Sin clasificar",
     "gpsFilterLabel": "Filtrar datos GPS",
     "gpsFilterAll": "Todos los estados GPS",

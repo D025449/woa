@@ -193,6 +193,7 @@ async function importWoaEntryReaders({
   const allPostprocessTargets = [];
   const allSegmentPersistItems = [];
   const allSegmentBestEffortsItems = [];
+  const motorsportWorkoutIds = [];
 
   const enqueueInLargeBulks = async (items, bulkSize, enqueueFn) => {
     for (let index = 0; index < items.length; index += bulkSize) {
@@ -321,33 +322,41 @@ async function importWoaEntryReaders({
         });
       }
 
-      const segmentPersistItems = browserLocalPostprocess ? [] : resolvedChunkItems.map((item) => ({
-        uid: item.preparedInsert.fileRow.uid,
-        workoutId: item.workoutId,
-        entryName: item.entryName,
-        recomputeFromDb: true,
-        importJobId
-      }));
+      const segmentPersistItems = browserLocalPostprocess ? [] : resolvedChunkItems
+        .filter((item) => item.preparedInsert.fileRow.workout_type !== "motorsport")
+        .map((item) => ({
+          uid: item.preparedInsert.fileRow.uid,
+          workoutId: item.workoutId,
+          entryName: item.entryName,
+          recomputeFromDb: true,
+          importJobId
+        }));
       const validGpsItems = resolvedChunkItems
-        .filter((item) => item.validGps)
+        .filter((item) => item.validGps && item.preparedInsert.fileRow.workout_type !== "motorsport")
         .map((item) => ({
           uid: item.preparedInsert.fileRow.uid,
           workoutId: item.workoutId,
           importJobId
         }));
-      const chunkTargets = resolvedChunkItems.map((item) => ({
-        uid: item.preparedInsert.fileRow.uid,
-        workoutId: item.workoutId,
-        entryName: item.entryName,
-        validGps: !!item.validGps,
-        recomputeSegmentsFromDb: !browserLocalPostprocess,
-        hasSegments: false,
-        segmentPayloadPath: null,
-        skipSegmentBestEfforts: browserGpsSegmentBestEfforts,
-        skipSimilarity: true
-      }));
+      const chunkTargets = resolvedChunkItems.map((item) => {
+        const isMotorsport = item.preparedInsert.fileRow.workout_type === "motorsport";
+        return {
+          uid: item.preparedInsert.fileRow.uid,
+          workoutId: item.workoutId,
+          entryName: item.entryName,
+          validGps: !!item.validGps,
+          recomputeSegmentsFromDb: !browserLocalPostprocess && !isMotorsport,
+          hasSegments: false,
+          segmentPayloadPath: null,
+          skipSegmentBestEfforts: browserGpsSegmentBestEfforts || isMotorsport,
+          skipSimilarity: true
+        };
+      });
       allPostprocessTargets.push(...chunkTargets);
       allSegmentPersistItems.push(...segmentPersistItems);
+      motorsportWorkoutIds.push(...resolvedChunkItems
+        .filter((item) => item.preparedInsert.fileRow.workout_type === "motorsport")
+        .map((item) => item.workoutId));
       if (!browserGpsSegmentBestEfforts) {
         allSegmentBestEffortsItems.push(...validGpsItems);
       }
@@ -361,6 +370,19 @@ async function importWoaEntryReaders({
     }
   }
 
+  if (motorsportWorkoutIds.length > 0) {
+    await pool.query(`
+      UPDATE workouts
+      SET
+        segment_processing_status = 'completed',
+        segment_processing_error = NULL,
+        segment_processing_updated_at = NOW()
+      WHERE uid = $1
+        AND id = ANY($2::bigint[])
+        AND workout_type = 'motorsport'
+    `, [userId, motorsportWorkoutIds]);
+  }
+
   if (browserLocalPostprocess && inserted.length > 0) {
     await pool.query(`
       UPDATE workouts
@@ -370,6 +392,7 @@ async function importWoaEntryReaders({
         segment_processing_updated_at = NOW()
       WHERE uid = $1
         AND id = ANY($2::bigint[])
+        AND workout_type <> 'motorsport'
     `, [userId, inserted.map((item) => item.workoutId)]);
   }
 

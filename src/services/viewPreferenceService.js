@@ -13,7 +13,7 @@ const WORKOUT_LIBRARY_SORTS = new Set([
   "np"
 ]);
 const WORKOUT_LIBRARY_SCOPES = new Set(["mine", "shared", "all"]);
-const WORKOUT_TYPES = new Set(["all", "indoor", "road", "mountain", "unknown"]);
+const WORKOUT_TYPES = new Set(["all", "indoor", "road", "mountain", "motorsport", "unknown"]);
 const GPS_FILTERS = new Set(["all", "valid", "invalid"]);
 const CHART_X_AXIS_MODES = new Set(["time", "distance"]);
 const CHART_SMOOTHING_LEVELS = new Set([

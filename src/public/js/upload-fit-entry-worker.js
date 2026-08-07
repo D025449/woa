@@ -168,14 +168,16 @@ self.addEventListener("message", async (event) => {
     const buildStartedAt = nowMs();
     const { adjustedParsed, result } = await createWoaFromParsed(parsed, entryName, encodingOptions);
     const buildWoaMs = nowMs() - buildStartedAt;
+    const isMotorsport = result.meta?.persistedRow?.workout_type === "motorsport";
     let browserPostprocess = null;
     if (encodingOptions.browserPostprocessBenchmark) {
       const postprocessStartedAt = nowMs();
-      const criticalSegments = detectWorkoutLocalSegmentsCompact(adjustedParsed.compactRecords);
-      const lapResult = detectFitLapSegmentsCompact(
-        adjustedParsed.compactRecords,
-        adjustedParsed.laps
-      );
+      const criticalSegments = isMotorsport
+        ? []
+        : detectWorkoutLocalSegmentsCompact(adjustedParsed.compactRecords);
+      const lapResult = isMotorsport
+        ? { segments: [], stats: {} }
+        : detectFitLapSegmentsCompact(adjustedParsed.compactRecords, adjustedParsed.laps);
       browserPostprocess = {
         startTimeSec: Number(adjustedParsed.compactRecords?.baseTimestampSec || 0),
         recordCount: Number(adjustedParsed.compactRecords?.recordCount || 0),
@@ -185,7 +187,7 @@ self.addEventListener("message", async (event) => {
       };
     }
     let browserGpsSegmentBenchmark = null;
-    if (encodingOptions.browserPostprocessBenchmark && result.gpsTrack?.bbox) {
+    if (encodingOptions.browserPostprocessBenchmark && !isMotorsport && result.gpsTrack?.bbox) {
       const gpsSegmentStartedAt = nowMs();
       const benchmark = benchmarkGpsSegmentBestEfforts(
         result.gpsTrack,

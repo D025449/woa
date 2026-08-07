@@ -28,7 +28,9 @@ export default class TrainingContextService {
       )
     ]);
 
-    const workouts = Array.isArray(workoutsResult?.data) ? workoutsResult.data : [];
+    const workouts = Array.isArray(workoutsResult?.data)
+      ? workoutsResult.data.filter((workout) => workout?.workout_type !== "motorsport")
+      : [];
     const latestLoad = Array.isArray(ctlAtlSeries) && ctlAtlSeries.length > 0
       ? ctlAtlSeries[ctlAtlSeries.length - 1]
       : null;
@@ -74,7 +76,7 @@ export default class TrainingContextService {
             confidence: safeNumber(latestFtpPoint.confidence, 0)
           }
         : null,
-      workoutCount: safeNumber(workoutsResult?.total_records, workouts.length),
+      workoutCount: safeNumber(workoutsResult?.own_summary?.workout_count, workouts.length),
       recentVolume: {
         hours7d: round1(totalHours7d),
         hours28d: round1(totalHours28d),

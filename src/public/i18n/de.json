@@ -576,6 +576,7 @@
     "workoutTypeIndoor": "Indoor",
     "workoutTypeRoad": "Rennrad",
     "workoutTypeMountain": "Mountainbike",
+    "workoutTypeMotorsport": "Motorsport",
     "workoutTypeUnknown": "Unklar",
     "gpsFilterLabel": "GPS-Daten filtern",
     "gpsFilterAll": "Alle GPS-Status",

@@ -27,4 +27,5 @@ SELECT
 
 FROM gps_segment_best_efforts b
 INNER JOIN workouts f
-    ON f.id = b.wid;
+    ON f.id = b.wid
+WHERE f.workout_type <> 'motorsport';

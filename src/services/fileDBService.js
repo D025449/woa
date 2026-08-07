@@ -178,6 +178,7 @@ static async getMatchingWorkoutCandidatesForSegments(segmentIds, uid, options = 
     WHERE s.uid = $2
       AND s.id = ANY($1::bigint[])
       AND w.validgps = true
+      AND w.workout_type <> 'motorsport'
       AND w.gps_track_blob IS NOT NULL
       AND (
         $3::boolean = true
@@ -220,6 +221,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
         )
       )
       AND w.gps_bounds && $2::box
+      AND w.workout_type <> 'motorsport'
       AND NOT EXISTS (
         SELECT 1
         FROM gps_segment_best_efforts sbe
@@ -681,6 +683,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
         COALESCE(SUM(total_distance), 0)::double precision AS total_distance
       FROM workouts
       WHERE uid = $1
+        AND workout_type <> 'motorsport'
     `, [uid]);
     const summaryRow = summaryResult.rows[0] || {};
     const favoritesResult = await pool.query(`
@@ -720,6 +723,15 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
   static async post_calculations(userid, workouts, grouping) {
     const ftpSeries = await FileDBService.getFTPValues(userid, grouping);
     const enriched = workouts.map(w => {
+      if (w.workout_type === "motorsport") {
+        return {
+          ...w,
+          ftp: null,
+          IF: null,
+          TSS: 0
+        };
+      }
+
       const ftp = Math.round(FileDBService.interpolateFTP(ftpSeries, w.start_time, grouping));
       const IF = w.avg_normalized_power / ftp;
       const TSS =
@@ -835,7 +847,11 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
   static async getCTLATL(uid, period) {
     // 1. Alle Workouts laden
     const { rows } = await pool.query(
-      `SELECT * FROM workouts WHERE uid = $1 ORDER BY start_time`,
+      `SELECT *
+       FROM workouts
+       WHERE uid = $1
+         AND workout_type <> 'motorsport'
+       ORDER BY start_time`,
       [uid]
     );
 
@@ -919,6 +935,15 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     });
   }
   static computeWorkoutMetrics(w, ftpSeries, grouping) {
+    if (w?.workout_type === "motorsport") {
+      return {
+        ...w,
+        ftp: null,
+        IF: null,
+        tss: 0
+      };
+    }
+
     const ftp = FileDBService.interpolateFTP(
       ftpSeries,
       w.start_time,
@@ -1879,7 +1904,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       year_month: persistedRow.year_month,
       year_week: persistedRow.year_week,
       gps_source: persistedRow.gps_source || null,
-      workout_type: ["indoor", "road", "mountain", "unknown"].includes(persistedRow.workout_type)
+      workout_type: ["indoor", "road", "mountain", "motorsport", "unknown"].includes(persistedRow.workout_type)
         ? persistedRow.workout_type
         : "unknown",
       fit_device_metadata: persistedRow.fit_device_metadata || {

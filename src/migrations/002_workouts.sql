@@ -67,7 +67,7 @@ CREATE TABLE workouts (
     CONSTRAINT workouts_gps_source_check
         CHECK (gps_source IS NULL OR gps_source IN ('recorded', 'manual_lookup')),
     CONSTRAINT workouts_workout_type_check
-        CHECK (workout_type IN ('indoor', 'road', 'mountain', 'unknown')),
+        CHECK (workout_type IN ('indoor', 'road', 'mountain', 'motorsport', 'unknown')),
     CONSTRAINT workouts_fit_device_metadata_check
         CHECK (
             jsonb_typeof(fit_device_metadata) = 'object'

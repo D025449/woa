@@ -63,7 +63,7 @@ export async function persistBrowserGpsBestEfforts({ uid, decoded, pool }) {
     await client.query("BEGIN");
     let stepStartedAt = performance.now();
     const workoutResult = await client.query(`
-      SELECT id, start_time
+      SELECT id, start_time, workout_type
       FROM workouts
       WHERE uid = $1
         AND start_time = ANY($2::timestamptz[])
@@ -72,10 +72,14 @@ export async function persistBrowserGpsBestEfforts({ uid, decoded, pool }) {
     const rowsByStartTimeSec = new Map(workoutResult.rows.map((row) => [
       Math.round(new Date(row.start_time).getTime() / 1000), Number(row.id)
     ]));
+    const motorsportStartTimes = new Set(workoutResult.rows
+      .filter((row) => row.workout_type === "motorsport")
+      .map((row) => Math.round(new Date(row.start_time).getTime() / 1000)));
     const missing = normalized.workouts.filter((workout) => !rowsByStartTimeSec.has(workout.startTimeSec));
     if (missing.length) throw new BrowserGpsBestEffortsValidationError(`GBE1 references ${missing.length} unknown workouts`);
 
-    const segmentIds = [...new Set(normalized.workouts.flatMap((workout) => workout.matches.map((match) => match.segmentId)))];
+    const eligibleWorkouts = normalized.workouts.filter((workout) => !motorsportStartTimes.has(workout.startTimeSec));
+    const segmentIds = [...new Set(eligibleWorkouts.flatMap((workout) => workout.matches.map((match) => match.segmentId)))];
     stepStartedAt = performance.now();
     if (segmentIds.length) {
       const segmentResult = await client.query(`
@@ -90,7 +94,7 @@ export async function persistBrowserGpsBestEfforts({ uid, decoded, pool }) {
     }
     profile.validateSegmentsMs = performance.now() - stepStartedAt;
 
-    const workoutIds = normalized.workouts.map((workout) => rowsByStartTimeSec.get(workout.startTimeSec));
+    const workoutIds = eligibleWorkouts.map((workout) => rowsByStartTimeSec.get(workout.startTimeSec));
     stepStartedAt = performance.now();
     const deleteResult = await client.query(`
       DELETE FROM gps_segment_best_efforts AS effort
@@ -101,7 +105,7 @@ export async function persistBrowserGpsBestEfforts({ uid, decoded, pool }) {
     `, [uid, workoutIds]);
     profile.deleteMatchesMs = performance.now() - stepStartedAt;
 
-    const rows = normalized.workouts.flatMap((workout) => {
+    const rows = eligibleWorkouts.flatMap((workout) => {
       const workoutId = rowsByStartTimeSec.get(workout.startTimeSec);
       return workout.matches.map((match) => ({ workoutId, ...match }));
     });
@@ -136,8 +140,8 @@ export async function persistBrowserGpsBestEfforts({ uid, decoded, pool }) {
     await client.query("COMMIT");
     profile.transactionMs = performance.now() - transactionStartedAt;
     return {
-      workoutCount: normalized.workouts.length,
-      matchCount: normalized.matchCount,
+      workoutCount: eligibleWorkouts.length,
+      matchCount: rows.length,
       deletedMatchCount: Number(deleteResult.rowCount || 0),
       insertedMatchCount,
       statementCount: rows.length ? 4 : 3,

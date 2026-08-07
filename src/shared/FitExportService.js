@@ -177,6 +177,10 @@ function resolveCyclingSubSport(workoutType) {
   }
 }
 
+function resolveFitSport(workoutType) {
+  return String(workoutType || "").trim().toLowerCase() === "motorsport" ? 22 : 2;
+}
+
 function normalizeFitDeviceMetadata(value, fallbackSerialNumber, fallbackTimestamp) {
   const metadata = value && typeof value === "object" ? value : {};
   const sourceFileId = metadata.fileId && typeof metadata.fileId === "object" ? metadata.fileId : {};
@@ -732,6 +736,7 @@ export default class FitExportService {
     const hasLeftRightBalanceSeries = hasMeasuredLeftRightBalanceSeries(records);
     const normalizedPower = finiteOr(options.normalizedPower, workout.getNormalizedPower?.());
     const totalCalories = finiteOr(options.totalCalories);
+    const sport = resolveFitSport(options.workoutType);
     const subSport = resolveCyclingSubSport(options.workoutType);
     const avgSpeedFromDistance = totalSeconds > 0
       ? (summary.totalDistanceM / totalSeconds)
@@ -1018,7 +1023,7 @@ export default class FitExportService {
         33: null,
         23: 0, // active
         24: 0, // manual
-        25: 2, // cycling
+        25: sport,
         39: subSport,
         253: fitTimestampFromMs(records[segment.end].timestampMs)
       });
@@ -1043,7 +1048,7 @@ export default class FitExportService {
       33: Number.isFinite(normalizedPower) ? clamp(Math.round(normalizedPower), 0, 0xfffe) : null,
       23: 0, // active
       24: 7, // session_end
-      25: 2, // cycling
+      25: sport,
       39: subSport,
       253: lastTs
     });
@@ -1051,7 +1056,7 @@ export default class FitExportService {
     msg.ensureDefinition(3, 18, SESSION_FIELDS, SESSION_DEVELOPER_FIELDS);
     msg.writeDataMessage(3, SESSION_FIELDS, {
       2: firstTs,
-      5: 2, // cycling
+      5: sport,
       7: fitDurationValue(totalSeconds),
       8: fitDurationValue(totalSeconds),
       9: fitDistanceValue(summary.totalDistanceM),

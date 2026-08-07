@@ -947,6 +947,7 @@ export default class Controller {
       indoor: "workoutTypeIndoor",
       road: "workoutTypeRoad",
       mountain: "workoutTypeMountain",
+      motorsport: "workoutTypeMotorsport",
       unknown: "workoutTypeUnknown"
     }[workoutType] || "workoutTypeUnknown";
     return this.t(key);

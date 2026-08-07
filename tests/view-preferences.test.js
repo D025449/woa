@@ -67,6 +67,12 @@ test("rejects unsupported workout library preference values safely", () => {
   });
 });
 
+test("accepts motorsport as a persisted workout type filter", () => {
+  assert.equal(normalizeWorkoutLibraryState({
+    workoutType: "motorsport"
+  }).workoutType, "motorsport");
+});
+
 test("normalizes persisted segment visibility without accepting extra keys", () => {
   const state = normalizeWorkoutLibraryState({
     segmentVisibility: {

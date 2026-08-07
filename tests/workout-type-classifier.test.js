@@ -160,6 +160,36 @@ test("classifies a fast outdoor ride as road", () => {
   }), "road");
 });
 
+test("classifies a sensorless high-speed compact circuit as motorsport", () => {
+  assert.equal(classifyWorkoutType({
+    validGps: true,
+    bounds: { minLat: 48.31766, maxLat: 48.3202, minLng: 6.07748, maxLng: 6.08146 },
+    totalDistance: 13_319,
+    totalTimerTime: 861,
+    totalAscent: 23,
+    avgSpeed: 55.66,
+    maxSpeed: 132.28,
+    avgPower: 0,
+    avgHeartRate: 164,
+    avgCadence: 0
+  }), "motorsport");
+});
+
+test("does not classify a high-speed cycling workout with drivetrain sensor data as motorsport", () => {
+  assert.equal(classifyWorkoutType({
+    validGps: true,
+    bounds: { minLat: 48.31766, maxLat: 48.3202, minLng: 6.07748, maxLng: 6.08146 },
+    totalDistance: 13_319,
+    totalTimerTime: 861,
+    totalAscent: 23,
+    avgSpeed: 55.66,
+    maxSpeed: 132.28,
+    avgPower: 280,
+    avgHeartRate: 170,
+    avgCadence: 95
+  }), "road");
+});
+
 test("classifies a slow climb-heavy outdoor ride as mountain", () => {
   assert.equal(classifyWorkoutType({
     validGps: true,
@@ -325,4 +355,6 @@ test("maps only concrete cycling FIT sub-sports", () => {
   assert.equal(classifyFitWorkoutType({ sport: "cycling", subSport: "track_cycling" }), "road");
   assert.equal(classifyFitWorkoutType({ sport: 2, subSport: 47 }), "mountain");
   assert.equal(classifyFitWorkoutType({ sport: 1, subSport: 7 }), "unknown");
+  assert.equal(classifyFitWorkoutType({ sport: 22, subSport: 0 }), "motorsport");
+  assert.equal(classifyFitWorkoutType({ sport: "motorcycling" }), "motorsport");
 });
