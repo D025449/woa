@@ -289,12 +289,12 @@ export default class ChartView {
     this.previewMarkArea = null;
     this.focusedSegment = null;
     this.hoveredSegment = null;
+    this.tooltipHoveredSegment = null;
     this.activePointerId = null;
     this.resizeDrag = null;
     this.resizeSavePending = false;
     this.createButton = document.getElementById('draw-segment-toggle');
     this.createGpsButton = document.getElementById('draw-gps-segment-toggle');
-    this.deleteButton = document.getElementById('delete-segments');
     this.actionsMenu = document.querySelector(".dashboard-actions-menu");
     this.modeStatus = document.getElementById("dashboard-chart-mode-status");
     this.modeStatusText = document.getElementById("dashboard-chart-mode-status-text");
@@ -322,10 +322,6 @@ export default class ChartView {
 
       this.setMode(this.mode === "gps-create" ? "" : "gps-create");
     });
-    this.deleteButton?.addEventListener('click', () => {
-      this.setMode(this.mode === "delete" ? "" : "delete");
-    });
-
     this.initAxisModeToggle();
     this.initSegmentToggleControls();
     this.initSeriesToggleControls();
@@ -454,7 +450,6 @@ export default class ChartView {
     const slot = document.getElementById("dashboard-axis-toggle-slot");
     const toolbar = slot
       || this.createButton?.closest(".dashboard-toolbar")
-      || this.deleteButton?.closest(".dashboard-toolbar")
       || this.createGpsButton?.closest(".dashboard-toolbar")
       || null;
 
@@ -647,37 +642,17 @@ export default class ChartView {
   // INTERACTIONS
   // -----------------------------
   registerInteractions() {
-    this.chart.on("click", async (params) => {
+    this.chart.on("click", (params) => {
       if (params.componentType !== "markArea") return;
-
-      const seg = this.currentWorkout.segments.find(s => s.id === params.data.segmentId);
-      const isGpsSegment = !!seg?.isGPSSegment;
 
       if (this.mode === "create" || this.mode === "gps-create") {
         return;
       }
 
-      if (this.mode === "delete") {
-        if (!this.isWorkoutEditable()) {
-          return;
-        }
-
-        if (isGpsSegment) {
-          this.handlers.onToast?.(
-            `GPS segments cannot be deleted here. <a href="/segments?focusSegmentId=${encodeURIComponent(seg.sid)}" class="fw-semibold text-decoration-underline">Go to Segments page</a>`
-          );
-          return;
-        }
-
-        //seg.rowstate = 'DEL';
-        SegmentService.deleteSegment(this.currentWorkout, seg) 
-        this.handlers.onUpdateWorkout?.(this.currentWorkout);
-      } else {
-        this.handlers.onZoomSegment?.(
-          this.xValueToIndex(params.data.coord[0][0]),
-          this.xValueToIndex(params.data.coord[1][0])
-        );
-      }
+      this.handlers.onZoomSegment?.(
+        this.xValueToIndex(params.data.coord[0][0]),
+        this.xValueToIndex(params.data.coord[1][0])
+      );
     });
 
     this.chart.getZr().on("mousemove", (p) => {
@@ -860,8 +835,6 @@ export default class ChartView {
       ? this.t("createSegmentActive")
       : this.mode === "gps-create"
       ? this.t("createGpsSegmentActive")
-      : this.mode === "delete"
-      ? this.t("deleteSegmentActive")
       : "";
 
     this.modeStatusText.textContent = message;
@@ -913,26 +886,6 @@ export default class ChartView {
       this.createGpsButton.setAttribute(
         "aria-pressed",
         isGpsCreate ? "true" : "false"
-      );
-    }
-
-    if (this.deleteButton) {
-      const isDelete = this.mode === "delete";
-      this.deleteButton.classList.toggle("d-none", !isEditable);
-      this.deleteButton.disabled = !isEditable;
-      this.deleteButton.classList.toggle('btn-danger', isDelete);
-      this.deleteButton.classList.toggle('btn-outline-danger', !isDelete);
-      this.deleteButton.setAttribute(
-        "title",
-        !isEditable
-          ? "Shared workouts are read-only."
-          : isDelete
-          ? this.t("deleteSegmentActive")
-          : this.t("enableDeleteSegment")
-      );
-      this.deleteButton.setAttribute(
-        "aria-pressed",
-        isDelete ? "true" : "false"
       );
     }
 
@@ -1740,6 +1693,10 @@ export default class ChartView {
 
     this.segmentHoverTooltip.innerHTML = Utils.formatSegmentTooltip(segment);
     this.segmentHoverTooltip.style.opacity = "1";
+    if (this.tooltipHoveredSegment !== segment) {
+      this.tooltipHoveredSegment = segment;
+      this.handlers.onSegmentHoverChange?.(segment);
+    }
     this.positionSegmentHoverTooltip(nativeEvent);
   }
 
@@ -1775,6 +1732,11 @@ export default class ChartView {
 
   hideSegmentHoverTooltip() {
     this.isHoveringSegmentArea = false;
+
+    if (this.tooltipHoveredSegment) {
+      this.tooltipHoveredSegment = null;
+      this.handlers.onSegmentHoverChange?.(null);
+    }
 
     if (!this.segmentHoverTooltip) {
       return;

@@ -35,6 +35,18 @@ test("workout segment cards expose deletion only for owned persisted manual segm
   assert.match(source, /WorkoutService\.deleteManualSegment/u);
 });
 
+test("workout chart menu no longer exposes the legacy segment delete mode", async () => {
+  const [template, chartSource] = await Promise.all([
+    fs.readFile(new URL("../src/views/dashboard-new.ejs", import.meta.url), "utf8"),
+    fs.readFile(new URL("../src/public/js/chart-view.js", import.meta.url), "utf8")
+  ]);
+
+  assert.doesNotMatch(template, /id="delete-segments"/u);
+  assert.doesNotMatch(template, /btnDeleteSegment/u);
+  assert.doesNotMatch(chartSource, /this\.mode === "delete"/u);
+  assert.doesNotMatch(chartSource, /deleteSegmentActive|enableDeleteSegment/u);
+});
+
 test("manual workout segment client uses the dedicated DELETE endpoint", async () => {
   const source = await fs.readFile(
     new URL("../src/public/js/workout-service.js", import.meta.url),

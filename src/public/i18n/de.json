@@ -608,7 +608,6 @@
     "btnCreateSegment": "＋ Segmente erstellen/bearbeiten",
     "btnCreateGpsTitle": "GPS-Segment-Erstellung aktivieren.",
     "btnCreateGps": "🛰 GPS-Segment erstellen",
-    "btnDeleteSegment": "🗑 Segment löschen",
     "routeMapTitle": "Routenkarte",
     "manualGpsCreate": "GPS manuell erzeugen",
     "manualGpsEdit": "Manuellen GPS-Track bearbeiten",
@@ -720,8 +719,6 @@
     "segmentResizeSuccess": "Manuelles Segment wurde aktualisiert.",
     "segmentResizeFailed": "Manuelles Segment konnte nicht aktualisiert werden.",
     "createGpsSegmentActive": "GPS-Segment-Erstellmodus ist aktiv. Über das Chart ziehen, um ein GPS-Segment zu erstellen.",
-    "enableDeleteSegment": "Segment-Löschmodus aktivieren.",
-    "deleteSegmentActive": "Segment-Löschmodus ist aktiv. Auf ein vorhandenes Segment klicken, um es zu löschen.",
     "chart": {
       "workout": "Workout",
       "snapshot": "Momentaufnahme",

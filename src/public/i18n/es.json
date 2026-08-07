@@ -493,7 +493,6 @@
     "btnCreateSegment": "＋ Crear/editar segmentos",
     "btnCreateGpsTitle": "Activar modo crear segmento GPS.",
     "btnCreateGps": "🛰 Crear segmento GPS",
-    "btnDeleteSegment": "🗑 Eliminar segmento",
     "routeMapTitle": "Mapa de ruta",
     "map3dOpen": "3D",
     "gpsTrackMenu": "Track GPS",
@@ -583,8 +582,6 @@
     "segmentResizeSuccess": "El segmento manual se actualizó.",
     "segmentResizeFailed": "No se pudo actualizar el segmento manual.",
     "createGpsSegmentActive": "El modo Crear segmento GPS está activo. Arrastra sobre el gráfico para crear un segmento GPS.",
-    "enableDeleteSegment": "Activar modo eliminar segmento.",
-    "deleteSegmentActive": "El modo eliminar segmento está activo. Haz clic en un segmento existente para eliminarlo.",
     "chart": {
       "workout": "Entreno",
       "snapshot": "Instantánea",

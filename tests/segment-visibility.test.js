@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 
 import {
   SEGMENT_COLORS,
@@ -75,4 +76,45 @@ test("filters GPS chart areas before relying on segment ids", () => {
 
   assert.equal(areas.length, 1);
   assert.equal(areas[0][0].segmentId, 12);
+});
+
+test("focused map segments use a fixed high-contrast casing instead of their type color", async () => {
+  const source = await fs.readFile(
+    new URL("../src/public/js/map-view.js", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(source, /SEGMENT_FOCUS_COLOR = "#2563eb"/u);
+  assert.match(source, /segmentHighlightPane/u);
+  assert.match(source, /color: "#ffffff"[\s\S]*?weight: casingWeight/u);
+  assert.match(source, /focusSegmentOverlay\(segment/u);
+  assert.match(source, /const lineWeight = isHover \? 5 : 7/u);
+});
+
+test("chart and map segment hover mark the matching workout segment card", async () => {
+  const [chartSource, controllerSource, cssSource] = await Promise.all([
+    fs.readFile(new URL("../src/public/js/chart-view.js", import.meta.url), "utf8"),
+    fs.readFile(new URL("../src/public/js/dashboard-new-controller.js", import.meta.url), "utf8"),
+    fs.readFile(new URL("../src/public/css/dashboard-new.css", import.meta.url), "utf8")
+  ]);
+
+  assert.match(chartSource, /onSegmentHoverChange\?\.\(segment\)/u);
+  assert.match(chartSource, /onSegmentHoverChange\?\.\(null\)/u);
+  assert.match(controllerSource, /setHoveredWorkoutSegment\(segment\)/u);
+  assert.match(controllerSource, /is-segment-hovered/u);
+  assert.match(cssSource, /\.dashboard-workout-segment\.is-segment-hovered/u);
+});
+
+test("Leaflet segment interactions synchronize hover and selection with chart and cards", async () => {
+  const [mapSource, controllerSource] = await Promise.all([
+    fs.readFile(new URL("../src/public/js/map-view.js", import.meta.url), "utf8"),
+    fs.readFile(new URL("../src/public/js/dashboard-new-controller.js", import.meta.url), "utf8")
+  ]);
+
+  assert.match(mapSource, /hitLine\.on\("mouseover"[\s\S]*?onSegmentHoverChange\?\.\(entry\.segment\)/u);
+  assert.match(mapSource, /hitLine\.on\("mouseout"[\s\S]*?onSegmentHoverChange\?\.\(null\)/u);
+  assert.match(mapSource, /onSegmentSelectionChange\?\.\(selectedSegment\)/u);
+  assert.match(controllerSource, /onSegmentSelectionChange: \(segment\)/u);
+  assert.match(controllerSource, /this\.chartView\.focusSegment\(segment\)/u);
+  assert.match(controllerSource, /this\.chartView\.clearSegmentFocus\(\{ resetZoom: true \}\)/u);
 });

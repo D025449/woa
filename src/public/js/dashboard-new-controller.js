@@ -72,6 +72,7 @@ export default class Controller {
     this.workoutSegmentsListElement = document.getElementById("dashboard-workout-segments-list");
     this.workoutSegmentsCopyElement = document.getElementById("dashboard-workout-segments-copy");
     this.focusedWorkoutSegmentKey = null;
+    this.hoveredWorkoutSegmentKey = null;
     this.sharedMetaElement = document.getElementById("dashboard-shared-meta");
     this.sharedMetaTextElement = document.getElementById("dashboard-shared-meta-text");
     this.toastElement = document.getElementById("dashboard-toast");
@@ -174,6 +175,30 @@ export default class Controller {
       },
       onCopyGpsSelectionOpen: async () => {
         await this.openGpsCopyModal();
+      },
+      onSegmentHoverChange: (segment) => {
+        if (segment) {
+          this.chartView?.hoverSegment(segment);
+        } else {
+          this.chartView?.clearSegmentHover();
+        }
+        this.setHoveredWorkoutSegment(segment);
+      },
+      onSegmentSelectionChange: (segment) => {
+        const workout = this.chartView?.currentWorkout;
+        if (!workout) {
+          return;
+        }
+
+        this.setHoveredWorkoutSegment(null);
+        if (segment) {
+          this.focusedWorkoutSegmentKey = this.getWorkoutSegmentKey(segment);
+          this.chartView.focusSegment(segment);
+        } else {
+          this.focusedWorkoutSegmentKey = null;
+          this.chartView.clearSegmentFocus({ resetZoom: true });
+        }
+        this.renderWorkoutSegments(workout);
       }
     });
     this.mapView.onBaseLayerChange = (baseLayerMode) => {
@@ -202,6 +227,10 @@ export default class Controller {
         this.mapView.moveMarkerToIndex(idx);
       },
 
+      onSegmentHoverChange: (segment) => {
+        this.setHoveredWorkoutSegment(segment);
+      },
+
       onZoomSegment: (start, end) => {
         this.chartView.zoomToSegment(start, end);
         this.mapView.highlightSegment({ start, end });
@@ -219,10 +248,7 @@ export default class Controller {
             (segment) => this.getWorkoutSegmentKey(segment) === this.focusedWorkoutSegmentKey
           );
           if (focusedSegment) {
-            this.mapView.highlightSegment({
-              start: focusedSegment.start_offset,
-              end: focusedSegment.end_offset
-            });
+            this.mapView.focusSegmentOverlay(focusedSegment);
           }
         }
         this.flyoverView?.setWorkout(workout);
@@ -266,10 +292,7 @@ export default class Controller {
         }
 
         this.focusedWorkoutSegmentKey = this.getWorkoutSegmentKey(segment);
-        this.mapView.highlightSegment({
-          start: segment.start_offset,
-          end: segment.end_offset
-        });
+        this.mapView.focusSegmentOverlay(segment);
         this.renderWorkoutSegments(workout);
       },
 
@@ -1370,6 +1393,7 @@ export default class Controller {
 
     this.workoutSegmentsCopyElement.textContent = this.t("workoutSegmentsCopy");
     this.focusedWorkoutSegmentKey = null;
+    this.hoveredWorkoutSegmentKey = null;
     this.workoutSegmentsListElement.innerHTML = `
       <div class="dashboard-workout-segments-empty">${this.t("workoutSegmentsEmpty")}</div>
     `;
@@ -1395,6 +1419,25 @@ export default class Controller {
       && getSegmentVisibilityKey(segment) === "manual"
       && Number.isInteger(segmentId)
       && segmentId > 0;
+  }
+
+  setHoveredWorkoutSegment(segment) {
+    this.hoveredWorkoutSegmentKey = segment
+      ? this.getWorkoutSegmentKey(segment)
+      : null;
+
+    this.workoutSegmentsListElement
+      ?.querySelectorAll(".dashboard-workout-segment.is-segment-hovered")
+      .forEach((element) => element.classList.remove("is-segment-hovered"));
+
+    if (!this.hoveredWorkoutSegmentKey) {
+      return;
+    }
+
+    const button = Array.from(
+      this.workoutSegmentsListElement?.querySelectorAll("[data-workout-segment-focus]") || []
+    ).find((candidate) => candidate.dataset.workoutSegmentFocus === this.hoveredWorkoutSegmentKey);
+    button?.closest(".dashboard-workout-segment")?.classList.add("is-segment-hovered");
   }
 
   async deleteWorkoutSegment(workout, segment) {
@@ -1457,6 +1500,7 @@ export default class Controller {
     this.workoutSegmentsListElement.innerHTML = segments.map((segment) => {
       const segmentKey = this.getWorkoutSegmentKey(segment);
       const isFocused = segmentKey === this.focusedWorkoutSegmentKey;
+      const isSegmentHovered = segmentKey === this.hoveredWorkoutSegmentKey;
       const displayId = Utils.getSegmentDisplayId(segment);
       const identifier = displayId == null ? this.libraryT("na") : `S-${displayId}`;
       const typeLabel = this.getWorkoutSegmentTypeLabel(segment);
@@ -1490,7 +1534,7 @@ export default class Controller {
 
       return `
         <div
-          class="dashboard-workout-segment${isFocused ? " is-focused" : ""}${canDelete ? " has-delete" : ""}"
+          class="dashboard-workout-segment${isFocused ? " is-focused" : ""}${isSegmentHovered ? " is-segment-hovered" : ""}${canDelete ? " has-delete" : ""}"
           style="--segment-color:${getSegmentColor(segment)}"
         >
           <button
@@ -1566,14 +1610,12 @@ export default class Controller {
         if (this.focusedWorkoutSegmentKey === segmentKey) {
           this.focusedWorkoutSegmentKey = null;
           this.chartView.clearSegmentFocus({ resetZoom: true });
+          this.mapView.clearSegmentSelection();
           this.mapView.fitTrackBounds();
         } else {
           this.focusedWorkoutSegmentKey = segmentKey;
           this.chartView.focusSegment(segment);
-          this.mapView.highlightSegment({
-            start: segment.start_offset,
-            end: segment.end_offset
-          });
+          this.mapView.focusSegmentOverlay(segment);
         }
         this.renderWorkoutSegments(workout);
       });

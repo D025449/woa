@@ -7,6 +7,9 @@ import {
 } from "./segment-visibility.js";
 import Utils from "../../shared/Utils.js";
 
+const SEGMENT_FOCUS_COLOR = "#2563eb";
+const SEGMENT_HOVER_COLOR = "#0ea5e9";
+
 export default class MapView {
   static DEFAULT_CENTER = [51.1657, 10.4515];
   static DEFAULT_ZOOM = 6;
@@ -24,6 +27,7 @@ export default class MapView {
     this.trackLayer = L.layerGroup().addTo(this.map);
     this.segmentLayer = L.layerGroup().addTo(this.map);
     this.segmentLabelLayer = L.layerGroup().addTo(this.map);
+    this.segmentHighlightLayer = L.layerGroup().addTo(this.map);
     this.hoverLayer = L.layerGroup().addTo(this.map);
     this.segmentVisibility = {
       ...DEFAULT_SEGMENT_VISIBILITY,
@@ -32,9 +36,11 @@ export default class MapView {
 
     this.map.createPane('trackPane');
     this.map.createPane('segmentPane');
+    this.map.createPane('segmentHighlightPane');
 
     this.map.getPane('trackPane').style.zIndex = 400;
     this.map.getPane('segmentPane').style.zIndex = 500;
+    this.map.getPane('segmentHighlightPane').style.zIndex = 550;
 
     this.hoverMarker = null;
     this.currentTrackPoints = [];
@@ -162,6 +168,7 @@ export default class MapView {
     this.trackLayer.clearLayers();
     this.segmentLayer.clearLayers();
     this.segmentLabelLayer.clearLayers();
+    this.segmentHighlightLayer.clearLayers();
     this.hoverLayer.clearLayers();
     this.resetSegmentOverlayState();
     this.hoverMarker = null;
@@ -217,6 +224,7 @@ export default class MapView {
   renderSegmentOverlays(workout = this.currentWorkout) {
     this.segmentLayer.clearLayers();
     this.segmentLabelLayer.clearLayers();
+    this.segmentHighlightLayer.clearLayers();
     this.resetSegmentOverlayState();
 
     if (!workout?.validGps || this.currentTrackPoints.length === 0) {
@@ -261,11 +269,21 @@ export default class MapView {
           opacity: 1,
           sticky: true
         });
+        hitLine.on("mouseover", () => {
+          this.hoverSegmentOverlay(entry.segment);
+          this.handlers.onSegmentHoverChange?.(entry.segment);
+        });
+        hitLine.on("mouseout", () => {
+          this.clearSegmentHover();
+          this.handlers.onSegmentHoverChange?.(null);
+        });
         hitLine.on("click", (event) => {
           if (event.originalEvent) {
             L.DomEvent.stopPropagation(event.originalEvent);
           }
-          this.selectSegmentOverlay(entry, event.latlng);
+          this.handlers.onSegmentHoverChange?.(null);
+          const selectedSegment = this.selectSegmentOverlay(entry, event.latlng);
+          this.handlers.onSegmentSelectionChange?.(selectedSegment);
         });
 
         entry.polylines.push(polyline);
@@ -342,16 +360,13 @@ export default class MapView {
   selectSegmentOverlay(entry, latlng) {
     if (this.selectedSegmentOverlay?.key === entry.key) {
       this.clearSegmentSelection();
-      return;
+      return null;
     }
 
+    this.hoveredSegmentOverlay = null;
     this.clearSegmentSelection();
     this.selectedSegmentOverlay = entry;
-    const isHovered = this.hoveredSegmentOverlay?.key === entry.key;
-    entry.polylines.forEach((polyline) => {
-      polyline.setStyle({ weight: isHovered ? 8 : 7, opacity: 1 });
-      polyline.bringToFront();
-    });
+    this.renderActiveSegmentHighlight();
 
     this.selectedSegmentTooltip = L.tooltip({
       className: "workout-map-segment-tooltip workout-map-segment-tooltip--selected",
@@ -363,6 +378,28 @@ export default class MapView {
       .setLatLng(latlng)
       .setContent(this.buildSegmentTooltipContent(entry.segment))
       .addTo(this.segmentLayer);
+    return entry.segment;
+  }
+
+  focusSegmentOverlay(segment, { fitBounds = true } = {}) {
+    const key = this.getSegmentOverlayKey(segment);
+    const entry = this.segmentOverlayEntries.find((candidate) => candidate.key === key);
+    if (!entry) {
+      return false;
+    }
+
+    this.hoveredSegmentOverlay = null;
+    this.clearSegmentSelection();
+    this.selectedSegmentOverlay = entry;
+    this.renderActiveSegmentHighlight();
+
+    if (fitBounds) {
+      const coordinates = entry.coordinateSegments.flat();
+      if (coordinates.length > 0) {
+        this.map.fitBounds(L.latLngBounds(coordinates), { padding: [20, 20] });
+      }
+    }
+    return true;
   }
 
   hoverSegmentOverlay(segment) {
@@ -374,10 +411,7 @@ export default class MapView {
 
     this.clearSegmentHover();
     this.hoveredSegmentOverlay = entry;
-    entry.polylines.forEach((polyline) => {
-      polyline.setStyle({ weight: 8, opacity: 1 });
-      polyline.bringToFront();
-    });
+    this.renderActiveSegmentHighlight();
   }
 
   clearSegmentHover() {
@@ -385,34 +419,51 @@ export default class MapView {
       return;
     }
 
-    const entry = this.hoveredSegmentOverlay;
-    const isSelected = this.selectedSegmentOverlay?.key === entry.key;
-    entry.polylines.forEach((polyline) => {
-      polyline.setStyle({
-        weight: isSelected ? 7 : 4,
-        opacity: isSelected ? 1 : 0.9
-      });
-    });
     this.hoveredSegmentOverlay = null;
-
-    this.selectedSegmentOverlay?.polylines?.forEach((polyline) => polyline.bringToFront());
+    this.renderActiveSegmentHighlight();
   }
 
   clearSegmentSelection() {
-    this.selectedSegmentOverlay?.polylines?.forEach((polyline) => {
-      const isHovered = this.hoveredSegmentOverlay?.key === this.selectedSegmentOverlay?.key;
-      polyline.setStyle({
-        weight: isHovered ? 8 : 4,
-        opacity: isHovered ? 1 : 0.9
-      });
-    });
-
     if (this.selectedSegmentTooltip && this.segmentLayer.hasLayer(this.selectedSegmentTooltip)) {
       this.segmentLayer.removeLayer(this.selectedSegmentTooltip);
     }
 
     this.selectedSegmentOverlay = null;
     this.selectedSegmentTooltip = null;
+    this.renderActiveSegmentHighlight();
+  }
+
+  renderActiveSegmentHighlight() {
+    this.segmentHighlightLayer.clearLayers();
+    const entry = this.hoveredSegmentOverlay || this.selectedSegmentOverlay;
+    if (!entry) {
+      return;
+    }
+
+    const isHover = this.hoveredSegmentOverlay?.key === entry.key;
+    const color = isHover ? SEGMENT_HOVER_COLOR : SEGMENT_FOCUS_COLOR;
+    const casingWeight = isHover ? 9 : 12;
+    const lineWeight = isHover ? 5 : 7;
+
+    entry.coordinateSegments.forEach((segment) => {
+      const coordinates = segment.map((point) => [point.lat, point.lng]);
+      L.polyline(coordinates, {
+        color: "#ffffff",
+        pane: "segmentHighlightPane",
+        weight: casingWeight,
+        opacity: 0.92,
+        smoothFactor: 0.25,
+        interactive: false
+      }).addTo(this.segmentHighlightLayer);
+      L.polyline(coordinates, {
+        color,
+        pane: "segmentHighlightPane",
+        weight: lineWeight,
+        opacity: 1,
+        smoothFactor: 0.25,
+        interactive: false
+      }).addTo(this.segmentHighlightLayer);
+    });
   }
 
   measureCoordinatePath(points = []) {
@@ -823,7 +874,11 @@ export default class MapView {
 
   handleMapClick(event) {
     if (!this.manualGpsMode) {
+      const hadSelection = !!this.selectedSegmentOverlay;
       this.clearSegmentSelection();
+      if (hadSelection) {
+        this.handlers.onSegmentSelectionChange?.(null);
+      }
       return;
     }
 
