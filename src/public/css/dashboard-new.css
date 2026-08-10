@@ -792,6 +792,42 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   position: relative;
 }
 
+.dashboard-chart-show-all {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--ui-card-border-soft);
+  border-radius: 999px;
+  background: var(--ui-bg-subtle);
+  color: var(--ui-text-muted);
+  cursor: pointer;
+}
+
+.dashboard-chart-show-all:hover:not(:disabled),
+.dashboard-chart-show-all:focus-visible {
+  border-color: var(--ui-info-border-hover);
+  color: var(--ui-info-text);
+  box-shadow: var(--ui-shadow-chip-hover);
+}
+
+.dashboard-chart-show-all:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.dashboard-chart-show-all svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.45;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .dashboard-actions-menu__trigger {
   display: inline-flex;
   align-items: center;

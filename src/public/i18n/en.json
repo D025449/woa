@@ -697,6 +697,7 @@
     "timeAxis": "Time",
     "distanceAxis": "Distance",
     "distanceAxisUnavailable": "Only available when distance data is present.",
+    "showAll": "Show all",
     "segmentTypeCriticalPower": "Critical Power Segments",
     "segmentTypeAuto": "Auto Segments",
     "segmentTypeManual": "Manual Segments",

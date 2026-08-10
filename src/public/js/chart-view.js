@@ -332,6 +332,7 @@ export default class ChartView {
     this.resizeSavePending = false;
     this.createButton = document.getElementById('draw-segment-toggle');
     this.createGpsButton = document.getElementById('draw-gps-segment-toggle');
+    this.showAllButton = document.getElementById("dashboard-chart-show-all");
     this.actionsMenu = document.querySelector(".dashboard-actions-menu");
     this.modeStatus = document.getElementById("dashboard-chart-mode-status");
     this.modeStatusText = document.getElementById("dashboard-chart-mode-status-text");
@@ -359,6 +360,7 @@ export default class ChartView {
 
       this.setMode(this.mode === "gps-create" ? "" : "gps-create");
     });
+    this.showAllButton?.addEventListener("click", () => this.showAll());
     this.initAxisModeToggle();
     this.initSegmentToggleControls();
     this.initSeriesToggleControls();
@@ -584,6 +586,7 @@ export default class ChartView {
     });
     this.renderSegmentToggles();
     this.renderSeriesToggles(labels);
+    this.syncShowAllButton();
   }
 
   // -----------------------------
@@ -695,6 +698,7 @@ export default class ChartView {
 
     this.chart.on("dataZoom", () => {
       this.scheduleAdaptiveResolutionUpdate();
+      this.syncShowAllButton();
       window.requestAnimationFrame(() => this.syncChartGraphics());
     });
   }
@@ -1560,6 +1564,34 @@ export default class ChartView {
       startValue: this.xIndexToValue(start),
       endValue: this.xIndexToValue(end)
     });
+  }
+
+  showAll() {
+    if (!this.currentWorkout) {
+      return;
+    }
+
+    this.chart.dispatchAction({
+      type: "dataZoom",
+      start: 0,
+      end: 100
+    });
+  }
+
+  syncShowAllButton() {
+    if (!this.showAllButton) {
+      return;
+    }
+
+    const zoom = this.chart?.getOption?.()?.dataZoom?.[0] || {};
+    const start = Number(zoom.start);
+    const end = Number(zoom.end);
+    const showsFullWorkout = Number.isFinite(start)
+      && Number.isFinite(end)
+      && start <= 0.001
+      && end >= 99.999;
+
+    this.showAllButton.disabled = !this.currentWorkout || showsFullWorkout;
   }
 
   buildHighlightedSegmentArea(segment, mode = "focus") {
