@@ -18,6 +18,11 @@ const MIN_DISTANCE_AXIS_SPAN_METERS = 100;
 const ADAPTIVE_CHART_ZOOM_DELAY_MS = 100;
 const SEGMENT_RESIZE_HIT_RADIUS_PX = 10;
 const SEGMENT_RESIZE_MIN_DURATION_SECONDS = 2;
+const SEGMENT_HEADER_HEIGHT_PX = 8;
+const SEGMENT_HEADER_GAP_PX = 2;
+const SEGMENT_HEADER_PADDING_TOP_PX = 4;
+const SEGMENT_HEADER_BASE_GRID_TOP_PX = 40;
+const SEGMENT_HEADER_MAX_LANES = 10;
 
 function isPersistedManualSegment(segment) {
   const segmentId = Number(segment?.id);
@@ -26,6 +31,39 @@ function isPersistedManualSegment(segment) {
     && segment?.rowstate !== "DEL"
     && Number.isInteger(segmentId)
     && segmentId > 0;
+}
+
+export function buildSegmentHeaderLayout({
+  segments,
+  isVisible = () => true,
+  maxLanes = SEGMENT_HEADER_MAX_LANES
+}) {
+  const normalizedMaxLanes = Math.max(1, Number(maxLanes) || SEGMENT_HEADER_MAX_LANES);
+  const candidates = (Array.isArray(segments) ? segments : [])
+    .filter((segment) => segment?.rowstate !== "DEL" && isVisible(segment))
+    .map((segment) => ({
+      segment,
+      start: Math.min(Number(segment.start_offset), Number(segment.end_offset)),
+      end: Math.max(Number(segment.start_offset), Number(segment.end_offset))
+    }))
+    .filter(({ start, end }) => Number.isFinite(start) && Number.isFinite(end))
+    .sort((left, right) => left.start - right.start || right.end - left.end);
+
+  const laneEnds = [];
+  const items = candidates.map((candidate) => {
+    let lane = laneEnds.findIndex((end) => end < candidate.start);
+    if (lane < 0) {
+      lane = laneEnds.length;
+    }
+    lane = Math.min(lane, normalizedMaxLanes - 1);
+    laneEnds[lane] = Math.max(laneEnds[lane] ?? Number.NEGATIVE_INFINITY, candidate.end);
+    return { ...candidate, lane };
+  });
+
+  return {
+    items,
+    laneCount: Math.min(laneEnds.length, normalizedMaxLanes)
+  };
 }
 
 export function findManualSegmentResizeEdge({
@@ -284,7 +322,6 @@ export default class ChartView {
     this.currentAdaptiveResolution = null;
     this.adaptiveResolutionTimer = null;
     this.mode = "";
-    this.isHoveringSegmentArea = false;
     this.baseMarkAreas = [];
     this.previewMarkArea = null;
     this.focusedSegment = null;
@@ -504,7 +541,7 @@ export default class ChartView {
         show: false,
         selected: this.getLegendSelection(labels)
       },
-      grid: { top: 40 },
+      grid: { top: SEGMENT_HEADER_BASE_GRID_TOP_PX },
       xAxis: {
         type: "value",
         scale: true,
@@ -642,19 +679,6 @@ export default class ChartView {
   // INTERACTIONS
   // -----------------------------
   registerInteractions() {
-    this.chart.on("click", (params) => {
-      if (params.componentType !== "markArea") return;
-
-      if (this.mode === "create" || this.mode === "gps-create") {
-        return;
-      }
-
-      this.handlers.onZoomSegment?.(
-        this.xValueToIndex(params.data.coord[0][0]),
-        this.xValueToIndex(params.data.coord[1][0])
-      );
-    });
-
     this.chart.getZr().on("mousemove", (p) => {
       const x = this.chart.convertFromPixel({ xAxisIndex: 0 }, p.offsetX);
       if (!isNaN(x)) {
@@ -663,43 +687,6 @@ export default class ChartView {
       if (this.selectionStart != null && (this.mode === "create" || this.mode === "gps-create")) {
         this.updateSelectionPreview(x);
       }
-      this.syncSegmentHoverFromPointer(x, p.event);
-    });
-
-    this.chart.on("mouseover", (params) => {
-      if (params.componentType !== "markArea") {
-        return;
-      }
-
-      const seg = this.getSegmentFromMarkAreaParams(params);
-      if (!seg) {
-        return;
-      }
-
-      this.isHoveringSegmentArea = true;
-      this.chart.dispatchAction({ type: "hideTip" });
-      this.showSegmentHoverTooltip(seg, params.event?.event);
-    });
-
-    this.chart.on("mousemove", (params) => {
-      if (params.componentType !== "markArea" || !this.isHoveringSegmentArea) {
-        return;
-      }
-
-      const seg = this.getSegmentFromMarkAreaParams(params);
-      if (!seg) {
-        return;
-      }
-
-      this.showSegmentHoverTooltip(seg, params.event?.event);
-    });
-
-    this.chart.on("mouseout", (params) => {
-      if (params.componentType !== "markArea") {
-        return;
-      }
-
-      this.hideSegmentHoverTooltip();
     });
 
     this.chart.on("globalout", () => {
@@ -708,7 +695,7 @@ export default class ChartView {
 
     this.chart.on("dataZoom", () => {
       this.scheduleAdaptiveResolutionUpdate();
-      window.requestAnimationFrame(() => this.syncResizeHandles());
+      window.requestAnimationFrame(() => this.syncChartGraphics());
     });
   }
 
@@ -823,7 +810,7 @@ export default class ChartView {
     this.syncModeButtons();
     this.syncModeStatus();
     this.actionsMenu?.removeAttribute("open");
-    this.syncResizeHandles();
+    this.syncChartGraphics();
   }
 
   syncModeStatus() {
@@ -1293,7 +1280,7 @@ export default class ChartView {
     } finally {
       this.resizeSavePending = false;
       this.chart.getZr().setCursorStyle(this.mode === "create" ? "crosshair" : "default");
-      this.syncResizeHandles();
+      this.syncChartGraphics();
     }
   }
 
@@ -1379,11 +1366,128 @@ export default class ChartView {
     ];
 
     this.chart.setOption({
+      grid: { top: this.getSegmentHeaderGridTop() },
       series: [{
-        markArea: { data }
+        markArea: { silent: true, data }
       }],
-      graphic: this.buildResizeHandleGraphics()
+      graphic: this.buildChartGraphics()
     }, { replaceMerge: ["graphic"] });
+  }
+
+  getSegmentHeaderLayout() {
+    return buildSegmentHeaderLayout({
+      segments: this.currentWorkout?.segments,
+      isVisible: (segment) => this.isSegmentTypeVisible(segment)
+    });
+  }
+
+  getSegmentHeaderGridTop() {
+    const { laneCount } = this.getSegmentHeaderLayout();
+    if (laneCount === 0) {
+      return SEGMENT_HEADER_BASE_GRID_TOP_PX;
+    }
+    return Math.max(
+      SEGMENT_HEADER_BASE_GRID_TOP_PX,
+      SEGMENT_HEADER_PADDING_TOP_PX
+        + laneCount * (SEGMENT_HEADER_HEIGHT_PX + SEGMENT_HEADER_GAP_PX)
+        + SEGMENT_HEADER_GAP_PX
+    );
+  }
+
+  getXAxisPixelExtent() {
+    const axis = this.chart?.getModel?.()?.getComponent?.("xAxis", 0)?.axis;
+    const extent = axis?.getExtent?.();
+    if (!Array.isArray(extent) || extent.length < 2) {
+      return { left: 0, right: this.chart?.getWidth?.() || 0 };
+    }
+    const first = typeof axis.toGlobalCoord === "function" ? axis.toGlobalCoord(extent[0]) : extent[0];
+    const second = typeof axis.toGlobalCoord === "function" ? axis.toGlobalCoord(extent[1]) : extent[1];
+    return { left: Math.min(first, second), right: Math.max(first, second) };
+  }
+
+  getSegmentHeaderId(segment, index) {
+    const displayId = Utils.getSegmentDisplayId(segment);
+    const kind = segment?.isGPSSegment ? "gps" : String(segment?.segmenttype || "manual");
+    return `workout-segment-header-${kind}-${displayId ?? `${segment.start_offset}-${segment.end_offset}-${index}`}`;
+  }
+
+  buildSegmentHeaderGraphics() {
+    const { items } = this.getSegmentHeaderLayout();
+    if (items.length === 0) {
+      return [];
+    }
+
+    const { left: axisLeft, right: axisRight } = this.getXAxisPixelExtent();
+    const isDrawing = this.mode === "create" || this.mode === "gps-create";
+    return items.flatMap(({ segment, start, end, lane }, index) => {
+      const startPixel = Number(this.chart.convertToPixel({ xAxisIndex: 0 }, this.xIndexToValue(start)));
+      const endPixel = Number(this.chart.convertToPixel({ xAxisIndex: 0 }, this.xIndexToValue(end)));
+      if (!Number.isFinite(startPixel) || !Number.isFinite(endPixel)) {
+        return [];
+      }
+
+      const rawLeft = Math.min(startPixel, endPixel);
+      const rawRight = Math.max(startPixel, endPixel);
+      if (rawRight < axisLeft || rawLeft > axisRight) {
+        return [];
+      }
+
+      const left = Math.max(axisLeft, rawLeft);
+      const right = Math.min(axisRight, rawRight);
+      const width = Math.max(4, right - left);
+      const y = SEGMENT_HEADER_PADDING_TOP_PX
+        + lane * (SEGMENT_HEADER_HEIGHT_PX + SEGMENT_HEADER_GAP_PX);
+      const color = getSegmentColor(segment);
+      const displayId = Utils.getSegmentDisplayId(segment);
+      const isHighlighted = this.hoveredSegment === segment || this.focusedSegment === segment;
+      const opacity = isHighlighted ? 0.86 : 0.62;
+
+      return [{
+        id: this.getSegmentHeaderId(segment, index),
+        type: "group",
+        silent: isDrawing,
+        z: 120 + lane,
+        children: [
+          {
+            type: "rect",
+            silent: isDrawing,
+            cursor: isDrawing ? "crosshair" : "pointer",
+            shape: { x: left, y, width, height: SEGMENT_HEADER_HEIGHT_PX, r: 3 },
+            style: {
+              fill: color,
+              opacity,
+              stroke: color,
+              lineWidth: isHighlighted ? 1.5 : 0.75
+            },
+            onmouseover: (event) => this.handleSegmentHeaderMouseOver(segment, event),
+            onmousemove: (event) => this.positionSegmentHoverTooltip(event?.event || event),
+            onmouseout: (event) => this.handleSegmentHeaderMouseOut(segment, event),
+            onclick: (event) => this.handleSegmentHeaderClick(segment, event)
+          },
+          ...(displayId != null && width >= 42 ? [{
+            type: "text",
+            silent: true,
+            style: {
+              text: `S-${displayId}`,
+              x: left + 5,
+              y: y + SEGMENT_HEADER_HEIGHT_PX / 2,
+              width: Math.max(0, width - 10),
+              overflow: "truncate",
+              fill: "#ffffff",
+              font: "700 8px sans-serif",
+              verticalAlign: "middle"
+            }
+          }] : [])
+        ]
+      }];
+    });
+  }
+
+  buildChartGraphics() {
+    return [
+      ...this.buildSegmentHeaderGraphics(),
+      ...this.buildResizeHandleGraphics()
+    ];
   }
 
   buildResizeHandleGraphics() {
@@ -1433,9 +1537,9 @@ export default class ChartView {
     }));
   }
 
-  syncResizeHandles() {
+  syncChartGraphics() {
     this.chart.setOption({
-      graphic: this.buildResizeHandleGraphics()
+      graphic: this.buildChartGraphics()
     }, { replaceMerge: ["graphic"] });
   }
 
@@ -1567,10 +1671,6 @@ export default class ChartView {
   }
 
   formatTooltip(params) {
-    if (this.isHoveringSegmentArea) {
-      return "";
-    }
-
     const p = params?.[0];
     if (!p) return "";
 
@@ -1635,55 +1735,40 @@ export default class ChartView {
     document.body.appendChild(this.segmentHoverTooltip);
   }
 
-  getSegmentFromMarkAreaParams(params) {
-    const segmentId = params?.data?.segmentId;
-    if (segmentId == null) {
-      return null;
+  handleSegmentHeaderMouseOver(segment, event) {
+    this.chart.dispatchAction({ type: "hideTip" });
+    if (event?.target?.style) {
+      event.target.attr?.({
+        style: { ...event.target.style, opacity: 0.9, lineWidth: 1.5 }
+      });
     }
-
-    return this.currentWorkout?.segments?.find((segment) => segment.id === segmentId) ?? null;
+    this.showSegmentHoverTooltip(segment, event?.event || event);
   }
 
-  getHoveredSegmentAtXValue(xValue) {
-    if (Number.isNaN(xValue) || xValue == null) {
-      return null;
+  handleSegmentHeaderMouseOut(segment, event) {
+    if (event?.target?.style) {
+      const isHighlighted = this.hoveredSegment === segment || this.focusedSegment === segment;
+      event.target.attr?.({
+        style: {
+          ...event.target.style,
+          opacity: isHighlighted ? 0.86 : 0.62,
+          lineWidth: isHighlighted ? 1.5 : 0.75
+        }
+      });
     }
-
-    const index = this.xValueToIndex(xValue);
-    const segments = this.currentWorkout?.segments?.filter((segment) => {
-      if (segment.rowstate === "DEL") {
-        return false;
-      }
-      if (!this.isSegmentTypeVisible(segment)) {
-        return false;
-      }
-      return index >= segment.start_offset && index <= segment.end_offset;
-    }) ?? [];
-
-    if (segments.length === 0) {
-      return null;
-    }
-
-    segments.sort((left, right) => {
-      const leftSpan = Math.abs((left.end_offset ?? 0) - (left.start_offset ?? 0));
-      const rightSpan = Math.abs((right.end_offset ?? 0) - (right.start_offset ?? 0));
-      return leftSpan - rightSpan;
-    });
-
-    return segments[0] ?? null;
+    this.hideSegmentHoverTooltip();
   }
 
-  syncSegmentHoverFromPointer(xValue, nativeEvent) {
-    const segment = this.getHoveredSegmentAtXValue(xValue);
-
-    if (!segment) {
-      this.hideSegmentHoverTooltip();
+  handleSegmentHeaderClick(segment, event) {
+    if (this.mode === "create" || this.mode === "gps-create") {
       return;
     }
-
-    this.isHoveringSegmentArea = true;
-    this.chart.dispatchAction({ type: "hideTip" });
-    this.showSegmentHoverTooltip(segment, nativeEvent);
+    event?.event?.preventDefault?.();
+    event?.event?.stopPropagation?.();
+    this.handlers.onZoomSegment?.(
+      Number(segment.start_offset),
+      Number(segment.end_offset)
+    );
   }
 
   showSegmentHoverTooltip(segment, nativeEvent) {
@@ -1731,8 +1816,6 @@ export default class ChartView {
   }
 
   hideSegmentHoverTooltip() {
-    this.isHoveringSegmentArea = false;
-
     if (this.tooltipHoveredSegment) {
       this.tooltipHoveredSegment = null;
       this.handlers.onSegmentHoverChange?.(null);
@@ -1839,7 +1922,7 @@ export default class ChartView {
         connectNulls: this.bridgePowerCadenceZeros,
         ...getChartSeriesSamplingOption("power", this.smoothingLevel),
         yAxisIndex: 0,
-        markArea: { data: [] },
+        markArea: { silent: true, data: [] },
         lineStyle: { color: colors.power, width: 1.8 },
         itemStyle: { color: colors.power },
         encode: { x: xField, y: "Power" }
@@ -2208,6 +2291,7 @@ export default class ChartView {
   resize() {
     this.chart.resize();
     this.scheduleAdaptiveResolutionUpdate();
+    window.requestAnimationFrame(() => this.syncChartGraphics());
   }
   showLoading() { this.chart.showLoading(); }
   hideLoading() { this.chart.hideLoading(); }

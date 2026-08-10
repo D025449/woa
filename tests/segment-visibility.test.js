@@ -105,6 +105,18 @@ test("chart and map segment hover mark the matching workout segment card", async
   assert.match(cssSource, /\.dashboard-workout-segment\.is-segment-hovered/u);
 });
 
+test("chart segment headers own segment interaction while mark areas stay tooltip-transparent", async () => {
+  const chartSource = await fs.readFile(
+    new URL("../src/public/js/chart-view.js", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(chartSource, /buildSegmentHeaderGraphics\(\)/u);
+  assert.match(chartSource, /markArea: \{ silent: true, data \}/u);
+  assert.match(chartSource, /onmouseover: \(event\) => this\.handleSegmentHeaderMouseOver/u);
+  assert.doesNotMatch(chartSource, /syncSegmentHoverFromPointer/u);
+});
+
 test("Leaflet segment interactions synchronize hover and selection with chart and cards", async () => {
   const [mapSource, controllerSource] = await Promise.all([
     fs.readFile(new URL("../src/public/js/map-view.js", import.meta.url), "utf8"),

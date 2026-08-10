@@ -2,12 +2,31 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildSegmentHeaderLayout,
   calculateStableYAxisBounds,
   findManualSegmentResizeEdge,
   getChartSeriesSamplingOption,
   getAvailableWorkoutSeries,
   hasMeaningfulDistanceSeries
 } from "../src/public/js/chart-view.js";
+
+test("segment headers use separate lanes for overlaps and reuse free lanes", () => {
+  const first = { id: 1, start_offset: 10, end_offset: 50, rowstate: "DB" };
+  const nested = { id: 2, start_offset: 20, end_offset: 30, rowstate: "DB" };
+  const later = { id: 3, start_offset: 60, end_offset: 80, rowstate: "DB" };
+  const hidden = { id: 4, start_offset: 15, end_offset: 25, rowstate: "DEL" };
+
+  const layout = buildSegmentHeaderLayout({
+    segments: [nested, later, hidden, first]
+  });
+
+  assert.equal(layout.laneCount, 2);
+  assert.deepEqual(layout.items.map(({ segment, lane }) => [segment.id, lane]), [
+    [1, 0],
+    [2, 1],
+    [3, 0]
+  ]);
+});
 
 test("manual segment resize hit testing is independent of render order", () => {
   const longerSegment = {
