@@ -269,6 +269,8 @@
     "submit": "Iniciar sesión",
     "divider": "o",
     "continueWithGoogle": "Continuar con Google",
+    "continueWithAmazon": "Continuar con Amazon",
+    "socialLoginFailed": "No se pudo iniciar sesión con el proveedor externo.",
     "createAccount": "Registrarse",
     "legalNotice": "Aviso legal",
     "privacy": "Privacidad"

@@ -290,9 +290,20 @@ export async function createApp() {
         return session.user;
     };
 
-    const buildGoogleAuthorizeUrl = (state, nonce) => {
+    const socialIdentityProviders = Object.freeze({
+        google: {
+            cognitoName: "Google",
+            logLabel: "google-login"
+        },
+        amazon: {
+            cognitoName: "LoginWithAmazon",
+            logLabel: "amazon-login"
+        }
+    });
+
+    const buildSocialAuthorizeUrl = (provider, state, nonce) => {
         const params = new URLSearchParams({
-            identity_provider: "Google",
+            identity_provider: provider.cognitoName,
             redirect_uri: process.env.COGNITO_REDIRECT_URI,
             response_type: "code",
             client_id: process.env.COGNITO_CLIENT_ID,
@@ -508,8 +519,9 @@ export async function createApp() {
         renderLogin(res, redirect, null, notice);
     });
 
-    app.get("/auth/google", (req, res, next) => {
-        const redirect = req.query.redirect || "/";
+    const startSocialLogin = (providerKey) => (req, res, next) => {
+        const provider = socialIdentityProviders[providerKey];
+        const redirect = normalizeReturnTo(req.query.redirect, "/");
         const state = crypto.randomUUID();
         const nonce = generators.nonce();
 
@@ -522,6 +534,7 @@ export async function createApp() {
 
             req.session.oauthState = state;
             req.session.oauthNonce = nonce;
+            req.session.oauthProvider = providerKey;
             req.session.postLoginRedirect = redirect;
 
             req.session.save((saveErr) => {
@@ -529,29 +542,34 @@ export async function createApp() {
                     return next(saveErr);
                 }
 
-                return res.redirect(buildGoogleAuthorizeUrl(state, nonce));
+                return res.redirect(buildSocialAuthorizeUrl(provider, state, nonce));
             });
         });
-    });
+    };
+
+    app.get("/auth/google", startSocialLogin("google"));
+    app.get("/auth/amazon", startSocialLogin("amazon"));
 
     const handleOAuthCallback = async (req, res) => {
         const { code, state } = req.query;
         const expectedState = req.session.oauthState;
-        const redirect = req.session.postLoginRedirect || "/";
+        const redirect = normalizeReturnTo(req.session.postLoginRedirect, "/");
+        const provider = socialIdentityProviders[req.session.oauthProvider];
+        const loginError = res.locals.t("login.socialLoginFailed");
 
-        if (!code || !state || !expectedState || state !== expectedState) {
-            return renderLogin(res, redirect, "Google login failed");
+        if (!provider || !code || !state || !expectedState || state !== expectedState) {
+            return renderLogin(res, redirect, loginError);
         }
 
         try {
             const tokens = await exchangeCodeForTokens(code);
-            logAuthTokenClaims("google-login", tokens.access_token, tokens.id_token);
+            logAuthTokenClaims(provider.logLabel, tokens.access_token, tokens.id_token);
             clearAuthCookies(res);
 
             req.session.regenerate((sessionErr) => {
                 if (sessionErr) {
                     console.error(sessionErr);
-                    return renderLogin(res, redirect, "Google login failed");
+                    return renderLogin(res, redirect, loginError);
                 }
 
                 (async () => {
@@ -582,20 +600,20 @@ export async function createApp() {
                         req.session.save((saveErr) => {
                             if (saveErr) {
                                 console.error(saveErr);
-                                return renderLogin(res, redirect, "Google login failed");
+                                return renderLogin(res, redirect, loginError);
                             }
 
                             return res.redirect(redirect);
                         });
                     } catch (innerErr) {
                         console.error(innerErr);
-                        return renderLogin(res, redirect, "Google login failed");
+                        return renderLogin(res, redirect, loginError);
                     }
                 })();
             });
         } catch (err) {
             console.error(err);
-            return renderLogin(res, redirect, "Google login failed");
+            return renderLogin(res, redirect, loginError);
         }
     };
 

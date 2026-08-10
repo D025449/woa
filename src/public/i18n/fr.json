@@ -267,6 +267,8 @@
     "submit": "Se connecter",
     "divider": "ou",
     "continueWithGoogle": "Continuer avec Google",
+    "continueWithAmazon": "Continuer avec Amazon",
+    "socialLoginFailed": "La connexion avec le fournisseur externe a échoué.",
     "createAccount": "S’inscrire",
     "legalNotice": "Mentions légales",
     "privacy": "Confidentialité"

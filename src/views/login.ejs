@@ -105,13 +105,23 @@
 
                                     <div class="auth-divider"><%= t("login.divider") %></div>
 
-                                    <a
-                                        class="auth-google-btn"
-                                        href="/auth/google<%= typeof redirect !== 'undefined' && redirect ? `?redirect=${encodeURIComponent(redirect)}` : '' %>"
-                                    >
-                                        <span class="auth-google-icon">G</span>
-                                        <span><%= t("login.continueWithGoogle") %></span>
-                                    </a>
+                                    <div class="auth-provider-list">
+                                        <a
+                                            class="auth-provider-btn auth-provider-btn-google"
+                                            href="/auth/google<%= typeof redirect !== 'undefined' && redirect ? `?redirect=${encodeURIComponent(redirect)}` : '' %>"
+                                        >
+                                            <span class="auth-provider-icon">G</span>
+                                            <span><%= t("login.continueWithGoogle") %></span>
+                                        </a>
+
+                                        <a
+                                            class="auth-provider-btn auth-provider-btn-amazon"
+                                            href="/auth/amazon<%= typeof redirect !== 'undefined' && redirect ? `?redirect=${encodeURIComponent(redirect)}` : '' %>"
+                                        >
+                                            <span class="auth-provider-icon auth-provider-icon-amazon" aria-hidden="true">a</span>
+                                            <span><%= t("login.continueWithAmazon") %></span>
+                                        </a>
+                                    </div>
 
                                     <div class="text-center mt-3">
 

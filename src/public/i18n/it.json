@@ -267,6 +267,8 @@
     "submit": "Accedi",
     "divider": "oppure",
     "continueWithGoogle": "Continua con Google",
+    "continueWithAmazon": "Continua con Amazon",
+    "socialLoginFailed": "L’accesso con il provider esterno non è riuscito.",
     "createAccount": "Registrati",
     "legalNotice": "Note legali",
     "privacy": "Privacy"
