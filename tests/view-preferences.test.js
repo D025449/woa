@@ -12,6 +12,8 @@ test("normalizes workout library preferences to supported values", () => {
     scope: "all",
     favoritesOnly: true,
     workoutType: "road",
+    terrainProfile: "mountainous",
+    intensityProfile: "vo2max",
     gpsFilter: "valid",
     xAxisMode: "distance",
     smoothingLevel: "automatic",
@@ -32,6 +34,8 @@ test("normalizes workout library preferences to supported values", () => {
     scope: "all",
     favoritesOnly: true,
     workoutType: "road",
+    terrainProfile: "mountainous",
+    intensityProfile: "vo2max",
     gpsFilter: "valid",
     seriesVisibility: {
       power: true,
@@ -53,6 +57,8 @@ test("rejects unsupported workout library preference values safely", () => {
     scope: "everyone",
     favoritesOnly: "true",
     workoutType: "gravel",
+    terrainProfile: "alpine",
+    intensityProfile: "sprinty",
     gpsFilter: "sometimes",
     xAxisMode: "laps",
     smoothingLevel: "maximum",
@@ -63,6 +69,8 @@ test("rejects unsupported workout library preference values safely", () => {
     scope: "mine",
     favoritesOnly: false,
     workoutType: "all",
+    terrainProfile: "all",
+    intensityProfile: "all",
     gpsFilter: "all"
   });
 });
@@ -71,6 +79,18 @@ test("accepts motorsport as a persisted workout type filter", () => {
   assert.equal(normalizeWorkoutLibraryState({
     workoutType: "motorsport"
   }).workoutType, "motorsport");
+});
+
+test("accepts altitude quality as a persisted terrain filter", () => {
+  assert.equal(normalizeWorkoutLibraryState({
+    terrainProfile: "altitude_invalid"
+  }).terrainProfile, "altitude_invalid");
+});
+
+test("accepts VO2max as a persisted intensity filter", () => {
+  assert.equal(normalizeWorkoutLibraryState({
+    intensityProfile: "vo2max"
+  }).intensityProfile, "vo2max");
 });
 
 test("normalizes persisted segment visibility without accepting extra keys", () => {

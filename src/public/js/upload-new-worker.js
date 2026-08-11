@@ -9,6 +9,15 @@ import {
 import { benchmarkGpsSegmentBestEfforts } from "../../shared/BrowserGpsSegmentMatcher.js";
 import { encodeBrowserGpsBestEffortsTransport } from "../../shared/BrowserGpsBestEffortsTransport.js";
 import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../../shared/gpsSampling.js";
+import {
+  classifyWorkoutIntensityChronologically,
+  extractWorkoutIntensityFeatures
+} from "../../shared/WorkoutIntensityClassifier.js";
+import { writeWorkoutIntensityHeader } from "../../shared/WorkoutIntensityHeader.js";
+import {
+  decodeWorkoutIntensityModelFeatures,
+  encodeWorkoutIntensityModelFeatures
+} from "../../shared/WorkoutIntensityModelCodec.js";
 import { gzipSync, unzipSync, zipSync } from "/vendor/fflate/browser.js";
 
 const PER_FILE_GZIP_LEVEL = 4;
@@ -100,6 +109,15 @@ function getParsedSessionCount(parsed) {
 
 async function createWoaFromParsed(parsed, fileName, encodingOptions) {
   const adjustedParsed = applyCompactEncodingOptions(parsed, encodingOptions);
+  const compactRecords = adjustedParsed.compactRecords || {};
+  const intensityFeatures = extractWorkoutIntensityFeatures({
+    recordCount: compactRecords.recordCount,
+    powerAtIndex: (index) => compactRecords.powersW?.[index],
+    normalizedPower: adjustedParsed.sessions?.[0]?.normalized_power,
+    missingValue: 0xffff,
+    effortLimit: 1,
+    includeHistogram: false
+  });
   const streamCodec = resolveUploadCompressionCodec(encodingOptions);
   const gpsSampleRateSeconds = normalizeGpsSampleRateSeconds(
     encodingOptions?.gpsSampleRateSeconds,
@@ -111,6 +129,7 @@ async function createWoaFromParsed(parsed, fileName, encodingOptions) {
     : "bitmap-columnar";
   return {
     adjustedParsed,
+    intensityFeatures,
     result: await createWoa1FileFromCompactAsync(adjustedParsed, {
       sourceName: fileName,
       sampleRateSeconds: gpsSampleRateSeconds,
@@ -118,6 +137,7 @@ async function createWoaFromParsed(parsed, fileName, encodingOptions) {
       powerEncoding: "delta8-q4w",
       distanceEncoding: "uint8-q05m",
       altitudeEncoding: "rle-delta-q1m",
+      intensityModelFeatureBytes: encodeWorkoutIntensityModelFeatures(intensityFeatures),
       streamCodec,
       gpsTrackBlobCodec: "identity",
       compressWorkoutStream: (bytes, options = {}) => compressWithCodec(bytes, streamCodec, options, encodingOptions),
@@ -499,6 +519,7 @@ async function convertFitEntriesParallel({
               entryName: data.entryName,
               woaBytes: new Uint8Array(data.woaBytes),
               startTime: data.startTime,
+              intensityFeatures: data.intensityFeatures || null,
               browserPostprocess: data.browserPostprocess || null
             });
             if (data.browserPostprocess) {
@@ -650,6 +671,8 @@ self.addEventListener("message", async (event) => {
     prewarmedZipTokens = [],
     prewarmedZipFiles = [],
     existingStartTimes = [],
+    intensityHistory = [],
+    overwriteExisting = false,
     encodingOptions = {},
     outputMode = "zip",
     parallelFitPoolEnabled = false,
@@ -710,7 +733,9 @@ self.addEventListener("message", async (event) => {
         fileName,
         arrayBuffer,
         prewarmedZipToken,
-        existingStartTimes,
+        existingStartTimes: overwriteExisting ? [] : existingStartTimes,
+        intensityHistory,
+        overwriteExisting,
         encodingOptions,
         outputMode,
         parallelFitPoolEnabled,
@@ -725,7 +750,9 @@ self.addEventListener("message", async (event) => {
         files,
         prewarmedZipTokens,
         prewarmedZipFiles,
-        existingStartTimes,
+        existingStartTimes: overwriteExisting ? [] : existingStartTimes,
+        intensityHistory,
+        overwriteExisting,
         encodingOptions,
         outputMode,
         parallelFitPoolEnabled,
@@ -858,6 +885,7 @@ async function convertMixedEntriesToWoaZip({
   fitEntries = [],
   woaEntries = [],
   existingStartTimes = [],
+  intensityHistory = [],
   sourceBytes = 0,
   encodingOptions = {},
   outputMode = "zip",
@@ -924,7 +952,9 @@ async function convertMixedEntriesToWoaZip({
     for (const item of parallelResult.completedEntries.sort((left, right) => String(left.entryName).localeCompare(String(right.entryName)))) {
       outputEntries.push({
         name: createUniqueEntryName(String(item.entryName).replace(/\.fit$/i, ".woa1"), usedOutputNames),
-        bytes: item.woaBytes
+        bytes: item.woaBytes,
+        startTime: item.startTime,
+        intensityFeatures: item.intensityFeatures
       });
       if (item.startTime) {
         dynamicExistingStartTimes.add(item.startTime);
@@ -991,7 +1021,7 @@ async function convertMixedEntriesToWoaZip({
         }
 
         const buildStartedAt = nowMs();
-        const { adjustedParsed, result } = await createWoaFromParsed(parsed, fitEntry.name, encodingOptions);
+        const { adjustedParsed, intensityFeatures, result } = await createWoaFromParsed(parsed, fitEntry.name, encodingOptions);
         buildSamplesMs.push(nowMs() - buildStartedAt);
         buildTimingSamples.push(result.timings || {});
         speedFallbackWorkoutCount += Number(result.stats?.workoutStream?.usesSpeedFallback ? 1 : 0);
@@ -1034,7 +1064,9 @@ async function convertMixedEntriesToWoaZip({
 
         const outputEntry = {
           name: createUniqueEntryName(fitEntry.name.replace(/\.fit$/i, ".woa1"), usedOutputNames),
-          bytes: result.bytes
+          bytes: result.bytes,
+          startTime: buildParsedStartTimeKey(parsed),
+          intensityFeatures
         };
         if (firstSerialFitResultAt === null) {
           firstSerialFitResultAt = nowMs();
@@ -1061,6 +1093,34 @@ async function convertMixedEntriesToWoaZip({
 
       processedEntries += 1;
     }
+  }
+
+  const currentIntensityEntries = outputEntries
+    .filter((entry) => entry.intensityFeatures && entry.startTime)
+    .map((entry) => ({
+      entry,
+      startTime: entry.startTime,
+      features: entry.intensityFeatures
+    }));
+  const currentStartTimes = new Set(currentIntensityEntries.map((entry) => new Date(entry.startTime).toISOString()));
+  const historicalEntries = (Array.isArray(intensityHistory) ? intensityHistory : [])
+    .map((entry) => ({
+      startTime: entry?.[0],
+      classify: false,
+      features: decodeWorkoutIntensityModelFeatures(
+        typeof entry?.[1] === "string"
+          ? Uint8Array.from(atob(entry[1]), (character) => character.charCodeAt(0))
+          : new Uint8Array(0)
+      )
+    }))
+    .filter((entry) => entry.features && entry.startTime && !currentStartTimes.has(new Date(entry.startTime).toISOString()));
+  const intensityEntries = [...historicalEntries, ...currentIntensityEntries];
+  for (const classified of classifyWorkoutIntensityChronologically(intensityEntries)) {
+    if (!classified.entry) continue;
+    const classification = classified.classification;
+    writeWorkoutIntensityHeader(classified.entry.bytes, classification);
+    delete classified.entry.startTime;
+    delete classified.entry.intensityFeatures;
   }
 
   for (const woaEntry of sortedWoaEntries) {
@@ -1320,6 +1380,8 @@ async function handleZipConversion({
   arrayBuffer,
   prewarmedZipToken = null,
   existingStartTimes = [],
+  intensityHistory = [],
+  overwriteExisting = false,
   encodingOptions = {},
   outputMode = "zip",
   parallelFitPoolEnabled = false,
@@ -1404,7 +1466,8 @@ async function handleZipConversion({
     fileName,
     fitEntries,
     woaEntries,
-    existingStartTimes,
+    existingStartTimes: overwriteExisting ? [] : existingStartTimes,
+    intensityHistory,
     sourceBytes,
     encodingOptions,
     outputMode,
@@ -1419,6 +1482,8 @@ async function handleFitFilesConversion({
   prewarmedZipTokens = [],
   prewarmedZipFiles = [],
   existingStartTimes = [],
+  intensityHistory = [],
+  overwriteExisting = false,
   encodingOptions = {},
   outputMode = "zip",
   parallelFitPoolEnabled = false,
@@ -1513,7 +1578,8 @@ async function handleFitFilesConversion({
     fileName,
     fitEntries,
     woaEntries,
-    existingStartTimes,
+    existingStartTimes: overwriteExisting ? [] : existingStartTimes,
+    intensityHistory,
     sourceBytes,
     encodingOptions,
     outputMode,

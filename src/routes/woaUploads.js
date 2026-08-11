@@ -686,7 +686,7 @@ router.get(
 
       const result = await pool.query(
         `
-          SELECT start_time
+          SELECT start_time, intensity_model_features
           FROM workouts
           WHERE uid = $1
             AND start_time IS NOT NULL
@@ -696,7 +696,13 @@ router.get(
       );
 
       return res.json({
-        startTimes: result.rows.map((row) => new Date(row.start_time).toISOString())
+        startTimes: result.rows.map((row) => new Date(row.start_time).toISOString()),
+        intensityHistory: result.rows
+          .filter((row) => row.intensity_model_features)
+          .map((row) => [
+            new Date(row.start_time).toISOString(),
+            Buffer.from(row.intensity_model_features).toString("base64")
+          ])
       });
     } catch (err) {
       next(err);

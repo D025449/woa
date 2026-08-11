@@ -21,7 +21,9 @@ export const ADMIN_WORKOUT_COLUMNS = [
   "total_cycles", "total_work", "total_calories", "total_ascent", "total_descent",
   "avg_speed", "max_speed", "avg_normalized_power", "avg_power", "max_power",
   "avg_heart_rate", "max_heart_rate", "avg_cadence", "max_cadence", "stream_codec",
-  "validgps", "gps_source", "workout_type", "fit_device_metadata",
+  "validgps", "gps_source", "workout_type", "terrain_profile", "intensity_profile", "intensity_tags",
+  "intensity_structure", "intensity_dose", "intensity_classifier_version", "intensity_model_features",
+  "fit_device_metadata",
   "manual_gps_lookup_points", "segment_processing_status", "segment_processing_error",
   "segment_processing_updated_at", "points_count", "samplerategps", "gps_track_blob_codec",
   "gps_bounds", "track_start_lat", "track_start_lng", "track_end_lat", "track_end_lng"
@@ -66,7 +68,9 @@ function serializeValue(value) {
 export function serializeAdminWorkout(row, ownerKey, segments, favoriteOwnerKeys) {
   const metadata = { ownerKey, sourceId: String(row.id) };
   for (const column of ADMIN_WORKOUT_COLUMNS) {
-    metadata[column] = serializeValue(row[column]);
+    metadata[column] = column === "intensity_model_features" && row[column]
+      ? Buffer.from(row[column]).toString("base64")
+      : serializeValue(row[column]);
   }
   metadata.segments = segments.map((segment) => Object.fromEntries(
     ADMIN_WORKOUT_SEGMENT_COLUMNS.map((column) => [column, serializeValue(segment[column])])
@@ -454,6 +458,15 @@ function workoutInsertValues(workout, uid) {
   return [uid, ...ADMIN_WORKOUT_COLUMNS.map((column) => {
     if (column === "fit_device_metadata" || column === "manual_gps_lookup_points") {
       return metadata[column] == null ? null : JSON.stringify(jsonValue(metadata[column]));
+    }
+    if (column === "terrain_profile") return metadata[column] ?? "altitude_missing";
+    if (column === "intensity_profile") return metadata[column] ?? "unknown";
+    if (column === "intensity_tags") return metadata[column] ?? 0;
+    if (column === "intensity_structure") return metadata[column] ?? "unknown";
+    if (column === "intensity_dose") return metadata[column] ?? "unknown";
+    if (column === "intensity_classifier_version") return metadata[column] ?? 0;
+    if (column === "intensity_model_features") {
+      return metadata[column] ? Buffer.from(String(metadata[column]), "base64") : null;
     }
     return metadata[column] ?? null;
   }), workout.stream, workout.gpsTrackBlob];

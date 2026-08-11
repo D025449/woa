@@ -14,6 +14,8 @@ const WORKOUT_LIBRARY_SORTS = new Set([
 ]);
 const WORKOUT_LIBRARY_SCOPES = new Set(["mine", "shared", "all"]);
 const WORKOUT_TYPES = new Set(["all", "indoor", "road", "mountain", "motorsport", "unknown"]);
+const TERRAIN_PROFILES = new Set(["all", "flat", "rolling", "mountainous", "altitude_missing", "altitude_invalid"]);
+const INTENSITY_PROFILES = new Set(["all", "recovery", "endurance", "tempo", "threshold", "vo2max", "anaerobic", "unknown"]);
 const GPS_FILTERS = new Set(["all", "valid", "invalid"]);
 const CHART_X_AXIS_MODES = new Set(["time", "distance"]);
 const CHART_SMOOTHING_LEVELS = new Set([
@@ -55,6 +57,8 @@ export function normalizeWorkoutLibraryState(state = {}) {
     scope: normalizeEnum(source.scope, WORKOUT_LIBRARY_SCOPES, "mine"),
     favoritesOnly: source.favoritesOnly === true,
     workoutType: normalizeEnum(source.workoutType, WORKOUT_TYPES, "all"),
+    terrainProfile: normalizeEnum(source.terrainProfile, TERRAIN_PROFILES, "all"),
+    intensityProfile: normalizeEnum(source.intensityProfile, INTENSITY_PROFILES, "all"),
     gpsFilter: normalizeEnum(source.gpsFilter, GPS_FILTERS, "all")
   };
 

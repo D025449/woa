@@ -9,6 +9,7 @@ import {
   resolveCyclingCalories
 } from "../../shared/WorkoutEnergy.js";
 import { encodeFitDeviceMetadata } from "../../shared/FitDeviceMetadataCodec.js";
+import { classifyTerrainProfile } from "../../shared/WorkoutTerrainClassifier.js";
 
 const textEncoder = new TextEncoder();
 const UINT8_NAN = 0xFF;
@@ -2312,6 +2313,9 @@ function deriveDistanceStallMetrics(compactRecords = {}) {
   );
   let movingSeconds = 0;
   let movingDistanceQ = 0;
+  let validDistanceTransitionCount = 0;
+  let movingDistanceSquaredQ = 0;
+  const movingDistanceDeltaCounts = new Map();
   let activeStallSeconds = 0;
   let activeStallRun = 0;
   let longestActiveStallSeconds = 0;
@@ -2333,9 +2337,15 @@ function deriveDistanceStallMetrics(compactRecords = {}) {
     }
 
     const distanceDeltaQ = currentDistance - previousDistance;
+    validDistanceTransitionCount += 1;
     if (distanceDeltaQ > 0) {
       movingSeconds += 1;
       movingDistanceQ += distanceDeltaQ;
+      movingDistanceSquaredQ += distanceDeltaQ * distanceDeltaQ;
+      movingDistanceDeltaCounts.set(
+        distanceDeltaQ,
+        Number(movingDistanceDeltaCounts.get(distanceDeltaQ) || 0) + 1
+      );
       activeStallRun = 0;
       continue;
     }
@@ -2406,7 +2416,21 @@ function deriveDistanceStallMetrics(compactRecords = {}) {
     }
   }
 
+  const movingDistanceMeanQ = movingSeconds > 0 ? movingDistanceQ / movingSeconds : 0;
+  const movingDistanceVarianceQ = movingSeconds > 0
+    ? Math.max(0, (movingDistanceSquaredQ / movingSeconds) - (movingDistanceMeanQ * movingDistanceMeanQ))
+    : 0;
+  const dominantDistanceSteps = [...movingDistanceDeltaCounts.values()]
+    .sort((left, right) => right - left)
+    .slice(0, 2)
+    .reduce((sum, count) => sum + count, 0);
+
   return {
+    distanceActiveRatio: movingSeconds / Math.max(1, validDistanceTransitionCount),
+    distanceStepDominanceRatio: dominantDistanceSteps / Math.max(1, movingSeconds),
+    movingSpeedCoefficientOfVariation: movingDistanceMeanQ > 0
+      ? Math.sqrt(movingDistanceVarianceQ) / movingDistanceMeanQ
+      : Infinity,
     distanceStallActiveRatio: activeStallSeconds / Math.max(1, recordCount - 1),
     longestActiveDistanceStallSeconds: longestActiveStallSeconds,
     movingSpeedKmh: movingSeconds > 0
@@ -2498,13 +2522,24 @@ function derivePersistedRowFromCompact(parsedCompact, gpsTrack, sourceName = "")
     sport: firstSession?.sport,
     subSport: firstSession?.sub_sport
   };
-  persistedRow.workout_type = classifyWorkoutTypeWithFitFallback(classificationInput);
-  if (persistedRow.workout_type === "unknown") {
-    persistedRow.workout_type = classifyWorkoutTypeWithFitFallback({
-      ...classificationInput,
-      ...deriveDistanceStallMetrics(parsedCompact?.compactRecords)
-    });
-  }
+  const distanceMetrics = deriveDistanceStallMetrics(parsedCompact?.compactRecords);
+  persistedRow.workout_type = classifyWorkoutTypeWithFitFallback({
+    ...classificationInput,
+    ...distanceMetrics
+  });
+  persistedRow.terrain_profile = classifyTerrainProfile({
+    altitudes: parsedCompact?.compactRecords?.altitudesQ,
+    distances: parsedCompact?.compactRecords?.distancesQ,
+    altitudeMissingValue: INT16_NAN,
+    distanceMissingValue: UINT32_NAN,
+    altitudeScale: 0.25,
+    distanceScale: 0.5
+  });
+  persistedRow.intensity_profile = "unknown";
+  persistedRow.intensity_tags = 0;
+  persistedRow.intensity_structure = "unknown";
+  persistedRow.intensity_dose = "unknown";
+  persistedRow.intensity_classifier_version = 0;
   return persistedRow;
 }
 
@@ -2599,6 +2634,7 @@ function filterIndoorAltitude(compactRecords, summary) {
   summary.totalDescent = 0;
   summary.persistedRow.total_ascent = 0;
   summary.persistedRow.total_descent = 0;
+  summary.persistedRow.terrain_profile = "altitude_missing";
 
   const recordCount = Number(compactRecords?.recordCount || 0);
   const altitudes = compactRecords?.altitudesQ;
@@ -2624,7 +2660,8 @@ export function createWoa1FileFromCompact(parsedCompact, {
   distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE,
   gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE,
   gpsCoordinateEncoding = "bitmap-columnar",
-  altitudeEncoding = "rle-delta-q1m"
+  altitudeEncoding = "rle-delta-q1m",
+  intensityModelFeatureBytes = null
 } = {}) {
   const preparedParsedCompact = withCalculatedPedalMetrics(parsedCompact);
   const timings = {
@@ -2718,7 +2755,10 @@ export function createWoa1FileFromCompact(parsedCompact, {
   timings.encodeSessionsJsonMs = nowMs() - stepStartedAt;
 
   const headerLength = 24;
-  const totalLength = headerLength + metaBytes.length + sessionBytes.length + workoutStreamBytes.length + gpsTrackBytes.length;
+  const intensityBytes = intensityModelFeatureBytes instanceof Uint8Array
+    ? intensityModelFeatureBytes
+    : new Uint8Array(0);
+  const totalLength = headerLength + metaBytes.length + sessionBytes.length + workoutStreamBytes.length + gpsTrackBytes.length + intensityBytes.length;
 
   stepStartedAt = nowMs();
   const buffer = new ArrayBuffer(totalLength);
@@ -2740,6 +2780,8 @@ export function createWoa1FileFromCompact(parsedCompact, {
   bytes.set(workoutStreamBytes, offset);
   offset += workoutStreamBytes.length;
   bytes.set(gpsTrackBytes, offset);
+  offset += gpsTrackBytes.length;
+  bytes.set(intensityBytes, offset);
   timings.assembleWoaFileMs = nowMs() - stepStartedAt;
 
   return {
@@ -2768,7 +2810,8 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
   distanceBlockSize = DEFAULT_DISTANCE_BLOCK_SIZE,
   gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE,
   gpsCoordinateEncoding = "bitmap-columnar",
-  altitudeEncoding = "rle-delta-q1m"
+  altitudeEncoding = "rle-delta-q1m",
+  intensityModelFeatureBytes = null
 } = {}) {
   const preparedParsedCompact = withCalculatedPedalMetrics(parsedCompact);
   const timings = {
@@ -2862,7 +2905,10 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
   timings.encodeSessionsJsonMs = nowMs() - stepStartedAt;
 
   const headerLength = 24;
-  const totalLength = headerLength + metaBytes.length + sessionBytes.length + workoutStreamBytes.length + gpsTrackBytes.length;
+  const intensityBytes = intensityModelFeatureBytes instanceof Uint8Array
+    ? intensityModelFeatureBytes
+    : new Uint8Array(0);
+  const totalLength = headerLength + metaBytes.length + sessionBytes.length + workoutStreamBytes.length + gpsTrackBytes.length + intensityBytes.length;
 
   stepStartedAt = nowMs();
   const buffer = new ArrayBuffer(totalLength);
@@ -2884,6 +2930,8 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
   bytes.set(workoutStreamBytes, offset);
   offset += workoutStreamBytes.length;
   bytes.set(gpsTrackBytes, offset);
+  offset += gpsTrackBytes.length;
+  bytes.set(intensityBytes, offset);
   timings.assembleWoaFileMs = nowMs() - stepStartedAt;
 
   return {

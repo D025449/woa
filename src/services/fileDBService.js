@@ -3,6 +3,7 @@ import pgPromise from "pg-promise";
 import WorkoutSharingService from "./workoutSharingService.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
 import { toPostgresBox } from "../shared/postgresSpatial.js";
+import { normalizeIntensityTags } from "../shared/WorkoutIntensityTags.js";
 
 const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
@@ -131,6 +132,11 @@ class FileDBService {
     "total_calories",
     "total_work",
     "workout_type",
+    "terrain_profile",
+    "intensity_profile",
+    "intensity_tags",
+    "intensity_structure",
+    "intensity_dose",
     "validgps"
   ];
 
@@ -146,7 +152,8 @@ class FileDBService {
     "avg_normalized_power",
     "total_timer_time",
     "total_calories",
-    "total_work"
+    "total_work",
+    "intensity_tags"
   ];
 
 
@@ -377,6 +384,15 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
           params.push(`%${value}%`);
           break;
 
+        case "bit_any": {
+          const mask = Math.max(0, Math.floor(Number(value) || 0));
+          if (mask > 0 && mask <= 63) {
+            whereParts.push(`(${f.field} & $${paramIndex}::smallint) <> 0`);
+            params.push(mask);
+          }
+          break;
+        }
+
         default:
           whereParts.push(`${f.field} = $${paramIndex}`);
           params.push(value);
@@ -533,6 +549,12 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       workouts.max_cadence,
       workouts.validgps,
       workouts.workout_type,
+      workouts.terrain_profile,
+      workouts.intensity_profile,
+      workouts.intensity_tags,
+      workouts.intensity_structure,
+      workouts.intensity_dose,
+      workouts.intensity_classifier_version,
       workouts.segment_processing_status,
       workouts.segment_processing_error,
       workouts.segment_processing_updated_at,
@@ -1907,6 +1929,21 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       workout_type: ["indoor", "road", "mountain", "motorsport", "unknown"].includes(persistedRow.workout_type)
         ? persistedRow.workout_type
         : "unknown",
+      terrain_profile: ["flat", "rolling", "mountainous", "altitude_missing", "altitude_invalid"].includes(persistedRow.terrain_profile)
+        ? persistedRow.terrain_profile
+        : "altitude_missing",
+      intensity_profile: ["unknown", "recovery", "endurance", "tempo", "threshold", "vo2max", "anaerobic"].includes(persistedRow.intensity_profile)
+        ? persistedRow.intensity_profile
+        : "unknown",
+      intensity_tags: normalizeIntensityTags(persistedRow.intensity_tags),
+      intensity_structure: ["unknown", "steady", "variable", "intervals"].includes(persistedRow.intensity_structure)
+        ? persistedRow.intensity_structure
+        : "unknown",
+      intensity_dose: ["unknown", "low", "moderate", "high"].includes(persistedRow.intensity_dose)
+        ? persistedRow.intensity_dose
+        : "unknown",
+      intensity_classifier_version: Math.max(0, Math.floor(Number(persistedRow.intensity_classifier_version) || 0)),
+      intensity_model_features: persistedRow.intensity_model_features || null,
       fit_device_metadata: persistedRow.fit_device_metadata || {
         version: 2,
         fileId: null,
@@ -2068,6 +2105,13 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       year_month,
       year_week,
       workout_type,
+      terrain_profile,
+      intensity_profile,
+      intensity_tags,
+      intensity_structure,
+      intensity_dose,
+      intensity_classifier_version,
+      intensity_model_features,
       fit_device_metadata
     } = fileRow;
 
@@ -2112,12 +2156,19 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       streamCodec,
       gpsSource,
       workout_type || "unknown",
+      terrain_profile || "altitude_missing",
+      intensity_profile || "unknown",
+      normalizeIntensityTags(intensity_tags),
+      intensity_structure || "unknown",
+      intensity_dose || "unknown",
+      intensity_classifier_version || 0,
+      intensity_model_features ? FileDBService.toBufferView(intensity_model_features) : null,
       fit_device_metadata || { version: 2, fileId: null, devices: [] }
     ];
   }
 
   static buildWorkoutInsertValuesClause(rowIndex) {
-    const offset = rowIndex * 41;
+    const offset = rowIndex * 48;
     const p = (index) => `$${offset + index}`;
     return `(
   ${p(1)},${p(2)},
@@ -2137,7 +2188,14 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
   ${p(38)},
   ${p(39)},
   ${p(40)},
-  ${p(41)}::jsonb
+  ${p(41)},
+  ${p(42)},
+  ${p(43)},
+  ${p(44)},
+  ${p(45)},
+  ${p(46)},
+  ${p(47)},
+  ${p(48)}::jsonb
 )`;
   }
 
@@ -2274,6 +2332,13 @@ INSERT INTO workouts (
   stream_codec,
   gps_source,
   workout_type,
+  terrain_profile,
+  intensity_profile,
+  intensity_tags,
+  intensity_structure,
+  intensity_dose,
+  intensity_classifier_version,
+  intensity_model_features,
   fit_device_metadata
 )
 VALUES
@@ -2372,6 +2437,13 @@ INSERT INTO workouts (
   stream_codec,
   gps_source,
   workout_type,
+  terrain_profile,
+  intensity_profile,
+  intensity_tags,
+  intensity_structure,
+  intensity_dose,
+  intensity_classifier_version,
+  intensity_model_features,
   fit_device_metadata
 )
 VALUES (
@@ -2392,7 +2464,14 @@ VALUES (
   $38,
   $39,
   $40,
-  $41::jsonb
+  $41,
+  $42,
+  $43,
+  $44,
+  $45,
+  $46,
+  $47,
+  $48::jsonb
 )
 ON CONFLICT (uid, start_time)
 DO NOTHING

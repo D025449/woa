@@ -579,7 +579,16 @@ export default class ChartView {
         source: []
       },
       dataZoom: [
-        { type: "inside", xAxisIndex: 0, filterMode: "none" },
+        {
+          type: "inside",
+          xAxisIndex: 0,
+          filterMode: "none",
+          disabled: false,
+          zoomOnMouseWheel: true,
+          moveOnMouseWheel: false,
+          moveOnMouseMove: true,
+          preventDefaultMouseMove: true
+        },
         { type: "slider", xAxisIndex: 0 }
       ],
       series: this.buildSeriesDefinitions(labels)
@@ -593,7 +602,19 @@ export default class ChartView {
   // DATA UPDATE
   // -----------------------------
   updateWorkout(workout) {
+    const previousWorkoutId = this.currentWorkout?.id;
+    const nextWorkoutId = workout?.id;
+    const workoutChanged = previousWorkoutId != null && nextWorkoutId != null
+      ? String(previousWorkoutId) !== String(nextWorkoutId)
+      : this.currentWorkout !== workout;
     this.currentWorkout = workout;
+    if (workoutChanged) {
+      this.chart.dispatchAction({
+        type: "dataZoom",
+        start: 0,
+        end: 100
+      });
+    }
     this.distanceKmByIndex = null;
     if (!this.isWorkoutEditable() && this.mode) {
       this.setMode("");
@@ -1551,8 +1572,12 @@ export default class ChartView {
     this.chart.getZr().setCursorStyle(enabled ? "crosshair" : "default");
     this.chart.setOption({
       dataZoom: [{
-        type: 'inside',
+        type: "inside",
+        xAxisIndex: 0,
+        filterMode: "none",
+        disabled: false,
         zoomOnMouseWheel: true,
+        moveOnMouseWheel: false,
         moveOnMouseMove: !enabled
       }]
     });

@@ -26,3 +26,31 @@ test("every locale contains the chart show-all tooltip", async () => {
     assert.equal(typeof messages.dashboardNewPage.showAll, "string", locale);
   }
 });
+
+test("workout chart keeps pointer-centered mouse-wheel zoom enabled", async () => {
+  const chartSource = await fs.readFile(
+    new URL("../src/public/js/chart-view.js", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(
+    chartSource,
+    /dataZoom:\s*\[[\s\S]*?type: "inside",[\s\S]*?disabled: false,[\s\S]*?zoomOnMouseWheel: true,[\s\S]*?moveOnMouseWheel: false/u
+  );
+  assert.match(
+    chartSource,
+    /setDrawingMode\(enabled\)[\s\S]*?zoomOnMouseWheel: true,[\s\S]*?moveOnMouseWheel: false/u
+  );
+});
+
+test("opening a different workout resets the chart to its complete range", async () => {
+  const chartSource = await fs.readFile(
+    new URL("../src/public/js/chart-view.js", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(
+    chartSource,
+    /updateWorkout\(workout\)[\s\S]*?workoutChanged[\s\S]*?type: "dataZoom",[\s\S]*?start: 0,[\s\S]*?end: 100/u
+  );
+});

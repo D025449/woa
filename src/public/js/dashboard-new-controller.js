@@ -29,6 +29,8 @@ export default class Controller {
       sort: "newest",
       scope: "mine",
       favoritesOnly: false,
+      terrainProfile: "all",
+      intensityProfile: "all",
       gpsFilter: "all"
     });
     this.chartViewState = this.uiState.get("chartViewState", {
@@ -338,6 +340,8 @@ export default class Controller {
       initialSort: this.libraryState?.sort || "newest",
       initialScope: this.libraryState?.scope || "mine",
       initialWorkoutType: this.libraryState?.workoutType || "all",
+      initialTerrainProfile: this.libraryState?.terrainProfile || "all",
+      initialIntensityProfile: this.libraryState?.intensityProfile || "all",
       initialGpsFilter: this.libraryState?.gpsFilter || "all",
       initialFavoriteFilterActive: !!this.libraryState?.favoritesOnly,
       initialFavoriteWorkoutIds: this.favoriteWorkoutIds,

@@ -1,5 +1,7 @@
 import { applyCompactEncodingOptions, parseFitBufferCompactBrowser } from "./fit-import-compact-browser.js";
 import { createWoa1FileFromCompactAsync } from "./woa-format-compact.js";
+import { extractWorkoutIntensityFeatures } from "../../shared/WorkoutIntensityClassifier.js";
+import { encodeWorkoutIntensityModelFeatures } from "../../shared/WorkoutIntensityModelCodec.js";
 import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../../shared/gpsSampling.js";
 import {
   detectFitLapSegmentsCompact,
@@ -88,6 +90,15 @@ function getParsedSessionCount(parsed) {
 
 async function createWoaFromParsed(parsed, entryName, encodingOptions) {
   const adjustedParsed = applyCompactEncodingOptions(parsed, encodingOptions);
+  const compactRecords = adjustedParsed.compactRecords || {};
+  const intensityFeatures = extractWorkoutIntensityFeatures({
+    recordCount: compactRecords.recordCount,
+    powerAtIndex: (index) => compactRecords.powersW?.[index],
+    normalizedPower: adjustedParsed.sessions?.[0]?.normalized_power,
+    missingValue: 0xffff,
+    effortLimit: 1,
+    includeHistogram: false
+  });
   const streamCodec = resolveUploadCompressionCodec(encodingOptions);
   const gpsSampleRateSeconds = normalizeGpsSampleRateSeconds(
     encodingOptions?.gpsSampleRateSeconds,
@@ -99,6 +110,7 @@ async function createWoaFromParsed(parsed, entryName, encodingOptions) {
     : "bitmap-columnar";
   return {
     adjustedParsed,
+    intensityFeatures,
     result: await createWoa1FileFromCompactAsync(adjustedParsed, {
       sourceName: entryName,
       sampleRateSeconds: gpsSampleRateSeconds,
@@ -106,6 +118,7 @@ async function createWoaFromParsed(parsed, entryName, encodingOptions) {
       powerEncoding: "delta8-q4w",
       distanceEncoding: "uint8-q05m",
       altitudeEncoding: "rle-delta-q1m",
+      intensityModelFeatureBytes: encodeWorkoutIntensityModelFeatures(intensityFeatures),
       streamCodec,
       gpsTrackBlobCodec: "identity",
       compressWorkoutStream: (bytes, options = {}) => compressWithCodec(bytes, streamCodec, options, encodingOptions),
@@ -166,8 +179,9 @@ self.addEventListener("message", async (event) => {
     }
 
     const buildStartedAt = nowMs();
-    const { adjustedParsed, result } = await createWoaFromParsed(parsed, entryName, encodingOptions);
+    const { adjustedParsed, intensityFeatures, result } = await createWoaFromParsed(parsed, entryName, encodingOptions);
     const buildWoaMs = nowMs() - buildStartedAt;
+    intensityFeatures.powerBuckets = Uint16Array.from(intensityFeatures.powerBuckets);
     const isMotorsport = result.meta?.persistedRow?.workout_type === "motorsport";
     let browserPostprocess = null;
     if (encodingOptions.browserPostprocessBenchmark) {
@@ -219,10 +233,11 @@ self.addEventListener("message", async (event) => {
       },
       workoutStreamStats: result.stats?.workoutStream || {},
       powerArtifactStats: adjustedParsed.compactRecords?.powerArtifactStats || {},
+      intensityFeatures,
       browserPostprocess,
       browserGpsSegmentBenchmark,
       sessionsCount: getParsedSessionCount(adjustedParsed)
-    }, [result.bytes.buffer]);
+    }, [result.bytes.buffer, intensityFeatures.powerBuckets.buffer]);
   } catch (error) {
     self.postMessage({
       type: "fit-entry-result",

@@ -28,6 +28,36 @@ test("classifies a fast long workout without GPS as road", () => {
   }), "road");
 });
 
+test("classifies generated two-step trainer speed as indoor", () => {
+  assert.equal(classifyWorkoutType({
+    validGps: false,
+    totalDistance: 36_873,
+    totalTimerTime: 3627,
+    totalAscent: 0,
+    avgSpeed: 36.612,
+    avgPower: 277,
+    avgCadence: 84,
+    distanceActiveRatio: 0.989,
+    distanceStepDominanceRatio: 1,
+    movingSpeedCoefficientOfVariation: 0.044
+  }), "indoor");
+});
+
+test("does not treat naturally varying no-GPS speed as indoor", () => {
+  assert.equal(classifyWorkoutType({
+    validGps: false,
+    totalDistance: 42_000,
+    totalTimerTime: 3600,
+    totalAscent: 0,
+    avgSpeed: 42,
+    avgPower: 210,
+    avgCadence: 88,
+    distanceActiveRatio: 0.95,
+    distanceStepDominanceRatio: 0.42,
+    movingSpeedCoefficientOfVariation: 0.18
+  }), "road");
+});
+
 test("classifies a no-GPS ride from intact distance periods after a sensor dropout", () => {
   assert.equal(classifyWorkoutType({
     validGps: false,

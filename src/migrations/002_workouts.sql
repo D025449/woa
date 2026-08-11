@@ -44,6 +44,13 @@ CREATE TABLE workouts (
     validGps             BOOLEAN,
     gps_source           TEXT,
     workout_type         TEXT NOT NULL DEFAULT 'unknown',
+    terrain_profile      TEXT NOT NULL DEFAULT 'altitude_missing',
+    intensity_profile    TEXT NOT NULL DEFAULT 'unknown',
+    intensity_tags       SMALLINT NOT NULL DEFAULT 0,
+    intensity_structure  TEXT NOT NULL DEFAULT 'unknown',
+    intensity_dose       TEXT NOT NULL DEFAULT 'unknown',
+    intensity_classifier_version SMALLINT NOT NULL DEFAULT 0,
+    intensity_model_features BYTEA,
     fit_device_metadata  JSONB NOT NULL DEFAULT '{"version":1,"fileId":null,"devices":[]}'::jsonb,
     manual_gps_lookup_points JSONB,
     segment_processing_status TEXT NOT NULL DEFAULT 'completed',
@@ -68,6 +75,18 @@ CREATE TABLE workouts (
         CHECK (gps_source IS NULL OR gps_source IN ('recorded', 'manual_lookup')),
     CONSTRAINT workouts_workout_type_check
         CHECK (workout_type IN ('indoor', 'road', 'mountain', 'motorsport', 'unknown')),
+    CONSTRAINT workouts_terrain_profile_check
+        CHECK (terrain_profile IN ('flat', 'rolling', 'mountainous', 'altitude_missing', 'altitude_invalid')),
+    CONSTRAINT workouts_intensity_profile_check
+        CHECK (intensity_profile IN ('unknown', 'recovery', 'endurance', 'tempo', 'threshold', 'vo2max', 'anaerobic')),
+    CONSTRAINT workouts_intensity_tags_check
+        CHECK (intensity_tags BETWEEN 0 AND 63),
+    CONSTRAINT workouts_intensity_structure_check
+        CHECK (intensity_structure IN ('unknown', 'steady', 'variable', 'intervals')),
+    CONSTRAINT workouts_intensity_dose_check
+        CHECK (intensity_dose IN ('unknown', 'low', 'moderate', 'high')),
+    CONSTRAINT workouts_intensity_model_features_check
+        CHECK (intensity_model_features IS NULL OR octet_length(intensity_model_features) = 18),
     CONSTRAINT workouts_fit_device_metadata_check
         CHECK (
             jsonb_typeof(fit_device_metadata) = 'object'
@@ -102,5 +121,11 @@ ON workouts (uid);
 
 CREATE INDEX IF NOT EXISTS idx_workouts_uid_type_start_time
 ON workouts (uid, workout_type, start_time DESC);
+
+CREATE INDEX IF NOT EXISTS idx_workouts_uid_terrain_profile_start_time
+ON workouts (uid, terrain_profile, start_time DESC);
+
+CREATE INDEX IF NOT EXISTS idx_workouts_uid_intensity_profile_start_time
+ON workouts (uid, intensity_profile, start_time DESC);
 
 COMMIT;

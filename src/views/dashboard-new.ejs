@@ -248,6 +248,88 @@
                                                 <option value="unknown"><%= t("dashboardNewPage.workoutTypeUnknown") %></option>
                                             </select>
                                         </div>
+                                        <div class="workout-library-terrain-filter">
+                                            <button
+                                                id="workout-library-terrain-trigger"
+                                                class="workout-library-sort__trigger workout-library-terrain-filter__trigger"
+                                                type="button"
+                                                aria-haspopup="menu"
+                                                aria-expanded="false"
+                                                aria-label="<%= t('dashboardNewPage.terrainProfileFilterLabel') %>"
+                                                title="<%= t('dashboardNewPage.terrainProfileFilterLabel') %>">
+                                                <span id="workout-library-terrain-trigger-label" class="visually-hidden"><%= t("dashboardNewPage.terrainProfileAll") %></span>
+                                                <svg class="workout-library-terrain-filter__icon" viewBox="0 0 20 20" aria-hidden="true">
+                                                    <path d="M2.4 15.8l4.4-6.4 2.35 3.05L12.4 5.1l5.2 10.7H2.4z" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"></path>
+                                                </svg>
+                                                <svg class="workout-library-sort__chevron" viewBox="0 0 20 20" aria-hidden="true">
+                                                    <path d="M5.5 7.5L10 12l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                                                </svg>
+                                            </button>
+                                            <div id="workout-library-terrain-menu" class="workout-library-sort__menu workout-library-terrain-filter__menu" hidden>
+                                                <% for (const option of [
+                                                    ["all", "terrainProfileAll"],
+                                                    ["flat", "terrainProfileFlat"],
+                                                    ["rolling", "terrainProfileRolling"],
+                                                    ["mountainous", "terrainProfileMountainous"],
+                                                    ["altitude_missing", "terrainProfileAltitudeMissing"],
+                                                    ["altitude_invalid", "terrainProfileAltitudeInvalid"]
+                                                ]) { %>
+                                                    <button class="workout-library-sort__option" type="button" data-terrain-profile-option="<%= option[0] %>">
+                                                        <span class="workout-library-sort__option-title"><%= t(`dashboardNewPage.${option[1]}`) %></span>
+                                                    </button>
+                                                <% } %>
+                                            </div>
+                                            <select
+                                                id="workout-library-terrain-filter"
+                                                class="form-select workout-library-terrain-filter__native"
+                                                aria-label="<%= t('dashboardNewPage.terrainProfileFilterLabel') %>">
+                                                <option value="all"><%= t("dashboardNewPage.terrainProfileAll") %></option>
+                                                <option value="flat"><%= t("dashboardNewPage.terrainProfileFlat") %></option>
+                                                <option value="rolling"><%= t("dashboardNewPage.terrainProfileRolling") %></option>
+                                                <option value="mountainous"><%= t("dashboardNewPage.terrainProfileMountainous") %></option>
+                                                <option value="altitude_missing"><%= t("dashboardNewPage.terrainProfileAltitudeMissing") %></option>
+                                                <option value="altitude_invalid"><%= t("dashboardNewPage.terrainProfileAltitudeInvalid") %></option>
+                                            </select>
+                                        </div>
+                                        <div class="workout-library-terrain-filter">
+                                            <button
+                                                id="workout-library-intensity-trigger"
+                                                class="workout-library-sort__trigger workout-library-terrain-filter__trigger"
+                                                type="button"
+                                                aria-haspopup="menu"
+                                                aria-expanded="false"
+                                                aria-label="<%= t('dashboardNewPage.intensityProfileFilterLabel') %>"
+                                                title="<%= t('dashboardNewPage.intensityProfileFilterLabel') %>">
+                                                <span id="workout-library-intensity-trigger-label" class="visually-hidden"><%= t("dashboardNewPage.intensityProfileAll") %></span>
+                                                <svg class="workout-library-terrain-filter__icon" viewBox="0 0 20 20" aria-hidden="true">
+                                                    <path d="M11.3 1.9L4.9 11h4.25l-.55 7.1 6.5-9.35h-4.3l.5-6.85z" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"></path>
+                                                </svg>
+                                                <svg class="workout-library-sort__chevron" viewBox="0 0 20 20" aria-hidden="true">
+                                                    <path d="M5.5 7.5L10 12l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                                                </svg>
+                                            </button>
+                                            <div id="workout-library-intensity-menu" class="workout-library-sort__menu workout-library-terrain-filter__menu" hidden>
+                                                <% for (const option of [
+                                                    ["all", "intensityProfileAll"],
+                                                    ["recovery", "intensityProfileRecovery"],
+                                                    ["endurance", "intensityProfileEndurance"],
+                                                    ["tempo", "intensityProfileTempo"],
+                                                    ["threshold", "intensityProfileThreshold"],
+                                                    ["vo2max", "intensityProfileVo2max"],
+                                                    ["anaerobic", "intensityProfileAnaerobic"],
+                                                    ["unknown", "intensityProfileUnknown"]
+                                                ]) { %>
+                                                    <button class="workout-library-sort__option" type="button" data-intensity-profile-option="<%= option[0] %>">
+                                                        <span class="workout-library-sort__option-title"><%= t(`dashboardNewPage.${option[1]}`) %></span>
+                                                    </button>
+                                                <% } %>
+                                            </div>
+                                            <select id="workout-library-intensity-filter" class="form-select workout-library-terrain-filter__native" aria-label="<%= t('dashboardNewPage.intensityProfileFilterLabel') %>">
+                                                <% for (const option of [["all", "intensityProfileAll"], ["recovery", "intensityProfileRecovery"], ["endurance", "intensityProfileEndurance"], ["tempo", "intensityProfileTempo"], ["threshold", "intensityProfileThreshold"], ["vo2max", "intensityProfileVo2max"], ["anaerobic", "intensityProfileAnaerobic"], ["unknown", "intensityProfileUnknown"]]) { %>
+                                                    <option value="<%= option[0] %>"><%= t(`dashboardNewPage.${option[1]}`) %></option>
+                                                <% } %>
+                                            </select>
+                                        </div>
                                         <div class="workout-library-gps-filter">
                                             <button
                                                 id="workout-library-gps-trigger"

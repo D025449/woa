@@ -511,6 +511,11 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   top: 1.1rem;
 }
 
+.dashboard-library-section:has(.workout-library-sort__trigger.is-open) {
+  z-index: 30;
+  overflow: visible;
+}
+
 .dashboard-shell--client .dashboard-library-column {
   min-height: 0;
 }
@@ -1226,6 +1231,38 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   position: relative;
   flex: 0 0 3.6rem;
   min-width: 3.6rem;
+}
+
+.workout-library-terrain-filter {
+  position: relative;
+  flex: 0 0 3.6rem;
+  min-width: 3.6rem;
+}
+
+.workout-library-terrain-filter__trigger.is-active {
+  border-color: var(--ui-info-border-hover);
+  color: var(--ui-info-text);
+  background: var(--ui-info-bg-soft);
+}
+
+.workout-library-terrain-filter__trigger .workout-library-terrain-filter__icon {
+  width: 1.08rem;
+  height: 1.08rem;
+  color: currentColor;
+}
+
+.workout-library-terrain-filter__menu {
+  right: auto;
+  left: 0;
+  min-width: 13.5rem;
+}
+
+.workout-library-terrain-filter__native {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .workout-library-gps-filter__trigger.is-active {

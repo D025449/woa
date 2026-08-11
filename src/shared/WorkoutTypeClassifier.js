@@ -34,6 +34,9 @@ export function classifyWorkoutType({
   avgPower = 0,
   avgCadence = 0,
   gpsPathDistance = null,
+  distanceActiveRatio = 0,
+  distanceStepDominanceRatio = 0,
+  movingSpeedCoefficientOfVariation = Infinity,
   distanceStallActiveRatio = 0,
   longestActiveDistanceStallSeconds = 0,
   movingSpeedKmh = 0,
@@ -57,6 +60,17 @@ export function classifyWorkoutType({
   if (durationSeconds < 300 || !hasTrainingSignal) return "unknown";
 
   if (!validGps && distanceMeters <= INDOOR_MAX_DISTANCE_METERS) return "indoor";
+
+  if (
+    !validGps
+    && ascentMeters <= 1
+    && finiteNumber(distanceActiveRatio) >= 0.90
+    && finiteNumber(distanceStepDominanceRatio) >= 0.90
+    && finiteNumber(movingSpeedCoefficientOfVariation, Infinity) <= 0.06
+    && (finiteNumber(avgPower) > 0 || finiteNumber(avgCadence) > 0)
+  ) {
+    return "indoor";
+  }
 
   if (
     !validGps

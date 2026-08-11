@@ -1,6 +1,10 @@
 import { WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION } from "../../shared/SegmentAppearance.js";
 import { getBrowserTimeZone } from "../../shared/FitFileName.js";
+import { intensityTagBit } from "../../shared/WorkoutIntensityTags.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
+
+const TERRAIN_PROFILE_VALUES = ["flat", "rolling", "mountainous", "altitude_missing", "altitude_invalid"];
+const INTENSITY_PROFILE_VALUES = ["recovery", "endurance", "tempo", "threshold", "vo2max", "anaerobic", "unknown"];
 
 export default class WorkoutLibraryView {
 
@@ -30,6 +34,14 @@ export default class WorkoutLibraryView {
     this.workoutTypeTrigger = document.getElementById("workout-library-type-trigger");
     this.workoutTypeTriggerLabel = document.getElementById("workout-library-type-trigger-label");
     this.workoutTypeMenu = document.getElementById("workout-library-type-menu");
+    this.terrainProfileFilter = document.getElementById("workout-library-terrain-filter");
+    this.terrainProfileTrigger = document.getElementById("workout-library-terrain-trigger");
+    this.terrainProfileTriggerLabel = document.getElementById("workout-library-terrain-trigger-label");
+    this.terrainProfileMenu = document.getElementById("workout-library-terrain-menu");
+    this.intensityProfileFilter = document.getElementById("workout-library-intensity-filter");
+    this.intensityProfileTrigger = document.getElementById("workout-library-intensity-trigger");
+    this.intensityProfileTriggerLabel = document.getElementById("workout-library-intensity-trigger-label");
+    this.intensityProfileMenu = document.getElementById("workout-library-intensity-menu");
     this.gpsFilter = document.getElementById(handlers.gpsFilterId || "workout-library-gps-filter");
     this.gpsFilterTrigger = document.getElementById("workout-library-gps-trigger");
     this.gpsFilterTriggerLabel = document.getElementById("workout-library-gps-trigger-label");
@@ -86,6 +98,12 @@ export default class WorkoutLibraryView {
     this.gpsFilterValue = ["valid", "invalid"].includes(handlers.initialGpsFilter)
       ? handlers.initialGpsFilter
       : "all";
+    this.terrainProfileValue = TERRAIN_PROFILE_VALUES.includes(handlers.initialTerrainProfile)
+      ? handlers.initialTerrainProfile
+      : "all";
+    this.intensityProfileValue = INTENSITY_PROFILE_VALUES.includes(handlers.initialIntensityProfile)
+      ? handlers.initialIntensityProfile
+      : "all";
     this.favoriteWorkoutIds = new Set((handlers.initialFavoriteWorkoutIds || []).map((value) => String(value)));
 
     if (this.searchInput) {
@@ -101,8 +119,14 @@ export default class WorkoutLibraryView {
     if (this.gpsFilter) {
       this.gpsFilter.value = this.gpsFilterValue;
     }
+    if (this.terrainProfileFilter) {
+      this.terrainProfileFilter.value = this.terrainProfileValue;
+    }
+    if (this.intensityProfileFilter) this.intensityProfileFilter.value = this.intensityProfileValue;
 
     this.syncWorkoutTypeUi();
+    this.syncTerrainProfileUi();
+    this.syncIntensityProfileUi();
     this.syncGpsFilterUi();
     this.syncSortUi();
 
@@ -140,6 +164,12 @@ export default class WorkoutLibraryView {
     this.gpsFilterValue = ["valid", "invalid"].includes(state.gpsFilter)
       ? state.gpsFilter
       : "all";
+    this.terrainProfileValue = TERRAIN_PROFILE_VALUES.includes(state.terrainProfile)
+      ? state.terrainProfile
+      : "all";
+    this.intensityProfileValue = INTENSITY_PROFILE_VALUES.includes(state.intensityProfile)
+      ? state.intensityProfile
+      : "all";
 
     if (this.searchInput) {
       this.searchInput.value = this.searchInputValue;
@@ -153,9 +183,15 @@ export default class WorkoutLibraryView {
     if (this.gpsFilter) {
       this.gpsFilter.value = this.gpsFilterValue;
     }
+    if (this.terrainProfileFilter) {
+      this.terrainProfileFilter.value = this.terrainProfileValue;
+    }
+    if (this.intensityProfileFilter) this.intensityProfileFilter.value = this.intensityProfileValue;
 
     this.syncSortUi();
     this.syncWorkoutTypeUi();
+    this.syncTerrainProfileUi();
+    this.syncIntensityProfileUi();
     this.syncGpsFilterUi();
     this.updateScopeButtons();
     this.updateFavoriteFilterButton();
@@ -189,6 +225,32 @@ export default class WorkoutLibraryView {
       element.addEventListener("click", () => {
         this.applyWorkoutTypeValue(element.getAttribute("data-workout-type-option") || "all");
         this.closeWorkoutTypeMenu();
+      });
+    });
+
+    this.terrainProfileFilter?.addEventListener("change", () => {
+      this.applyTerrainProfileValue(this.terrainProfileFilter?.value || "all");
+    });
+
+    this.terrainProfileTrigger?.addEventListener("click", () => {
+      this.toggleTerrainProfileMenu();
+    });
+
+    this.terrainProfileMenu?.querySelectorAll("[data-terrain-profile-option]").forEach((element) => {
+      element.addEventListener("click", () => {
+        this.applyTerrainProfileValue(element.getAttribute("data-terrain-profile-option") || "all");
+        this.closeTerrainProfileMenu();
+      });
+    });
+
+    this.intensityProfileFilter?.addEventListener("change", () => {
+      this.applyIntensityProfileValue(this.intensityProfileFilter?.value || "all");
+    });
+    this.intensityProfileTrigger?.addEventListener("click", () => this.toggleIntensityProfileMenu());
+    this.intensityProfileMenu?.querySelectorAll("[data-intensity-profile-option]").forEach((element) => {
+      element.addEventListener("click", () => {
+        this.applyIntensityProfileValue(element.getAttribute("data-intensity-profile-option") || "all");
+        this.closeIntensityProfileMenu();
       });
     });
 
@@ -238,6 +300,13 @@ export default class WorkoutLibraryView {
 
       if (!this.workoutTypeTrigger?.contains(target) && !this.workoutTypeMenu?.contains(target)) {
         this.closeWorkoutTypeMenu();
+      }
+
+      if (!this.terrainProfileTrigger?.contains(target) && !this.terrainProfileMenu?.contains(target)) {
+        this.closeTerrainProfileMenu();
+      }
+      if (!this.intensityProfileTrigger?.contains(target) && !this.intensityProfileMenu?.contains(target)) {
+        this.closeIntensityProfileMenu();
       }
 
       if (!this.gpsFilterTrigger?.contains(target) && !this.gpsFilterMenu?.contains(target)) {
@@ -479,6 +548,20 @@ export default class WorkoutLibraryView {
         value: this.gpsFilterValue === "valid"
       });
     }
+    if (TERRAIN_PROFILE_VALUES.includes(this.terrainProfileValue)) {
+      filters.push({ field: "terrain_profile", type: "=", value: this.terrainProfileValue });
+    }
+    if (INTENSITY_PROFILE_VALUES.includes(this.intensityProfileValue)) {
+      if (this.intensityProfileValue === "unknown") {
+        filters.push({ field: "intensity_profile", type: "=", value: "unknown" });
+      } else {
+        filters.push({
+          field: "intensity_tags",
+          type: "bit_any",
+          value: intensityTagBit(this.intensityProfileValue)
+        });
+      }
+    }
     return filters;
   }
 
@@ -545,6 +628,16 @@ export default class WorkoutLibraryView {
       });
     }
 
+    if (this.terrainProfileValue !== "all") {
+      chips.push({
+        type: "terrainProfile",
+        label: this.getTerrainProfileLabel(this.terrainProfileValue)
+      });
+    }
+    if (this.intensityProfileValue !== "all") {
+      chips.push({ type: "intensityProfile", label: this.getIntensityProfileLabel(this.intensityProfileValue) });
+    }
+
     if (chips.length === 0) {
       this.activeFiltersElement.hidden = true;
       this.activeFiltersElement.innerHTML = "";
@@ -604,6 +697,15 @@ export default class WorkoutLibraryView {
 
     if (type === "gpsFilter") {
       this.applyGpsFilterValue("all");
+      return;
+    }
+
+    if (type === "terrainProfile") {
+      this.applyTerrainProfileValue("all");
+      return;
+    }
+    if (type === "intensityProfile") {
+      this.applyIntensityProfileValue("all");
       return;
     }
 
@@ -679,6 +781,8 @@ export default class WorkoutLibraryView {
       return;
     }
     this.closeSortMenu();
+    this.closeTerrainProfileMenu();
+    this.closeIntensityProfileMenu();
     this.closeGpsFilterMenu();
     this.workoutTypeMenu.hidden = false;
     this.workoutTypeTrigger.classList.add("is-open");
@@ -692,6 +796,116 @@ export default class WorkoutLibraryView {
     this.workoutTypeMenu.hidden = true;
     this.workoutTypeTrigger.classList.remove("is-open");
     this.workoutTypeTrigger.setAttribute("aria-expanded", "false");
+  }
+
+  applyTerrainProfileValue(value) {
+    this.terrainProfileValue = TERRAIN_PROFILE_VALUES.includes(value) ? value : "all";
+    if (this.terrainProfileFilter) this.terrainProfileFilter.value = this.terrainProfileValue;
+    this.syncTerrainProfileUi();
+    this.handlers.onStateChange?.(this.getState());
+    this.reload();
+  }
+
+  getTerrainProfileLabel(value) {
+    const keys = {
+      all: "terrainProfileAll",
+      flat: "terrainProfileFlat",
+      rolling: "terrainProfileRolling",
+      mountainous: "terrainProfileMountainous",
+      altitude_missing: "terrainProfileAltitudeMissing",
+      altitude_invalid: "terrainProfileAltitudeInvalid"
+    };
+    return this.pageT(keys[value] || keys.all);
+  }
+
+  syncTerrainProfileUi() {
+    const label = this.getTerrainProfileLabel(this.terrainProfileValue);
+    const accessibleLabel = `${this.pageT("terrainProfileFilterLabel")}: ${label}`;
+    if (this.terrainProfileTriggerLabel) this.terrainProfileTriggerLabel.textContent = label;
+    if (this.terrainProfileTrigger) {
+      this.terrainProfileTrigger.title = accessibleLabel;
+      this.terrainProfileTrigger.setAttribute("aria-label", accessibleLabel);
+      this.terrainProfileTrigger.classList.toggle("is-active", this.terrainProfileValue !== "all");
+    }
+    this.terrainProfileMenu?.querySelectorAll("[data-terrain-profile-option]").forEach((element) => {
+      element.classList.toggle(
+        "is-active",
+        element.getAttribute("data-terrain-profile-option") === this.terrainProfileValue
+      );
+    });
+  }
+
+  toggleTerrainProfileMenu() {
+    if (!this.terrainProfileMenu?.hidden) this.closeTerrainProfileMenu();
+    else this.openTerrainProfileMenu();
+  }
+
+  openTerrainProfileMenu() {
+    if (!this.terrainProfileMenu || !this.terrainProfileTrigger) return;
+    this.closeWorkoutTypeMenu();
+    this.closeIntensityProfileMenu();
+    this.closeGpsFilterMenu();
+    this.closeSortMenu();
+    this.terrainProfileMenu.hidden = false;
+    this.terrainProfileTrigger.classList.add("is-open");
+    this.terrainProfileTrigger.setAttribute("aria-expanded", "true");
+  }
+
+  closeTerrainProfileMenu() {
+    if (!this.terrainProfileMenu || !this.terrainProfileTrigger) return;
+    this.terrainProfileMenu.hidden = true;
+    this.terrainProfileTrigger.classList.remove("is-open");
+    this.terrainProfileTrigger.setAttribute("aria-expanded", "false");
+  }
+
+  applyIntensityProfileValue(value) {
+    this.intensityProfileValue = INTENSITY_PROFILE_VALUES.includes(value) ? value : "all";
+    if (this.intensityProfileFilter) this.intensityProfileFilter.value = this.intensityProfileValue;
+    this.syncIntensityProfileUi();
+    this.handlers.onStateChange?.(this.getState());
+    this.reload();
+  }
+
+  getIntensityProfileLabel(value) {
+    const suffix = value === "vo2max" ? "Vo2max" : `${value.charAt(0).toUpperCase()}${value.slice(1)}`;
+    return this.pageT(value === "all" ? "intensityProfileAll" : `intensityProfile${suffix}`);
+  }
+
+  syncIntensityProfileUi() {
+    const label = this.getIntensityProfileLabel(this.intensityProfileValue);
+    const accessibleLabel = `${this.pageT("intensityProfileFilterLabel")}: ${label}`;
+    if (this.intensityProfileTriggerLabel) this.intensityProfileTriggerLabel.textContent = label;
+    if (this.intensityProfileTrigger) {
+      this.intensityProfileTrigger.title = accessibleLabel;
+      this.intensityProfileTrigger.setAttribute("aria-label", accessibleLabel);
+      this.intensityProfileTrigger.classList.toggle("is-active", this.intensityProfileValue !== "all");
+    }
+    this.intensityProfileMenu?.querySelectorAll("[data-intensity-profile-option]").forEach((element) => {
+      element.classList.toggle("is-active", element.getAttribute("data-intensity-profile-option") === this.intensityProfileValue);
+    });
+  }
+
+  toggleIntensityProfileMenu() {
+    if (!this.intensityProfileMenu?.hidden) this.closeIntensityProfileMenu();
+    else this.openIntensityProfileMenu();
+  }
+
+  openIntensityProfileMenu() {
+    if (!this.intensityProfileMenu || !this.intensityProfileTrigger) return;
+    this.closeWorkoutTypeMenu();
+    this.closeTerrainProfileMenu();
+    this.closeGpsFilterMenu();
+    this.closeSortMenu();
+    this.intensityProfileMenu.hidden = false;
+    this.intensityProfileTrigger.classList.add("is-open");
+    this.intensityProfileTrigger.setAttribute("aria-expanded", "true");
+  }
+
+  closeIntensityProfileMenu() {
+    if (!this.intensityProfileMenu || !this.intensityProfileTrigger) return;
+    this.intensityProfileMenu.hidden = true;
+    this.intensityProfileTrigger.classList.remove("is-open");
+    this.intensityProfileTrigger.setAttribute("aria-expanded", "false");
   }
 
   applyGpsFilterValue(value) {
@@ -746,6 +960,8 @@ export default class WorkoutLibraryView {
       return;
     }
     this.closeWorkoutTypeMenu();
+    this.closeTerrainProfileMenu();
+    this.closeIntensityProfileMenu();
     this.closeSortMenu();
     this.gpsFilterMenu.hidden = false;
     this.gpsFilterTrigger.classList.add("is-open");
@@ -821,6 +1037,8 @@ export default class WorkoutLibraryView {
       return;
     }
     this.closeWorkoutTypeMenu();
+    this.closeTerrainProfileMenu();
+    this.closeIntensityProfileMenu();
     this.closeGpsFilterMenu();
     this.sortMenu.hidden = false;
     this.sortTrigger.classList.add("is-open");
@@ -996,6 +1214,8 @@ export default class WorkoutLibraryView {
       scope: this.scopeValue || "mine",
       favoritesOnly: this.favoriteFilterActive,
       workoutType: this.workoutTypeValue,
+      terrainProfile: this.terrainProfileValue,
+      intensityProfile: this.intensityProfileValue,
       gpsFilter: this.gpsFilterValue
     };
   }

@@ -1,3 +1,9 @@
+import { readWorkoutIntensityHeader } from "../shared/WorkoutIntensityHeader.js";
+import {
+  INTENSITY_MODEL_FEATURE_BYTES,
+  decodeWorkoutIntensityModelFeatures
+} from "../shared/WorkoutIntensityModelCodec.js";
+
 const INT32_NAN = -0x80000000;
 const MICRO_DEGREES = 1e6;
 const TEXT_DECODER = new TextDecoder();
@@ -351,10 +357,26 @@ export function decodeWoa1BufferLight(buffer) {
 
   let offset = headerLength;
   const meta = readJsonBlock(bytes, offset, metaLength);
+  const intensity = readWorkoutIntensityHeader(bytes);
+  if (meta?.persistedRow && typeof meta.persistedRow === "object") {
+    meta.persistedRow.intensity_profile = intensity.profile;
+    meta.persistedRow.intensity_tags = intensity.tags;
+    meta.persistedRow.intensity_structure = intensity.structure;
+    meta.persistedRow.intensity_dose = intensity.dose;
+    meta.persistedRow.intensity_classifier_version = intensity.classifierVersion;
+  }
   offset += metaLength + sessionLength;
   const workoutStreamStoredBytes = bytes.slice(offset, offset + workoutStreamLength);
   offset += workoutStreamLength;
   const gpsTrackStoredBytes = bytes.slice(offset, offset + gpsTrackLength);
+  offset += gpsTrackLength;
+  const intensityModelFeatureBytes = bytes.byteLength - offset === INTENSITY_MODEL_FEATURE_BYTES
+    && decodeWorkoutIntensityModelFeatures(bytes.subarray(offset))
+    ? bytes.slice(offset)
+    : null;
+  if (meta?.persistedRow) {
+    meta.persistedRow.intensity_model_features = intensityModelFeatureBytes;
+  }
 
   return {
     meta,

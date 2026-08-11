@@ -6,6 +6,7 @@ const uploadDropzone = document.getElementById("uploadDropzone");
 const uploadDropzoneTitle = document.getElementById("uploadDropzoneTitle");
 const uploadDropzoneOr = document.getElementById("uploadDropzoneOr");
 const overwriteExistingWorkoutsCheckbox = document.getElementById("overwriteExistingWorkouts");
+const UPLOAD_WORKER_URL = "/js/upload-new-worker.js?v=overwrite-propagation-1";
 const submitButton = document.getElementById("submitButton");
 const response = document.getElementById("response");
 const statusArea = document.getElementById("statusArea");
@@ -691,7 +692,7 @@ function getParallelFitWorkerCount() {
 
 function getUploadWorker() {
     if (!prewarmedUploadWorker) {
-        prewarmedUploadWorker = new Worker("/js/upload-new-worker.js", { type: "module" });
+        prewarmedUploadWorker = new Worker(UPLOAD_WORKER_URL, { type: "module" });
     }
     return prewarmedUploadWorker;
 }
@@ -736,7 +737,8 @@ async function uploadGeneratedZipArtifact() {
     }
 
     const artifact = latestGeneratedZipArtifact;
-    const overwriteExisting = isOverwriteExistingWorkoutsEnabled();
+    const overwriteExisting = artifact.overwriteExisting === true
+        || (artifact.overwriteExisting == null && isOverwriteExistingWorkoutsEnabled());
 
     renderBackendUploadState(buildBackendUploadPendingMarkup());
     setProcessingLabel(tr("uploadPage.woaUploadAndStore", "Upload and store"));
@@ -983,9 +985,14 @@ async function fetchExistingWorkoutStartTimes() {
         throw new Error(payload?.error || `${tr("uploadPage.woaLoadExistingFailed", "Failed to load existing workouts")} (${response.status})`);
     }
 
-    return Array.isArray(payload.startTimes)
-        ? payload.startTimes.filter((value) => typeof value === "string" && value)
-        : [];
+    return {
+        startTimes: Array.isArray(payload.startTimes)
+            ? payload.startTimes.filter((value) => typeof value === "string" && value)
+            : [],
+        intensityHistory: Array.isArray(payload.intensityHistory)
+            ? payload.intensityHistory
+            : []
+    };
 }
 
 async function fetchBrowserGpsSegmentDefinitions() {
@@ -1288,17 +1295,23 @@ async function handleConvertSubmit(event) {
         }
 
         setReadProgress(100, `${formatBytes(totalLoadedBytes)} loaded`);
+        const fetchExistingStartedAt = performance.now();
+        const existingWorkoutData = await fetchExistingWorkoutStartTimes();
+        startupTimings.fetchExistingStartTimesMs = performance.now() - fetchExistingStartedAt;
+        const intensityHistory = existingWorkoutData.intensityHistory;
         let existingStartTimes = [];
         if (overwriteExisting) {
             setPhase(tr("uploadPage.woaPhaseOverwriteEnabled", "Overwrite mode enabled"));
-            setProcessingProgress(3, tr("uploadPage.woaOverwriteSkippingExistingFetch", "Overwrite enabled, skipping duplicate pre-check"));
+            setProcessingProgress(3, tr("uploadPage.woaOverwriteSkippingExistingFetch", "Overwrite enabled, using existing workouts only for intensity history"));
         } else {
             setPhase(tr("uploadPage.woaPhaseLoadingExisting", "Loading existing workouts"));
             setProcessingProgress(3, tr("uploadPage.woaFetchingExisting", "Fetching existing workout timestamps for duplicate detection"));
-            const fetchExistingStartedAt = performance.now();
-            existingStartTimes = await fetchExistingWorkoutStartTimes();
-            startupTimings.fetchExistingStartTimesMs = performance.now() - fetchExistingStartedAt;
+            existingStartTimes = existingWorkoutData.startTimes;
         }
+        console.info("[upload] duplicate-filter.profile", {
+            overwriteExisting,
+            existingStartTimeCount: existingStartTimes.length
+        });
         if (encodingOptions.browserPostprocessBenchmark) {
             setPhase("Loading GPS segment definitions");
             const gpsSegmentDefinitions = await fetchBrowserGpsSegmentDefinitions();
@@ -1537,7 +1550,13 @@ async function handleConvertSubmit(event) {
                 }
                 latestGeneratedZipArtifact = null;
                 if (shouldUploadGeneratedZip) {
-                    setLatestGeneratedZipArtifactSingle(zipBlob, data.outputFileName || "output.woa1.zip");
+                    setLatestGeneratedZipArtifactSingle(
+                        zipBlob,
+                        data.outputFileName || "output.woa1.zip",
+                        "/api/uploads/woa-zip",
+                        "form-data",
+                        { overwriteExisting }
+                    );
                 }
                 const skipped = Array.isArray(data.skipped) ? data.skipped : [];
                 const skippedExisting = Array.isArray(data.skippedExisting) ? data.skippedExisting : [];
@@ -1678,7 +1697,7 @@ async function handleConvertSubmit(event) {
                         data.outputFileName || "output.woat.gz",
                         "/api/uploads/woa-container",
                         "raw",
-                        { browserPostprocessBlob, browserGpsBestEffortsBlob }
+                        { browserPostprocessBlob, browserGpsBestEffortsBlob, overwriteExisting }
                     );
                 }
                 const skipped = Array.isArray(data.skipped) ? data.skipped : [];
@@ -1813,6 +1832,7 @@ async function handleConvertSubmit(event) {
             prewarmedZipTokens,
             prewarmedZipFiles,
             existingStartTimes,
+            intensityHistory,
             overwriteExisting,
             encodingOptions,
             outputMode: getUploadTransportMode(),
