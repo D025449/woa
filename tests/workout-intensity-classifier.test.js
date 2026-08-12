@@ -7,7 +7,10 @@ import {
   classifyWorkoutIntensityChronologically,
   extractWorkoutIntensityFeatures
 } from "../src/shared/WorkoutIntensityClassifier.js";
-import { INTENSITY_TAG_BITS } from "../src/shared/WorkoutIntensityTags.js";
+import {
+  INTENSITY_TAG_BITS,
+  intensityProfilesFromTags
+} from "../src/shared/WorkoutIntensityTags.js";
 
 function featuresFromPower(power, normalizedPower = null) {
   return extractWorkoutIntensityFeatures({
@@ -34,6 +37,19 @@ const establishedModel = {
     1200: 260
   }
 };
+
+test("orders the primary training stimulus before additional tags", () => {
+  const tags = INTENSITY_TAG_BITS.tempo | INTENSITY_TAG_BITS.vo2max | INTENSITY_TAG_BITS.threshold;
+  assert.deepEqual(
+    intensityProfilesFromTags(tags, "vo2max"),
+    ["vo2max", "tempo", "threshold"]
+  );
+});
+
+test("uses the primary training stimulus when older data has no tag mask", () => {
+  assert.deepEqual(intensityProfilesFromTags(0, "endurance"), ["endurance"]);
+  assert.deepEqual(intensityProfilesFromTags(0, "unknown"), []);
+});
 
 test("extracts repeated non-overlapping duration efforts", () => {
   const power = [

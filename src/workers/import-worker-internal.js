@@ -31,6 +31,9 @@ import {
   enqueueWoaBundleRecovery,
   WOA_BUNDLE_RECOVERY_JOB
 } from "../services/woaBundleRecoveryJobService.js";
+import { WORKOUT_INTENSITY_QUEUE } from "../queue/workout-intensity-queue.js";
+import { WORKOUT_INTENSITY_RECLASSIFICATION_JOB } from "../services/workout-intensity-job-service.js";
+import { reclassifyWorkoutIntensity } from "../services/workoutIntensityReclassificationService.js";
 
 export async function createApp(options = {}) {
   const IMPORT_QUEUE_CONCURRENCY = Math.max(1, Number(process.env.IMPORT_QUEUE_CONCURRENCY) || 2);
@@ -50,13 +53,15 @@ export async function createApp(options = {}) {
   const {
     enableImportWorker = true,
     enableSegmentBestEffortsWorker = true,
-    enableWorkoutSimilarityWorker = true
+    enableWorkoutSimilarityWorker = true,
+    enableWorkoutIntensityWorker = true
   } = options;
 
   console.log("[import] bootstrap.config", {
     enableImportWorker,
     enableSegmentBestEffortsWorker,
     enableWorkoutSimilarityWorker,
+    enableWorkoutIntensityWorker,
     IMPORT_POSTPROCESS_LOGS,
     IMPORT_POSTPROCESS_PROFILE_LOG,
     IMPORT_POSTPROCESS_PROFILE_EVERY,
@@ -1356,6 +1361,52 @@ export async function createApp(options = {}) {
 
     workoutSimilarityWorker.on("error", (error) => {
       console.error("Workout similarity worker error", error);
+    });
+  }
+
+  if (enableWorkoutIntensityWorker) {
+    const workoutIntensityWorker = new Worker(
+      WORKOUT_INTENSITY_QUEUE,
+      async (job) => {
+        if (job.name !== WORKOUT_INTENSITY_RECLASSIFICATION_JOB) {
+          throw new Error(`Unsupported workout intensity job: ${job.name}`);
+        }
+        const { uid, startTimes, changedWorkoutIds } = job.data ?? {};
+        if (!uid || !Array.isArray(startTimes) || startTimes.length === 0) {
+          throw new Error("Workout intensity job is missing uid or startTimes");
+        }
+        return reclassifyWorkoutIntensity({ uid, startTimes, changedWorkoutIds });
+      },
+      {
+        connection: redisConnection,
+        concurrency: Math.max(1, Number(process.env.WORKOUT_INTENSITY_CONCURRENCY) || 2)
+      }
+    );
+
+    workoutIntensityWorker.on("ready", () => {
+      console.log("Workout intensity worker is ready");
+    });
+
+    workoutIntensityWorker.on("completed", (job, result) => {
+      logPostProcessProfileEvent("workout-intensity.completed", {
+        queueJobId: job.id,
+        importJobId: job.data?.importJobId ?? null,
+        uid: job.data?.uid,
+        ...result
+      });
+    });
+
+    workoutIntensityWorker.on("failed", (job, error) => {
+      logPostProcessEvent("workout-intensity.failed", {
+        queueJobId: job?.id,
+        importJobId: job?.data?.importJobId ?? null,
+        uid: job?.data?.uid,
+        error: error.message
+      });
+    });
+
+    workoutIntensityWorker.on("error", (error) => {
+      console.error("Workout intensity worker error", error);
     });
   }
 

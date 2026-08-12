@@ -13,6 +13,7 @@ import {
   getSegmentVisibilityKey
 } from "../../shared/SegmentAppearance.js";
 import confirmModal from "./confirm-modal.js";
+import { intensityProfilesFromTags } from "../../shared/WorkoutIntensityTags.js";
 
 const WORKOUT_LIBRARY_VIEW_KEY = "workout-library";
 const VIEW_PREFERENCE_SAVE_DELAY_MS = 500;
@@ -64,6 +65,9 @@ export default class Controller {
     this.viewPreferenceSaveChain = Promise.resolve();
     this.detailCopyElement = document.getElementById("dashboard-detail-copy");
     this.workoutTitleElement = document.getElementById("dashboard-workout-title");
+    this.intensitySummaryElement = document.getElementById("dashboard-intensity-summary");
+    this.intensityBadgesElement = document.getElementById("dashboard-intensity-badges");
+    this.intensityContextElement = document.getElementById("dashboard-intensity-context");
     this.heroStatusElement = document.getElementById("dashboard-hero-status");
     this.exportAllFitButton = document.getElementById("dashboard-export-all-fit");
     this.workspacePanelElement = document.getElementById("dashboard-workspace-panel");
@@ -686,6 +690,10 @@ export default class Controller {
         total_timer_time: workout.total_timer_time ?? workoutMeta.total_timer_time ?? null,
         total_distance: workout.total_distance ?? workoutMeta.total_distance ?? null,
         avg_power: workout.avg_power ?? workoutMeta.avg_power ?? null,
+        intensity_profile: workout.intensity_profile ?? workoutMeta.intensity_profile ?? "unknown",
+        intensity_tags: workout.intensity_tags ?? workoutMeta.intensity_tags ?? 0,
+        intensity_structure: workout.intensity_structure ?? workoutMeta.intensity_structure ?? "unknown",
+        intensity_dose: workout.intensity_dose ?? workoutMeta.intensity_dose ?? "unknown",
         segmentProcessingStatus: workout.segmentProcessingStatus ?? workoutMeta.segment_processing_status ?? workoutMeta.segmentProcessingStatus ?? "queued",
         segmentProcessingError: workout.segmentProcessingError ?? workoutMeta.segment_processing_error ?? workoutMeta.segmentProcessingError ?? null,
         segmentProcessingUpdatedAt: workout.segmentProcessingUpdatedAt ?? workoutMeta.segment_processing_updated_at ?? workoutMeta.segmentProcessingUpdatedAt ?? null,
@@ -714,6 +722,7 @@ export default class Controller {
 
       this.libraryView.setSelectedWorkout(workout.id);
       this.updateWorkoutMeta(workout);
+      this.updateIntensitySummary(workout);
       this.updateDeviceInfo(workout);
       this.renderWorkoutSegments(workout);
 
@@ -851,6 +860,50 @@ export default class Controller {
     this.sharedMetaElement.classList.remove("d-none");
     this.sharedMetaTextElement.textContent = this.t("messages.sharedBy", { owner: ownerLabel });
     this.detailCopyElement.textContent = headerDetailLine;
+  }
+
+  getIntensityProfileLabel(profile) {
+    const normalized = profile === "vo2max"
+      ? "Vo2max"
+      : `${String(profile || "unknown").charAt(0).toUpperCase()}${String(profile || "unknown").slice(1)}`;
+    return this.t(`intensityProfile${normalized}`);
+  }
+
+  updateIntensitySummary(workout) {
+    if (!this.intensitySummaryElement || !this.intensityBadgesElement || !this.intensityContextElement) {
+      return;
+    }
+
+    const primary = ["recovery", "endurance", "tempo", "threshold", "vo2max", "anaerobic"].includes(workout?.intensity_profile)
+      ? workout.intensity_profile
+      : "unknown";
+    const profiles = intensityProfilesFromTags(workout?.intensity_tags, primary);
+    const visibleProfiles = profiles.length ? profiles : ["unknown"];
+
+    this.intensityBadgesElement.replaceChildren(...visibleProfiles.map((profile, index) => {
+      const badge = document.createElement("span");
+      badge.className = `workout-intensity-badge workout-intensity-badge--${profile}${index ? " workout-intensity-badge--secondary" : ""}`;
+      badge.textContent = this.getIntensityProfileLabel(profile);
+      if (index === 0) {
+        const bolt = document.createElement("span");
+        bolt.className = "workout-intensity-badge__bolt";
+        bolt.setAttribute("aria-hidden", "true");
+        bolt.textContent = "ϟ";
+        badge.prepend(bolt);
+      }
+      return badge;
+    }));
+
+    const contextParts = [];
+    if (["steady", "variable", "intervals"].includes(workout?.intensity_structure)) {
+      contextParts.push(this.t(`intensityStructure${workout.intensity_structure.charAt(0).toUpperCase()}${workout.intensity_structure.slice(1)}`));
+    }
+    if (["low", "moderate", "high"].includes(workout?.intensity_dose)) {
+      contextParts.push(this.t(`intensityDose${workout.intensity_dose.charAt(0).toUpperCase()}${workout.intensity_dose.slice(1)}`));
+    }
+    this.intensityContextElement.textContent = contextParts.join(" · ");
+    this.intensityContextElement.hidden = contextParts.length === 0;
+    this.intensitySummaryElement.hidden = false;
   }
 
   updateDeviceInfo(workout) {
@@ -1109,6 +1162,13 @@ export default class Controller {
     }
     if (this.detailCopyElement) {
       this.detailCopyElement.textContent = "";
+    }
+    if (this.intensitySummaryElement) {
+      this.intensitySummaryElement.hidden = true;
+    }
+    this.intensityBadgesElement?.replaceChildren();
+    if (this.intensityContextElement) {
+      this.intensityContextElement.textContent = "";
     }
     this.resetDeviceInfo();
     this.resetWorkoutSegments();

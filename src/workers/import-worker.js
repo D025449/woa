@@ -7,7 +7,8 @@ async function start() {
   await createApp({
     enableImportWorker: true,
     enableSegmentBestEffortsWorker: true,
-    enableWorkoutSimilarityWorker: true
+    enableWorkoutSimilarityWorker: true,
+    enableWorkoutIntensityWorker: true
   });
 
 

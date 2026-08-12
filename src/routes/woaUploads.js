@@ -38,6 +38,7 @@ import {
   getWoaBundleUpload
 } from "../db/woa-bundle-uploads-repo.js";
 import { enqueueWoaBundleRecovery } from "../services/woaBundleRecoveryJobService.js";
+import { enqueueWorkoutIntensityReclassification } from "../services/workout-intensity-job-service.js";
 
 const router = Router();
 const IMPORT_SYNC_PROFILE_LOG = String(process.env.IMPORT_SYNC_PROFILE_LOG || "1").trim() !== "0";
@@ -163,7 +164,8 @@ function createImportProfile() {
     scheduleAppendTargetsMs: 0,
     scheduleSegmentPersistenceMs: 0,
     scheduleSimilarityMs: 0,
-    scheduleSegmentBestEffortsMs: 0
+    scheduleSegmentBestEffortsMs: 0,
+    scheduleIntensityReclassificationMs: 0
   };
 }
 
@@ -194,6 +196,8 @@ async function importWoaEntryReaders({
   const allSegmentPersistItems = [];
   const allSegmentBestEffortsItems = [];
   const motorsportWorkoutIds = [];
+  const changedWorkoutStartTimes = new Set();
+  const changedWorkoutIds = new Set();
 
   const enqueueInLargeBulks = async (items, bulkSize, enqueueFn) => {
     for (let index = 0; index < items.length; index += bulkSize) {
@@ -299,6 +303,14 @@ async function importWoaEntryReaders({
       const existingByKey = bulkResult?.existingRowsByKey instanceof Map
         ? bulkResult.existingRowsByKey
         : new Map();
+      for (const insertedRow of Array.isArray(bulkResult?.insertedRows) ? bulkResult.insertedRows : []) {
+        if (insertedRow?.id != null) {
+          changedWorkoutIds.add(String(insertedRow.id));
+        }
+        if (insertedRow?.start_time) {
+          changedWorkoutStartTimes.add(new Date(insertedRow.start_time).toISOString());
+        }
+      }
 
       const resolvedChunkItems = [];
 
@@ -434,6 +446,24 @@ async function importWoaEntryReaders({
   } finally {
     profile.scheduleSegmentBestEffortsMs += Date.now() - segmentBestEffortsStartedAt;
   }
+
+  const intensityReclassificationStartedAt = Date.now();
+  try {
+    await enqueueWorkoutIntensityReclassification({
+      uid: userId,
+      startTimes: [...changedWorkoutStartTimes],
+      changedWorkoutIds: [...changedWorkoutIds],
+      importJobId
+    });
+  } catch (error) {
+    postprocessErrors.push({
+      phase: "workout-intensity",
+      affectedCount: changedWorkoutStartTimes.size,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  } finally {
+    profile.scheduleIntensityReclassificationMs += Date.now() - intensityReclassificationStartedAt;
+  }
   profile.schedulePostprocessMs += Date.now() - scheduleStartedAt;
   const elapsedMs = Date.now() - startedAt;
   await updateImportJob(importJobId, {
@@ -491,6 +521,7 @@ async function importWoaEntryReaders({
           enqueueSegmentPersistenceMs: profile.scheduleSegmentPersistenceMs,
           enqueueSimilarityMs: profile.scheduleSimilarityMs,
           enqueueSegmentBestEffortsMs: profile.scheduleSegmentBestEffortsMs,
+          enqueueIntensityReclassificationMs: profile.scheduleIntensityReclassificationMs,
           residualMs: Math.max(
             0,
             profile.schedulePostprocessMs
@@ -498,6 +529,7 @@ async function importWoaEntryReaders({
               - profile.scheduleSegmentPersistenceMs
               - profile.scheduleSimilarityMs
               - profile.scheduleSegmentBestEffortsMs
+              - profile.scheduleIntensityReclassificationMs
           )
         }
       }

@@ -1,6 +1,6 @@
 import { WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION } from "../../shared/SegmentAppearance.js";
 import { getBrowserTimeZone } from "../../shared/FitFileName.js";
-import { intensityTagBit } from "../../shared/WorkoutIntensityTags.js";
+import { intensityProfilesFromTags, intensityTagBit } from "../../shared/WorkoutIntensityTags.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
 
 const TERRAIN_PROFILE_VALUES = ["flat", "rolling", "mountainous", "altitude_missing", "altitude_invalid"];
@@ -1650,6 +1650,21 @@ export default class WorkoutLibraryView {
     const workoutTypeLabel = this.pageT(
       `workoutType${workoutType.charAt(0).toUpperCase()}${workoutType.slice(1)}`
     );
+    const intensityProfile = INTENSITY_PROFILE_VALUES.includes(workout.intensity_profile)
+      ? workout.intensity_profile
+      : "unknown";
+    const intensityProfiles = intensityProfilesFromTags(workout.intensity_tags, intensityProfile);
+    const intensityDisplayProfile = intensityProfile === "unknown" && intensityProfiles.length
+      ? intensityProfiles[0]
+      : intensityProfile;
+    const additionalIntensityCount = Math.max(0, intensityProfiles.length - 1);
+    const intensityLabel = this.getIntensityProfileLabel(intensityDisplayProfile);
+    const intensitySummary = intensityProfiles.length > 1
+      ? this.pageT("intensitySummaryWithAdditional", {
+          primary: intensityLabel,
+          additional: intensityProfiles.slice(1).map((profile) => this.getIntensityProfileLabel(profile)).join(", ")
+        })
+      : this.pageT("intensitySummaryPrimary", { primary: intensityLabel });
 
     return `
       <article
@@ -1667,6 +1682,16 @@ export default class WorkoutLibraryView {
               <span class="workout-library-card__context-chip">${dayLabel}</span>
               <span class="workout-library-card__context-chip">${hasValidGps ? this.t("gps") : this.t("noGps")}</span>
               <span class="workout-library-card__context-chip">${workoutTypeLabel}</span>
+              ${intensityDisplayProfile === "unknown" ? "" : `
+                <span
+                  class="workout-intensity-badge workout-intensity-badge--compact workout-intensity-badge--${intensityDisplayProfile}"
+                  title="${this.escapeHtml(intensitySummary)}"
+                  aria-label="${this.escapeHtml(intensitySummary)}">
+                  <span class="workout-intensity-badge__bolt" aria-hidden="true">ϟ</span>
+                  <span>${this.escapeHtml(intensityLabel)}</span>
+                  ${additionalIntensityCount ? `<span class="workout-intensity-badge__count">+${additionalIntensityCount}</span>` : ""}
+                </span>
+              `}
               ${isShared ? `
                 <button class="workout-library-card__context-chip workout-library-card__context-chip--button" type="button" data-workout-visibility-toggle="${workoutId}">
                   ${shareTag}

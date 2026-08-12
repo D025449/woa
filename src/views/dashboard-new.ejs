@@ -494,6 +494,11 @@
                                     <span class="dashboard-eyebrow"><%= t("dashboardNewPage.primaryEyebrow") %></span>
                                     <h2 id="dashboard-workout-title" class="dashboard-section-title"><%= t("dashboardNewPage.workoutDataTitle") %></h2>
                                     <p id="dashboard-detail-copy" class="dashboard-section-copy"></p>
+                                    <div id="dashboard-intensity-summary" class="dashboard-intensity-summary" hidden>
+                                        <span class="dashboard-intensity-summary__label"><%= t("dashboardNewPage.trainingEffectLabel") %></span>
+                                        <div id="dashboard-intensity-badges" class="dashboard-intensity-summary__badges"></div>
+                                        <span id="dashboard-intensity-context" class="dashboard-intensity-summary__context"></span>
+                                    </div>
                                     <div id="dashboard-shared-meta" class="dashboard-shared-meta d-none">
                                         <span class="dashboard-shared-meta__eyebrow"><%= t("dashboardNewPage.sharedWorkoutEyebrow") %></span>
                                         <span id="dashboard-shared-meta-text"></span>
