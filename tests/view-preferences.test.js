@@ -11,6 +11,7 @@ test("normalizes workout library preferences to supported values", () => {
     sort: "powerload",
     scope: "all",
     favoritesOnly: true,
+    activityType: "cycling",
     workoutType: "road",
     terrainProfile: "mountainous",
     intensityProfile: "vo2max",
@@ -33,6 +34,7 @@ test("normalizes workout library preferences to supported values", () => {
     sort: "powerload",
     scope: "all",
     favoritesOnly: true,
+    activityType: "cycling",
     workoutType: "road",
     terrainProfile: "mountainous",
     intensityProfile: "vo2max",
@@ -56,6 +58,7 @@ test("rejects unsupported workout library preference values safely", () => {
     sort: "DROP TABLE workouts",
     scope: "everyone",
     favoritesOnly: "true",
+    activityType: "running",
     workoutType: "gravel",
     terrainProfile: "alpine",
     intensityProfile: "sprinty",
@@ -68,11 +71,18 @@ test("rejects unsupported workout library preference values safely", () => {
     sort: "newest",
     scope: "mine",
     favoritesOnly: false,
+    activityType: "all",
     workoutType: "all",
     terrainProfile: "all",
     intensityProfile: "all",
     gpsFilter: "all"
   });
+});
+
+test("accepts strength training as a persisted activity type filter", () => {
+  assert.equal(normalizeWorkoutLibraryState({
+    activityType: "strength_training"
+  }).activityType, "strength_training");
 });
 
 test("accepts motorsport as a persisted workout type filter", () => {

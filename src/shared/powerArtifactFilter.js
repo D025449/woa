@@ -7,6 +7,8 @@ const DEFAULT_OPTIONS = Object.freeze({
   maximumCadenceDeltaRpm: 12,
   maximumHeartRateDeltaBpm: 6,
   maximumSpeedDelta: 1.5,
+  sentinelPowerMinimumW: 4090,
+  sentinelPowerMaximumW: 4095,
   invalidPowerValue: null,
   invalidCadenceValue: null,
   invalidHeartRateValue: null,
@@ -91,7 +93,9 @@ function signalSupportsPeak(series, start, end, options) {
 
   return {
     available: true,
-    supportsPeak: Math.abs(peakMedian - neighborhoodMedian) > options.maximumDelta
+    // A power peak can be corroborated only by a rising signal. A cadence
+    // collapse or deceleration is evidence against, not support for, the peak.
+    supportsPeak: peakMedian - neighborhoodMedian > options.maximumDelta
   };
 }
 
@@ -145,6 +149,9 @@ export function filterPowerArtifactsInPlace(series, options = {}) {
       continue;
     }
 
+    const isSentinelRun = peakPower >= config.sentinelPowerMinimumW
+      && peakPower <= config.sentinelPowerMaximumW;
+
     const leftPower = Number(powers[start - 1]);
     const rightPower = Number(powers[end + 1]);
     if (
@@ -161,12 +168,12 @@ export function filterPowerArtifactsInPlace(series, options = {}) {
       config.neighborhoodSamples,
       config.invalidPowerValue
     );
-    if (
+    if (!isSentinelRun && (
       !Number.isFinite(baselinePower)
       || peakPower < baselinePower * config.minimumBaselineRatio
       || peakPower - leftPower < config.minimumPowerJumpW
       || peakPower - rightPower < config.minimumPowerJumpW
-    ) {
+    )) {
       continue;
     }
 
@@ -192,10 +199,10 @@ export function filterPowerArtifactsInPlace(series, options = {}) {
       (signal) => signal.available && signal.supportsPeak
     ).length;
     const requiredSupportingSignalCount = Math.min(2, availableSignalCount);
-    if (
+    if (!isSentinelRun && (
       availableSignalCount === 0
       || supportingSignalCount >= requiredSupportingSignalCount
-    ) {
+    )) {
       continue;
     }
 
@@ -210,6 +217,12 @@ export function filterPowerArtifactsInPlace(series, options = {}) {
     stats.artifactCount += 1;
     stats.correctedSampleCount += sampleCount;
     stats.maximumCorrectedPowerW = Math.max(stats.maximumCorrectedPowerW, peakPower);
+    config.onCorrectedRange?.({
+      start,
+      end,
+      peakPower,
+      sentinel: isSentinelRun
+    });
   }
 
   return stats;

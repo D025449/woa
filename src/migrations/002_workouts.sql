@@ -51,6 +51,7 @@ CREATE TABLE workouts (
     intensity_dose       TEXT NOT NULL DEFAULT 'unknown',
     intensity_classifier_version SMALLINT NOT NULL DEFAULT 0,
     intensity_model_features BYTEA,
+    perceived_exertion SMALLINT,
     fit_device_metadata  JSONB NOT NULL DEFAULT '{"version":1,"fileId":null,"devices":[]}'::jsonb,
     manual_gps_lookup_points JSONB,
     segment_processing_status TEXT NOT NULL DEFAULT 'completed',
@@ -87,6 +88,8 @@ CREATE TABLE workouts (
         CHECK (intensity_dose IN ('unknown', 'low', 'moderate', 'high')),
     CONSTRAINT workouts_intensity_model_features_check
         CHECK (intensity_model_features IS NULL OR octet_length(intensity_model_features) = 18),
+    CONSTRAINT workouts_perceived_exertion_check
+        CHECK (perceived_exertion IS NULL OR perceived_exertion BETWEEN 1 AND 10),
     CONSTRAINT workouts_fit_device_metadata_check
         CHECK (
             jsonb_typeof(fit_device_metadata) = 'object'

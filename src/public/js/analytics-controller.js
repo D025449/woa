@@ -12,6 +12,10 @@ export default class Controller {
     this.heroElement = document.getElementById("analytics-hero");
     this.chartGridElement = document.getElementById("analytics-chart-grid");
     this.focusGridElement = document.getElementById("analytics-focus-grid");
+    this.workoutMetaElement = document.getElementById("analytics-workout-meta");
+    this.workoutIdElement = document.getElementById("analytics-workout-id");
+    this.workoutDateElement = document.getElementById("analytics-workout-date");
+    this.locale = window.__I18N?.locale || document.documentElement.lang || "en";
     this.layoutMeasureRaf = null;
     this.layoutObserver = null;
     this.initViews();
@@ -41,6 +45,7 @@ export default class Controller {
 
         this.chartView.updateWorkoutCP(workout, row);
         this.mapView.renderTrack(workout);
+        this.renderWorkoutMeta(workout);
       }
     });
 
@@ -55,6 +60,36 @@ export default class Controller {
         // aktuell leer → bewusst so gelassen
       }
     });
+  }
+
+  renderWorkoutMeta(workout) {
+    if (!this.workoutMetaElement || !this.workoutIdElement || !this.workoutDateElement) {
+      return;
+    }
+
+    const workoutId = workout?.id;
+    const startTime = workout?.start_time || workout?.workoutObject?.getStartTime?.();
+    const date = startTime ? new Date(startTime) : null;
+    const hasDate = date && !Number.isNaN(date.getTime());
+
+    if (workoutId == null && !hasDate) {
+      this.workoutMetaElement.hidden = true;
+      return;
+    }
+
+    this.workoutIdElement.textContent = workoutId == null ? "" : `W-${workoutId}`;
+    this.workoutDateElement.textContent = hasDate
+      ? new Intl.DateTimeFormat(this.locale, { dateStyle: "short" }).format(date)
+      : "";
+    this.workoutDateElement.dateTime = hasDate ? date.toISOString() : "";
+
+    const separator = this.workoutMetaElement.querySelector("span");
+    if (separator) {
+      separator.hidden = workoutId == null || !hasDate;
+    }
+    this.workoutIdElement.hidden = workoutId == null;
+    this.workoutDateElement.hidden = !hasDate;
+    this.workoutMetaElement.hidden = false;
   }
 
   // -----------------------------

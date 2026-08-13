@@ -157,6 +157,87 @@ test("intensity reclassification reuses freshly imported model features without 
   assert.equal(result.changes.length, 0);
 });
 
+test("intensity reclassification classifies changed workouts that have no imported model features", async () => {
+  const historicalFeatures = featuresFromPower(repeat(250, 1200));
+  const importedFeatures = featuresFromPower([
+    ...repeat(150, 300),
+    ...repeat(310, 240),
+    ...repeat(150, 180),
+    ...repeat(305, 240),
+    ...repeat(150, 300)
+  ]);
+  let decodeCount = 0;
+  const result = await classifyIntensityWindowRows([
+    {
+      id: 10,
+      start_time: "2025-12-01T00:00:00Z",
+      intensity_model_features: encodeWorkoutIntensityModelFeatures(historicalFeatures)
+    },
+    {
+      id: 11,
+      start_time: "2026-01-01T00:00:00Z",
+      stream: new Uint8Array([1]),
+      intensity_profile: "unknown",
+      intensity_tags: 0,
+      intensity_structure: "unknown",
+      intensity_dose: "unknown",
+      intensity_classifier_version: 0
+    }
+  ], {
+    startTime: "2026-01-01T00:00:00.000Z",
+    endTime: "2027-01-01T00:00:00.000Z"
+  }, {
+    changedWorkoutIds: [11],
+    extractFeatures: async () => {
+      decodeCount += 1;
+      return importedFeatures;
+    }
+  });
+
+  assert.equal(decodeCount, 1);
+  assert.equal(result.importedFeatureOnlyCount, 0);
+  assert.equal(result.modelFeatureUpdates.length, 1);
+  assert.equal(result.modelFeatureUpdates[0].id, 11);
+  assert.equal(result.changes.length, 1);
+  assert.equal(result.changes[0].id, 11);
+  assert.notEqual(result.changes[0].classification.profile, "unknown");
+});
+
+test("intensity reclassification backfills missing compact features in historical rows", async () => {
+  const historicalFeatures = featuresFromPower(repeat(250, 1200));
+  const targetFeatures = featuresFromPower(repeat(175, 3600));
+  const decodedIds = [];
+  const result = await classifyIntensityWindowRows([
+    {
+      id: 1,
+      start_time: "2025-12-01T00:00:00Z",
+      stream: new Uint8Array([1])
+    },
+    {
+      id: 2,
+      start_time: "2026-01-01T00:00:00Z",
+      stream: new Uint8Array([2]),
+      intensity_profile: "unknown",
+      intensity_tags: 0,
+      intensity_structure: "unknown",
+      intensity_dose: "unknown",
+      intensity_classifier_version: 0
+    }
+  ], {
+    startTime: "2026-01-01T00:00:00.000Z",
+    endTime: "2027-01-01T00:00:00.000Z"
+  }, {
+    extractFeatures: async (row) => {
+      decodedIds.push(row.id);
+      return row.id === 1 ? historicalFeatures : targetFeatures;
+    }
+  });
+
+  assert.deepEqual(decodedIds, [1, 2]);
+  assert.deepEqual(result.modelFeatureUpdates.map((entry) => entry.id), [1, 2]);
+  assert.deepEqual(result.changes.map((entry) => entry.id), [2]);
+});
+
 test("intensity reclassification decodes only pre-existing workouts after an import", async () => {
   const importedFeatures = featuresFromPower(repeat(250, 1200));
   const existingFeatures = featuresFromPower(repeat(175, 3600));
@@ -238,6 +319,7 @@ test("intensity reclassification locks per user and batch-updates changed rows",
   });
 
   assert.equal(result.updatedWorkoutCount, 1);
+  assert.equal(result.updatedModelFeatureCount, 1);
   assert.ok(statements.some((statement) => statement.sql.includes("pg_advisory_xact_lock")));
   const update = statements.find((statement) => statement.sql.includes("UPDATE workouts AS workout"));
   assert.deepEqual(update.params[1], [2]);

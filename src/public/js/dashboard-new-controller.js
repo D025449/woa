@@ -30,6 +30,8 @@ export default class Controller {
       sort: "newest",
       scope: "mine",
       favoritesOnly: false,
+      activityType: "all",
+      workoutType: "all",
       terrainProfile: "all",
       intensityProfile: "all",
       gpsFilter: "all"
@@ -69,6 +71,40 @@ export default class Controller {
     this.intensityBadgesElement = document.getElementById("dashboard-intensity-badges");
     this.intensityContextElement = document.getElementById("dashboard-intensity-context");
     this.heroStatusElement = document.getElementById("dashboard-hero-status");
+    this.addTrainingButton = document.getElementById("dashboard-add-training");
+    this.addTrainingModalElement = document.getElementById("dashboard-add-training-modal");
+    this.addManualTrainingButton = document.getElementById("dashboard-add-manual-training");
+    this.manualTrainingModalElement = document.getElementById("dashboard-manual-training-modal");
+    this.manualTrainingForm = document.getElementById("dashboard-manual-training-form");
+    this.manualTrainingTypeSelect = document.getElementById("dashboard-manual-training-type");
+    this.manualWorkoutTypeField = document.getElementById("dashboard-manual-workout-type-field");
+    this.manualStrengthFocusField = document.getElementById("dashboard-manual-strength-focus-field");
+    this.manualBaselinePowerField = document.getElementById("dashboard-manual-baseline-power-field");
+    this.manualBaselinePowerMode = document.getElementById("dashboard-manual-baseline-power-mode");
+    this.manualTssField = document.getElementById("dashboard-manual-tss-field");
+    this.manualIntervalSection = document.getElementById("dashboard-manual-interval-section");
+    this.manualIntervalList = document.getElementById("dashboard-manual-interval-list");
+    this.manualIntervalAddButton = document.getElementById("dashboard-manual-interval-add");
+    this.manualTrainingErrorElement = document.getElementById("dashboard-manual-training-error");
+    this.manualTrainingTitleElement = document.getElementById("dashboard-manual-training-title");
+    this.manualTrainingSubmitButton = document.getElementById("dashboard-manual-training-submit");
+    this.manualTrainingBackButton = document.getElementById("dashboard-manual-training-back");
+    this.editingManualActivityId = null;
+    this.manualCopyModalElement = document.getElementById("dashboard-manual-copy-modal");
+    this.manualCopySourceElement = document.getElementById("dashboard-manual-copy-source");
+    this.manualCopyErrorElement = document.getElementById("dashboard-manual-copy-error");
+    this.manualCopyMonthElement = document.getElementById("dashboard-manual-copy-month");
+    this.manualCopyWeekdaysElement = document.getElementById("dashboard-manual-copy-weekdays");
+    this.manualCopyDaysElement = document.getElementById("dashboard-manual-copy-days");
+    this.manualCopySelectedElement = document.getElementById("dashboard-manual-copy-selected");
+    this.manualCopyEmptyElement = document.getElementById("dashboard-manual-copy-empty");
+    this.manualCopyCountElement = document.getElementById("dashboard-manual-copy-count");
+    this.manualCopyPreviousButton = document.getElementById("dashboard-manual-copy-prev");
+    this.manualCopyNextButton = document.getElementById("dashboard-manual-copy-next");
+    this.manualCopySubmitButton = document.getElementById("dashboard-manual-copy-submit");
+    this.manualCopyActivity = null;
+    this.manualCopySelectedDates = new Set();
+    this.manualCopyVisibleMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
     this.exportAllFitButton = document.getElementById("dashboard-export-all-fit");
     this.workspacePanelElement = document.getElementById("dashboard-workspace-panel");
     this.detailMainStackElement = document.getElementById("dashboard-detail-main-stack");
@@ -125,6 +161,15 @@ export default class Controller {
       : null;
     this.gpsCopyModal = this.gpsCopyModalElement && globalThis.bootstrap
       ? globalThis.bootstrap.Modal.getOrCreateInstance(this.gpsCopyModalElement)
+      : null;
+    this.addTrainingModal = this.addTrainingModalElement && globalThis.bootstrap
+      ? globalThis.bootstrap.Modal.getOrCreateInstance(this.addTrainingModalElement)
+      : null;
+    this.manualTrainingModal = this.manualTrainingModalElement && globalThis.bootstrap
+      ? globalThis.bootstrap.Modal.getOrCreateInstance(this.manualTrainingModalElement)
+      : null;
+    this.manualCopyModal = this.manualCopyModalElement && globalThis.bootstrap
+      ? globalThis.bootstrap.Modal.getOrCreateInstance(this.manualCopyModalElement)
       : null;
     this.shareableGroups = [];
     this.initViews();
@@ -343,6 +388,7 @@ export default class Controller {
       initialSearch: this.libraryState?.search || "",
       initialSort: this.libraryState?.sort || "newest",
       initialScope: this.libraryState?.scope || "mine",
+      initialActivityType: this.libraryState?.activityType || "all",
       initialWorkoutType: this.libraryState?.workoutType || "all",
       initialTerrainProfile: this.libraryState?.terrainProfile || "all",
       initialIntensityProfile: this.libraryState?.intensityProfile || "all",
@@ -372,6 +418,15 @@ export default class Controller {
         }
 
         this.libraryView.removeWorkout(workout.id);
+      },
+      onManualActivityEdit: async (activity) => {
+        await this.editManualTraining(activity);
+      },
+      onManualActivityCopy: (activity) => {
+        this.openManualTrainingCopy(activity);
+      },
+      onManualActivityDelete: async (activity) => {
+        await this.deleteManualTraining(activity);
       },
       onBulkDelete: async (workouts) => {
         await this.deleteSelectedWorkouts(workouts);
@@ -424,6 +479,44 @@ export default class Controller {
     }, { passive: true });
     document.addEventListener("keydown", (event) => this.handleGlobalShortcuts(event));
     this.map3dToggleButton?.addEventListener("click", () => this.open3dMap());
+    this.addTrainingButton?.addEventListener("click", () => this.addTrainingModal?.show());
+    this.addManualTrainingButton?.addEventListener("click", () => this.openManualTrainingForm());
+    this.manualTrainingBackButton?.addEventListener("click", () => {
+      if (this.editingManualActivityId !== null) {
+        this.manualTrainingModal?.hide();
+        return;
+      }
+      this.switchDashboardModal(this.manualTrainingModalElement, this.manualTrainingModal, this.addTrainingModal);
+    });
+    this.manualTrainingTypeSelect?.addEventListener("change", () => this.syncManualTrainingFields());
+    this.manualBaselinePowerMode?.addEventListener("change", () => {
+      this.syncManualPowerInput(this.manualBaselinePowerMode);
+    });
+    this.manualIntervalAddButton?.addEventListener("click", () => this.addManualTrainingInterval());
+    this.manualIntervalList?.addEventListener("click", (event) => {
+      const removeButton = event.target?.closest?.("[data-manual-interval-remove]");
+      if (removeButton) removeButton.closest(".dashboard-manual-interval-row")?.remove();
+    });
+    this.manualIntervalList?.addEventListener("change", (event) => {
+      if (event.target?.matches?.("[data-manual-interval-field='powerMode']")) {
+        this.syncManualPowerInput(event.target);
+      }
+    });
+    this.manualTrainingForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await this.saveManualTraining();
+    });
+    this.manualCopyPreviousButton?.addEventListener("click", () => this.moveManualCopyMonth(-1));
+    this.manualCopyNextButton?.addEventListener("click", () => this.moveManualCopyMonth(1));
+    this.manualCopyDaysElement?.addEventListener("click", (event) => {
+      const dayButton = event.target?.closest?.("[data-manual-copy-date]");
+      if (dayButton) this.toggleManualCopyDate(dayButton.getAttribute("data-manual-copy-date"));
+    });
+    this.manualCopySelectedElement?.addEventListener("click", (event) => {
+      const removeButton = event.target?.closest?.("[data-manual-copy-remove]");
+      if (removeButton) this.toggleManualCopyDate(removeButton.getAttribute("data-manual-copy-remove"));
+    });
+    this.manualCopySubmitButton?.addEventListener("click", async () => this.copyManualTraining());
     this.exportAllFitButton?.addEventListener("click", () => this.exportAllWorkoutsAsFit());
     this.registerSplitterEvents();
     this.initLayoutObservers();
@@ -441,6 +534,400 @@ export default class Controller {
         this.deviceInfoElement.removeAttribute("open");
       }
     });
+  }
+
+  switchDashboardModal(fromElement, fromModal, toModal) {
+    if (!fromElement || !fromModal || !toModal) return;
+    fromElement.addEventListener("hidden.bs.modal", () => toModal.show(), { once: true });
+    fromModal.hide();
+  }
+
+  openManualTrainingForm(activity = null) {
+    if (!this.manualTrainingForm) return;
+    this.manualTrainingForm.reset();
+    this.editingManualActivityId = activity?.id ?? null;
+    const startInput = this.manualTrainingForm.elements.namedItem("startTime");
+    const durationInput = this.manualTrainingForm.elements.namedItem("durationMinutes");
+    const startTime = activity?.start_time ? new Date(activity.start_time) : new Date();
+    startTime.setSeconds(0, 0);
+    const localStartTime = new Date(startTime.getTime() - startTime.getTimezoneOffset() * 60_000)
+      .toISOString()
+      .slice(0, 16);
+    if (startInput) startInput.value = localStartTime;
+    if (durationInput) {
+      durationInput.value = activity
+        ? String(Math.max(1, Math.round(Number(activity.total_timer_time || activity.duration_seconds) / 60)))
+        : "30";
+    }
+    const baselinePowerMode = this.manualTrainingForm.elements.namedItem("baselinePowerMode");
+    const baselinePowerValue = this.manualTrainingForm.elements.namedItem("baselinePowerValue");
+    if (baselinePowerMode) baselinePowerMode.value = activity?.baseline_power_mode || "watts";
+    if (baselinePowerValue) baselinePowerValue.value = activity?.baseline_power_value ?? "120";
+    this.renderManualTrainingIntervals(activity?.intervals || []);
+    if (activity) {
+      const fieldValues = {
+        activityType: activity.activity_type,
+        workoutType: activity.workout_type,
+        perceivedExertion: activity.perceived_exertion,
+        estimatedTss: activity.tss_source === "manual" || !activity.tss_source
+          ? activity.estimated_tss
+          : null,
+        strengthFocus: activity.strength_focus,
+        title: activity.title,
+        notes: activity.notes
+      };
+      Object.entries(fieldValues).forEach(([name, value]) => {
+        const field = this.manualTrainingForm.elements.namedItem(name);
+        if (field && value !== null && value !== undefined) field.value = String(value);
+      });
+    }
+    if (this.manualTrainingTitleElement) {
+      this.manualTrainingTitleElement.textContent = this.t(
+        activity ? "manualTrainingEditTitle" : "manualTrainingTitle"
+      );
+    }
+    if (this.manualTrainingSubmitButton) {
+      this.manualTrainingSubmitButton.textContent = this.t(
+        activity ? "manualTrainingUpdate" : "manualTrainingSave"
+      );
+    }
+    if (this.manualTrainingBackButton) {
+      this.manualTrainingBackButton.textContent = this.t(
+        activity ? "manualTrainingCancel" : "manualTrainingBack"
+      );
+    }
+    this.hideManualTrainingError();
+    this.syncManualTrainingFields();
+    if (activity) {
+      this.manualTrainingModal?.show();
+    } else {
+      this.switchDashboardModal(this.addTrainingModalElement, this.addTrainingModal, this.manualTrainingModal);
+    }
+  }
+
+  syncManualTrainingFields() {
+    const activityType = this.manualTrainingTypeSelect?.value || "cycling";
+    const isCycling = activityType === "cycling";
+    if (this.manualWorkoutTypeField) this.manualWorkoutTypeField.hidden = !isCycling;
+    if (this.manualBaselinePowerField) this.manualBaselinePowerField.hidden = !isCycling;
+    if (this.manualTssField) this.manualTssField.hidden = !isCycling;
+    if (this.manualIntervalSection) this.manualIntervalSection.hidden = !isCycling;
+    const baselinePowerValue = this.manualTrainingForm?.elements.namedItem("baselinePowerValue");
+    if (baselinePowerValue) baselinePowerValue.required = isCycling;
+    if (this.manualStrengthFocusField) this.manualStrengthFocusField.hidden = activityType !== "strength_training";
+    this.syncManualPowerInput(this.manualBaselinePowerMode);
+  }
+
+  syncManualPowerInput(modeSelect) {
+    const container = modeSelect?.closest?.(".input-group, .dashboard-manual-interval-row");
+    const valueInputs = container?.querySelectorAll?.(
+      modeSelect === this.manualBaselinePowerMode
+        ? "input[name='baselinePowerValue']"
+        : "[data-manual-interval-power]"
+    ) || [];
+    const isPercent = modeSelect?.value === "ftp_percent";
+    valueInputs.forEach((input) => {
+      input.max = isPercent ? "300" : "3000";
+      input.step = isPercent ? "0.5" : "1";
+    });
+  }
+
+  renderManualTrainingIntervals(intervals = []) {
+    if (!this.manualIntervalList) return;
+    this.manualIntervalList.innerHTML = "";
+    intervals.forEach((interval) => this.addManualTrainingInterval({
+      repetitions: interval.repetitions,
+      workDurationMinutes: Number(interval.work_duration_seconds ?? interval.workDurationSeconds) / 60,
+      recoveryDurationMinutes: Number(interval.recovery_duration_seconds ?? interval.recoveryDurationSeconds) / 60,
+      powerMode: interval.power_mode ?? interval.powerMode,
+      workPowerValue: interval.work_power_value ?? interval.workPowerValue,
+      recoveryPowerValue: interval.recovery_power_value ?? interval.recoveryPowerValue
+    }));
+  }
+
+  addManualTrainingInterval(interval = {}) {
+    if (!this.manualIntervalList) return;
+    const row = document.createElement("div");
+    row.className = "dashboard-manual-interval-row";
+    row.innerHTML = `
+      <label><span>${this.t("manualTrainingIntervalRepetitions")}</span><input class="form-control" type="number" min="1" max="100" step="1" value="${interval.repetitions ?? 3}" data-manual-interval-field="repetitions" required></label>
+      <label><span>${this.t("manualTrainingIntervalWorkDuration")}</span><input class="form-control" type="number" min="0.25" max="60" step="0.25" value="${interval.workDurationMinutes ?? 2}" data-manual-interval-field="workDurationMinutes" required></label>
+      <label><span>${this.t("manualTrainingIntervalWorkPower")}</span><input class="form-control" type="number" min="1" max="3000" step="1" value="${interval.workPowerValue ?? 250}" data-manual-interval-field="workPowerValue" data-manual-interval-power required></label>
+      <label><span>${this.t("manualTrainingIntervalRecoveryDuration")}</span><input class="form-control" type="number" min="0" max="60" step="0.25" value="${interval.recoveryDurationMinutes ?? 2}" data-manual-interval-field="recoveryDurationMinutes" required></label>
+      <label><span>${this.t("manualTrainingIntervalRecoveryPower")}</span><input class="form-control" type="number" min="0" max="3000" step="1" value="${interval.recoveryPowerValue ?? ""}" data-manual-interval-field="recoveryPowerValue" data-manual-interval-power></label>
+      <label><span>${this.t("manualTrainingPowerMode")}</span><select class="form-select" data-manual-interval-field="powerMode"><option value="watts">${this.t("manualTrainingWatts")}</option><option value="ftp_percent">${this.t("manualTrainingFtpPercent")}</option></select></label>
+      <button class="btn btn-sm btn-outline-danger dashboard-manual-interval-remove" type="button" data-manual-interval-remove aria-label="${this.t("manualTrainingIntervalRemove")}">×</button>
+    `;
+    const modeSelect = row.querySelector("[data-manual-interval-field='powerMode']");
+    modeSelect.value = interval.powerMode || "watts";
+    this.manualIntervalList.append(row);
+    this.syncManualPowerInput(modeSelect);
+  }
+
+  collectManualTrainingIntervals() {
+    return Array.from(this.manualIntervalList?.querySelectorAll(".dashboard-manual-interval-row") || [])
+      .map((row) => {
+        const value = (name) => row.querySelector(`[data-manual-interval-field='${name}']`)?.value ?? "";
+        return {
+          repetitions: value("repetitions"),
+          workDurationSeconds: Math.round(Number(value("workDurationMinutes")) * 60),
+          recoveryDurationSeconds: Math.round(Number(value("recoveryDurationMinutes")) * 60),
+          powerMode: value("powerMode"),
+          workPowerValue: value("workPowerValue"),
+          recoveryPowerValue: value("recoveryPowerValue")
+        };
+      });
+  }
+
+  async editManualTraining(activity) {
+    try {
+      const response = await fetch(`/files/training-activities/${encodeURIComponent(activity.id)}`, {
+        credentials: "include",
+        headers: { Accept: "application/json" }
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || this.t("manualTrainingLoadFailed"));
+      this.openManualTrainingForm(result.activity);
+    } catch (error) {
+      this.showToast(error?.message || this.t("manualTrainingLoadFailed"));
+    }
+  }
+
+  localDateKey(date) {
+    return [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, "0"),
+      String(date.getDate()).padStart(2, "0")
+    ].join("-");
+  }
+
+  dateFromLocalKey(key) {
+    const [year, month, day] = String(key || "").split("-").map(Number);
+    return new Date(year, month - 1, day);
+  }
+
+  openManualTrainingCopy(activity) {
+    const sourceStart = new Date(activity?.start_time);
+    if (!Number.isFinite(sourceStart.getTime()) || !this.manualCopyModal) return;
+    this.manualCopyActivity = activity;
+    this.manualCopySelectedDates.clear();
+    const now = new Date();
+    this.manualCopyVisibleMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const title = String(activity.title || `A-${activity.id}`);
+    const time = sourceStart.toLocaleTimeString(this.locale, { hour: "2-digit", minute: "2-digit" });
+    if (this.manualCopySourceElement) {
+      this.manualCopySourceElement.textContent = this.t("manualTrainingCopySource", { title, time });
+    }
+    this.hideManualCopyError();
+    this.renderManualCopyCalendar();
+    this.renderManualCopySelection();
+    this.manualCopyModal.show();
+  }
+
+  moveManualCopyMonth(offset) {
+    this.manualCopyVisibleMonth = new Date(
+      this.manualCopyVisibleMonth.getFullYear(),
+      this.manualCopyVisibleMonth.getMonth() + offset,
+      1
+    );
+    this.renderManualCopyCalendar();
+  }
+
+  toggleManualCopyDate(key) {
+    if (!key) return;
+    if (this.manualCopySelectedDates.has(key)) {
+      this.manualCopySelectedDates.delete(key);
+    } else if (this.manualCopySelectedDates.size < 50) {
+      this.manualCopySelectedDates.add(key);
+    }
+    this.renderManualCopyCalendar();
+    this.renderManualCopySelection();
+  }
+
+  renderManualCopyCalendar() {
+    if (!this.manualCopyDaysElement || !this.manualCopyWeekdaysElement) return;
+    const year = this.manualCopyVisibleMonth.getFullYear();
+    const month = this.manualCopyVisibleMonth.getMonth();
+    if (this.manualCopyMonthElement) {
+      this.manualCopyMonthElement.textContent = this.manualCopyVisibleMonth.toLocaleDateString(
+        this.locale,
+        { month: "long", year: "numeric" }
+      );
+    }
+    this.manualCopyWeekdaysElement.innerHTML = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(2024, 0, 1 + index);
+      return `<span>${date.toLocaleDateString(this.locale, { weekday: "short" })}</span>`;
+    }).join("");
+
+    const sourceKey = this.localDateKey(new Date(this.manualCopyActivity?.start_time));
+    const todayKey = this.localDateKey(new Date());
+    const leadingDays = (new Date(year, month, 1).getDay() + 6) % 7;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const cells = Array.from({ length: leadingDays }, () => (
+      '<span class="dashboard-manual-copy-day dashboard-manual-copy-day--empty"></span>'
+    ));
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const date = new Date(year, month, day);
+      const key = this.localDateKey(date);
+      const selected = this.manualCopySelectedDates.has(key);
+      const disabled = key === sourceKey || (!selected && this.manualCopySelectedDates.size >= 50);
+      const classes = [
+        "dashboard-manual-copy-day",
+        selected ? "is-selected" : "",
+        key === todayKey ? "is-today" : ""
+      ].filter(Boolean).join(" ");
+      cells.push(`<button class="${classes}" type="button" data-manual-copy-date="${key}"${disabled ? " disabled" : ""} aria-pressed="${selected}">${day}</button>`);
+    }
+    this.manualCopyDaysElement.innerHTML = cells.join("");
+  }
+
+  renderManualCopySelection() {
+    const keys = [...this.manualCopySelectedDates].sort();
+    if (this.manualCopyCountElement) this.manualCopyCountElement.textContent = `${keys.length}/50`;
+    if (this.manualCopySubmitButton) this.manualCopySubmitButton.disabled = keys.length === 0;
+    this.manualCopyEmptyElement?.classList.toggle("d-none", keys.length > 0);
+    if (!this.manualCopySelectedElement) return;
+    this.manualCopySelectedElement.innerHTML = keys.map((key) => {
+      const label = this.dateFromLocalKey(key).toLocaleDateString(this.locale, { dateStyle: "medium" });
+      return `<span class="dashboard-manual-copy-chip">${label}<button type="button" data-manual-copy-remove="${key}" aria-label="${this.t("manualTrainingCopyRemoveDate", { date: label })}">×</button></span>`;
+    }).join("");
+  }
+
+  hideManualCopyError() {
+    if (!this.manualCopyErrorElement) return;
+    this.manualCopyErrorElement.textContent = "";
+    this.manualCopyErrorElement.classList.add("d-none");
+  }
+
+  showManualCopyError(message) {
+    if (!this.manualCopyErrorElement) return;
+    this.manualCopyErrorElement.textContent = message;
+    this.manualCopyErrorElement.classList.remove("d-none");
+  }
+
+  async copyManualTraining() {
+    const activity = this.manualCopyActivity;
+    if (!activity?.id || this.manualCopySelectedDates.size === 0) return;
+    const sourceStart = new Date(activity.start_time);
+    const targetStartTimes = [...this.manualCopySelectedDates].sort().map((key) => {
+      const target = this.dateFromLocalKey(key);
+      target.setHours(
+        sourceStart.getHours(),
+        sourceStart.getMinutes(),
+        sourceStart.getSeconds(),
+        sourceStart.getMilliseconds()
+      );
+      return target.toISOString();
+    });
+
+    this.hideManualCopyError();
+    this.manualCopySubmitButton.disabled = true;
+    try {
+      const response = await fetch(`/files/training-activities/${encodeURIComponent(activity.id)}/copies`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ targetStartTimes })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || this.t("manualTrainingCopyFailed"));
+      this.manualCopyModal.hide();
+      await this.libraryView.reload();
+      this.showToast(this.t("manualTrainingCopyComplete", {
+        created: Number(result.createdCount || 0),
+        skipped: Number(result.skippedCount || 0)
+      }));
+    } catch (error) {
+      this.showManualCopyError(error?.message || this.t("manualTrainingCopyFailed"));
+    } finally {
+      this.manualCopySubmitButton.disabled = this.manualCopySelectedDates.size === 0;
+    }
+  }
+
+  hideManualTrainingError() {
+    if (!this.manualTrainingErrorElement) return;
+    this.manualTrainingErrorElement.textContent = "";
+    this.manualTrainingErrorElement.classList.add("d-none");
+  }
+
+  showManualTrainingError(message) {
+    if (!this.manualTrainingErrorElement) return;
+    this.manualTrainingErrorElement.textContent = message;
+    this.manualTrainingErrorElement.classList.remove("d-none");
+  }
+
+  async saveManualTraining() {
+    if (!this.manualTrainingForm || !this.manualTrainingForm.reportValidity()) return;
+    this.hideManualTrainingError();
+    const formData = new FormData(this.manualTrainingForm);
+    const startTime = new Date(String(formData.get("startTime") || ""));
+    const payload = {
+      startTime: startTime.toISOString(),
+      durationSeconds: Number(formData.get("durationMinutes")) * 60,
+      activityType: String(formData.get("activityType") || ""),
+      workoutType: String(formData.get("workoutType") || ""),
+      perceivedExertion: formData.get("perceivedExertion"),
+      baselinePowerMode: formData.get("baselinePowerMode"),
+      baselinePowerValue: formData.get("baselinePowerValue"),
+      intervals: this.collectManualTrainingIntervals(),
+      estimatedTss: formData.get("estimatedTss"),
+      strengthFocus: formData.get("strengthFocus"),
+      title: String(formData.get("title") || ""),
+      notes: String(formData.get("notes") || "")
+    };
+
+    if (this.manualTrainingSubmitButton) this.manualTrainingSubmitButton.disabled = true;
+    try {
+      const activityId = this.editingManualActivityId;
+      const response = await fetch(
+        activityId === null
+          ? "/files/training-activities"
+          : `/files/training-activities/${encodeURIComponent(activityId)}`,
+        {
+          method: activityId === null ? "POST" : "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify(payload)
+        }
+      );
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || this.t("manualTrainingSaveFailed"));
+      this.manualTrainingModal?.hide();
+      await this.libraryView.reload();
+      this.showToast(this.t(activityId === null ? "manualTrainingSaved" : "manualTrainingUpdated"));
+    } catch (error) {
+      this.showManualTrainingError(error?.message || this.t("manualTrainingSaveFailed"));
+    } finally {
+      if (this.manualTrainingSubmitButton) this.manualTrainingSubmitButton.disabled = false;
+    }
+  }
+
+  async deleteManualTraining(activity) {
+    const activityId = activity?.id;
+    if (activityId === null || activityId === undefined) return;
+    const label = String(activity.title || `A-${activityId}`);
+    const confirmed = await confirmModal({
+      title: this.t("manualTrainingDeleteTitle"),
+      message: this.t("manualTrainingDeletePrompt", { title: label }),
+      acceptLabel: this.t("manualTrainingDeleteConfirm"),
+      cancelLabel: this.t("manualTrainingCancel"),
+      acceptClass: "btn-danger"
+    });
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(`/files/training-activities/${encodeURIComponent(activityId)}`, {
+        method: "DELETE",
+        credentials: "include",
+        headers: { Accept: "application/json" }
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || this.t("manualTrainingDeleteFailed"));
+      await this.libraryView.reload();
+      this.showToast(this.t("manualTrainingDeleted"));
+    } catch (error) {
+      this.showToast(error?.message || this.t("manualTrainingDeleteFailed"));
+    }
   }
 
   async exportAllWorkoutsAsFit() {
@@ -794,7 +1281,7 @@ export default class Controller {
   }
 
   getNavigableWorkoutIds() {
-    return this.libraryView.getRenderableItems().map((workout) => String(workout.id));
+    return this.libraryView.getNavigableWorkouts().map((workout) => String(workout.id));
   }
 
   updateDetailNavigation() {

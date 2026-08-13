@@ -479,6 +479,9 @@ router.get("/:id/open-v2", authMiddleware, async (req, res) => {
         intensityTags: Number(row.intensity_tags) || 0,
         intensityStructure: row.intensity_structure || "unknown",
         intensityDose: row.intensity_dose || "unknown",
+        perceivedExertion: accessInfo.is_owner && row.perceived_exertion != null
+          ? Number(row.perceived_exertion)
+          : null,
         isFavorite: !!accessInfo.is_favorite,
         streamCodec: String(row.stream_codec || "brotli"),
         gpsTrackCodec: String(row.gps_track_blob_codec || "identity"),

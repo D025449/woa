@@ -13,6 +13,7 @@ const WORKOUT_LIBRARY_SORTS = new Set([
   "np"
 ]);
 const WORKOUT_LIBRARY_SCOPES = new Set(["mine", "shared", "all"]);
+const ACTIVITY_TYPES = new Set(["all", "cycling", "strength_training", "mobility", "other"]);
 const WORKOUT_TYPES = new Set(["all", "indoor", "road", "mountain", "motorsport", "unknown"]);
 const TERRAIN_PROFILES = new Set(["all", "flat", "rolling", "mountainous", "altitude_missing", "altitude_invalid"]);
 const INTENSITY_PROFILES = new Set(["all", "recovery", "endurance", "tempo", "threshold", "vo2max", "anaerobic", "unknown"]);
@@ -47,6 +48,7 @@ function normalizeEnum(value, allowed, fallback) {
 }
 
 export function normalizeWorkoutLibraryState(state = {}) {
+  /** @type {Record<string, any>} */
   const source = state && typeof state === "object" && !Array.isArray(state)
     ? state
     : {};
@@ -56,6 +58,7 @@ export function normalizeWorkoutLibraryState(state = {}) {
     sort: normalizeEnum(source.sort, WORKOUT_LIBRARY_SORTS, "newest"),
     scope: normalizeEnum(source.scope, WORKOUT_LIBRARY_SCOPES, "mine"),
     favoritesOnly: source.favoritesOnly === true,
+    activityType: normalizeEnum(source.activityType, ACTIVITY_TYPES, "all"),
     workoutType: normalizeEnum(source.workoutType, WORKOUT_TYPES, "all"),
     terrainProfile: normalizeEnum(source.terrainProfile, TERRAIN_PROFILES, "all"),
     intensityProfile: normalizeEnum(source.intensityProfile, INTENSITY_PROFILES, "all"),

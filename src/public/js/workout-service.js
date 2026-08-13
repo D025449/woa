@@ -207,6 +207,7 @@ export default class WorkoutService {
         intensity_tags: Number(meta?.intensityTags) || 0,
         intensity_structure: meta?.intensityStructure || "unknown",
         intensity_dose: meta?.intensityDose || "unknown",
+        perceived_exertion: meta?.perceivedExertion == null ? null : Number(meta.perceivedExertion),
         isFavorite: !!meta?.isFavorite,
         workoutObject,
         validGps: !!(meta?.validGps ?? workoutObject.isValidGps()),

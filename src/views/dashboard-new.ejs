@@ -49,6 +49,16 @@
                     </div>
                     <div class="dashboard-hero-meta">
                         <button
+                            id="dashboard-add-training"
+                            class="dashboard-add-training-button"
+                            type="button"
+                            title="<%= t('dashboardNewPage.addTraining') %>">
+                            <svg viewBox="0 0 20 20" aria-hidden="true">
+                                <path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+                            </svg>
+                            <span><%= t("dashboardNewPage.addTraining") %></span>
+                        </button>
+                        <button
                             id="dashboard-export-all-fit"
                             class="dashboard-export-fit-button"
                             type="button"
@@ -197,6 +207,45 @@
                                                 <path d="M10 2.9l2.15 4.36 4.81.7-3.48 3.39.82 4.79L10 14.02 5.7 16.14l.82-4.79L3.04 7.96l4.81-.7L10 2.9z" fill="currentColor"></path>
                                             </svg>
                                         </button>
+                                        <div class="workout-library-type">
+                                            <button
+                                                id="workout-library-activity-trigger"
+                                                class="workout-library-sort__trigger workout-library-type__trigger"
+                                                type="button"
+                                                aria-haspopup="menu"
+                                                aria-expanded="false"
+                                                aria-label="<%= t('dashboardNewPage.activityTypeFilterLabel') %>"
+                                                title="<%= t('dashboardNewPage.activityTypeFilterLabel') %>">
+                                                <span id="workout-library-activity-trigger-label" class="visually-hidden"><%= t("dashboardNewPage.activityTypeAll") %></span>
+                                                <svg class="workout-library-type__icon" viewBox="0 0 20 20" aria-hidden="true">
+                                                    <circle cx="10" cy="10" r="2.2" fill="none" stroke="currentColor" stroke-width="1.45"></circle>
+                                                    <path d="M10 2.5v3M10 14.5v3M2.5 10h3M14.5 10h3M4.7 4.7l2.1 2.1M13.2 13.2l2.1 2.1M15.3 4.7l-2.1 2.1M6.8 13.2l-2.1 2.1" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round"></path>
+                                                </svg>
+                                                <svg class="workout-library-sort__chevron" viewBox="0 0 20 20" aria-hidden="true">
+                                                    <path d="M5.5 7.5L10 12l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                                                </svg>
+                                            </button>
+                                            <div id="workout-library-activity-menu" class="workout-library-sort__menu workout-library-type__menu" hidden>
+                                                <% for (const option of [
+                                                    ["all", "activityTypeAll"],
+                                                    ["cycling", "activityTypeCycling"],
+                                                    ["strength_training", "activityTypeStrengthTraining"],
+                                                    ["mobility", "activityTypeMobility"],
+                                                    ["other", "activityTypeOther"]
+                                                ]) { %>
+                                                    <button class="workout-library-sort__option" type="button" data-activity-type-option="<%= option[0] %>">
+                                                        <span class="workout-library-sort__option-title"><%= t(`dashboardNewPage.${option[1]}`) %></span>
+                                                    </button>
+                                                <% } %>
+                                            </div>
+                                            <select id="workout-library-activity-filter" class="form-select workout-library-type__native" aria-label="<%= t('dashboardNewPage.activityTypeFilterLabel') %>">
+                                                <option value="all"><%= t("dashboardNewPage.activityTypeAll") %></option>
+                                                <option value="cycling"><%= t("dashboardNewPage.activityTypeCycling") %></option>
+                                                <option value="strength_training"><%= t("dashboardNewPage.activityTypeStrengthTraining") %></option>
+                                                <option value="mobility"><%= t("dashboardNewPage.activityTypeMobility") %></option>
+                                                <option value="other"><%= t("dashboardNewPage.activityTypeOther") %></option>
+                                            </select>
+                                        </div>
                                         <div class="workout-library-type">
                                             <button
                                                 id="workout-library-type-trigger"
@@ -747,6 +796,180 @@
             <div id="dashboard-toast" class="toast dashboard-toast border-0" role="alert" aria-live="assertive"
                 aria-atomic="true">
                 <div class="toast-body" id="dashboard-toast-body"></div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="dashboard-add-training-modal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-lg">
+                <div class="modal-content border-0 shadow dashboard-add-training-modal">
+                    <div class="modal-header">
+                        <div>
+                            <p class="dashboard-eyebrow mb-1"><%= t("dashboardNewPage.addTrainingEyebrow") %></p>
+                            <h2 class="modal-title mb-0"><%= t("dashboardNewPage.addTrainingTitle") %></h2>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="dashboard-section-copy mb-3"><%= t("dashboardNewPage.addTrainingCopy") %></p>
+                        <div class="dashboard-add-training-options">
+                            <a class="dashboard-add-training-option" href="/files/uploadUI">
+                                <span class="dashboard-add-training-option__icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24"><path d="M12 16V4M7.5 8.5 12 4l4.5 4.5M5 14.5v4h14v-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                                </span>
+                                <span>
+                                    <strong><%= t("dashboardNewPage.addTrainingImportTitle") %></strong>
+                                    <small><%= t("dashboardNewPage.addTrainingImportCopy") %></small>
+                                </span>
+                            </a>
+                            <button id="dashboard-add-manual-training" class="dashboard-add-training-option" type="button">
+                                <span class="dashboard-add-training-option__icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24"><path d="M6 18.5h3l9-9-3-3-9 9v3zM13.8 7.7l3 3M5 21h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                                </span>
+                                <span>
+                                    <strong><%= t("dashboardNewPage.addTrainingManualTitle") %></strong>
+                                    <small><%= t("dashboardNewPage.addTrainingManualCopy") %></small>
+                                </span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="dashboard-manual-training-modal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-lg">
+                <div class="modal-content border-0 shadow dashboard-manual-training-modal">
+                    <form id="dashboard-manual-training-form">
+                        <div class="modal-header">
+                            <div>
+                                <p class="dashboard-eyebrow mb-1"><%= t("dashboardNewPage.addTrainingEyebrow") %></p>
+                                <h2 id="dashboard-manual-training-title" class="modal-title mb-0"><%= t("dashboardNewPage.manualTrainingTitle") %></h2>
+                            </div>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div id="dashboard-manual-training-error" class="alert alert-danger d-none" role="alert"></div>
+                            <div class="dashboard-manual-training-grid">
+                                <label class="dashboard-manual-training-field">
+                                    <span><%= t("dashboardNewPage.manualTrainingStart") %></span>
+                                    <input class="form-control" name="startTime" type="datetime-local" required>
+                                </label>
+                                <label class="dashboard-manual-training-field">
+                                    <span><%= t("dashboardNewPage.manualTrainingDuration") %></span>
+                                    <input class="form-control" name="durationMinutes" type="number" min="1" max="10080" step="1" required>
+                                </label>
+                                <label class="dashboard-manual-training-field">
+                                    <span><%= t("dashboardNewPage.manualTrainingActivityType") %></span>
+                                    <select id="dashboard-manual-training-type" class="form-select" name="activityType" required>
+                                        <option value="cycling"><%= t("dashboardNewPage.activityTypeCycling") %></option>
+                                        <option value="strength_training"><%= t("dashboardNewPage.activityTypeStrengthTraining") %></option>
+                                        <option value="mobility"><%= t("dashboardNewPage.activityTypeMobility") %></option>
+                                        <option value="other"><%= t("dashboardNewPage.activityTypeOther") %></option>
+                                    </select>
+                                </label>
+                                <label id="dashboard-manual-workout-type-field" class="dashboard-manual-training-field">
+                                    <span><%= t("dashboardNewPage.workoutTypeFilterLabel") %></span>
+                                    <select class="form-select" name="workoutType">
+                                        <option value="indoor"><%= t("dashboardNewPage.workoutTypeIndoor") %></option>
+                                        <option value="road"><%= t("dashboardNewPage.workoutTypeRoad") %></option>
+                                        <option value="mountain"><%= t("dashboardNewPage.workoutTypeMountain") %></option>
+                                        <option value="unknown"><%= t("dashboardNewPage.workoutTypeUnknown") %></option>
+                                    </select>
+                                </label>
+                                <label class="dashboard-manual-training-field">
+                                    <span><%= t("dashboardNewPage.manualTrainingRpe") %></span>
+                                    <input class="form-control" name="perceivedExertion" type="number" min="1" max="10" step="1" placeholder="1–10">
+                                </label>
+                                <label id="dashboard-manual-baseline-power-field" class="dashboard-manual-training-field">
+                                    <span><%= t("dashboardNewPage.manualTrainingBaselinePower") %></span>
+                                    <div class="input-group">
+                                        <input class="form-control" name="baselinePowerValue" type="number" min="1" max="3000" step="1" required>
+                                        <select id="dashboard-manual-baseline-power-mode" class="form-select dashboard-manual-power-mode" name="baselinePowerMode" aria-label="<%= t("dashboardNewPage.manualTrainingPowerMode") %>">
+                                            <option value="watts"><%= t("dashboardNewPage.manualTrainingWatts") %></option>
+                                            <option value="ftp_percent"><%= t("dashboardNewPage.manualTrainingFtpPercent") %></option>
+                                        </select>
+                                    </div>
+                                </label>
+                                <label id="dashboard-manual-tss-field" class="dashboard-manual-training-field">
+                                    <span><%= t("dashboardNewPage.manualTrainingTssOverride") %></span>
+                                    <input class="form-control" name="estimatedTss" type="number" min="0" max="2000" step="0.1">
+                                </label>
+                                <section id="dashboard-manual-interval-section" class="dashboard-manual-interval-section dashboard-manual-training-field--wide">
+                                    <div class="dashboard-manual-interval-section__head">
+                                        <div>
+                                            <strong><%= t("dashboardNewPage.manualTrainingIntervals") %></strong>
+                                            <small><%= t("dashboardNewPage.manualTrainingIntervalsHint") %></small>
+                                        </div>
+                                        <button id="dashboard-manual-interval-add" class="btn btn-sm btn-outline-primary" type="button"><%= t("dashboardNewPage.manualTrainingIntervalAdd") %></button>
+                                    </div>
+                                    <div id="dashboard-manual-interval-list" class="dashboard-manual-interval-list"></div>
+                                </section>
+                                <label id="dashboard-manual-strength-focus-field" class="dashboard-manual-training-field" hidden>
+                                    <span><%= t("dashboardNewPage.manualTrainingStrengthFocus") %></span>
+                                    <select class="form-select" name="strengthFocus">
+                                        <option value=""><%= t("dashboardNewPage.manualTrainingNotSpecified") %></option>
+                                        <option value="upper_body"><%= t("dashboardNewPage.strengthFocusUpperBody") %></option>
+                                        <option value="lower_body"><%= t("dashboardNewPage.strengthFocusLowerBody") %></option>
+                                        <option value="full_body"><%= t("dashboardNewPage.strengthFocusFullBody") %></option>
+                                    </select>
+                                </label>
+                                <label class="dashboard-manual-training-field dashboard-manual-training-field--wide">
+                                    <span><%= t("dashboardNewPage.manualTrainingName") %></span>
+                                    <input class="form-control" name="title" type="text" maxlength="160">
+                                </label>
+                                <label class="dashboard-manual-training-field dashboard-manual-training-field--wide">
+                                    <span><%= t("dashboardNewPage.manualTrainingNotes") %></span>
+                                    <textarea class="form-control" name="notes" rows="3" maxlength="5000"></textarea>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button id="dashboard-manual-training-back" type="button" class="btn btn-outline-secondary"><%= t("dashboardNewPage.manualTrainingBack") %></button>
+                            <button id="dashboard-manual-training-submit" type="submit" class="btn btn-primary"><%= t("dashboardNewPage.manualTrainingSave") %></button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="dashboard-manual-copy-modal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-lg">
+                <div class="modal-content border-0 shadow dashboard-manual-copy-modal">
+                    <div class="modal-header">
+                        <div>
+                            <p class="dashboard-eyebrow mb-1"><%= t("dashboardNewPage.manualTrainingCopyEyebrow") %></p>
+                            <h2 class="modal-title mb-0"><%= t("dashboardNewPage.manualTrainingCopyTitle") %></h2>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="dashboard-manual-copy-error" class="alert alert-danger d-none" role="alert"></div>
+                        <p id="dashboard-manual-copy-source" class="dashboard-manual-copy-source"></p>
+                        <div class="dashboard-manual-copy-layout">
+                            <section class="dashboard-manual-copy-calendar" aria-label="<%= t("dashboardNewPage.manualTrainingCopyCalendarLabel") %>">
+                                <div class="dashboard-manual-copy-calendar__head">
+                                    <button id="dashboard-manual-copy-prev" class="btn btn-sm btn-outline-secondary" type="button" aria-label="<%= t("dashboardNewPage.manualTrainingCopyPreviousMonth") %>">‹</button>
+                                    <strong id="dashboard-manual-copy-month"></strong>
+                                    <button id="dashboard-manual-copy-next" class="btn btn-sm btn-outline-secondary" type="button" aria-label="<%= t("dashboardNewPage.manualTrainingCopyNextMonth") %>">›</button>
+                                </div>
+                                <div id="dashboard-manual-copy-weekdays" class="dashboard-manual-copy-weekdays"></div>
+                                <div id="dashboard-manual-copy-days" class="dashboard-manual-copy-days"></div>
+                            </section>
+                            <aside class="dashboard-manual-copy-selection">
+                                <div class="dashboard-manual-copy-selection__head">
+                                    <strong><%= t("dashboardNewPage.manualTrainingCopySelected") %></strong>
+                                    <span id="dashboard-manual-copy-count">0/50</span>
+                                </div>
+                                <p id="dashboard-manual-copy-empty" class="dashboard-section-copy"><%= t("dashboardNewPage.manualTrainingCopyEmpty") %></p>
+                                <div id="dashboard-manual-copy-selected" class="dashboard-manual-copy-selected"></div>
+                            </aside>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal"><%= t("dashboardNewPage.manualTrainingCancel") %></button>
+                        <button id="dashboard-manual-copy-submit" type="button" class="btn btn-primary" disabled><%= t("dashboardNewPage.manualTrainingCopySubmit") %></button>
+                    </div>
+                </div>
             </div>
         </div>
 

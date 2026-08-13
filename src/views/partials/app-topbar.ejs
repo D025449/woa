@@ -231,7 +231,8 @@
         const logout = () => {
             if (isLoggingOut) return;
             isLoggingOut = true;
-            window.location.href = "/logout";
+            const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+            window.location.href = `/logout?redirect=${encodeURIComponent(returnTo)}`;
         };
 
         const updateCountdown = () => {
@@ -300,13 +301,13 @@
                 });
 
                 if (!response.ok) {
-                    window.location.href = "/logout";
+                    logout();
                     return;
                 }
 
                 dismissWarning();
             } catch {
-                window.location.href = "/logout";
+                logout();
             } finally {
                 keepAliveButton.disabled = false;
             }

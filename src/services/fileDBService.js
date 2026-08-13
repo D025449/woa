@@ -11,6 +11,8 @@ const LEGACY_WORKOUT_STREAM_CODEC = "brotli";
 const GPS_TRACK_BLOB_CODEC = "identity";
 
 class FileDBService {
+  static thumbnailsOnDemand = FEATURE_THUMBNAILS_ON_DEMAND;
+
   static searchColumns = [
     "id",
     "start_time",
@@ -137,6 +139,7 @@ class FileDBService {
     "intensity_tags",
     "intensity_structure",
     "intensity_dose",
+    "perceived_exertion",
     "validgps"
   ];
 
@@ -153,7 +156,8 @@ class FileDBService {
     "total_timer_time",
     "total_calories",
     "total_work",
-    "intensity_tags"
+    "intensity_tags",
+    "perceived_exertion"
   ];
 
 
@@ -555,6 +559,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       workouts.intensity_structure,
       workouts.intensity_dose,
       workouts.intensity_classifier_version,
+      workouts.perceived_exertion,
       workouts.segment_processing_status,
       workouts.segment_processing_error,
       workouts.segment_processing_updated_at,
@@ -755,6 +760,22 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       }
 
       const ftp = Math.round(FileDBService.interpolateFTP(ftpSeries, w.start_time, grouping));
+      if (
+        w.entity_type === "manual_activity"
+        && (w.tss_source === "manual" || w.tss_source == null)
+        && w.estimated_tss != null
+        && Number.isFinite(Number(w.estimated_tss))
+      ) {
+        return {
+          ...w,
+          ftp: ftp || null,
+          IF: ftp && w.avg_normalized_power ? w.avg_normalized_power / ftp : null,
+          TSS: Number(w.estimated_tss)
+        };
+      }
+      if (!ftp || !w.avg_normalized_power || !w.total_timer_time) {
+        return { ...w, ftp: ftp || null, IF: null, TSS: 0 };
+      }
       const IF = w.avg_normalized_power / ftp;
       const TSS =
         Math.round((w.total_timer_time * w.avg_normalized_power * IF) / (ftp * 3600) * 100);
@@ -869,10 +890,29 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
   static async getCTLATL(uid, period) {
     // 1. Alle Workouts laden
     const { rows } = await pool.query(
-      `SELECT *
+      `SELECT
+         'workout'::text AS entity_type,
+         start_time,
+         total_timer_time,
+         avg_normalized_power,
+         workout_type,
+         NULL::double precision AS estimated_tss,
+         NULL::text AS tss_source
        FROM workouts
        WHERE uid = $1
          AND workout_type <> 'motorsport'
+       UNION ALL
+       SELECT
+         'manual_activity'::text AS entity_type,
+         start_time,
+         duration_seconds AS total_timer_time,
+         avg_normalized_power,
+         workout_type,
+         estimated_tss,
+         tss_source
+       FROM training_activities
+       WHERE uid = $1
+         AND activity_type = 'cycling'
        ORDER BY start_time`,
       [uid]
     );
@@ -911,17 +951,13 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     if (daily.length === 0) return [];
 
     const result = [];
-    const start = new Date(daily[0].day);
-    const end = new Date(daily[daily.length - 1].day);
+    const start = Date.parse(`${daily[0].day}T00:00:00.000Z`);
+    const end = Date.parse(`${daily[daily.length - 1].day}T00:00:00.000Z`);
 
     const map = new Map(daily.map(d => [d.day, d.tss]));
 
-    for (
-      let d = new Date(start);
-      d <= end;
-      d.setDate(d.getDate() + 1)
-    ) {
-      const key = d.toISOString().slice(0, 10);
+    for (let timestamp = start; timestamp <= end; timestamp += 86400000) {
+      const key = new Date(timestamp).toISOString().slice(0, 10);
 
       result.push({
         day: key,
@@ -971,6 +1007,20 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       w.start_time,
       grouping
     );
+
+    if (
+      w?.entity_type === "manual_activity"
+      && (w?.tss_source === "manual" || w?.tss_source == null)
+      && w?.estimated_tss != null
+      && Number.isFinite(Number(w?.estimated_tss))
+    ) {
+      return {
+        ...w,
+        ftp: ftp || null,
+        IF: ftp && w.avg_normalized_power ? w.avg_normalized_power / ftp : null,
+        tss: Number(w.estimated_tss)
+      };
+    }
 
     if (!ftp || !w.avg_normalized_power || !w.total_timer_time) {
       return {

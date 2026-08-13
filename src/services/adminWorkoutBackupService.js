@@ -23,6 +23,7 @@ export const ADMIN_WORKOUT_COLUMNS = [
   "avg_heart_rate", "max_heart_rate", "avg_cadence", "max_cadence", "stream_codec",
   "validgps", "gps_source", "workout_type", "terrain_profile", "intensity_profile", "intensity_tags",
   "intensity_structure", "intensity_dose", "intensity_classifier_version", "intensity_model_features",
+  "perceived_exertion",
   "fit_device_metadata",
   "manual_gps_lookup_points", "segment_processing_status", "segment_processing_error",
   "segment_processing_updated_at", "points_count", "samplerategps", "gps_track_blob_codec",

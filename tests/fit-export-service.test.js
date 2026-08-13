@@ -437,3 +437,35 @@ test("repaired pedal samples refresh dependent session metrics", () => {
   assert.equal(parsed.sessions[0].normalized_power, 213);
   assert.equal(parsed.sessions[0].total_calories, 756);
 });
+
+test("trimmed terminal corruption refreshes session distance and maxima", () => {
+  const parsed = withCalculatedPedalMetrics({
+    compactRecords: {
+      recordCount: 3,
+      distancesQ: new Uint32Array([0, 20, 40]),
+      powersW: new Uint16Array([180, 220, 200]),
+      heartRatesBpm: new Uint8Array([120, 125, 123]),
+      cadencesRpm: new Uint8Array([70, 80, 75]),
+      speedsCmS: new Uint16Array([900, 1100, 1000]),
+      terminalCorruptionTrimStats: { trimmedRecordCount: 12 }
+    },
+    sessions: [{
+      total_timer_time: 3,
+      total_distance: 999,
+      avg_speed: 99,
+      max_speed: 99,
+      avg_power: 1,
+      max_power: 999,
+      max_heart_rate: 250,
+      avg_cadence: 1,
+      max_cadence: 250
+    }]
+  });
+
+  assert.equal(parsed.sessions[0].total_distance, 20);
+  assert.equal(parsed.sessions[0].avg_speed, 20 / 3);
+  assert.equal(parsed.sessions[0].max_speed, 11);
+  assert.equal(parsed.sessions[0].max_power, 220);
+  assert.equal(parsed.sessions[0].max_heart_rate, 125);
+  assert.equal(parsed.sessions[0].max_cadence, 80);
+});

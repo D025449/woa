@@ -1113,15 +1113,100 @@ export function correctCompactDistanceBatchingInPlace(
   return compactRecords;
 }
 
+export function repairCompactSentinelPowerCorruptionInPlace(compactRecords, ranges = []) {
+  const distances = compactRecords?.distancesQ;
+  const speeds = compactRecords?.speedsCmS;
+  const recordCount = Number(compactRecords?.recordCount || 0);
+  const stats = {
+    correctedWindows: 0,
+    correctedSpeedSamples: 0,
+    removedDistanceUnits: 0
+  };
+
+  if (!distances || !speeds || recordCount < 5) {
+    return stats;
+  }
+
+  for (const range of ranges) {
+    if (!range?.sentinel) continue;
+    const repairStart = Number(range.start) - 1;
+    const repairEnd = Number(range.end) + 1;
+    const leftAnchor = repairStart - 1;
+    const rightAnchor = repairEnd + 1;
+    if (leftAnchor < 0 || rightAnchor >= recordCount) continue;
+
+    const leftSpeed = Number(speeds[leftAnchor]);
+    const rightSpeed = Number(speeds[rightAnchor]);
+    const leftDistance = Number(distances[leftAnchor]);
+    const originalEndDistance = Number(distances[repairEnd]);
+    if (
+      leftSpeed === COMPACT_SENTINELS.uint16
+      || rightSpeed === COMPACT_SENTINELS.uint16
+      || leftDistance === COMPACT_SENTINELS.uint32
+      || originalEndDistance === COMPACT_SENTINELS.uint32
+      || originalEndDistance < leftDistance
+    ) {
+      continue;
+    }
+
+    let peakWindowSpeed = 0;
+    for (let index = repairStart; index <= repairEnd; index += 1) {
+      if (speeds[index] !== COMPACT_SENTINELS.uint16) {
+        peakWindowSpeed = Math.max(peakWindowSpeed, Number(speeds[index]));
+      }
+    }
+    const anchorSpeed = Math.max(leftSpeed, rightSpeed);
+    if (peakWindowSpeed < Math.max(2000, anchorSpeed + 1000)) {
+      continue;
+    }
+
+    const sampleCount = repairEnd - repairStart + 1;
+    const repairedSpeeds = new Uint16Array(sampleCount);
+    const repairedDistanceUnits = new Uint32Array(sampleCount);
+    let cumulativeExactUnits = 0;
+    let cumulativeIntegerUnits = 0;
+    for (let offset = 1; offset <= sampleCount; offset += 1) {
+      const ratio = offset / (sampleCount + 1);
+      const speed = Math.round(leftSpeed + ((rightSpeed - leftSpeed) * ratio));
+      repairedSpeeds[offset - 1] = speed;
+      cumulativeExactUnits += speed / 50;
+      const nextIntegerUnits = Math.round(cumulativeExactUnits);
+      repairedDistanceUnits[offset - 1] = nextIntegerUnits;
+      cumulativeIntegerUnits = nextIntegerUnits;
+    }
+
+    const correctedEndDistance = leftDistance + cumulativeIntegerUnits;
+    if (correctedEndDistance >= originalEndDistance) {
+      continue;
+    }
+    const removedDistanceUnits = originalEndDistance - correctedEndDistance;
+    for (let offset = 0; offset < sampleCount; offset += 1) {
+      const index = repairStart + offset;
+      speeds[index] = repairedSpeeds[offset];
+      distances[index] = leftDistance + repairedDistanceUnits[offset];
+    }
+    if (removedDistanceUnits > 0) {
+      for (let index = repairEnd + 1; index < recordCount; index += 1) {
+        if (distances[index] === COMPACT_SENTINELS.uint32) continue;
+        distances[index] = Math.max(0, Number(distances[index]) - removedDistanceUnits);
+      }
+    }
+
+    stats.correctedWindows += 1;
+    stats.correctedSpeedSamples += sampleCount;
+    stats.removedDistanceUnits += removedDistanceUnits;
+  }
+
+  return stats;
+}
+
 function cleanCompactPowerArtifacts(
   compactRecords,
   { correctDistanceBatching = true } = {}
 ) {
-  if (correctDistanceBatching) {
-    correctCompactDistanceBatchingInPlace(compactRecords);
-  }
   normalizeCompactMissingMetricsInPlace(compactRecords);
   const startedAt = performance.now();
+  const correctedRanges = [];
   const stats = filterPowerArtifactsInPlace({
     recordCount: compactRecords.recordCount,
     powersW: compactRecords.powersW,
@@ -1133,13 +1218,148 @@ function cleanCompactPowerArtifacts(
     invalidCadenceValue: COMPACT_SENTINELS.uint8,
     invalidHeartRateValue: COMPACT_SENTINELS.uint8,
     invalidSpeedValue: COMPACT_SENTINELS.uint16,
-    maximumSpeedDelta: 150
+    maximumSpeedDelta: 150,
+    onCorrectedRange: (range) => correctedRanges.push(range)
   });
+  const sentinelStats = repairCompactSentinelPowerCorruptionInPlace(
+    compactRecords,
+    correctedRanges
+  );
+  if (correctDistanceBatching) {
+    correctCompactDistanceBatchingInPlace(compactRecords);
+  }
   compactRecords.powerArtifactStats = {
     ...stats,
+    sentinelMetricCorrections: sentinelStats,
     elapsedMs: performance.now() - startedAt
   };
   return compactRecords;
+}
+
+const COMPACT_RECORD_COLUMNS = [
+  "timestampsSec",
+  "distancesQ",
+  "powersW",
+  "heartRatesBpm",
+  "cadencesRpm",
+  "temperaturesC",
+  "leftRightBalancesPct",
+  "speedsCmS",
+  "altitudesQ",
+  "positionLatsE6",
+  "positionLongsE6"
+];
+
+export function trimCompactCorruptTerminalTail(compactRecords) {
+  const recordCount = Number(compactRecords?.recordCount || 0);
+  const powers = compactRecords?.powersW;
+  const cadences = compactRecords?.cadencesRpm;
+  const heartRates = compactRecords?.heartRatesBpm;
+  const speeds = compactRecords?.speedsCmS;
+  if (recordCount < 16 || !powers || !cadences || !heartRates || !speeds) {
+    return compactRecords;
+  }
+
+  let zeroTailStart = recordCount;
+  while (zeroTailStart > 0) {
+    const index = zeroTailStart - 1;
+    if (powers[index] !== 0 || cadences[index] !== 0 || heartRates[index] !== 0 || speeds[index] !== 0) {
+      break;
+    }
+    zeroTailStart -= 1;
+  }
+  if (recordCount - zeroTailStart < 3) {
+    return compactRecords;
+  }
+
+  const searchStart = Math.max(6, zeroTailStart - 24);
+  let cutoffIndex = -1;
+  for (let index = searchStart; index < zeroTailStart; index += 1) {
+    let baselinePower = 0;
+    let baselineCadence = 0;
+    for (let offset = index - 6; offset < index; offset += 1) {
+      baselinePower += Number(powers[offset]);
+      baselineCadence += Number(cadences[offset]);
+    }
+    baselinePower /= 6;
+    baselineCadence /= 6;
+    if (
+      powers[index] >= 600
+      && cadences[index] >= 130
+      && powers[index] - baselinePower >= 250
+      && cadences[index] - baselineCadence >= 25
+      && baselinePower < 500
+      && baselineCadence < 120
+    ) {
+      cutoffIndex = index;
+      break;
+    }
+  }
+  if (cutoffIndex < 0 || recordCount - cutoffIndex < 10) {
+    return compactRecords;
+  }
+
+  let highPowerCount = 0;
+  let highCadenceCount = 0;
+  let stoppedPowerCount = 0;
+  let missingHeartRatePowerCount = 0;
+  for (let index = cutoffIndex; index < zeroTailStart; index += 1) {
+    if (powers[index] >= 900) highPowerCount += 1;
+    if (cadences[index] >= 140) highCadenceCount += 1;
+    if (speeds[index] === 0 && powers[index] >= 500) stoppedPowerCount += 1;
+    if (heartRates[index] === 0 && powers[index] >= 500) missingHeartRatePowerCount += 1;
+  }
+  if (
+    highPowerCount < 5
+    || highCadenceCount < 5
+    || stoppedPowerCount < 5
+    || missingHeartRatePowerCount < 5
+  ) {
+    return compactRecords;
+  }
+
+  const trimmedRecordCount = recordCount - cutoffIndex;
+  for (const key of COMPACT_RECORD_COLUMNS) {
+    const values = compactRecords[key];
+    if (values?.subarray) {
+      compactRecords[key] = values.subarray(0, cutoffIndex);
+    }
+  }
+  compactRecords.recordCount = cutoffIndex;
+  if (Number.isFinite(Number(compactRecords.lastTimestampSec))) {
+    compactRecords.lastTimestampSec = Number(compactRecords.lastTimestampSec) - trimmedRecordCount;
+  }
+  compactRecords.terminalCorruptionTrimStats = {
+    originalRecordCount: recordCount,
+    correctedRecordCount: cutoffIndex,
+    trimmedRecordCount
+  };
+  return compactRecords;
+}
+
+function adjustSessionsForTerminalTrim(sessions, compactRecords) {
+  const trimStats = compactRecords?.terminalCorruptionTrimStats;
+  const trimmedSeconds = Number(trimStats?.trimmedRecordCount || 0);
+  if (!(trimmedSeconds > 0) || !Array.isArray(sessions) || sessions.length === 0) {
+    return sessions;
+  }
+
+  const adjusted = sessions.map((session) => ({ ...session }));
+  const lastSession = adjusted.at(-1);
+  for (const key of ["total_timer_time", "total_elapsed_time"]) {
+    const value = Number(lastSession?.[key]);
+    if (Number.isFinite(value)) {
+      lastSession[key] = Math.max(0, value - trimmedSeconds);
+    }
+  }
+
+  if (adjusted.length === 1 && compactRecords.recordCount > 0) {
+    const distanceQ = Number(compactRecords.distancesQ?.[compactRecords.recordCount - 1]);
+    if (Number.isFinite(distanceQ) && distanceQ !== COMPACT_SENTINELS.uint32) {
+      lastSession.total_distance = distanceQ * 0.5;
+    }
+  }
+  return adjusted;
 }
 
 function fillGapsCompactRecords(compactRecords, options = {}) {
@@ -1809,22 +2029,27 @@ export function parseFitBufferCompactBrowser(
     };
   }
 
+  const cleanedCompactRecords = discardPlaceholderLeftRightBalance(
+    fillGapsCompactRecords(
+      finalizeCompactRecordBuffer(compactRecordBuffer, baseTimestampSec),
+      { correctDistanceBatching }
+    )
+  );
+  // A terminal corruption can be mapped safely only for a single-session FIT.
+  const compactRecords = sessions.length === 1
+    ? trimCompactCorruptTerminalTail(cleanedCompactRecords)
+    : cleanedCompactRecords;
   return {
     skippedExisting: false,
     skippedStartTime: null,
-    sessions,
+    sessions: adjustSessionsForTerminalTrim(sessions, compactRecords),
     laps,
     fitDeviceMetadata: {
       version: 1,
       fileId,
       devices: deduplicateDeviceInfo(deviceInfo)
     },
-    compactRecords: discardPlaceholderLeftRightBalance(
-      fillGapsCompactRecords(
-        finalizeCompactRecordBuffer(compactRecordBuffer, baseTimestampSec),
-        { correctDistanceBatching }
-      )
-    ),
+    compactRecords,
   };
 }
 

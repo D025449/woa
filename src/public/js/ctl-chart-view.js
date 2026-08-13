@@ -107,12 +107,7 @@ export default class CTLChartView {
         }))
       });
 
-      yAxis = [
-        { type: "value", name: "ATL", position: "left" },
-        { type: "value", name: "CTL", position: "right" },
-        { type: "value", name: "TSB", position: "left", offset: 60 },
-        { type: "value", name: "TSS", position: "right", offset: 60 }
-      ];
+      yAxis = this.buildLoadYAxis();
     }
 
     if (grouping === 'week' || grouping === 'month') {
@@ -172,18 +167,19 @@ export default class CTLChartView {
         }))
       });
 
-      yAxis = [
-        { type: "value", name: "ATL", position: "left" },
-        { type: "value", name: "CTL", position: "right" },
-        { type: "value", name: "TSB", position: "left", offset: 60 },
-        { type: "value", name: "TSS", position: "right", offset: 60 }
-      ];
+      yAxis = this.buildLoadYAxis();
     }
 
     const option = {
       tooltip: { trigger: 'axis' },
       animation: false,
       legend: { type: 'scroll' },
+      grid: {
+        left: 92,
+        right: 92,
+        top: 58,
+        bottom: 68
+      },
       xAxis: { type: 'time' },
       yAxis,
       dataZoom: [
@@ -194,6 +190,21 @@ export default class CTLChartView {
     };
 
     this.chart.setOption(option, true);
+  }
+
+  buildLoadYAxis() {
+    const common = {
+      type: "value",
+      nameGap: 18,
+      axisLabel: { margin: 8 }
+    };
+
+    return [
+      { ...common, name: "ATL", position: "left" },
+      { ...common, name: "CTL", position: "right" },
+      { ...common, name: "TSB", position: "left", offset: 48 },
+      { ...common, name: "TSS", position: "right", offset: 48 }
+    ];
   }
 
   // -----------------------------
@@ -562,4 +573,3 @@ function renderChart(chart, grouping0, apiData) {
 }
 
 */
-

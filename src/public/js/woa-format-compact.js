@@ -2125,7 +2125,10 @@ export function withCalculatedPedalMetrics(parsedCompact) {
     ?? repairStats?.correctedDropoutCount
     ?? 0
   );
-  if (correctedPowerSampleCount <= 0) {
+  const trimmedTerminalSampleCount = Number(
+    compactRecords?.terminalCorruptionTrimStats?.trimmedRecordCount || 0
+  );
+  if (correctedPowerSampleCount <= 0 && trimmedTerminalSampleCount <= 0) {
     return {
       ...parsedCompact,
       sessions: sessions.map((session) => ({
@@ -2148,6 +2151,8 @@ export function withCalculatedPedalMetrics(parsedCompact) {
   let cadenceCount = 0;
   let maxPower = 0;
   let maxCadence = 0;
+  let maxHeartRate = 0;
+  let maxSpeedCmS = 0;
   for (let index = 0; index < recordCount; index += 1) {
     const power = Number(powers[index]);
     if (power !== UINT16_NAN) {
@@ -2161,11 +2166,20 @@ export function withCalculatedPedalMetrics(parsedCompact) {
       cadenceCount += 1;
       maxCadence = Math.max(maxCadence, cadence);
     }
+    const heartRate = Number(compactRecords?.heartRatesBpm?.[index]);
+    if (heartRate !== UINT8_NAN && heartRate > 0) {
+      maxHeartRate = Math.max(maxHeartRate, heartRate);
+    }
+    const speedCmS = Number(compactRecords?.speedsCmS?.[index]);
+    if (speedCmS !== UINT16_NAN) {
+      maxSpeedCmS = Math.max(maxSpeedCmS, speedCmS);
+    }
   }
 
   const avgPower = powerCount > 0 ? Math.round(powerSum / powerCount) : 0;
   const avgCadence = cadenceCount > 0 ? Math.round(cadenceSum / cadenceCount) : 0;
 
+  const lastDistanceQ = Number(compactRecords?.distancesQ?.[recordCount - 1]);
   return {
     ...parsedCompact,
     sessions: sessions.map((session) => ({
@@ -2175,6 +2189,18 @@ export function withCalculatedPedalMetrics(parsedCompact) {
       max_power: maxPower,
       avg_cadence: avgCadence,
       max_cadence: maxCadence,
+      ...(trimmedTerminalSampleCount > 0 ? {
+        total_distance: Number.isFinite(lastDistanceQ) && lastDistanceQ !== UINT32_NAN
+          ? lastDistanceQ * 0.5
+          : session?.total_distance,
+        avg_speed: Number(session?.total_timer_time) > 0
+          && Number.isFinite(lastDistanceQ)
+          && lastDistanceQ !== UINT32_NAN
+          ? (lastDistanceQ * 0.5) / Number(session.total_timer_time)
+          : session?.avg_speed,
+        max_speed: maxSpeedCmS / 100,
+        max_heart_rate: maxHeartRate
+      } : {}),
       total_calories: resolveCyclingCalories({
         totalCalories: null,
         avgPower,

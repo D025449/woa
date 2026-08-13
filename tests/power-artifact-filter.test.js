@@ -70,3 +70,26 @@ test("keeps sustained high power and unsupported data without corroborating sens
   };
   assert.equal(filterPowerArtifactsInPlace(noSensors).artifactCount, 0);
 });
+
+test("removes a short 12-bit sentinel peak despite corrupted cadence and speed", () => {
+  const correctedRanges = [];
+  const series = createSeries({
+    powers: [428, 452, 428, 436, 432, 432, 408, 176, 4092, 4092, 4092, 112, 164, 180],
+    cadences: [122, 122, 122, 124, 124, 124, 124, 126, 44, 48, 62, 76, 72, 72],
+    heartRates: [164, 164, 164, 166, 166, 166, 168, 168, 168, 166, 168, 166, 166, 168],
+    speeds: [11, 11, 11, 11, 11, 11, 11, 8.4, 24.3, 24.3, 24.5, 6.5, 7.5, 7.5]
+  });
+
+  const stats = filterPowerArtifactsInPlace(series, {
+    onCorrectedRange: (range) => correctedRanges.push(range)
+  });
+
+  assert.equal(stats.artifactCount, 1);
+  assert.deepEqual(Array.from(series.powersW.slice(7, 12)), [176, 160, 144, 128, 112]);
+  assert.deepEqual(correctedRanges, [{
+    start: 8,
+    end: 10,
+    peakPower: 4092,
+    sentinel: true
+  }]);
+});

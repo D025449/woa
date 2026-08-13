@@ -5,6 +5,8 @@ import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.j
 import { FileDBService } from "../services/fileDBService.js";
 import CollaborationDBService from "../services/collaborationDBService.js";
 import EntitlementService from "../services/entitlementService.js";
+import TrainingFeedDBService from "../services/trainingFeedDBService.js";
+import TrainingActivityDBService from "../services/trainingActivityDBService.js";
 
 const router = express.Router();
 
@@ -102,7 +104,7 @@ router.get('/uploadNewUI', checkAuth, async (req, res) => {
 });
 
 // -------------------------------------
-// GET /files/workouts  (Tabulator JSON)
+// GET /files/workouts  (combined training feed)
 // -------------------------------------
 router.get("/workouts", authMiddleware, async (req, res, next) => {
   try {
@@ -115,7 +117,7 @@ router.get("/workouts", authMiddleware, async (req, res, next) => {
     const favoritesOnly = ["1", "true"].includes(String(req.query.favoritesOnly || "").toLowerCase());
     const uid = req.user?.id;
 
-    const result = await FileDBService.getWorkoutsByUser(
+    const result = await TrainingFeedDBService.getEntriesByUser(
       uid,
       page,
       size,
@@ -131,6 +133,69 @@ router.get("/workouts", authMiddleware, async (req, res, next) => {
   } catch (err) {
     console.log(err);
     next(err);
+  }
+});
+
+router.post("/training-activities", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
+  try {
+    const activity = await TrainingActivityDBService.create(req.user.id, req.body || {});
+    return res.status(201).json({ activity });
+  } catch (err) {
+    if (err?.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    return next(err);
+  }
+});
+
+router.get("/training-activities/:id", authMiddleware, async (req, res, next) => {
+  try {
+    const activity = await TrainingActivityDBService.getById(req.user.id, req.params.id);
+    if (!activity) return res.status(404).json({ error: "Training activity not found" });
+    return res.json({ activity });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.put("/training-activities/:id", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
+  try {
+    const activity = await TrainingActivityDBService.update(req.user.id, req.params.id, req.body || {});
+    if (!activity) return res.status(404).json({ error: "Training activity not found" });
+    return res.json({ activity });
+  } catch (err) {
+    if (err?.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    return next(err);
+  }
+});
+
+router.post("/training-activities/:id/copies", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
+  try {
+    const result = await TrainingActivityDBService.copyToStartTimes(
+      req.user.id,
+      req.params.id,
+      req.body?.targetStartTimes
+    );
+    if (!result) return res.status(404).json({ error: "Training activity not found" });
+    return res.status(201).json({
+      createdCount: result.created.length,
+      createdIds: result.created.map((activity) => activity.id),
+      skippedCount: result.skippedStartTimes.length,
+      skippedStartTimes: result.skippedStartTimes,
+      requestedCount: result.requestedCount
+    });
+  } catch (err) {
+    if (err?.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    return next(err);
+  }
+});
+
+router.delete("/training-activities/:id", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
+  try {
+    const activity = await TrainingActivityDBService.delete(req.user.id, req.params.id);
+    if (!activity) return res.status(404).json({ error: "Training activity not found" });
+    return res.json({ ok: true, id: activity.id });
+  } catch (err) {
+    if (err?.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    return next(err);
   }
 });
 

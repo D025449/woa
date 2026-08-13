@@ -501,13 +501,13 @@ export async function createApp() {
 
 
     app.get("/login", async (req, res) => {
-        const redirect = req.query.redirect || "";
+        const redirect = normalizeReturnTo(req.query.redirect, "");
         const token = req.cookies.accessToken;
 
         if (token) {
             try {
                 await verifier.verify(token);
-                return res.redirect("/");
+                return res.redirect(redirect || "/");
             } catch {
                 // absichtlich leer: dann normale Login-Seite rendern
             }
@@ -625,7 +625,7 @@ export async function createApp() {
 
 
     app.post("/login", async (req, res) => {
-        const redirect = req.body?.redirect || "";
+        const redirect = normalizeReturnTo(req.body?.redirect, "");
 
         try {
 
@@ -728,12 +728,16 @@ export async function createApp() {
 
 
     app.get("/logout", (req, res) => {
+        const redirect = normalizeReturnTo(req.query.redirect, "");
         res.clearCookie("accessToken");
         res.clearCookie("refreshToken");
         res.clearCookie("idToken");
 
         req.session.destroy(() => {
-            res.redirect("/login");
+            const loginUrl = redirect
+                ? `/login?redirect=${encodeURIComponent(redirect)}`
+                : "/login";
+            res.redirect(loginUrl);
         });
     });
 

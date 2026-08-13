@@ -28,16 +28,21 @@ const protectedViews = await Promise.all(protectedViewNames.map(async (name) => 
   source: await readFile(new URL(`../src/views/${name}.ejs`, import.meta.url), "utf8")
 })));
 
-test("idle timeout logs out and logout redirects to the login page", () => {
+test("idle timeout preserves the current page through logout and login", () => {
   assert.match(topbarSource, /let lastActivityAt = Date\.now\(\)/u);
   assert.match(topbarSource, /logoutMs - elapsed/u);
-  assert.match(topbarSource, /window\.location\.href = "\/logout"/u);
+  assert.match(
+    topbarSource,
+    /const returnTo = `\$\{window\.location\.pathname\}\$\{window\.location\.search\}\$\{window\.location\.hash\}`/u
+  );
+  assert.match(topbarSource, /`\/logout\?redirect=\$\{encodeURIComponent\(returnTo\)\}`/u);
   assert.match(topbarSource, /visibilitychange/u);
   assert.match(topbarSource, /window\.addEventListener\("focus", scheduleIdleTimers\)/u);
   assert.match(
     appSource,
-    /app\.get\("\/logout"[\s\S]*req\.session\.destroy\([\s\S]*res\.redirect\("\/login"\)/u
+    /app\.get\("\/logout"[\s\S]*normalizeReturnTo\(req\.query\.redirect, ""\)[\s\S]*`\/login\?redirect=\$\{encodeURIComponent\(redirect\)\}`/u
   );
+  assert.match(appSource, /app\.post\("\/login"[\s\S]*normalizeReturnTo\(req\.body\?\.redirect, ""\)/u);
 });
 
 test("workout API authentication failures never redirect to the public homepage", () => {

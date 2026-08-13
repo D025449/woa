@@ -3,7 +3,10 @@ import {
   classifyWorkoutIntensityChronologically,
   extractWorkoutIntensityFeatures
 } from "../shared/WorkoutIntensityClassifier.js";
-import { decodeWorkoutIntensityModelFeatures } from "../shared/WorkoutIntensityModelCodec.js";
+import {
+  decodeWorkoutIntensityModelFeatures,
+  encodeWorkoutIntensityModelFeatures
+} from "../shared/WorkoutIntensityModelCodec.js";
 import pool from "./database.js";
 
 export const INTENSITY_RECLASSIFICATION_WINDOW_DAYS = 365;
@@ -96,31 +99,50 @@ export async function classifyIntensityWindowRows(
     .filter((id) => id != null)
     .map(String));
   const entries = [];
+  const modelFeatureUpdates = [];
   let decodedWorkoutCount = 0;
   let importedFeatureOnlyCount = 0;
+
+  const extractAndRememberFeatures = async (row) => {
+    const features = await extractFeatures(row);
+    decodedWorkoutCount += 1;
+    modelFeatureUpdates.push({
+      id: Number(row.id),
+      bytes: encodeWorkoutIntensityModelFeatures(features)
+    });
+    return features;
+  };
 
   for (const row of rows) {
     const timestamp = new Date(row.start_time).getTime();
     if (timestamp < startMs) {
-      const features = row.intensity_model_features
+      let features = row.intensity_model_features
         ? decodeWorkoutIntensityModelFeatures(row.intensity_model_features)
         : null;
+      if (!features && row.stream) features = await extractAndRememberFeatures(row);
       if (features) {
         entries.push({ id: Number(row.id), startTime: row.start_time, features, classify: false, row });
       }
       continue;
     }
     if (changedIdSet.has(String(row.id))) {
-      let features = row.intensity_model_features
+      const importedFeatures = row.intensity_model_features
         ? decodeWorkoutIntensityModelFeatures(row.intensity_model_features)
         : null;
+      let features = importedFeatures;
       if (!features && row.stream) {
-        features = await extractFeatures(row);
-        decodedWorkoutCount += 1;
+        features = await extractAndRememberFeatures(row);
       }
       if (features) {
-        entries.push({ id: Number(row.id), startTime: row.start_time, features, classify: false, row });
-        importedFeatureOnlyCount += 1;
+        const hasImportedFeatures = Boolean(importedFeatures);
+        entries.push({
+          id: Number(row.id),
+          startTime: row.start_time,
+          features,
+          classify: hasImportedFeatures ? false : undefined,
+          row
+        });
+        if (hasImportedFeatures) importedFeatureOnlyCount += 1;
       }
       continue;
     }
@@ -133,8 +155,10 @@ export async function classifyIntensityWindowRows(
       }
       continue;
     }
-    const features = await extractFeatures(row);
-    decodedWorkoutCount += 1;
+    const features = row.intensity_model_features
+      ? await extractFeatures(row)
+      : await extractAndRememberFeatures(row);
+    if (row.intensity_model_features) decodedWorkoutCount += 1;
     entries.push({ id: Number(row.id), startTime: row.start_time, features, row });
   }
 
@@ -142,7 +166,33 @@ export async function classifyIntensityWindowRows(
     windowDays: INTENSITY_RECLASSIFICATION_WINDOW_DAYS
   }).filter((entry) => entry.classification && classificationChanged(entry.row, entry.classification));
 
-  return { changes, decodedWorkoutCount, importedFeatureOnlyCount };
+  return { changes, modelFeatureUpdates, decodedWorkoutCount, importedFeatureOnlyCount };
+}
+
+async function updateModelFeatures(client, uid, updates) {
+  let updatedWorkoutCount = 0;
+  for (let index = 0; index < updates.length; index += UPDATE_BATCH_SIZE) {
+    const batch = updates.slice(index, index + UPDATE_BATCH_SIZE);
+    const result = await client.query(
+      `
+        UPDATE workouts AS workout
+        SET intensity_model_features = incoming.intensity_model_features
+        FROM UNNEST(
+          $2::bigint[],
+          $3::bytea[]
+        ) AS incoming(id, intensity_model_features)
+        WHERE workout.uid = $1
+          AND workout.id = incoming.id
+      `,
+      [
+        uid,
+        batch.map((entry) => entry.id),
+        batch.map((entry) => Buffer.from(entry.bytes))
+      ]
+    );
+    updatedWorkoutCount += Number(result.rowCount || 0);
+  }
+  return updatedWorkoutCount;
 }
 
 async function updateClassifications(client, uid, changes) {
@@ -204,6 +254,7 @@ export async function reclassifyWorkoutIntensity({
       windowCount: 0,
       decodedWorkoutCount: 0,
       importedFeatureOnlyCount: 0,
+      updatedModelFeatureCount: 0,
       changedWorkoutCount: 0,
       updatedWorkoutCount: 0
     };
@@ -221,6 +272,7 @@ export async function reclassifyWorkoutIntensity({
     let decodedWorkoutCount = 0;
     let importedFeatureOnlyCount = 0;
     const changesByWorkoutId = new Map();
+    const modelFeatureUpdatesByWorkoutId = new Map();
     for (const window of windows) {
       const rows = await loadWindowRows(client, uid, window);
       const classified = await classifyIntensityWindowRows(rows, window, {
@@ -230,15 +282,21 @@ export async function reclassifyWorkoutIntensity({
       decodedWorkoutCount += classified.decodedWorkoutCount;
       importedFeatureOnlyCount += classified.importedFeatureOnlyCount;
       for (const change of classified.changes) changesByWorkoutId.set(change.id, change);
+      for (const update of classified.modelFeatureUpdates) {
+        modelFeatureUpdatesByWorkoutId.set(update.id, update);
+      }
     }
 
     const changes = [...changesByWorkoutId.values()];
+    const modelFeatureUpdates = [...modelFeatureUpdatesByWorkoutId.values()];
+    const updatedModelFeatureCount = await updateModelFeatures(client, uid, modelFeatureUpdates);
     const updatedWorkoutCount = await updateClassifications(client, uid, changes);
     await client.query("COMMIT");
     return {
       windowCount: windows.length,
       decodedWorkoutCount,
       importedFeatureOnlyCount,
+      updatedModelFeatureCount,
       changedWorkoutCount: changes.length,
       updatedWorkoutCount,
       elapsedMs: Number((performance.now() - startedAt).toFixed(1)),

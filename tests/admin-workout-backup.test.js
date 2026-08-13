@@ -24,6 +24,7 @@ function workout(id, uid, authSub, email, startTime) {
     stream_codec: "gzip",
     validgps: true,
     workout_type: "road",
+    perceived_exertion: 8,
     fit_device_metadata: { version: 1, devices: [{ product: 1 }] },
     segment_processing_status: "completed",
     segment_processing_updated_at: "2026-08-05T11:00:00.000Z",
@@ -60,6 +61,7 @@ test("admin workout backup preserves exact blobs, segments, favorites, and owner
   assert.equal(decoded.workouts.length, 2);
   assert.deepEqual([...decoded.workouts[0].stream], [1, 2, 3, 4]);
   assert.deepEqual([...decoded.workouts[0].gpsTrackBlob], [5, 6, 7]);
+  assert.equal(decoded.workouts[0].metadata.perceived_exertion, 8);
   assert.equal(decoded.workouts[0].segments[0].segmentname, "Lap 1");
   assert.deepEqual(decoded.workouts[0].favoriteOwnerKeys, ["owner-2", "owner-3"]);
   assert.equal(decoded.manifest.segmentCount, 1);

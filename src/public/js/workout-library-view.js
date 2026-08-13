@@ -5,6 +5,87 @@ import { createTranslator, getCurrentLocale } from "./i18n.js";
 
 const TERRAIN_PROFILE_VALUES = ["flat", "rolling", "mountainous", "altitude_missing", "altitude_invalid"];
 const INTENSITY_PROFILE_VALUES = ["recovery", "endurance", "tempo", "threshold", "vo2max", "anaerobic", "unknown"];
+const ACTIVITY_TYPE_VALUES = ["cycling", "strength_training", "mobility", "other"];
+
+export function buildManualPowerThumbnailSvg(activity = {}) {
+  const profile = activity?.power_profile;
+  const duration = Number(profile?.duration_seconds ?? activity?.total_timer_time);
+  const baselinePower = Number(profile?.baseline_power);
+  if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(baselinePower)) return "";
+
+  const intervals = (Array.isArray(profile?.intervals) ? profile.intervals : [])
+    .map((interval) => ({
+      sequenceNo: Number(interval.sequence_no),
+      repetitions: Math.max(1, Math.floor(Number(interval.repetitions))),
+      workDuration: Math.max(0, Number(interval.work_duration_seconds)),
+      recoveryDuration: Math.max(0, Number(interval.recovery_duration_seconds)),
+      workPower: Number(interval.work_power),
+      recoveryPower: Number(interval.recovery_power)
+    }))
+    .filter((interval) => (
+      Number.isFinite(interval.repetitions)
+      && interval.workDuration > 0
+      && Number.isFinite(interval.workPower)
+      && Number.isFinite(interval.recoveryPower)
+    ))
+    .sort((left, right) => left.sequenceNo - right.sequenceNo);
+  const occupiedSeconds = intervals.reduce((sum, interval) => (
+    sum
+      + interval.repetitions * interval.workDuration
+      + Math.max(0, interval.repetitions - 1) * interval.recoveryDuration
+  ), 0);
+  const usableIntervals = occupiedSeconds <= duration ? intervals : [];
+  const leadingBaseline = Math.max(0, (duration - (usableIntervals.length ? occupiedSeconds : 0)) / 2);
+  const segments = [];
+  const appendSegment = (seconds, power) => {
+    if (!Number.isFinite(seconds) || seconds <= 0 || !Number.isFinite(power)) return;
+    const previous = segments.at(-1);
+    if (previous && previous.power === power) {
+      previous.seconds += seconds;
+    } else {
+      segments.push({ seconds, power });
+    }
+  };
+
+  appendSegment(leadingBaseline, baselinePower);
+  usableIntervals.forEach((interval) => {
+    for (let repetition = 0; repetition < interval.repetitions; repetition += 1) {
+      appendSegment(interval.workDuration, interval.workPower);
+      if (repetition < interval.repetitions - 1) {
+        appendSegment(interval.recoveryDuration, interval.recoveryPower);
+      }
+    }
+  });
+  const renderedSeconds = segments.reduce((sum, segment) => sum + segment.seconds, 0);
+  appendSegment(Math.max(0, duration - renderedSeconds), baselinePower);
+  if (segments.length === 0) appendSegment(duration, baselinePower);
+
+  const left = 18;
+  const right = 238;
+  const top = 20;
+  const bottom = 140;
+  const maxPower = Math.max(1, ...segments.map((segment) => segment.power)) * 1.08;
+  const xForTime = (seconds) => left + (Math.min(duration, seconds) / duration) * (right - left);
+  const yForPower = (power) => bottom - (Math.max(0, power) / maxPower) * (bottom - top);
+  let elapsed = 0;
+  let linePath = `M ${left} ${yForPower(segments[0].power).toFixed(2)}`;
+  segments.forEach((segment, index) => {
+    elapsed += segment.seconds;
+    const x = xForTime(elapsed).toFixed(2);
+    linePath += ` L ${x} ${yForPower(segment.power).toFixed(2)}`;
+    const next = segments[index + 1];
+    if (next) linePath += ` L ${x} ${yForPower(next.power).toFixed(2)}`;
+  });
+  const areaPath = `M ${left} ${bottom} L ${left} ${yForPower(segments[0].power).toFixed(2)}${linePath.slice(linePath.indexOf(" L"))} L ${right} ${bottom} Z`;
+
+  return `
+    <svg class="workout-library-card__manual-power-thumbnail" viewBox="0 0 256 160" aria-hidden="true">
+      <rect x="12" y="12" width="232" height="136" rx="16" fill="#dcfce7"/>
+      <path d="M 18 60 L 238 60 M 18 100 L 238 100 M 18 140 L 238 140" fill="none" stroke="#86c89d" stroke-width="1" opacity="0.48"/>
+      <path d="${areaPath}" fill="#60a5fa" opacity="0.16"/>
+      <path d="${linePath}" fill="none" stroke="#2563eb" stroke-width="3.25" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`;
+}
 
 export default class WorkoutLibraryView {
 
@@ -30,6 +111,10 @@ export default class WorkoutLibraryView {
     this.scopeSharedButton = document.getElementById(handlers.scopeSharedButtonId || "workout-library-scope-shared");
     this.scopeAllButton = document.getElementById(handlers.scopeAllButtonId || "workout-library-scope-all");
     this.favoriteFilterButton = document.getElementById(handlers.favoriteFilterButtonId || "workout-library-favorites-filter");
+    this.activityTypeFilter = document.getElementById("workout-library-activity-filter");
+    this.activityTypeTrigger = document.getElementById("workout-library-activity-trigger");
+    this.activityTypeTriggerLabel = document.getElementById("workout-library-activity-trigger-label");
+    this.activityTypeMenu = document.getElementById("workout-library-activity-menu");
     this.workoutTypeFilter = document.getElementById(handlers.workoutTypeFilterId || "workout-library-type-filter");
     this.workoutTypeTrigger = document.getElementById("workout-library-type-trigger");
     this.workoutTypeTriggerLabel = document.getElementById("workout-library-type-trigger-label");
@@ -92,6 +177,9 @@ export default class WorkoutLibraryView {
     this.sortValue = handlers.initialSort ?? "newest";
     this.scopeValue = handlers.initialScope ?? "mine";
     this.favoriteFilterActive = !!handlers.initialFavoriteFilterActive;
+    this.activityTypeValue = ACTIVITY_TYPE_VALUES.includes(handlers.initialActivityType)
+      ? handlers.initialActivityType
+      : "all";
     this.workoutTypeValue = ["indoor", "road", "mountain", "motorsport", "unknown"].includes(handlers.initialWorkoutType)
       ? handlers.initialWorkoutType
       : "all";
@@ -113,6 +201,9 @@ export default class WorkoutLibraryView {
     if (this.sortSelect) {
       this.sortSelect.value = this.sortValue;
     }
+    if (this.activityTypeFilter) {
+      this.activityTypeFilter.value = this.activityTypeValue;
+    }
     if (this.workoutTypeFilter) {
       this.workoutTypeFilter.value = this.workoutTypeValue;
     }
@@ -124,6 +215,7 @@ export default class WorkoutLibraryView {
     }
     if (this.intensityProfileFilter) this.intensityProfileFilter.value = this.intensityProfileValue;
 
+    this.syncActivityTypeUi();
     this.syncWorkoutTypeUi();
     this.syncTerrainProfileUi();
     this.syncIntensityProfileUi();
@@ -158,6 +250,9 @@ export default class WorkoutLibraryView {
     this.sortValue = allowedSorts.includes(state.sort) ? state.sort : "newest";
     this.scopeValue = ["mine", "shared", "all"].includes(state.scope) ? state.scope : "mine";
     this.favoriteFilterActive = state.favoritesOnly === true;
+    this.activityTypeValue = ACTIVITY_TYPE_VALUES.includes(state.activityType)
+      ? state.activityType
+      : "all";
     this.workoutTypeValue = ["indoor", "road", "mountain", "motorsport", "unknown"].includes(state.workoutType)
       ? state.workoutType
       : "all";
@@ -177,6 +272,9 @@ export default class WorkoutLibraryView {
     if (this.sortSelect) {
       this.sortSelect.value = this.sortValue;
     }
+    if (this.activityTypeFilter) {
+      this.activityTypeFilter.value = this.activityTypeValue;
+    }
     if (this.workoutTypeFilter) {
       this.workoutTypeFilter.value = this.workoutTypeValue;
     }
@@ -189,6 +287,7 @@ export default class WorkoutLibraryView {
     if (this.intensityProfileFilter) this.intensityProfileFilter.value = this.intensityProfileValue;
 
     this.syncSortUi();
+    this.syncActivityTypeUi();
     this.syncWorkoutTypeUi();
     this.syncTerrainProfileUi();
     this.syncIntensityProfileUi();
@@ -211,6 +310,21 @@ export default class WorkoutLibraryView {
         }
         this.reload();
       }, 220);
+    });
+
+    this.activityTypeFilter?.addEventListener("change", () => {
+      this.applyActivityTypeValue(this.activityTypeFilter?.value || "all");
+    });
+
+    this.activityTypeTrigger?.addEventListener("click", () => {
+      this.toggleActivityTypeMenu();
+    });
+
+    this.activityTypeMenu?.querySelectorAll("[data-activity-type-option]").forEach((element) => {
+      element.addEventListener("click", () => {
+        this.applyActivityTypeValue(element.getAttribute("data-activity-type-option") || "all");
+        this.closeActivityTypeMenu();
+      });
     });
 
     this.workoutTypeFilter?.addEventListener("change", () => {
@@ -300,6 +414,10 @@ export default class WorkoutLibraryView {
 
       if (!this.workoutTypeTrigger?.contains(target) && !this.workoutTypeMenu?.contains(target)) {
         this.closeWorkoutTypeMenu();
+      }
+
+      if (!this.activityTypeTrigger?.contains(target) && !this.activityTypeMenu?.contains(target)) {
+        this.closeActivityTypeMenu();
       }
 
       if (!this.terrainProfileTrigger?.contains(target) && !this.terrainProfileMenu?.contains(target)) {
@@ -538,6 +656,9 @@ export default class WorkoutLibraryView {
   buildFilters() {
     const search = (this.searchInput?.value || this.searchInputValue || "").trim();
     const filters = search ? [{ field: "__search", type: "like", value: search }] : [];
+    if (ACTIVITY_TYPE_VALUES.includes(this.activityTypeValue)) {
+      filters.push({ field: "activity_type", type: "=", value: this.activityTypeValue });
+    }
     if (["indoor", "road", "mountain", "motorsport", "unknown"].includes(this.workoutTypeValue)) {
       filters.push({ field: "workout_type", type: "=", value: this.workoutTypeValue });
     }
@@ -575,8 +696,11 @@ export default class WorkoutLibraryView {
     }
 
     if (this.ownSummary) {
-      const countText = this.t("workoutCount", {
-        count: this.formatNumber(this.ownSummary.workout_count || 0, 0)
+      const countText = this.t("activityCount", {
+        count: this.formatNumber(
+          Number(this.ownSummary.workout_count || 0) + Number(this.ownSummary.manual_activity_count || 0),
+          0
+        )
       });
       const parts = [
         countText,
@@ -588,7 +712,7 @@ export default class WorkoutLibraryView {
       return;
     }
 
-    this.headerElement.textContent = this.t("workoutCount", {
+    this.headerElement.textContent = this.t("activityCount", {
       count: this.formatNumber(this.totalRecords, 0)
     });
   }
@@ -611,6 +735,13 @@ export default class WorkoutLibraryView {
       chips.push({
         type: "favorites",
         label: this.pageT("favoriteFilterLabel")
+      });
+    }
+
+    if (this.activityTypeValue !== "all") {
+      chips.push({
+        type: "activityType",
+        label: this.getActivityTypeLabel(this.activityTypeValue)
       });
     }
 
@@ -695,6 +826,11 @@ export default class WorkoutLibraryView {
       return;
     }
 
+    if (type === "activityType") {
+      this.applyActivityTypeValue("all");
+      return;
+    }
+
     if (type === "gpsFilter") {
       this.applyGpsFilterValue("all");
       return;
@@ -728,12 +864,101 @@ export default class WorkoutLibraryView {
     this.workoutTypeValue = ["indoor", "road", "mountain", "motorsport", "unknown"].includes(value)
       ? value
       : "all";
+    if (this.workoutTypeValue !== "all") {
+      this.activityTypeValue = this.workoutTypeValue === "motorsport" ? "other" : "cycling";
+      if (this.activityTypeFilter) this.activityTypeFilter.value = this.activityTypeValue;
+      this.syncActivityTypeUi();
+    }
     if (this.workoutTypeFilter) {
       this.workoutTypeFilter.value = this.workoutTypeValue;
     }
     this.syncWorkoutTypeUi();
     this.handlers.onStateChange?.(this.getState());
     this.reload();
+  }
+
+  applyActivityTypeValue(value) {
+    this.activityTypeValue = ACTIVITY_TYPE_VALUES.includes(value) ? value : "all";
+    const workoutTypeIsCompatible = this.activityTypeValue === "all"
+      || (this.activityTypeValue === "cycling" && this.workoutTypeValue !== "motorsport")
+      || (this.activityTypeValue === "other" && this.workoutTypeValue === "motorsport");
+    if (!workoutTypeIsCompatible) {
+      this.workoutTypeValue = "all";
+      if (this.workoutTypeFilter) this.workoutTypeFilter.value = this.workoutTypeValue;
+      this.syncWorkoutTypeUi();
+    }
+    if (!["all", "cycling"].includes(this.activityTypeValue)) {
+      this.gpsFilterValue = "all";
+      this.terrainProfileValue = "all";
+      if (this.gpsFilter) this.gpsFilter.value = this.gpsFilterValue;
+      if (this.terrainProfileFilter) this.terrainProfileFilter.value = this.terrainProfileValue;
+      this.syncGpsFilterUi();
+      this.syncTerrainProfileUi();
+    }
+    if (this.activityTypeFilter) this.activityTypeFilter.value = this.activityTypeValue;
+    this.syncActivityTypeUi();
+    this.handlers.onStateChange?.(this.getState());
+    this.reload();
+  }
+
+  getActivityTypeLabel(type) {
+    const keys = {
+      all: "activityTypeAll",
+      cycling: "activityTypeCycling",
+      strength_training: "activityTypeStrengthTraining",
+      mobility: "activityTypeMobility",
+      other: "activityTypeOther"
+    };
+    return this.pageT(keys[type] || keys.all);
+  }
+
+  getStrengthFocusLabel(value) {
+    const keys = {
+      upper_body: "strengthFocusUpperBody",
+      lower_body: "strengthFocusLowerBody",
+      full_body: "strengthFocusFullBody"
+    };
+    return keys[value] ? this.pageT(keys[value]) : String(value || "");
+  }
+
+  syncActivityTypeUi() {
+    const label = this.getActivityTypeLabel(this.activityTypeValue);
+    const accessibleLabel = `${this.pageT("activityTypeFilterLabel")}: ${label}`;
+    if (this.activityTypeTriggerLabel) this.activityTypeTriggerLabel.textContent = label;
+    if (this.activityTypeTrigger) {
+      this.activityTypeTrigger.title = accessibleLabel;
+      this.activityTypeTrigger.setAttribute("aria-label", accessibleLabel);
+      this.activityTypeTrigger.classList.toggle("is-active", this.activityTypeValue !== "all");
+    }
+    this.activityTypeMenu?.querySelectorAll("[data-activity-type-option]").forEach((element) => {
+      element.classList.toggle(
+        "is-active",
+        element.getAttribute("data-activity-type-option") === this.activityTypeValue
+      );
+    });
+  }
+
+  toggleActivityTypeMenu() {
+    if (!this.activityTypeMenu?.hidden) {
+      this.closeActivityTypeMenu();
+      return;
+    }
+    if (!this.activityTypeMenu || !this.activityTypeTrigger) return;
+    this.closeSortMenu();
+    this.closeWorkoutTypeMenu();
+    this.closeTerrainProfileMenu();
+    this.closeIntensityProfileMenu();
+    this.closeGpsFilterMenu();
+    this.activityTypeMenu.hidden = false;
+    this.activityTypeTrigger.classList.add("is-open");
+    this.activityTypeTrigger.setAttribute("aria-expanded", "true");
+  }
+
+  closeActivityTypeMenu() {
+    if (!this.activityTypeMenu || !this.activityTypeTrigger) return;
+    this.activityTypeMenu.hidden = true;
+    this.activityTypeTrigger.classList.remove("is-open");
+    this.activityTypeTrigger.setAttribute("aria-expanded", "false");
   }
 
   getWorkoutTypeLabel(type) {
@@ -781,6 +1006,7 @@ export default class WorkoutLibraryView {
       return;
     }
     this.closeSortMenu();
+    this.closeActivityTypeMenu();
     this.closeTerrainProfileMenu();
     this.closeIntensityProfileMenu();
     this.closeGpsFilterMenu();
@@ -1112,6 +1338,11 @@ export default class WorkoutLibraryView {
       return true;
     }
 
+    if (this.activityTypeMenu && !this.activityTypeMenu.hidden) {
+      this.closeActivityTypeMenu();
+      return true;
+    }
+
     if (this.gpsFilterMenu && !this.gpsFilterMenu.hidden) {
       this.closeGpsFilterMenu();
       return true;
@@ -1137,12 +1368,21 @@ export default class WorkoutLibraryView {
 
   getWorkoutById(workoutId) {
     const targetId = String(workoutId);
-    return this.items.find((workout) => String(workout.id) === targetId) || null;
+    return this.items.find((workout) => (
+      workout.entity_type !== "manual_activity" && String(workout.id) === targetId
+    )) || null;
+  }
+
+  getManualActivityById(activityId) {
+    const targetId = String(activityId);
+    return this.items.find((activity) => (
+      activity.entity_type === "manual_activity" && String(activity.id) === targetId
+    )) || null;
   }
 
   setWorkoutFavoriteState(workoutId, isFavorite) {
     const key = String(workoutId);
-    const workout = this.items.find((entry) => String(entry.id) === key);
+    const workout = this.getWorkoutById(key);
     if (workout) {
       workout.is_favorite = !!isFavorite;
     }
@@ -1156,8 +1396,10 @@ export default class WorkoutLibraryView {
 
   removeWorkout(workoutId) {
     const targetId = String(workoutId);
-    const removedWorkout = this.items.find((workout) => String(workout.id) === targetId) || null;
-    this.items = this.items.filter((workout) => String(workout.id) !== targetId);
+    const removedWorkout = this.getWorkoutById(targetId);
+    this.items = this.items.filter((workout) => (
+      workout.entity_type === "manual_activity" || String(workout.id) !== targetId
+    ));
     this.totalRecords = Math.max(0, this.totalRecords - 1);
 
     if (removedWorkout?.is_owned && this.ownSummary) {
@@ -1184,7 +1426,7 @@ export default class WorkoutLibraryView {
   }
 
   setWorkoutSharing(workoutId, sharing) {
-    const workout = this.items.find((entry) => String(entry.id) === String(workoutId));
+    const workout = this.getWorkoutById(workoutId);
     if (!workout) {
       return;
     }
@@ -1198,7 +1440,7 @@ export default class WorkoutLibraryView {
   }
 
   updateWorkoutFields(workoutId, fields = {}) {
-    const workout = this.items.find((entry) => String(entry.id) === String(workoutId));
+    const workout = this.getWorkoutById(workoutId);
     if (!workout || !fields || typeof fields !== "object") {
       return;
     }
@@ -1213,6 +1455,7 @@ export default class WorkoutLibraryView {
       sort: this.sortSelect?.value || this.sortValue || "newest",
       scope: this.scopeValue || "mine",
       favoritesOnly: this.favoriteFilterActive,
+      activityType: this.activityTypeValue,
       workoutType: this.workoutTypeValue,
       terrainProfile: this.terrainProfileValue,
       intensityProfile: this.intensityProfileValue,
@@ -1232,6 +1475,10 @@ export default class WorkoutLibraryView {
 
   getRenderableItems() {
     return this.items;
+  }
+
+  getNavigableWorkouts() {
+    return this.items.filter((entry) => entry.entity_type !== "manual_activity");
   }
 
   render() {
@@ -1428,7 +1675,7 @@ export default class WorkoutLibraryView {
       element.addEventListener("click", async (event) => {
         event.stopPropagation();
         const workoutId = element.getAttribute("data-workout-delete");
-        const workout = this.items.find((entry) => String(entry.id) === String(workoutId));
+        const workout = this.getWorkoutById(workoutId);
         if (!workout) {
           return;
         }
@@ -1437,11 +1684,35 @@ export default class WorkoutLibraryView {
       });
     });
 
+    this.container.querySelectorAll("[data-manual-activity-edit]").forEach((element) => {
+      element.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const activity = this.getManualActivityById(element.getAttribute("data-manual-activity-edit"));
+        if (activity) this.handlers.onManualActivityEdit?.(activity);
+      });
+    });
+
+    this.container.querySelectorAll("[data-manual-activity-copy]").forEach((element) => {
+      element.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const activity = this.getManualActivityById(element.getAttribute("data-manual-activity-copy"));
+        if (activity) this.handlers.onManualActivityCopy?.(activity);
+      });
+    });
+
+    this.container.querySelectorAll("[data-manual-activity-delete]").forEach((element) => {
+      element.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const activity = this.getManualActivityById(element.getAttribute("data-manual-activity-delete"));
+        if (activity) await this.handlers.onManualActivityDelete?.(activity);
+      });
+    });
+
     this.container.querySelectorAll("[data-workout-export]").forEach((element) => {
       element.addEventListener("click", async (event) => {
         event.stopPropagation();
         const workoutId = element.getAttribute("data-workout-export");
-        const workout = this.items.find((entry) => String(entry.id) === String(workoutId));
+        const workout = this.getWorkoutById(workoutId);
         if (!workout?.is_owned) {
           event.preventDefault();
           return;
@@ -1502,7 +1773,7 @@ export default class WorkoutLibraryView {
   }
 
   async toggleSharePanel(workoutId) {
-    const workout = this.items.find((entry) => String(entry.id) === String(workoutId));
+    const workout = this.getWorkoutById(workoutId);
     if (!workout?.is_owned) {
       return;
     }
@@ -1555,7 +1826,7 @@ export default class WorkoutLibraryView {
   }
 
   async saveSharePanel(workoutId) {
-    const workout = this.items.find((entry) => String(entry.id) === String(workoutId));
+    const workout = this.getWorkoutById(workoutId);
     if (!workout?.is_owned) {
       return;
     }
@@ -1587,6 +1858,10 @@ export default class WorkoutLibraryView {
   }
 
   renderWorkoutCard(workout) {
+    if (workout.entity_type === "manual_activity") {
+      return this.renderManualActivityCard(workout);
+    }
+
     const isSelected = String(workout.id) === this.selectedWorkoutId;
     const hasSelection = !!this.selectedWorkoutId;
     const workoutId = String(workout.id);
@@ -1845,6 +2120,90 @@ export default class WorkoutLibraryView {
     `;
   }
 
+  renderManualActivityCard(activity) {
+    const startedAt = activity.start_time ? new Date(activity.start_time) : null;
+    const dayLabel = startedAt
+      ? startedAt.toLocaleDateString(this.locale, { dateStyle: "short" })
+      : this.t("na");
+    const activityTypeLabel = this.getActivityTypeLabel(activity.activity_type);
+    const title = String(activity.title || activityTypeLabel);
+    const averagePower = Number(activity.avg_power);
+    const normalizedPower = Number(activity.avg_normalized_power);
+    const estimatedTss = Number(activity.TSS ?? activity.estimated_tss);
+    const rpe = Number(activity.perceived_exertion);
+    const workoutType = activity.activity_type === "cycling"
+      ? this.getWorkoutTypeLabel(activity.workout_type)
+      : null;
+    const powerThumbnail = activity.activity_type === "cycling"
+      ? buildManualPowerThumbnailSvg(activity)
+      : "";
+    const statsMarkup = `
+      ${Number.isFinite(rpe) && rpe > 0 ? `<span class="workout-library-stat"><span class="workout-library-stat__label">RPE</span><span class="workout-library-stat__value">${this.formatInt(rpe)}/10</span></span>` : ""}
+      ${Number.isFinite(averagePower) && averagePower > 0 ? `<span class="workout-library-stat"><span class="workout-library-stat__label">PW</span><span class="workout-library-stat__value">${this.formatInt(averagePower)} W</span></span>` : ""}
+      ${Number.isFinite(normalizedPower) && normalizedPower > 0 ? `<span class="workout-library-stat"><span class="workout-library-stat__label">NP</span><span class="workout-library-stat__value">${this.formatInt(normalizedPower)} W</span></span>` : ""}
+      ${Number.isFinite(estimatedTss) && estimatedTss > 0 ? `<span class="workout-library-stat"><span class="workout-library-stat__label">TSS</span><span class="workout-library-stat__value">${this.formatInt(estimatedTss)} PTS</span></span>` : ""}
+      ${activity.strength_focus ? `<span class="workout-library-stat"><span class="workout-library-stat__label">${this.pageT("strengthFocusShort")}</span><span class="workout-library-stat__value">${this.escapeHtml(this.getStrengthFocusLabel(activity.strength_focus))}</span></span>` : ""}
+    `;
+
+    return `
+      <article class="workout-library-card workout-library-card--manual">
+        <div class="workout-library-card__accent"></div>
+        <div class="workout-library-card__head">
+          <div class="workout-library-card__identity">
+            <div class="workout-library-card__context">
+              <span class="workout-library-card__context-chip workout-library-card__context-id">A-${activity.id}</span>
+              <span class="workout-library-card__context-chip">${dayLabel}</span>
+              <span class="workout-library-card__context-chip">${this.escapeHtml(activityTypeLabel)}</span>
+              ${workoutType ? `<span class="workout-library-card__context-chip">${this.escapeHtml(workoutType)}</span>` : ""}
+            </div>
+            <div class="workout-library-card__owner">${this.escapeHtml(title)}</div>
+          </div>
+          <div class="workout-library-card__kpi-strip">
+            <div class="workout-library-kpi">
+              <span class="workout-library-kpi__label">${this.t("durationShort")}</span>
+              <span class="workout-library-kpi__value">${this.formatCardDuration(activity.total_timer_time)}</span>
+            </div>
+            <details class="workout-library-actions-menu workout-library-actions-menu--manual">
+              <summary class="workout-library-actions-menu__trigger" aria-label="${this.pageT("manualTrainingActions")}">
+                <span></span><span></span><span></span>
+              </summary>
+              <div class="workout-library-actions-menu__panel">
+                <button class="workout-library-actions-menu__item workout-library-actions-menu__item--primary" type="button" data-manual-activity-copy="${activity.id}">
+                  <span class="workout-library-actions-menu__icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20"><path d="M7 6V4.8A1.8 1.8 0 0 1 8.8 3h6.4A1.8 1.8 0 0 1 17 4.8v6.4a1.8 1.8 0 0 1-1.8 1.8H14M4.8 7h6.4A1.8 1.8 0 0 1 13 8.8v6.4a1.8 1.8 0 0 1-1.8 1.8H4.8A1.8 1.8 0 0 1 3 15.2V8.8A1.8 1.8 0 0 1 4.8 7Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"></path></svg>
+                  </span>
+                  ${this.pageT("manualTrainingCopyAction")}
+                </button>
+                <button class="workout-library-actions-menu__item workout-library-actions-menu__item--secondary" type="button" data-manual-activity-edit="${activity.id}">
+                  <span class="workout-library-actions-menu__icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20"><path d="m4.5 14.7.6-3 7.4-7.4 3.2 3.2-7.4 7.4-3 .6.2-1.1Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"></path></svg>
+                  </span>
+                  ${this.pageT("manualTrainingEditAction")}
+                </button>
+                <button class="workout-library-actions-menu__item workout-library-actions-menu__item--danger" type="button" data-manual-activity-delete="${activity.id}">
+                  <span class="workout-library-actions-menu__icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20"><path d="M6.2 6.2h7.6M8 6.2V4.8h4v1.4M7.2 6.2l.45 8.1h4.7l.45-8.1M8.7 8.1v4.5M11.3 8.1v4.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                  </span>
+                  ${this.pageT("manualTrainingDeleteAction")}
+                </button>
+              </div>
+            </details>
+          </div>
+        </div>
+        <div class="workout-library-card__body workout-library-card__body--manual${powerThumbnail ? " has-thumbnail" : ""}">
+          ${powerThumbnail ? `
+            <div class="workout-library-card__body-main">
+              <div class="workout-library-card__thumb-shell has-image">${powerThumbnail}</div>
+              <div class="workout-library-card__body-copy">
+                <div class="workout-library-card__body-copy-group">${statsMarkup}</div>
+              </div>
+            </div>
+          ` : statsMarkup}
+        </div>
+      </article>
+    `;
+  }
+
   formatDistance(value, fractionDigits = 1) {
     const meters = Number(value);
     return Number.isFinite(meters)
@@ -1912,7 +2271,7 @@ export default class WorkoutLibraryView {
 
   async toggleVisibilityPopover(workoutId) {
     const targetId = String(workoutId || "");
-    const workout = this.items.find((entry) => String(entry.id) === targetId);
+    const workout = this.getWorkoutById(targetId);
     if (!workout) {
       return;
     }
@@ -2014,7 +2373,7 @@ export default class WorkoutLibraryView {
 
   async toggleFavoriteWorkout(workoutId) {
     const key = String(workoutId);
-    const workout = this.items.find((entry) => String(entry.id) === key);
+    const workout = this.getWorkoutById(key);
     const wasActive = workout ? !!workout.is_favorite : this.favoriteWorkoutIds.has(key);
     const isActive = !wasActive;
 
@@ -2109,7 +2468,7 @@ export default class WorkoutLibraryView {
   }
 
   toggleWorkoutSelection(workoutId, forceValue = null) {
-    const workout = this.items.find((entry) => String(entry.id) === String(workoutId));
+    const workout = this.getWorkoutById(workoutId);
     if (!workout?.is_owned) {
       return;
     }
@@ -2128,7 +2487,7 @@ export default class WorkoutLibraryView {
   }
 
   selectAllVisibleOwned() {
-    this.getRenderableItems().filter((workout) => workout.is_owned).forEach((workout) => {
+    this.getNavigableWorkouts().filter((workout) => workout.is_owned).forEach((workout) => {
       this.selectedWorkoutIds.add(String(workout.id));
     });
     this.updateBulkUi();
@@ -2196,7 +2555,9 @@ export default class WorkoutLibraryView {
   }
 
   getSelectedOwnedWorkouts() {
-    return this.items.filter((workout) => workout.is_owned && this.selectedWorkoutIds.has(String(workout.id)));
+    return this.getNavigableWorkouts().filter((workout) => (
+      workout.is_owned && this.selectedWorkoutIds.has(String(workout.id))
+    ));
   }
 
   updateBulkUi() {

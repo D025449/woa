@@ -999,6 +999,7 @@ export default class WorkoutDBService {
         intensity_tags,
         intensity_structure,
         intensity_dose,
+        perceived_exertion,
         validgps,
         sampleRateGPS,
         gps_source,
