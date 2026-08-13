@@ -2,6 +2,7 @@ import { buildMarkAreasSegment, buildMarkAreasCP } from "./chart-helpers.js";
 import SegmentService from "../../shared/SegmentService.js";
 import Utils from "../../shared/Utils.js";
 import { createTranslator } from "./i18n.js";
+import { buildChartDataZoom } from "./chart-data-zoom.js";
 
 export default class ChartView {
 
@@ -105,10 +106,7 @@ export default class ChartView {
         ],
         source: []
       },
-      dataZoom: [
-        { type: "inside", xAxisIndex: 0, filterMode: "none" },
-        { type: "slider", xAxisIndex: 0 }
-      ],
+      dataZoom: buildChartDataZoom(),
       series: [
         {
           name: labels.power,
@@ -341,6 +339,7 @@ export default class ChartView {
     this.clearSelectionPreview();
     this.chart.setOption({
       dataZoom: [{
+        id: "chart-inside-zoom",
         type: 'inside',
         zoomOnMouseWheel: true,
         moveOnMouseMove: !enabled

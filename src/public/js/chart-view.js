@@ -13,6 +13,7 @@ import {
   buildAdaptiveChartResolutionLevels,
   selectAdaptiveChartResolution
 } from "./adaptive-chart-resolution.js";
+import { buildChartDataZoom, readChartZoomRange } from "./chart-data-zoom.js";
 
 const MIN_DISTANCE_AXIS_SPAN_METERS = 100;
 const ADAPTIVE_CHART_ZOOM_DELAY_MS = 100;
@@ -578,19 +579,15 @@ export default class ChartView {
         ],
         source: []
       },
-      dataZoom: [
-        {
-          type: "inside",
-          xAxisIndex: 0,
-          filterMode: "none",
+      dataZoom: buildChartDataZoom({
+        inside: {
           disabled: false,
           zoomOnMouseWheel: true,
           moveOnMouseWheel: false,
           moveOnMouseMove: true,
           preventDefaultMouseMove: true
-        },
-        { type: "slider", xAxisIndex: 0 }
-      ],
+        }
+      }),
       series: this.buildSeriesDefinitions(labels)
     });
     this.renderSegmentToggles();
@@ -658,6 +655,7 @@ export default class ChartView {
 
   updateWorkoutCP(workout, cpview) {
     this.currentWorkout = workout;
+    this.showAll();
     this.distanceKmByIndex = null;
     if (!this.isWorkoutEditable() && this.mode) {
       this.setMode("");
@@ -697,6 +695,7 @@ export default class ChartView {
     this.renderSmoothingControls();
     this.baseMarkAreas = this.buildMarkAreasCPForMode(cpview);
     this.applyMarkAreas();
+    this.zoomToCriticalPowerEffort(cpview);
   }
 
   // -----------------------------
@@ -1572,6 +1571,7 @@ export default class ChartView {
     this.chart.getZr().setCursorStyle(enabled ? "crosshair" : "default");
     this.chart.setOption({
       dataZoom: [{
+        id: "chart-inside-zoom",
         type: "inside",
         xAxisIndex: 0,
         filterMode: "none",
@@ -1589,6 +1589,25 @@ export default class ChartView {
       startValue: this.xIndexToValue(start),
       endValue: this.xIndexToValue(end)
     });
+  }
+
+  zoomToCriticalPowerEffort(cpview) {
+    const start = Number(cpview?.startOffset);
+    const end = Number(cpview?.endOffset);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) {
+      this.showAll();
+      return;
+    }
+
+    const left = Math.min(start, end);
+    const right = Math.max(start, end);
+    const duration = Math.max(1, right - left + 1);
+    const context = Math.max(60, duration * 0.5);
+    const maxIndex = Math.max(0, Number(this.currentWorkout?.workoutObject?.length || 1) - 1);
+    this.zoomToSegment(
+      Math.max(0, left - context),
+      Math.min(maxIndex, right + context)
+    );
   }
 
   showAll() {
@@ -2174,10 +2193,15 @@ export default class ChartView {
       return;
     }
 
+    const zoomRange = readChartZoomRange(this.chart);
     this.currentAdaptiveResolution = resolution;
     this.chart.setOption({
-      dataset: { source: result.data }
-    }, { lazyUpdate: true });
+      dataset: { source: result.data },
+      dataZoom: [
+        { id: "chart-inside-zoom", ...zoomRange },
+        { id: "chart-slider-zoom", ...zoomRange }
+      ]
+    });
   }
 
   getSegmentToggleDefinitions() {

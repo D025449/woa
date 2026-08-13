@@ -1,4 +1,6 @@
 
+import { buildChartDataZoom } from "./chart-data-zoom.js";
+
 export default class CPChartView {
 
   constructor(containerId, handlers = {}) {
@@ -94,10 +96,7 @@ export default class CPChartView {
         type: 'time'
       },
 
-      dataZoom: [
-        { type: 'inside' },
-        { type: 'slider' }
-      ],
+      dataZoom: buildChartDataZoom(),
 
       series
     };
@@ -347,6 +346,5 @@ function renderChart(chart, apiData) {
 
     chart.setOption(option);
 }*/
-
 
 

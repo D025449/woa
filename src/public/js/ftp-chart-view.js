@@ -1,3 +1,5 @@
+import { buildChartDataZoom } from "./chart-data-zoom.js";
+
 export default class FTPChartView {
 
   constructor(containerId, handlers = {}) {
@@ -131,10 +133,7 @@ export default class FTPChartView {
         name: 'Power (W)'
       },
 
-      dataZoom: [
-        { type: 'inside' },
-        { type: 'slider' }
-      ],
+      dataZoom: buildChartDataZoom(),
 
       series
     };

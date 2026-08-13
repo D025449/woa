@@ -54,3 +54,19 @@ test("opening a different workout resets the chart to its complete range", async
     /updateWorkout\(workout\)[\s\S]*?workoutChanged[\s\S]*?type: "dataZoom",[\s\S]*?start: 0,[\s\S]*?end: 100/u
   );
 });
+
+test("critical-power selection focuses its effort with surrounding context", async () => {
+  const chartSource = await fs.readFile(
+    new URL("../src/public/js/chart-view.js", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(
+    chartSource,
+    /updateWorkoutCP\(workout, cpview\)[\s\S]*?this\.showAll\(\)[\s\S]*?this\.zoomToCriticalPowerEffort\(cpview\)/u
+  );
+  assert.match(
+    chartSource,
+    /zoomToCriticalPowerEffort\(cpview\)[\s\S]*?Math\.max\(60, duration \* 0\.5\)[\s\S]*?this\.zoomToSegment/u
+  );
+});

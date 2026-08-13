@@ -45,6 +45,36 @@ test("keeps a peak supported by rising cadence and speed", () => {
   assert.deepEqual(Array.from(series.powersW), powers);
 });
 
+test("removes a four-second terminal power burst while the bicycle is stopped", () => {
+  const series = createSeries({
+    powers: [184, 196, 208, 216, 236, 216, 216, 0, 0, 0, 0, 0, 1132, 1228, 1484, 2336, 0, 0, 0],
+    cadences: [36, 38, 42, 46, 50, 54, 58, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    heartRates: [86, 106, 108, 110, 112, 98, 110, 108, 110, 108, 106, 0, 110, 110, 110, 0, 0, 0, 0],
+    speeds: [5, 5, 7, 6, 8, 7, 8, 9, 10, 9, 6, 0, 0, 0, 0, 0, 0, 0, 0]
+  });
+
+  const stats = filterPowerArtifactsInPlace(series);
+
+  assert.deepEqual(stats, {
+    artifactCount: 1,
+    correctedSampleCount: 4,
+    maximumCorrectedPowerW: 2336
+  });
+  assert.deepEqual(Array.from(series.powersW.slice(11, 18)), [0, 0, 0, 0, 0, 0, 0]);
+});
+
+test("keeps a supported five-second sprint", () => {
+  const powers = [220, 230, 240, 260, 280, 850, 1050, 1200, 1100, 900, 300, 280, 260];
+  const cadences = [82, 83, 84, 85, 87, 102, 110, 116, 112, 106, 91, 88, 86];
+  const speeds = [8, 8.1, 8.2, 8.3, 8.5, 9.5, 10.2, 11, 11.4, 11.6, 11.3, 10.8, 10.2];
+  const series = createSeries({ powers, cadences, speeds });
+
+  const stats = filterPowerArtifactsInPlace(series);
+
+  assert.equal(stats.artifactCount, 0);
+  assert.deepEqual(Array.from(series.powersW), powers);
+});
+
 test("removes a short peak supported by only one corroborating signal", () => {
   const powers = [0, 0, 426, 426, 432, 432, 1088, 1088, 229, 229, 0, 0, 0];
   const cadences = [0, 0, 48, 48, 61, 61, 73, 73, 108, 108, 0, 0, 0];

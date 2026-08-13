@@ -1,3 +1,5 @@
+import { buildChartDataZoom } from "./chart-data-zoom.js";
+
 export default class CTLChartView {
 
   constructor(containerId, handlers = {}) {
@@ -182,10 +184,7 @@ export default class CTLChartView {
       },
       xAxis: { type: 'time' },
       yAxis,
-      dataZoom: [
-        { type: 'inside' },
-        { type: 'slider' }
-      ],
+      dataZoom: buildChartDataZoom(),
       series
     };
 

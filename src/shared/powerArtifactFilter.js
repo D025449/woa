@@ -3,6 +3,7 @@ const DEFAULT_OPTIONS = Object.freeze({
   minimumPowerJumpW: 500,
   minimumBaselineRatio: 2.5,
   maximumArtifactSamples: 3,
+  maximumStoppedArtifactSamples: 5,
   neighborhoodSamples: 5,
   maximumCadenceDeltaRpm: 12,
   maximumHeartRateDeltaBpm: 6,
@@ -68,6 +69,19 @@ function collectRunMedian(series, start, end, invalidValue, requirePositive = fa
     }
   }
   return median(values);
+}
+
+function isStoppedRun(series, start, end, invalidValue) {
+  if (!series) {
+    return false;
+  }
+  for (let index = start; index <= end; index += 1) {
+    const value = Number(series[index]);
+    if (!Number.isFinite(value) || value === invalidValue || value !== 0) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function signalSupportsPeak(series, start, end, options) {
@@ -145,7 +159,21 @@ export function filterPowerArtifactsInPlace(series, options = {}) {
     index = end + 1;
 
     const sampleCount = end - start + 1;
-    if (sampleCount > config.maximumArtifactSamples) {
+    const stoppedRun = isStoppedRun(
+      series.cadencesRpm,
+      start,
+      end,
+      config.invalidCadenceValue
+    ) && isStoppedRun(
+      series.speeds,
+      start,
+      end,
+      config.invalidSpeedValue
+    );
+    const maximumSamples = stoppedRun
+      ? config.maximumStoppedArtifactSamples
+      : config.maximumArtifactSamples;
+    if (sampleCount > maximumSamples) {
       continue;
     }
 
