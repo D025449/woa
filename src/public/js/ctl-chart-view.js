@@ -102,7 +102,6 @@ export default class CTLChartView {
         name: 'TSS',
         type: 'bar',
         showSymbol: false,
-        sampling: "lttb",
         yAxisIndex: 3,
         data: data.map(row => ({
           value: [row.date, row.tss ?? null]
@@ -159,7 +158,6 @@ export default class CTLChartView {
         name: 'TSS',
         type: 'bar',
         showSymbol: false,
-        sampling: "lttb",
         yAxisIndex: 3,
         data: data.map(row => ({
           value: [
@@ -184,7 +182,7 @@ export default class CTLChartView {
       },
       xAxis: { type: 'time' },
       yAxis,
-      dataZoom: buildChartDataZoom(),
+      dataZoom: buildChartDataZoom({ filterMode: "filter" }),
       series
     };
 

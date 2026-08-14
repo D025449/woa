@@ -15,6 +15,13 @@ test("chart sliders apply their data only after one completed drag", () => {
   assert.equal(slider.brushSelect, true);
 });
 
+test("chart zoom can filter the visible range before rendering dense series", () => {
+  const [inside, slider] = buildChartDataZoom({ filterMode: "filter" });
+
+  assert.equal(inside.filterMode, "filter");
+  assert.equal(slider.filterMode, "filter");
+});
+
 test("chart zoom range survives a dataset resolution change", () => {
   const range = readChartZoomRange({
     getOption: () => ({ dataZoom: [{ start: 23.5, end: 61.25 }] })
