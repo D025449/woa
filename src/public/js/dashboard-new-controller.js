@@ -14,6 +14,7 @@ import {
 } from "../../shared/SegmentAppearance.js";
 import confirmModal from "./confirm-modal.js";
 import { intensityProfilesFromTags } from "../../shared/WorkoutIntensityTags.js";
+import { parseManualActivityFile } from "./manual-activity-exchange-client.js";
 
 const WORKOUT_LIBRARY_VIEW_KEY = "workout-library";
 const VIEW_PREFERENCE_SAVE_DELAY_MS = 500;
@@ -74,6 +75,7 @@ export default class Controller {
     this.addTrainingButton = document.getElementById("dashboard-add-training");
     this.addTrainingModalElement = document.getElementById("dashboard-add-training-modal");
     this.addManualTrainingButton = document.getElementById("dashboard-add-manual-training");
+    this.importManualTrainingButton = document.getElementById("dashboard-import-manual-training");
     this.manualTrainingModalElement = document.getElementById("dashboard-manual-training-modal");
     this.manualTrainingForm = document.getElementById("dashboard-manual-training-form");
     this.manualTrainingTypeSelect = document.getElementById("dashboard-manual-training-type");
@@ -106,6 +108,15 @@ export default class Controller {
     this.manualCopySelectedDates = new Set();
     this.manualCopyVisibleMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
     this.exportAllFitButton = document.getElementById("dashboard-export-all-fit");
+    this.exportAllManualButton = document.getElementById("dashboard-export-all-manual");
+    this.manualImportModalElement = document.getElementById("dashboard-manual-import-modal");
+    this.manualImportFileInput = document.getElementById("dashboard-manual-import-file");
+    this.manualImportErrorElement = document.getElementById("dashboard-manual-import-error");
+    this.manualImportPreviewElement = document.getElementById("dashboard-manual-import-preview");
+    this.manualImportOverwriteInput = document.getElementById("dashboard-manual-import-overwrite");
+    this.manualImportBackButton = document.getElementById("dashboard-manual-import-back");
+    this.manualImportSubmitButton = document.getElementById("dashboard-manual-import-submit");
+    this.pendingManualImportActivities = [];
     this.workspacePanelElement = document.getElementById("dashboard-workspace-panel");
     this.detailMainStackElement = document.getElementById("dashboard-detail-main-stack");
     this.similarWorkoutsPanelElement = document.getElementById("dashboard-similar-workouts-panel");
@@ -170,6 +181,9 @@ export default class Controller {
       : null;
     this.manualCopyModal = this.manualCopyModalElement && globalThis.bootstrap
       ? globalThis.bootstrap.Modal.getOrCreateInstance(this.manualCopyModalElement)
+      : null;
+    this.manualImportModal = this.manualImportModalElement && globalThis.bootstrap
+      ? globalThis.bootstrap.Modal.getOrCreateInstance(this.manualImportModalElement)
       : null;
     this.shareableGroups = [];
     this.initViews();
@@ -425,6 +439,9 @@ export default class Controller {
       onManualActivityCopy: (activity) => {
         this.openManualTrainingCopy(activity);
       },
+      onManualActivityExport: (activity) => {
+        this.exportManualActivity(activity);
+      },
       onManualActivityDelete: async (activity) => {
         await this.deleteManualTraining(activity);
       },
@@ -481,6 +498,7 @@ export default class Controller {
     this.map3dToggleButton?.addEventListener("click", () => this.open3dMap());
     this.addTrainingButton?.addEventListener("click", () => this.addTrainingModal?.show());
     this.addManualTrainingButton?.addEventListener("click", () => this.openManualTrainingForm());
+    this.importManualTrainingButton?.addEventListener("click", () => this.openManualActivityImport());
     this.manualTrainingBackButton?.addEventListener("click", () => {
       if (this.editingManualActivityId !== null) {
         this.manualTrainingModal?.hide();
@@ -517,7 +535,23 @@ export default class Controller {
       if (removeButton) this.toggleManualCopyDate(removeButton.getAttribute("data-manual-copy-remove"));
     });
     this.manualCopySubmitButton?.addEventListener("click", async () => this.copyManualTraining());
-    this.exportAllFitButton?.addEventListener("click", () => this.exportAllWorkoutsAsFit());
+    this.exportAllFitButton?.addEventListener("click", () => {
+      this.exportAllFitButton.closest("details")?.removeAttribute("open");
+      this.exportAllWorkoutsAsFit();
+    });
+    this.exportAllManualButton?.addEventListener("click", () => {
+      this.exportAllManualButton.closest("details")?.removeAttribute("open");
+      this.exportAllManualActivities();
+    });
+    this.manualImportFileInput?.addEventListener("change", async () => {
+      await this.inspectManualActivityImport(this.manualImportFileInput.files?.[0]);
+    });
+    this.manualImportBackButton?.addEventListener("click", () => {
+      this.switchDashboardModal(this.manualImportModalElement, this.manualImportModal, this.addTrainingModal);
+    });
+    this.manualImportSubmitButton?.addEventListener("click", async () => {
+      await this.importManualActivities();
+    });
     this.registerSplitterEvents();
     this.initLayoutObservers();
     this.prevWorkoutButton?.addEventListener("click", async () => {
@@ -1011,6 +1045,114 @@ export default class Controller {
     } finally {
       worker?.terminate();
       button.disabled = false;
+    }
+  }
+
+  exportManualActivity(activity) {
+    const activityId = activity?.id;
+    if (activityId == null) return;
+    const link = document.createElement("a");
+    link.href = `/files/training-activities/${encodeURIComponent(activityId)}/export.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
+  exportAllManualActivities() {
+    const link = document.createElement("a");
+    link.href = "/files/training-activities/export.zip";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
+  resetManualActivityImport() {
+    this.pendingManualImportActivities = [];
+    if (this.manualImportFileInput) this.manualImportFileInput.value = "";
+    if (this.manualImportOverwriteInput) this.manualImportOverwriteInput.checked = false;
+    if (this.manualImportOverwriteInput) this.manualImportOverwriteInput.disabled = true;
+    if (this.manualImportSubmitButton) this.manualImportSubmitButton.disabled = true;
+    this.manualImportErrorElement?.classList.add("d-none");
+    this.manualImportPreviewElement?.classList.add("d-none");
+  }
+
+  openManualActivityImport() {
+    this.resetManualActivityImport();
+    this.switchDashboardModal(this.addTrainingModalElement, this.addTrainingModal, this.manualImportModal);
+  }
+
+  showManualActivityImportError(message) {
+    if (!this.manualImportErrorElement) return;
+    this.manualImportErrorElement.textContent = message;
+    this.manualImportErrorElement.classList.remove("d-none");
+  }
+
+  async inspectManualActivityImport(file) {
+    this.pendingManualImportActivities = [];
+    if (this.manualImportSubmitButton) this.manualImportSubmitButton.disabled = true;
+    this.manualImportErrorElement?.classList.add("d-none");
+    this.manualImportPreviewElement?.classList.add("d-none");
+    if (!file) return;
+
+    try {
+      const parsed = await parseManualActivityFile(file);
+      const response = await fetch("/files/training-activities/import/preview", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ activities: parsed.activities })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || this.t("manualActivityImportInvalid"));
+      this.pendingManualImportActivities = parsed.activities;
+      const preview = result.preview || {};
+      if (this.manualImportOverwriteInput) {
+        this.manualImportOverwriteInput.disabled = !(Number(preview.conflictCount) > 0);
+      }
+      if (this.manualImportPreviewElement) {
+        this.manualImportPreviewElement.textContent = this.t("manualActivityImportPreview", {
+          total: preview.totalCount ?? parsed.activities.length,
+          fresh: preview.newCount ?? 0,
+          duplicates: preview.duplicateCount ?? 0,
+          conflicts: preview.conflictCount ?? 0
+        });
+        this.manualImportPreviewElement.classList.remove("d-none");
+      }
+      if (this.manualImportSubmitButton) this.manualImportSubmitButton.disabled = false;
+    } catch (error) {
+      console.warn("Manual activity import validation failed", error);
+      this.showManualActivityImportError(this.t("manualActivityImportInvalid"));
+    }
+  }
+
+  async importManualActivities() {
+    if (this.pendingManualImportActivities.length === 0 || !this.manualImportSubmitButton) return;
+    this.manualImportSubmitButton.disabled = true;
+    this.manualImportErrorElement?.classList.add("d-none");
+    try {
+      const response = await fetch("/files/training-activities/import", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          activities: this.pendingManualImportActivities,
+          overwriteExisting: this.manualImportOverwriteInput?.checked === true
+        })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || this.t("manualActivityImportFailed"));
+      const result = payload.result || {};
+      this.manualImportModal?.hide();
+      await this.libraryView.reload();
+      this.showToast(this.t("manualActivityImportComplete", {
+        created: result.createdCount ?? 0,
+        updated: result.updatedCount ?? 0,
+        skipped: result.skippedCount ?? 0
+      }));
+      this.resetManualActivityImport();
+    } catch (error) {
+      this.showManualActivityImportError(error?.message || this.t("manualActivityImportFailed"));
+      this.manualImportSubmitButton.disabled = false;
     }
   }
 

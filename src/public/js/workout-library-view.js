@@ -1700,6 +1700,13 @@ export default class WorkoutLibraryView {
       });
     });
 
+    this.container.querySelectorAll("[data-manual-activity-export]").forEach((element) => {
+      element.addEventListener("click", () => {
+        const activity = this.getManualActivityById(element.getAttribute("data-manual-activity-export"));
+        if (activity) this.handlers.onManualActivityExport?.(activity);
+      });
+    });
+
     this.container.querySelectorAll("[data-manual-activity-delete]").forEach((element) => {
       element.addEventListener("click", async (event) => {
         event.stopPropagation();
@@ -2179,6 +2186,12 @@ export default class WorkoutLibraryView {
                     <svg viewBox="0 0 20 20"><path d="m4.5 14.7.6-3 7.4-7.4 3.2 3.2-7.4 7.4-3 .6.2-1.1Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"></path></svg>
                   </span>
                   ${this.pageT("manualTrainingEditAction")}
+                </button>
+                <button class="workout-library-actions-menu__item workout-library-actions-menu__item--secondary" type="button" data-manual-activity-export="${activity.id}">
+                  <span class="workout-library-actions-menu__icon" aria-hidden="true">
+                    <svg viewBox="0 0 20 20"><path d="M10 3.2v8.4M6.8 8.7 10 12l3.2-3.3M4 15.8h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                  </span>
+                  ${this.pageT("manualTrainingExportAction")}
                 </button>
                 <button class="workout-library-actions-menu__item workout-library-actions-menu__item--danger" type="button" data-manual-activity-delete="${activity.id}">
                   <span class="workout-library-actions-menu__icon" aria-hidden="true">

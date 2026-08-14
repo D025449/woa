@@ -89,7 +89,7 @@ function buildReport(entries, elapsedMs, userId, windowDays) {
       .sort((left, right) => {
         const confidenceDifference = right.classification.confidence - left.classification.confidence;
         if (confidenceDifference !== 0) return confidenceDifference;
-        return new Date(right.startTime) - new Date(left.startTime);
+        return new Date(right.startTime).getTime() - new Date(left.startTime).getTime();
       })
       .slice(0, 12)
       .map(compactResult);

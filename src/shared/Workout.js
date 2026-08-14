@@ -1539,7 +1539,8 @@ export default class Workout {
 
         // Browser
         if (typeof CompressionStream !== "undefined") {
-            const cs = new CompressionStream(normalizedCodec === "gzip" ? "gzip" : "brotli");
+            const CompressionStreamConstructor = /** @type {any} */ (CompressionStream);
+            const cs = new CompressionStreamConstructor(normalizedCodec === "gzip" ? "gzip" : "brotli");
             const stream = new Blob([buffer]).stream().pipeThrough(cs);
             return new Response(stream).arrayBuffer();
         }
@@ -1573,7 +1574,8 @@ export default class Workout {
 
         // Browser
         if (typeof DecompressionStream !== "undefined") {
-            const ds = new DecompressionStream(normalizedCodec === "gzip" ? "gzip" : "brotli");
+            const DecompressionStreamConstructor = /** @type {any} */ (DecompressionStream);
+            const ds = new DecompressionStreamConstructor(normalizedCodec === "gzip" ? "gzip" : "brotli");
             const stream = new Blob([buffer]).stream().pipeThrough(ds);
             return new Uint8Array(await new Response(stream).arrayBuffer());
         }

@@ -1,4 +1,5 @@
 import express from "express";
+import { strToU8, zipSync } from "fflate";
 
 import authMiddleware from "../middleware/authMiddleware.js";
 import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
@@ -7,6 +8,11 @@ import CollaborationDBService from "../services/collaborationDBService.js";
 import EntitlementService from "../services/entitlementService.js";
 import TrainingFeedDBService from "../services/trainingFeedDBService.js";
 import TrainingActivityDBService from "../services/trainingActivityDBService.js";
+import {
+  buildManualActivityArchiveManifest,
+  buildManualActivityDocument,
+  manualActivityFileName
+} from "../shared/ManualActivityExchange.js";
 
 const router = express.Router();
 
@@ -142,6 +148,83 @@ router.post("/training-activities", authMiddleware, requireActiveAccountWrite, a
     return res.status(201).json({ activity });
   } catch (err) {
     if (err?.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    return next(err);
+  }
+});
+
+router.get("/training-activities/export.zip", authMiddleware, async (req, res, next) => {
+  try {
+    const exportedAt = new Date();
+    const activities = await TrainingActivityDBService.getAll(req.user.id);
+    const entries = {
+      "manifest.json": strToU8(JSON.stringify(
+        buildManualActivityArchiveManifest(activities.length, exportedAt),
+        null,
+        2
+      ))
+    };
+    activities.forEach((activity, index) => {
+      const name = manualActivityFileName(activity.start_time, String(index + 1).padStart(4, "0"));
+      entries[`activities/${name}`] = strToU8(JSON.stringify(
+        buildManualActivityDocument(activity, exportedAt),
+        null,
+        2
+      ));
+    });
+    const archive = zipSync(entries, { level: 6 });
+    const date = exportedAt.toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="woa-manual-activities-${date}.zip"`
+    );
+    res.setHeader("Cache-Control", "no-store");
+    return res.send(Buffer.from(archive.buffer, archive.byteOffset, archive.byteLength));
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post("/training-activities/import/preview", authMiddleware, async (req, res, next) => {
+  try {
+    const preview = await TrainingActivityDBService.previewImport(
+      req.user.id,
+      req.body?.activities
+    );
+    return res.json({ preview });
+  } catch (err) {
+    if (err?.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    return next(err);
+  }
+});
+
+router.post("/training-activities/import", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
+  try {
+    const result = await TrainingActivityDBService.importMany(
+      req.user.id,
+      req.body?.activities,
+      req.body?.overwriteExisting === true
+    );
+    return res.status(201).json({ result });
+  } catch (err) {
+    if (err?.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    return next(err);
+  }
+});
+
+router.get("/training-activities/:id/export.json", authMiddleware, async (req, res, next) => {
+  try {
+    const activity = await TrainingActivityDBService.getById(req.user.id, req.params.id);
+    if (!activity) return res.status(404).json({ error: "Training activity not found" });
+    const document = buildManualActivityDocument(activity);
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${manualActivityFileName(activity.start_time)}"`
+    );
+    res.setHeader("Cache-Control", "no-store");
+    return res.send(`${JSON.stringify(document, null, 2)}\n`);
+  } catch (err) {
     return next(err);
   }
 });

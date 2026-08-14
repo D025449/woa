@@ -387,7 +387,7 @@ async function run() {
   const currentTotalBytes = currentStreamBytes + currentGpsBytes;
   const harmonizedRawBytes = workoutStreamBlock.length + gpsTrackBlock.length;
   const harmonizedGzipBytes = gzipWorkoutStream.length + gzipGpsTrack.length;
-  const harmonizedBrotliBytes = (brotliWorkoutStream?.length || 0) + (brotliGpsTrack?.length || 0);
+  const harmonizedBrotliBytes = (brotliWorkoutStream?.byteLength || 0) + (brotliGpsTrack?.byteLength || 0);
 
   console.table([{
     workoutId,
@@ -400,8 +400,8 @@ async function run() {
     harmonizedWorkoutGzipBytes: gzipWorkoutStream.length,
     harmonizedGpsGzipBytes: gzipGpsTrack.length,
     harmonizedGzipBytes,
-    harmonizedWorkoutBrotliBytes: brotliWorkoutStream.length,
-    harmonizedGpsBrotliBytes: brotliGpsTrack.length,
+    harmonizedWorkoutBrotliBytes: brotliWorkoutStream.byteLength,
+    harmonizedGpsBrotliBytes: brotliGpsTrack.byteLength,
     harmonizedBrotliBytes,
     gzipDeltaBytes: harmonizedGzipBytes - currentTotalBytes,
     gzipRatioVsCurrentPct: currentTotalBytes > 0

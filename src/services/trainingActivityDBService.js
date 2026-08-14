@@ -1,5 +1,6 @@
 import pool from "./database.js";
 import { calculateNormalizedPowerFromSamples } from "../shared/WorkoutEnergy.js";
+import { manualActivityPayloadFromStored } from "../shared/ManualActivityExchange.js";
 
 const ACTIVITY_TYPES = new Set(["cycling", "strength_training", "mobility", "other"]);
 const WORKOUT_TYPES = new Set(["indoor", "road", "mountain", "unknown"]);
@@ -7,6 +8,7 @@ const STRENGTH_FOCUS_VALUES = new Set(["upper_body", "lower_body", "full_body"])
 const POWER_MODES = new Set(["watts", "ftp_percent"]);
 const MAX_INTERVAL_BLOCKS = 20;
 const MAX_COPY_TARGETS = 50;
+const MAX_IMPORT_ACTIVITIES = 5000;
 
 function validationError(message) {
   const error = new Error(message);
@@ -298,6 +300,99 @@ async function insertIntervals(activityId, intervals, db) {
   }
 }
 
+function canonicalActivity(activity) {
+  return JSON.stringify({
+    ...activity,
+    intervals: activity.intervals.map((interval) => ({
+      repetitions: interval.repetitions,
+      workDurationSeconds: interval.workDurationSeconds,
+      recoveryDurationSeconds: interval.recoveryDurationSeconds,
+      powerMode: interval.powerMode,
+      workPowerValue: interval.workPowerValue,
+      recoveryPowerValue: interval.recoveryPowerValue
+    }))
+  });
+}
+
+function normalizeImportActivities(payloads) {
+  if (!Array.isArray(payloads) || payloads.length === 0 || payloads.length > MAX_IMPORT_ACTIVITIES) {
+    throw validationError("Invalid manual activity import");
+  }
+  const activities = payloads.map((payload) => normalizeTrainingActivityPayload(payload));
+  const startTimes = new Set();
+  for (const activity of activities) {
+    if (startTimes.has(activity.startTime)) {
+      throw validationError("Manual activity import contains duplicate start times");
+    }
+    startTimes.add(activity.startTime);
+  }
+  return activities;
+}
+
+async function loadActivitiesAtStartTimes(uid, startTimes, db, lock = false) {
+  const result = await db.query(`
+    SELECT *
+    FROM training_activities
+    WHERE uid = $1
+      AND start_time = ANY($2::timestamptz[])
+    ORDER BY start_time, id
+    ${lock ? "FOR UPDATE" : ""}
+  `, [uid, startTimes]);
+  const rows = result.rows || [];
+  if (rows.length === 0) return [];
+
+  const intervalResult = await db.query(`
+    SELECT training_activity_id, sequence_no, repetitions, work_duration_seconds,
+           recovery_duration_seconds, power_mode, work_power_value, recovery_power_value
+    FROM training_activity_intervals
+    WHERE training_activity_id = ANY($1::bigint[])
+    ORDER BY training_activity_id, sequence_no
+  `, [rows.map((row) => row.id)]);
+  const intervalsByActivity = new Map();
+  for (const interval of intervalResult.rows || []) {
+    const key = String(interval.training_activity_id);
+    if (!intervalsByActivity.has(key)) intervalsByActivity.set(key, []);
+    intervalsByActivity.get(key).push(interval);
+  }
+  return rows.map((row) => ({
+    ...row,
+    intervals: intervalsByActivity.get(String(row.id)) || []
+  }));
+}
+
+function buildImportPlan(activities, existingActivities) {
+  const existingByStartTime = new Map();
+  for (const activity of existingActivities) {
+    const startTime = new Date(activity.start_time).toISOString();
+    if (existingByStartTime.has(startTime)) {
+      throw validationError("Multiple existing manual activities share an import start time");
+    }
+    existingByStartTime.set(startTime, activity);
+  }
+  const entries = activities.map((activity) => {
+    const existing = existingByStartTime.get(activity.startTime) || null;
+    if (!existing) return { status: "new", activity, existing: null };
+    const existingPayload = normalizeTrainingActivityPayload(
+      manualActivityPayloadFromStored(existing)
+    );
+    return {
+      status: canonicalActivity(existingPayload) === canonicalActivity(activity)
+        ? "duplicate"
+        : "conflict",
+      activity,
+      existing
+    };
+  });
+  const count = (status) => entries.filter((entry) => entry.status === status).length;
+  return {
+    entries,
+    totalCount: entries.length,
+    newCount: count("new"),
+    duplicateCount: count("duplicate"),
+    conflictCount: count("conflict")
+  };
+}
+
 async function prepareActivity(uid, payload, db) {
   const activity = normalizeTrainingActivityPayload(payload);
   const ftp = activity.activityType === "cycling"
@@ -325,6 +420,131 @@ export default class TrainingActivityDBService {
       ORDER BY sequence_no
     `, [activityId]);
     return { ...activity, intervals: intervalResult.rows };
+  }
+
+  static async getAll(uid, db = pool) {
+    const result = await db.query(`
+      SELECT *
+      FROM training_activities
+      WHERE uid = $1
+      ORDER BY start_time, id
+    `, [uid]);
+    const rows = result.rows || [];
+    if (rows.length === 0) return [];
+    const intervalResult = await db.query(`
+      SELECT training_activity_id, sequence_no, repetitions, work_duration_seconds,
+             recovery_duration_seconds, power_mode, work_power_value, recovery_power_value
+      FROM training_activity_intervals
+      WHERE training_activity_id = ANY($1::bigint[])
+      ORDER BY training_activity_id, sequence_no
+    `, [rows.map((row) => row.id)]);
+    const intervalsByActivity = new Map();
+    for (const interval of intervalResult.rows || []) {
+      const key = String(interval.training_activity_id);
+      if (!intervalsByActivity.has(key)) intervalsByActivity.set(key, []);
+      intervalsByActivity.get(key).push(interval);
+    }
+    return rows.map((row) => ({
+      ...row,
+      intervals: intervalsByActivity.get(String(row.id)) || []
+    }));
+  }
+
+  static async previewImport(uid, payloads, db = pool) {
+    const activities = normalizeImportActivities(payloads);
+    const existing = await loadActivitiesAtStartTimes(
+      uid,
+      activities.map((activity) => activity.startTime),
+      db
+    );
+    const plan = buildImportPlan(activities, existing);
+    return {
+      totalCount: plan.totalCount,
+      newCount: plan.newCount,
+      duplicateCount: plan.duplicateCount,
+      conflictCount: plan.conflictCount
+    };
+  }
+
+  static async importMany(uid, payloads, overwriteExisting = false, db = pool) {
+    const activities = normalizeImportActivities(payloads);
+    return withTransaction(db, async (client) => {
+      const existing = await loadActivitiesAtStartTimes(
+        uid,
+        activities.map((activity) => activity.startTime),
+        client,
+        true
+      );
+      const plan = buildImportPlan(activities, existing);
+      const ftpCandidates = activities.some((activity) => activity.activityType === "cycling")
+        ? await loadHistoricalFtpCandidates(uid, client)
+        : [];
+      let createdCount = 0;
+      let updatedCount = 0;
+
+      for (const entry of plan.entries) {
+        if (entry.status === "duplicate" || (entry.status === "conflict" && !overwriteExisting)) {
+          continue;
+        }
+        const activity = entry.activity;
+        const ftp = activity.activityType === "cycling"
+          ? resolveHistoricalFtpFromCandidates(ftpCandidates, activity.startTime)
+          : null;
+        const metrics = calculateManualCyclingMetrics(activity, ftp);
+        if (entry.status === "new") {
+          const result = await client.query(`
+            INSERT INTO training_activities (
+              uid, start_time, duration_seconds, activity_type, workout_type,
+              title, notes, perceived_exertion, average_power, avg_normalized_power,
+              estimated_tss, tss_source, ftp_used, baseline_power_mode,
+              baseline_power_value, strength_focus
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            RETURNING id
+          `, [
+            uid, activity.startTime, activity.durationSeconds, activity.activityType,
+            activity.workoutType, activity.title, activity.notes, activity.perceivedExertion,
+            metrics.averagePower, metrics.normalizedPower, metrics.estimatedTss, metrics.tssSource,
+            metrics.ftpUsed, activity.baselinePowerMode, activity.baselinePowerValue,
+            activity.strengthFocus
+          ]);
+          await insertIntervals(result.rows[0].id, activity.intervals, client);
+          createdCount += 1;
+          continue;
+        }
+
+        await client.query(`
+          UPDATE training_activities
+          SET duration_seconds = $3, activity_type = $4, workout_type = $5,
+              title = $6, notes = $7, perceived_exertion = $8, average_power = $9,
+              avg_normalized_power = $10, estimated_tss = $11, tss_source = $12,
+              ftp_used = $13, baseline_power_mode = $14, baseline_power_value = $15,
+              strength_focus = $16
+          WHERE id = $1 AND uid = $2
+        `, [
+          entry.existing.id, uid, activity.durationSeconds, activity.activityType,
+          activity.workoutType, activity.title, activity.notes, activity.perceivedExertion,
+          metrics.averagePower, metrics.normalizedPower, metrics.estimatedTss, metrics.tssSource,
+          metrics.ftpUsed, activity.baselinePowerMode, activity.baselinePowerValue,
+          activity.strengthFocus
+        ]);
+        await client.query(
+          "DELETE FROM training_activity_intervals WHERE training_activity_id = $1",
+          [entry.existing.id]
+        );
+        await insertIntervals(entry.existing.id, activity.intervals, client);
+        updatedCount += 1;
+      }
+
+      return {
+        totalCount: plan.totalCount,
+        createdCount,
+        updatedCount,
+        duplicateCount: plan.duplicateCount,
+        conflictCount: overwriteExisting ? 0 : plan.conflictCount,
+        skippedCount: plan.duplicateCount + (overwriteExisting ? 0 : plan.conflictCount)
+      };
+    });
   }
 
   static async create(uid, payload, db = pool) {

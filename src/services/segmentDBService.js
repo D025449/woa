@@ -1472,6 +1472,9 @@ export default class SegmentDBService {
       includeMetrics: false,
       maxMatches: limit
     });
+    if (Array.isArray(scanResult)) {
+      throw new Error("Profiled segment scan returned no profile");
+    }
     const matches = scanResult.matches;
     const workoutIds = [...new Set(matches.map((match) => Number(match.workout_id)))];
     const profile = {
@@ -1513,6 +1516,7 @@ export default class SegmentDBService {
 
     const segmentDistance = Number((await this.getSegmentDistanceMap([segmentId])).get(Number(segmentId))) || 0;
     const averagesStartedAt = performance.now();
+    /** @type {any[]} */
     const data = [];
     for (const match of matches) {
       const workoutId = Number(match.workout_id);

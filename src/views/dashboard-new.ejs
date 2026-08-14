@@ -58,16 +58,18 @@
                             </svg>
                             <span><%= t("dashboardNewPage.addTraining") %></span>
                         </button>
-                        <button
-                            id="dashboard-export-all-fit"
-                            class="dashboard-export-fit-button"
-                            type="button"
-                            title="<%= t('dashboardNewPage.exportAllFit') %>">
-                            <svg viewBox="0 0 20 20" aria-hidden="true">
-                                <path d="M10 3.2v8.4M6.8 8.7L10 12l3.2-3.3M4 15.8h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
-                            </svg>
-                            <span><%= t("dashboardNewPage.exportAllFit") %></span>
-                        </button>
+                        <details class="dashboard-export-menu">
+                            <summary class="dashboard-export-fit-button" title="<%= t('dashboardNewPage.exportMenu') %>">
+                                <svg viewBox="0 0 20 20" aria-hidden="true">
+                                    <path d="M10 3.2v8.4M6.8 8.7L10 12l3.2-3.3M4 15.8h12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+                                </svg>
+                                <span><%= t("dashboardNewPage.exportMenu") %></span>
+                            </summary>
+                            <div class="dashboard-export-menu__panel">
+                                <button id="dashboard-export-all-fit" type="button"><%= t("dashboardNewPage.exportAllFit") %></button>
+                                <button id="dashboard-export-all-manual" type="button"><%= t("dashboardNewPage.exportAllManual") %></button>
+                            </div>
+                        </details>
                         <div class="workout-library-scope-toggle" role="group" aria-label="<%= t('dashboardNewPage.filterAria') %>">
                             <button
                                 id="workout-library-scope-mine"
@@ -817,7 +819,7 @@
                                     <svg viewBox="0 0 24 24"><path d="M12 16V4M7.5 8.5 12 4l4.5 4.5M5 14.5v4h14v-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
                                 </span>
                                 <span>
-                                    <strong><%= t("dashboardNewPage.addTrainingImportTitle") %></strong>
+                                    <strong><%= t("dashboardNewPage.addTrainingRecordingImportTitle") %></strong>
                                     <small><%= t("dashboardNewPage.addTrainingImportCopy") %></small>
                                 </span>
                             </a>
@@ -830,7 +832,47 @@
                                     <small><%= t("dashboardNewPage.addTrainingManualCopy") %></small>
                                 </span>
                             </button>
+                            <button id="dashboard-import-manual-training" class="dashboard-add-training-option" type="button">
+                                <span class="dashboard-add-training-option__icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19h14M7 5h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                                </span>
+                                <span>
+                                    <strong><%= t("dashboardNewPage.manualActivityImportOptionTitle") %></strong>
+                                    <small><%= t("dashboardNewPage.manualActivityImportOptionCopy") %></small>
+                                </span>
+                            </button>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal fade" id="dashboard-manual-import-modal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-lg">
+                <div class="modal-content border-0 shadow dashboard-manual-import-modal">
+                    <div class="modal-header">
+                        <div>
+                            <p class="dashboard-eyebrow mb-1"><%= t("dashboardNewPage.addTrainingEyebrow") %></p>
+                            <h2 class="modal-title mb-0"><%= t("dashboardNewPage.manualActivityImportTitle") %></h2>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="dashboard-section-copy"><%= t("dashboardNewPage.manualActivityImportCopy") %></p>
+                        <label class="dashboard-manual-import-picker">
+                            <span><%= t("dashboardNewPage.manualActivityImportChoose") %></span>
+                            <input id="dashboard-manual-import-file" class="form-control" type="file" accept=".json,.zip,application/json,application/zip">
+                        </label>
+                        <div id="dashboard-manual-import-error" class="alert alert-danger d-none mt-3" role="alert"></div>
+                        <div id="dashboard-manual-import-preview" class="dashboard-manual-import-preview d-none mt-3" aria-live="polite"></div>
+                        <label class="form-check dashboard-manual-import-overwrite mt-3">
+                            <input id="dashboard-manual-import-overwrite" class="form-check-input" type="checkbox">
+                            <span class="form-check-label"><%= t("dashboardNewPage.manualActivityImportOverwrite") %></span>
+                        </label>
+                    </div>
+                    <div class="modal-footer">
+                        <button id="dashboard-manual-import-back" class="btn btn-outline-secondary" type="button"><%= t("dashboardNewPage.manualTrainingBack") %></button>
+                        <button id="dashboard-manual-import-submit" class="btn btn-primary" type="button" disabled><%= t("dashboardNewPage.manualActivityImportSubmit") %></button>
                     </div>
                 </div>
             </div>

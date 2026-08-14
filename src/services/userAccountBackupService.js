@@ -58,6 +58,7 @@ function groupBy(rows, key) {
   return map;
 }
 
+/** @param {Date|string|number} [createdAt] */
 export function buildUserAccountBackupFilename(createdAt = new Date()) {
   const timestamp = new Date(createdAt).toISOString()
     .replace(/[-:]/gu, "")

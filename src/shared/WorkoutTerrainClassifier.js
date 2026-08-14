@@ -65,10 +65,10 @@ function collectClimbs(mask, altitude, distance, halfWindow, minimums) {
 }
 
 function normalizeSeries({
-  altitudes,
-  distances,
-  altitudeMissingValue,
-  distanceMissingValue,
+  altitudes = null,
+  distances = null,
+  altitudeMissingValue = null,
+  distanceMissingValue = null,
   altitudeScale = 1,
   distanceScale = 1
 }) {

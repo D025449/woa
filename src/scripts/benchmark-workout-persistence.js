@@ -147,7 +147,7 @@ async function run() {
         const compressed = await Workout.compress(rawCompact);
         const t1 = performance.now();
         compactAbsoluteStats.encodeMs += (t1 - t0);
-        compactAbsoluteStats.totalCompressedBytes += compressed.byteLength ?? compressed.length ?? 0;
+        compactAbsoluteStats.totalCompressedBytes += compressed.byteLength;
 
         const t2 = performance.now();
         await Workout.fromCompressed(compressed);
@@ -160,7 +160,7 @@ async function run() {
         const compressedCum = await Workout.compress(rawCum);
         const t1 = performance.now();
         cumulativeStats.encodeMs += (t1 - t0);
-        cumulativeStats.totalCompressedBytes += compressedCum.byteLength ?? compressedCum.length ?? 0;
+        cumulativeStats.totalCompressedBytes += compressedCum.byteLength;
 
         const t2 = performance.now();
         await Workout.fromCompressed(compressedCum);

@@ -69,6 +69,7 @@ export async function createApp() {
     });
     //app.use(createSessionMiddleware());
     app.use(express.urlencoded({ extended: true }));
+    app.use("/files/training-activities/import", express.json({ limit: "5mb" }));
     app.use(express.json());
     app.use(cookieParser());
     app.use((req, res, next) => {

@@ -2103,7 +2103,7 @@ function getISOWeekUTC(dateLike) {
   utcDate.setUTCDate(utcDate.getUTCDate() + 4 - dayNum);
   const isoYear = utcDate.getUTCFullYear();
   const yearStart = new Date(Date.UTC(isoYear, 0, 1));
-  const isoWeek = Math.ceil((((utcDate - yearStart) / 86400000) + 1) / 7);
+  const isoWeek = Math.ceil((((utcDate.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
   return { isoYear, isoWeek };
 }
 

@@ -22,7 +22,8 @@
     "src/services/**/*.js",
     "src/workers/**/*.js",
     "src/queue/**/*.js",
-    "src/scripts/**/*.js"
+    "src/scripts/**/*.js",
+    "src/types/**/*.d.ts"
   ],
   "exclude": [
     "node_modules",

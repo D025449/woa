@@ -72,7 +72,7 @@ function parseArgs(argv) {
     ["--gps-block-size", options.gpsBlockSize],
     ["--gps-sample-rate", options.gpsSampleRateSeconds],
   ]) {
-    if (!Number.isInteger(value) || value <= 0) throw new Error(`${name} must be a positive integer.`);
+    if (!Number.isInteger(value) || Number(value) <= 0) throw new Error(`${name} must be a positive integer.`);
   }
 
   options.innerCompression = normalizeCompressionFormat(options.innerCompression, "--inner-compression");
@@ -1193,9 +1193,12 @@ for (let run = 1; run <= options.repeats; run += 1) {
       ["speed", woa.workoutStreamBlock.speedPayloadBytes],
       ["altitude", woa.workoutStreamBlock.altitudePayloadBytes],
     ]) {
+      if (!(payload instanceof Uint8Array)) continue;
       workoutColumnBytes[key].raw += payload.byteLength;
       workoutColumnBytes[key].gzip += payload.byteLength > 0
-        ? gzipSync(payload, { level: options.gzipLevel }).byteLength
+        ? gzipSync(payload, {
+            level: /** @type {0|1|2|3|4|5|6|7|8|9} */ (Number(options.gzipLevel))
+          }).byteLength
         : 0;
     }
     analyzeDistanceDeltas(

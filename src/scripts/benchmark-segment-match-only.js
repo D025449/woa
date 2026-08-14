@@ -73,6 +73,9 @@ try {
         includeMetrics: false,
         maxMatches: limit
       });
+      if (Array.isArray(result)) {
+        throw new Error("Profiled segment benchmark returned no profile");
+      }
 
       let materializedWorkouts = 0;
       let workoutBlobMs = 0;

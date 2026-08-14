@@ -118,7 +118,9 @@ function signalSupportsPeak(series, start, end, options) {
  * in place so the browser upload does not allocate another workout-sized column.
  */
 export function filterPowerArtifactsInPlace(series, options = {}) {
-  const config = { ...DEFAULT_OPTIONS, ...options };
+  const config = /** @type {typeof DEFAULT_OPTIONS & {onCorrectedRange?: (range: {start: number, end: number, peakPower: number, sentinel: boolean}) => void}} */ (
+    { ...DEFAULT_OPTIONS, ...options }
+  );
   const powers = series?.powersW;
   const recordCount = Math.min(
     Number(series?.recordCount ?? powers?.length ?? 0),

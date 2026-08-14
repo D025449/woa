@@ -474,10 +474,13 @@ export async function acquireBackupLock(identity, {
   return acquire(true);
 }
 
-export function buildAwsS3CpArgs(source, destination, {
-  contentType,
-  sha256
-} = {}) {
+/**
+ * @param {string} source
+ * @param {string} destination
+ * @param {{contentType?: string, sha256?: string}} [options]
+ */
+export function buildAwsS3CpArgs(source, destination, options = {}) {
+  const { contentType, sha256 } = options;
   const args = ["s3", "cp", source, destination, "--only-show-errors"];
   if (contentType) {
     args.push("--content-type", contentType);

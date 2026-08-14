@@ -284,7 +284,100 @@ test("preserves a manual TSS override when copying an activity", async () => {
   assert.equal(insertedActivity[11], "manual");
 });
 
-test("workout hero exposes the two-step add-training flow", () => {
+test("manual activity import preview distinguishes duplicates and conflicts", async () => {
+  const existing = {
+    id: 20,
+    uid: 5,
+    start_time: "2026-08-20T08:15:00.000Z",
+    duration_seconds: 1800,
+    activity_type: "cycling",
+    workout_type: "indoor",
+    title: "Existing",
+    notes: null,
+    perceived_exertion: 7,
+    baseline_power_mode: "watts",
+    baseline_power_value: 140,
+    estimated_tss: 33.5,
+    tss_source: "manual",
+    strength_focus: null
+  };
+  const db = {
+    async query(sql) {
+      const statement = String(sql);
+      if (/FROM training_activities/u.test(statement)) return { rows: [existing] };
+      if (/FROM training_activity_intervals/u.test(statement)) return { rows: [] };
+      throw new Error(`Unexpected SQL: ${statement}`);
+    }
+  };
+  const duplicate = {
+    startTime: existing.start_time,
+    durationSeconds: 1800,
+    activityType: "cycling",
+    workoutType: "indoor",
+    title: "Existing",
+    perceivedExertion: 7,
+    baselinePowerMode: "watts",
+    baselinePowerValue: 140,
+    estimatedTss: 33.5,
+    intervals: []
+  };
+  assert.deepEqual(await TrainingActivityDBService.previewImport(5, [duplicate], db), {
+    totalCount: 1,
+    newCount: 0,
+    duplicateCount: 1,
+    conflictCount: 0
+  });
+  assert.deepEqual(await TrainingActivityDBService.previewImport(5, [{
+    ...duplicate,
+    baselinePowerValue: 160
+  }], db), {
+    totalCount: 1,
+    newCount: 0,
+    duplicateCount: 0,
+    conflictCount: 1
+  });
+});
+
+test("manual activity batch import creates source data and recalculates metrics", async () => {
+  const calls = [];
+  const client = {
+    async query(sql, params) {
+      const statement = String(sql);
+      calls.push({ statement, params });
+      if (/^BEGIN|^COMMIT|^ROLLBACK/u.test(statement)) return { rows: [] };
+      if (/FROM training_activities/u.test(statement)) return { rows: [] };
+      if (/get_ftp_by_period2/u.test(statement)) return { rows: [{ period: 2026, ftp: 250 }] };
+      if (/INSERT INTO training_activities/u.test(statement)) return { rows: [{ id: 72 }] };
+      if (/INSERT INTO training_activity_intervals/u.test(statement)) return { rows: [] };
+      throw new Error(`Unexpected SQL: ${statement}`);
+    },
+    release() {}
+  };
+  const db = { async connect() { return client; } };
+  const result = await TrainingActivityDBService.importMany(5, [{
+    startTime: "2026-08-21T08:15:00.000Z",
+    durationSeconds: 1800,
+    activityType: "cycling",
+    workoutType: "indoor",
+    baselinePowerMode: "watts",
+    baselinePowerValue: 140,
+    intervals: [{
+      repetitions: 3,
+      workDurationSeconds: 120,
+      recoveryDurationSeconds: 120,
+      powerMode: "watts",
+      workPowerValue: 300,
+      recoveryPowerValue: 120
+    }]
+  }], false, db);
+
+  assert.equal(result.createdCount, 1);
+  assert.equal(result.updatedCount, 0);
+  assert.ok(calls.some(({ statement }) => /INSERT INTO training_activity_intervals/u.test(statement)));
+  assert.equal(calls.at(-1).statement, "COMMIT");
+});
+
+test("workout hero exposes manual activity import and export", () => {
   const view = fs.readFileSync(new URL("../src/views/dashboard-new.ejs", import.meta.url), "utf8");
   const controller = fs.readFileSync(
     new URL("../src/public/js/dashboard-new-controller.js", import.meta.url),
@@ -293,6 +386,9 @@ test("workout hero exposes the two-step add-training flow", () => {
   assert.match(view, /id="dashboard-add-training"/u);
   assert.match(view, /href="\/files\/uploadUI"/u);
   assert.match(view, /id="dashboard-manual-training-form"/u);
+  assert.match(view, /id="dashboard-import-manual-training"/u);
+  assert.match(view, /id="dashboard-manual-import-file"/u);
+  assert.match(view, /id="dashboard-export-all-manual"/u);
   assert.match(controller, /\? "\/files\/training-activities"/u);
   assert.match(controller, /method: activityId === null \? "POST" : "PUT"/u);
   assert.match(controller, /method: "DELETE"/u);
@@ -306,6 +402,7 @@ test("workout hero exposes the two-step add-training flow", () => {
   assert.match(library, /data-manual-activity-edit/u);
   assert.match(library, /data-manual-activity-delete/u);
   assert.match(library, /data-manual-activity-copy/u);
+  assert.match(library, /data-manual-activity-export/u);
 });
 
 test("every locale contains the manual activity copy dialog", () => {
@@ -325,6 +422,27 @@ test("every locale contains the manual activity copy dialog", () => {
     ]) {
       assert.equal(typeof page[key], "string", `${locale}.${key}`);
       assert.ok(page[key].length > 0, `${locale}.${key}`);
+    }
+  }
+});
+
+test("every locale contains the manual activity exchange copy", () => {
+  for (const locale of ["de", "en", "es", "fr", "it", "pt"]) {
+    const messages = JSON.parse(fs.readFileSync(
+      new URL(`../src/public/i18n/${locale}.json`, import.meta.url),
+      "utf8"
+    ));
+    for (const key of [
+      "exportMenu",
+      "exportAllManual",
+      "manualTrainingExportAction",
+      "manualActivityImportOptionTitle",
+      "manualActivityImportTitle",
+      "manualActivityImportPreview",
+      "manualActivityImportComplete"
+    ]) {
+      assert.equal(typeof messages.dashboardNewPage[key], "string", `${locale}.${key}`);
+      assert.ok(messages.dashboardNewPage[key].length > 0, `${locale}.${key}`);
     }
   }
 });

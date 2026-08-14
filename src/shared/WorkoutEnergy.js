@@ -1,3 +1,6 @@
+/**
+ * @param {{totalCalories?: unknown, avgPower?: unknown, totalTimerTime?: unknown}} [input]
+ */
 export function resolveCyclingCalories({
   totalCalories,
   avgPower,
@@ -23,6 +26,9 @@ export function resolveCyclingCalories({
   return Math.round((powerWatts * durationSeconds) / 1000);
 }
 
+/**
+ * @param {{normalizedPower?: unknown, totalTimerTime?: unknown}} [input]
+ */
 export function calculatePowerLoad({
   normalizedPower,
   totalTimerTime

@@ -4,7 +4,11 @@ function normalizedValue(value) {
   return String(value || "").trim();
 }
 
-export function normalizeAdminBootstrapRequest({ authSub, email, confirm } = {}) {
+/**
+ * @param {{authSub?: string, email?: string, confirm?: string}} [request]
+ */
+export function normalizeAdminBootstrapRequest(request = {}) {
+  const { authSub, email, confirm } = request;
   const normalizedAuthSub = normalizedValue(authSub);
   const normalizedEmail = normalizedValue(email).toLowerCase();
   const normalizedConfirm = normalizedValue(confirm);

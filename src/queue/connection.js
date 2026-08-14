@@ -1,5 +1,11 @@
 import IORedis from 'ioredis';
 
-export const redisConnection = new IORedis(process.env.REDIS_URL, {
+const RedisConstructor = /** @type {typeof import('ioredis').Redis} */ (
+  /** @type {unknown} */ (IORedis)
+);
+
+export const redisConnection = /** @type {import('bullmq').ConnectionOptions} */ (
+  /** @type {unknown} */ (new RedisConstructor(process.env.REDIS_URL, {
     maxRetriesPerRequest: null
-});
+  }))
+);

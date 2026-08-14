@@ -848,7 +848,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
 
 
   static interpolateFTP(series, date, grouping) {
-    const sorted = [...series].sort((a, b) => a.period - b.period);
+    const sorted = [...series].sort((a, b) => Number(a.period) - Number(b.period));
 
     const target = new Date(date);
 
@@ -861,7 +861,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
 
       if (target >= leftDate && target <= rightDate) {
         const ratio =
-          (target - leftDate) / (rightDate - leftDate);
+          (target.getTime() - leftDate.getTime()) / (rightDate.getTime() - leftDate.getTime());
 
         return left.ftp + ratio * (right.ftp - left.ftp);
       }
@@ -884,7 +884,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
 
     return Array.from(map.entries())
       .map(([day, tss]) => ({ day, tss }))
-      .sort((a, b) => new Date(a.day) - new Date(b.day));
+      .sort((a, b) => new Date(a.day).getTime() - new Date(b.day).getTime());
   }
 
   static async getCTLATL(uid, period) {
@@ -1058,7 +1058,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
 
     const year = d.getFullYear();
     const yearStart = new Date(year, 0, 1);
-    const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    const week = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
     const key = `${year}${String(week).padStart(2, '0')}`
 
     return { year, week, key };
@@ -1899,7 +1899,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
               codec: GPS_TRACK_BLOB_CODEC
             }));
     timing.mark("encode-gps-track-blob", {
-      compressedBytes: compressedGpsTrackBlob?.length ?? 0
+      compressedBytes: compressedGpsTrackBlob?.byteLength ?? 0
     });
 
     if (fileRow.validGps && points_count < 2) {

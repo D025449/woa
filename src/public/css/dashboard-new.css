@@ -29,6 +29,7 @@ body.dashboard-page {
 }
 
 .dashboard-hero {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -39,6 +40,10 @@ body.dashboard-page {
   background: var(--ui-bg-hero-overlay), var(--ui-bg-hero-accent);
   box-shadow: var(--ui-shadow-lg);
   backdrop-filter: blur(10px);
+}
+
+.dashboard-hero:has(.dashboard-export-menu[open]) {
+  z-index: 200;
 }
 
 .dashboard-title {
@@ -182,6 +187,47 @@ body.dashboard-page {
   font-size: 0.76rem;
   font-weight: 750;
   white-space: nowrap;
+  cursor: pointer;
+  list-style: none;
+}
+
+.dashboard-export-fit-button::-webkit-details-marker {
+  display: none;
+}
+
+.dashboard-export-menu {
+  position: relative;
+}
+
+.dashboard-export-menu__panel {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 160;
+  min-width: 13.5rem;
+  padding: 0.38rem;
+  border: 1px solid var(--ui-card-border-soft);
+  border-radius: 0.7rem;
+  background: #fff;
+  box-shadow: var(--ui-shadow-hover);
+}
+
+.dashboard-export-menu__panel button {
+  display: block;
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border: 0;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: var(--ui-text-strong);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: left;
+}
+
+.dashboard-export-menu__panel button:hover {
+  background: var(--ui-info-bg-soft);
+  color: var(--ui-info-text);
 }
 
 .dashboard-add-training-button {
@@ -212,7 +258,8 @@ body.dashboard-page {
 
 .dashboard-add-training-modal,
 .dashboard-manual-training-modal,
-.dashboard-manual-copy-modal {
+.dashboard-manual-copy-modal,
+.dashboard-manual-import-modal {
   border-radius: 1.2rem;
   overflow: hidden;
 }
@@ -350,8 +397,26 @@ body.dashboard-page {
 
 .dashboard-add-training-options {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.9rem;
+}
+
+.dashboard-manual-import-picker {
+  display: grid;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 750;
+  color: var(--ui-text-muted);
+}
+
+.dashboard-manual-import-preview {
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--ui-info-border);
+  border-radius: 0.75rem;
+  background: var(--ui-info-bg-soft);
+  color: var(--ui-info-text);
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 
 .dashboard-add-training-option {

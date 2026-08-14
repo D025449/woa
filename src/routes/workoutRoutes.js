@@ -219,6 +219,7 @@ router.get("/export/all/source.zip", authMiddleware, async (req, res) => {
       WorkoutDBService.getOwnedManualSegmentsForFitExport(req.user.id)
     ]);
     const loadRowsMs = performance.now() - startedAt;
+    /** @type {import("fflate").Zippable} */
     const entries = {};
     const segmentsByWorkoutId = new Map();
     for (const segment of manualSegmentRows) {
@@ -453,6 +454,7 @@ router.get("/:id/open-v2", authMiddleware, async (req, res) => {
     const openPayload = await WorkoutDBService.getOpenPayloadRaw(id, uid);
     const payloadMs = Date.now() - payloadStartedAt;
     const row = openPayload?.row || null;
+    /** @type {Record<string, any>} */
     const dbProfile = openPayload?.profile || {};
 
     const segmentsStartedAt = Date.now();

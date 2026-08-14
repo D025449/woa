@@ -149,7 +149,9 @@ export async function createApp(options = {}) {
   }
 
   function createImportPostprocessPhaseState(expected = 0) {
+    /** @type {(() => void)|undefined} */
     let resolveCompletion;
+    /** @type {Promise<void>} */
     const completionPromise = new Promise((resolve) => {
       resolveCompletion = resolve;
     });
@@ -718,10 +720,13 @@ export async function createApp(options = {}) {
       const segmentBestEffortsResult = await SegmentDBService.rescanSegmentBestEffortsForWorkout(uid, workoutId, {
         includeProfile: true
       });
+      if (Array.isArray(segmentBestEffortsResult)) {
+        throw new Error("Profiled segment best-efforts scan returned no profile");
+      }
       const matches = Array.isArray(segmentBestEffortsResult?.matches)
         ? segmentBestEffortsResult.matches
         : [];
-      const segmentBestEffortsProfile = segmentBestEffortsResult?.profile || {};
+      const segmentBestEffortsProfile = segmentBestEffortsResult.profile;
       const matchCount = matches.length;
       const elapsedMs = Date.now() - startedAt;
 

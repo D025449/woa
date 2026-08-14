@@ -30,7 +30,7 @@ class FitBytes extends Uint8Array {
       return new FitBytes(value.slice(0));
     }
     if (ArrayBuffer.isView(value)) {
-      return new FitBytes(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+      return new FitBytes(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
     }
     return new FitBytes(value || []);
   }

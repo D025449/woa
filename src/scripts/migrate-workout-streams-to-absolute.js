@@ -131,7 +131,7 @@ async function run() {
         const compressedAbsolute = await Workout.compress(absBuffer);
 
         const oldSize = row.stream.byteLength ?? row.stream.length ?? 0;
-        const newSize = compressedAbsolute.byteLength ?? compressedAbsolute.length ?? 0;
+        const newSize = compressedAbsolute.byteLength;
 
         summary.migrated += 1;
         summary.oldCompressedBytes += oldSize;
