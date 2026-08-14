@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildSegmentHeaderGraphicId,
   buildSegmentHeaderLayout,
   calculateStableYAxisBounds,
   findManualSegmentResizeEdge,
@@ -9,6 +10,30 @@ import {
   getAvailableWorkoutSeries,
   hasMeaningfulDistanceSeries
 } from "../src/public/js/chart-view.js";
+
+test("segment header graphic IDs distinguish repeated GPS segment matches", () => {
+  const firstMatch = {
+    sid: 21,
+    isGPSSegment: true,
+    start_offset: 120,
+    end_offset: 180
+  };
+  const secondMatch = {
+    sid: 21,
+    isGPSSegment: true,
+    start_offset: 420,
+    end_offset: 480
+  };
+
+  const ids = [
+    buildSegmentHeaderGraphicId(firstMatch, 0, 75910),
+    buildSegmentHeaderGraphicId(secondMatch, 1, 75910),
+    buildSegmentHeaderGraphicId(secondMatch, 2, 75910)
+  ];
+
+  assert.equal(new Set(ids).size, ids.length);
+  assert.match(ids[0], /workout-segment-header-75910-gps-21/u);
+});
 
 test("segment headers use separate lanes for overlaps and reuse free lanes", () => {
   const first = { id: 1, start_offset: 10, end_offset: 50, rowstate: "DB" };

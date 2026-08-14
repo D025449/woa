@@ -67,6 +67,22 @@ export function buildSegmentHeaderLayout({
   };
 }
 
+export function buildSegmentHeaderGraphicId(segment, index, workoutId = null) {
+  const displayId = Utils.getSegmentDisplayId(segment) ?? "unidentified";
+  const kind = segment?.isGPSSegment ? "gps" : String(segment?.segmenttype || "manual");
+  const start = Number(segment?.start_offset);
+  const end = Number(segment?.end_offset);
+  const range = Number.isFinite(start) && Number.isFinite(end)
+    ? `${Math.min(start, end)}-${Math.max(start, end)}`
+    : "unknown-range";
+  const workout = workoutId == null || String(workoutId).trim() === ""
+    ? "unknown-workout"
+    : String(workoutId).trim();
+
+  // A GPS segment can occur more than once in a workout and therefore shares its display ID.
+  return `workout-segment-header-${workout}-${kind}-${displayId}-${range}-${index}`;
+}
+
 export function findManualSegmentResizeEdge({
   segments,
   focusedSegment,
@@ -1430,9 +1446,7 @@ export default class ChartView {
   }
 
   getSegmentHeaderId(segment, index) {
-    const displayId = Utils.getSegmentDisplayId(segment);
-    const kind = segment?.isGPSSegment ? "gps" : String(segment?.segmenttype || "manual");
-    return `workout-segment-header-${kind}-${displayId ?? `${segment.start_offset}-${segment.end_offset}-${index}`}`;
+    return buildSegmentHeaderGraphicId(segment, index, this.currentWorkout?.id);
   }
 
   buildSegmentHeaderGraphics() {
