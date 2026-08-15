@@ -2,7 +2,7 @@ const UINT8_NAN = 0xff;
 const UINT16_NAN = 0xffff;
 const UINT32_NAN = 0xffffffff;
 const INT16_NAN = -0x8000;
-const BEST_EFFORT_DURATIONS = [5, 15, 60, 120, 240, 480, 900, 1800];
+const BEST_EFFORT_DURATIONS = [5, 15, 60, 120, 240, 360, 480, 720, 900, 960, 1800];
 const textEncoder = new TextEncoder();
 const LAP_TRIGGER_NAMES = [
   "manual",

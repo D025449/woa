@@ -49,11 +49,14 @@ export default class Controller {
       }
     });
 
-    this.ftpChartView = new FTPChartView('ftp-chart', {
-      onCPClick: async (row) => {
-        // aktuell leer → bewusst so gelassen
-      }
-    });
+    const ftpChartElement = document.getElementById("ftp-chart");
+    this.ftpChartView = ftpChartElement?.closest("article")?.hidden
+      ? null
+      : new FTPChartView('ftp-chart', {
+        onCPClick: async (row) => {
+          // aktuell leer → bewusst so gelassen
+        }
+      });
 
     this.ctlChartView = new CTLChartView('ctl-chart', {
       onCPClick: async (row) => {
@@ -103,7 +106,7 @@ export default class Controller {
     this.chartView.resize();
     this.mapView.resize();
     this.cpChartView.resize();
-    this.ftpChartView.resize();
+    this.ftpChartView?.resize();
     this.ctlChartView.resize();
     this.scheduleDesktopLayoutMeasure();
   }

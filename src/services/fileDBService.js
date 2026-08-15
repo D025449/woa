@@ -4,6 +4,7 @@ import WorkoutSharingService from "./workoutSharingService.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
 import { toPostgresBox } from "../shared/postgresSpatial.js";
 import { normalizeIntensityTags } from "../shared/WorkoutIntensityTags.js";
+import { buildRollingFtpTrend } from "../shared/RollingFtpTrend.js";
 
 const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
@@ -285,6 +286,33 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     const result = await pool.query(query, values);
 
     return result.rows;
+  }
+
+  static async getRollingFTPValues(uid, period = "quarter") {
+    if (!uid) {
+      throw new Error("Unauthorized");
+    }
+
+    const result = await pool.query(`
+      SELECT
+        w.id AS workout_id,
+        w.start_time,
+        w.year,
+        w.year_quarter,
+        w.year_month,
+        w.year_week,
+        s.duration,
+        s.avg_power
+      FROM workouts w
+      INNER JOIN workout_segments s ON s.wid = w.id
+      WHERE w.uid = $1
+        AND s.segmenttype = 'crit'
+        AND s.duration = ANY($2::int[])
+        AND s.avg_power IS NOT NULL
+      ORDER BY w.start_time, w.id, s.duration
+    `, [uid, [360, 480, 720, 900, 960]]);
+
+    return buildRollingFtpTrend(result.rows, period);
   }
 
 

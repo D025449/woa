@@ -345,9 +345,13 @@ router.get("/ftp", authMiddleware, async (req, res, next) => {
       ? period
       : "quarter";
 
-    const result = await FileDBService.getFTPValues(
-      uid,
-      selectedPeriod
+    const [result, rollingResult] = await Promise.all([
+      FileDBService.getFTPValues(uid, selectedPeriod),
+      FileDBService.getRollingFTPValues(uid, selectedPeriod)
+    ]);
+
+    const rollingByPeriod = new Map(
+      rollingResult.map(row => [String(row.period), row])
     );
 
     const transformedResult = result.map(r => ({
@@ -355,7 +359,9 @@ router.get("/ftp", authMiddleware, async (req, res, next) => {
       cp8: Math.round(r.cp8 ?? 0),
       cp15: Math.round(r.cp15 ?? 0),
       ftp: Math.round(r.ftp ?? 0),
-      confidence: r.confidence
+      confidence: r.confidence,
+      rollingFtp: Math.round(rollingByPeriod.get(String(r.period))?.ftp ?? 0),
+      rollingConfidence: rollingByPeriod.get(String(r.period))?.confidence ?? 0
     }));
 
     res.json({
@@ -393,7 +399,7 @@ router.get("/cp-best-efforts", authMiddleware, async (req, res, next) => {
     let durationArray;
 
     if (!durations) {
-      durationArray = [5, 15, 60, 120, 240, 480, 900, 1800];
+      durationArray = [5, 15, 60, 120, 240, 360, 480, 720, 900, 960, 1800];
     } else {
       durationArray = durations
         .split(',')
@@ -408,11 +414,16 @@ router.get("/cp-best-efforts", authMiddleware, async (req, res, next) => {
     }
 
     // 🔥 Service Call
-    const rows = await FileDBService.getCPBestEfforts(
-      grouping,
-      durationArray,
-      uid
-    );
+    const rollingGrouping = {
+      year: "year",
+      year_quarter: "quarter",
+      year_month: "month",
+      year_week: "week"
+    }[grouping];
+    const [rows, rollingFtpRows] = await Promise.all([
+      FileDBService.getCPBestEfforts(grouping, durationArray, uid),
+      FileDBService.getRollingFTPValues(uid, rollingGrouping)
+    ]);
 
     // 🔄 Response strukturieren (wie vorher)
     const data = {};
@@ -431,6 +442,19 @@ router.get("/cp-best-efforts", authMiddleware, async (req, res, next) => {
         startOffset: row.start_offset,
         endOffset: row.end_offset,
         startTime: row.start_time
+      };
+    }
+
+    for (const row of rollingFtpRows) {
+      const group = String(row.period);
+      if (!data[group]) {
+        data[group] = {};
+      }
+      data[group].eFTP = {
+        power: Math.round(row.ftp),
+        confidence: row.confidence,
+        modelPointCount: row.modelPointCount,
+        startTime: row.startTime
       };
     }
 

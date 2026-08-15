@@ -77,7 +77,7 @@ export default class FTPChartView {
     const series = [];
 
     series.push({
-      name: 'FTP',
+      name: 'FTP (bisher)',
       type: 'line',
       smooth: true,
       data: data.map(row => ({
@@ -86,6 +86,26 @@ export default class FTPChartView {
           row.ftp ?? null
         ],
         extra: data
+      }))
+    });
+
+    series.push({
+      name: 'eFTP (rollierend)',
+      type: 'line',
+      smooth: true,
+      symbol: 'none',
+      lineStyle: {
+        type: 'dashed',
+        width: 3
+      },
+      data: data.map(row => ({
+        value: [
+          this.mapToDate(grouping, row.grp),
+          row.rollingFtp || null
+        ],
+        extra: {
+          confidence: row.rollingConfidence ?? 0
+        }
       }))
     });
 

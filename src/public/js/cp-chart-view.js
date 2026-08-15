@@ -1,6 +1,12 @@
 
 import { buildChartDataZoom } from "./chart-data-zoom.js";
 
+function formatCPDuration(durationSeconds) {
+  return durationSeconds < 60
+    ? `CP ${durationSeconds} s`
+    : `CP ${durationSeconds / 60} min`;
+}
+
 export default class CPChartView {
 
   constructor(containerId, handlers = {}) {
@@ -62,10 +68,12 @@ export default class CPChartView {
   renderChart(apiData) {
     const { data, grouping } = apiData;
 
-    const durations = [5, 15, 60, 120, 240, 480, 900, 1800];
+    const durations = Array.isArray(apiData.durations)
+      ? apiData.durations.map(Number).filter(Number.isFinite)
+      : [];
 
     const series = durations.map(d => ({
-      name: `CP${d}`,
+      name: formatCPDuration(d),
       type: 'line',
       smooth: true,
       yAxisIndex: (d <= 60) ? 1 : 0,
@@ -77,6 +85,25 @@ export default class CPChartView {
         extra: values[`CP${d}`]
       }))
     }));
+
+    series.push({
+      name: 'eFTP',
+      type: 'line',
+      smooth: true,
+      symbol: 'none',
+      yAxisIndex: 0,
+      lineStyle: {
+        type: 'dashed',
+        width: 3
+      },
+      data: Object.entries(data).map(([grp, values]) => ({
+        value: [
+          this.mapToDate(grouping, grp),
+          values.eFTP?.power ?? null
+        ],
+        extra: values.eFTP
+      }))
+    });
 
     const option = {
       tooltip: {
@@ -346,5 +373,4 @@ function renderChart(chart, apiData) {
 
     chart.setOption(option);
 }*/
-
 

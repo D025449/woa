@@ -53,6 +53,10 @@ body.analytics-page {
     gap: 1.5rem;
 }
 
+.analytics-chart-grid--two-panels {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .analytics-focus-grid {
     display: grid;
     grid-template-columns: minmax(0, 1.7fr) minmax(340px, 1fr);

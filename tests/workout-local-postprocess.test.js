@@ -85,6 +85,23 @@ test("stored workout fallback uses the same critical-power detector as compact u
   );
 });
 
+test("critical-power detection includes the FTP model support durations", () => {
+  const records = Array.from({ length: 1000 }, (_, index) => ({
+    power: 300 - Math.floor(index / 200),
+    heart_rate: 150,
+    cadence: 90,
+    speed: 8,
+    altitude: 100,
+    distance: index * 8
+  }));
+
+  const segments = detectWorkoutLocalSegmentsCompact(compactFromRecords(records));
+  assert.deepEqual(
+    segments.map((segment) => segment.duration),
+    [5, 15, 60, 120, 240, 360, 480, 720, 900, 960]
+  );
+});
+
 test("FIT lap detection skips the mandatory full-workout envelope", () => {
   const compact = compactFromRecords(Array.from({ length: 61 }, (_, index) => ({
     power: 200,
