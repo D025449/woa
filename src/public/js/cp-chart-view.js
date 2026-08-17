@@ -13,7 +13,11 @@ export default class CPChartView {
     this.chart = echarts.init(document.getElementById(containerId));
     this.handlers = handlers;
 
-    this.currentGrouping = 'year';
+    this.currentGrouping = handlers.preferences?.grouping || 'year';
+    this.seriesVisibility = {
+      ...handlers.preferences?.seriesVisibility
+    };
+    this.legendNameToKey = new Map();
 
     this.registerChartInteractions();
     this.initGroupingControls();
@@ -27,8 +31,10 @@ export default class CPChartView {
   // -----------------------------
   initGroupingControls() {
     document.querySelectorAll('input[name="grouping"]').forEach(el => {
+      el.checked = el.value === this.currentGrouping;
       el.addEventListener('change', (e) => {
         this.currentGrouping = e.target.value;
+        this.handlers?.onPreferenceChange?.({ grouping: this.currentGrouping });
         this.loadData();
       });
     });
@@ -38,6 +44,17 @@ export default class CPChartView {
   // INTERACTIONS
   // -----------------------------
   registerChartInteractions() {
+    this.chart.on('legendselectchanged', (params) => {
+      for (const [name, key] of this.legendNameToKey) {
+        if (typeof params.selected?.[name] === 'boolean') {
+          this.seriesVisibility[key] = params.selected[name];
+        }
+      }
+      this.handlers?.onPreferenceChange?.({
+        seriesVisibility: { ...this.seriesVisibility }
+      });
+    });
+
     this.chart.on('click', async (params) => {
       const d = params.data?.extra;
 
@@ -71,6 +88,11 @@ export default class CPChartView {
     const durations = Array.isArray(apiData.durations)
       ? apiData.durations.map(Number).filter(Number.isFinite)
       : [];
+
+    this.legendNameToKey = new Map(
+      durations.map((duration) => [formatCPDuration(duration), `cp${duration}`])
+    );
+    this.legendNameToKey.set('eFTP', 'eftp');
 
     const series = durations.map(d => ({
       name: formatCPDuration(d),
@@ -111,7 +133,13 @@ export default class CPChartView {
       },
 
       legend: {
-        type: 'scroll'
+        type: 'scroll',
+        selected: Object.fromEntries(
+          [...this.legendNameToKey].map(([name, key]) => [
+            name,
+            this.seriesVisibility[key] !== false
+          ])
+        )
       },
 
       yAxis: [
@@ -128,7 +156,7 @@ export default class CPChartView {
       series
     };
 
-    this.chart.setOption(option);
+    this.chart.setOption(option, true);
   }
 
   // -----------------------------
@@ -373,4 +401,3 @@ function renderChart(chart, apiData) {
 
     chart.setOption(option);
 }*/
-

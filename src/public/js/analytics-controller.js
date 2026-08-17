@@ -4,6 +4,14 @@ import FTPChartView from "./ftp-chart-view.js";
 import CTLChartView from "./ctl-chart-view.js";
 import ChartView from "./chart-view.js";
 import WorkoutService from "./workout-service.js";
+import ViewPreferenceService from "./view-preference-service.js";
+import {
+  createDefaultAnalyticsPreferences,
+  mergeAnalyticsPreferences
+} from "./analytics-preferences.js";
+
+const ANALYTICS_VIEW_KEY = "analytics";
+const VIEW_PREFERENCE_SAVE_DELAY_MS = 500;
 
 export default class Controller {
 
@@ -18,6 +26,11 @@ export default class Controller {
     this.locale = window.__I18N?.locale || document.documentElement.lang || "en";
     this.layoutMeasureRaf = null;
     this.layoutObserver = null;
+    this.analyticsPreferences = createDefaultAnalyticsPreferences();
+    this.viewPreferencesAvailable = false;
+    this.pendingPreferenceState = null;
+    this.preferenceSaveTimer = null;
+    this.preferenceSaveChain = Promise.resolve();
     this.initViews();
     this.registerGlobalEvents();
     this.initLayoutObservers();
@@ -39,15 +52,10 @@ export default class Controller {
       }
     });
 
-    this.cpChartView = new CPChartView('cp-chart', {
-      onCPClick: async (row) => {
-        const workout = await WorkoutService.loadWorkoutByRow(row.fileId);
+    this.cpChartView = null;
+    this.ctlChartView = null;
 
-        this.chartView.updateWorkoutCP(workout, row);
-        this.mapView.renderTrack(workout);
-        this.renderWorkoutMeta(workout);
-      }
-    });
+    void this.initAnalyticsCharts();
 
     const ftpChartElement = document.getElementById("ftp-chart");
     this.ftpChartView = ftpChartElement?.closest("article")?.hidden
@@ -57,12 +65,86 @@ export default class Controller {
           // aktuell leer → bewusst so gelassen
         }
       });
+  }
+
+  async initAnalyticsCharts() {
+    try {
+      const storedState = await ViewPreferenceService.load(ANALYTICS_VIEW_KEY);
+      this.viewPreferencesAvailable = true;
+      if (storedState) {
+        this.analyticsPreferences = {
+          loadModel: {
+            ...this.analyticsPreferences.loadModel,
+            ...storedState.loadModel,
+            seriesVisibility: {
+              ...this.analyticsPreferences.loadModel.seriesVisibility,
+              ...storedState.loadModel?.seriesVisibility
+            }
+          },
+          powerCurve: {
+            ...this.analyticsPreferences.powerCurve,
+            ...storedState.powerCurve,
+            seriesVisibility: {
+              ...this.analyticsPreferences.powerCurve.seriesVisibility,
+              ...storedState.powerCurve?.seriesVisibility
+            }
+          }
+        };
+      }
+    } catch (err) {
+      console.warn("Analytics preferences remain at their defaults for this session:", err);
+    }
+
+    this.cpChartView = new CPChartView('cp-chart', {
+      preferences: this.analyticsPreferences.powerCurve,
+      onPreferenceChange: (patch) => this.updateAnalyticsPreferences("powerCurve", patch),
+      onCPClick: async (row) => {
+        const workout = await WorkoutService.loadWorkoutByRow(row.fileId);
+
+        this.chartView.updateWorkoutCP(workout, row);
+        this.mapView.renderTrack(workout);
+        this.renderWorkoutMeta(workout);
+      }
+    });
 
     this.ctlChartView = new CTLChartView('ctl-chart', {
+      preferences: this.analyticsPreferences.loadModel,
+      onPreferenceChange: (patch) => this.updateAnalyticsPreferences("loadModel", patch),
       onCPClick: async (row) => {
         // aktuell leer → bewusst so gelassen
       }
     });
+  }
+
+  updateAnalyticsPreferences(chartKey, patch) {
+    this.analyticsPreferences = mergeAnalyticsPreferences(
+      this.analyticsPreferences,
+      chartKey,
+      patch
+    );
+    this.pendingPreferenceState = this.analyticsPreferences;
+
+    clearTimeout(this.preferenceSaveTimer);
+    this.preferenceSaveTimer = setTimeout(() => {
+      this.persistAnalyticsPreferences();
+    }, VIEW_PREFERENCE_SAVE_DELAY_MS);
+  }
+
+  persistAnalyticsPreferences() {
+    const state = this.pendingPreferenceState;
+    if (!state || !this.viewPreferencesAvailable) {
+      return;
+    }
+
+    this.pendingPreferenceState = null;
+    clearTimeout(this.preferenceSaveTimer);
+    this.preferenceSaveTimer = null;
+    this.preferenceSaveChain = this.preferenceSaveChain
+      .catch(() => {})
+      .then(() => ViewPreferenceService.save(ANALYTICS_VIEW_KEY, state))
+      .catch((err) => {
+        console.warn("Analytics preferences could not be saved:", err);
+      });
   }
 
   renderWorkoutMeta(workout) {
@@ -105,9 +187,9 @@ export default class Controller {
   onResize() {
     this.chartView.resize();
     this.mapView.resize();
-    this.cpChartView.resize();
+    this.cpChartView?.resize();
     this.ftpChartView?.resize();
-    this.ctlChartView.resize();
+    this.ctlChartView?.resize();
     this.scheduleDesktopLayoutMeasure();
   }
 

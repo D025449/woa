@@ -6,7 +6,21 @@ export default class CTLChartView {
     this.chart = echarts.init(document.getElementById(containerId));
     this.handlers = handlers;
 
-    this.currentGrouping = 'date';
+    this.currentGrouping = handlers.preferences?.grouping || 'date';
+    this.seriesVisibility = {
+      atl: true,
+      ctl: true,
+      tsb: true,
+      tss: true,
+      ...handlers.preferences?.seriesVisibility
+    };
+    this.legendNameToKey = new Map([
+      ['ATL', 'atl'],
+      ['ATL_AVG', 'atl'],
+      ['CTL', 'ctl'],
+      ['TSB', 'tsb'],
+      ['TSS', 'tss']
+    ]);
 
     this.registerChartInteractions();
     this.initGroupingControls();
@@ -19,8 +33,10 @@ export default class CTLChartView {
   // -----------------------------
   initGroupingControls() {
     document.querySelectorAll('input[name="grouping1"]').forEach(el => {
+      el.checked = el.value === this.currentGrouping;
       el.addEventListener('change', async (e) => {
         this.currentGrouping = e.target.value;
+        this.handlers?.onPreferenceChange?.({ grouping: this.currentGrouping });
         await this.loadCPLATLData();
       });
     });
@@ -30,6 +46,17 @@ export default class CTLChartView {
   // INTERACTIONS
   // -----------------------------
   registerChartInteractions() {
+    this.chart.on('legendselectchanged', (params) => {
+      for (const [name, key] of this.legendNameToKey) {
+        if (typeof params.selected?.[name] === 'boolean') {
+          this.seriesVisibility[key] = params.selected[name];
+        }
+      }
+      this.handlers?.onPreferenceChange?.({
+        seriesVisibility: { ...this.seriesVisibility }
+      });
+    });
+
     this.chart.on('click', async (params) => {
       const d = params.data?.extra;
 
@@ -173,7 +200,15 @@ export default class CTLChartView {
     const option = {
       tooltip: { trigger: 'axis' },
       animation: false,
-      legend: { type: 'scroll' },
+      legend: {
+        type: 'scroll',
+        selected: Object.fromEntries(
+          [...this.legendNameToKey].map(([name, key]) => [
+            name,
+            this.seriesVisibility[key] !== false
+          ])
+        )
+      },
       grid: {
         left: 92,
         right: 92,

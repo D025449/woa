@@ -2,8 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import ViewPreferenceService, {
+  normalizeAnalyticsState,
   normalizeWorkoutLibraryState
 } from "../src/services/viewPreferenceService.js";
+import {
+  createDefaultAnalyticsPreferences,
+  mergeAnalyticsPreferences
+} from "../src/public/js/analytics-preferences.js";
 
 test("normalizes workout library preferences to supported values", () => {
   assert.deepEqual(normalizeWorkoutLibraryState({
@@ -130,6 +135,60 @@ test("keeps legacy preferences without segment visibility backward compatible", 
   assert.equal("xAxisMode" in state, false);
   assert.equal("smoothingLevel" in state, false);
   assert.equal("bridgePowerCadenceZeros" in state, false);
+});
+
+test("normalizes analytics chart grouping and legend visibility independently", () => {
+  const state = normalizeAnalyticsState({
+    loadModel: {
+      grouping: "week",
+      seriesVisibility: { atl: false, ctl: true, injected: false }
+    },
+    powerCurve: {
+      grouping: "year_month",
+      seriesVisibility: { cp5: false, cp360: false, eftp: true, injected: false }
+    }
+  });
+
+  assert.equal(state.loadModel.grouping, "week");
+  assert.equal(state.loadModel.seriesVisibility.atl, false);
+  assert.equal(state.loadModel.seriesVisibility.tsb, true);
+  assert.equal("injected" in state.loadModel.seriesVisibility, false);
+  assert.equal(state.powerCurve.grouping, "year_month");
+  assert.equal(state.powerCurve.seriesVisibility.cp5, false);
+  assert.equal(state.powerCurve.seriesVisibility.cp360, false);
+  assert.equal(state.powerCurve.seriesVisibility.cp12, undefined);
+  assert.equal(state.powerCurve.seriesVisibility.eftp, true);
+  assert.equal("injected" in state.powerCurve.seriesVisibility, false);
+});
+
+test("rejects unsupported analytics groupings without dropping valid chart state", () => {
+  const state = normalizeAnalyticsState({
+    loadModel: { grouping: "quarter", seriesVisibility: { tss: false } },
+    powerCurve: { grouping: "day", seriesVisibility: { cp960: false } }
+  });
+
+  assert.equal(state.loadModel.grouping, "date");
+  assert.equal(state.loadModel.seriesVisibility.tss, false);
+  assert.equal(state.powerCurve.grouping, "year");
+  assert.equal(state.powerCurve.seriesVisibility.cp960, false);
+});
+
+test("merges one analytics chart update without overwriting the other chart", () => {
+  const initial = createDefaultAnalyticsPreferences();
+  const withLoadChange = mergeAnalyticsPreferences(initial, "loadModel", {
+    grouping: "month",
+    seriesVisibility: { tss: false }
+  });
+  const withPowerChange = mergeAnalyticsPreferences(withLoadChange, "powerCurve", {
+    grouping: "year_week",
+    seriesVisibility: { cp5: false }
+  });
+
+  assert.equal(withPowerChange.loadModel.grouping, "month");
+  assert.equal(withPowerChange.loadModel.seriesVisibility.tss, false);
+  assert.equal(withPowerChange.loadModel.seriesVisibility.ctl, true);
+  assert.equal(withPowerChange.powerCurve.grouping, "year_week");
+  assert.equal(withPowerChange.powerCurve.seriesVisibility.cp5, false);
 });
 
 test("upserts one JSON preference row per user and view", async () => {

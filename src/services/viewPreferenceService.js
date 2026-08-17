@@ -1,6 +1,7 @@
 import pool from "./database.js";
 
 const WORKOUT_LIBRARY_VIEW_KEY = "workout-library";
+const ANALYTICS_VIEW_KEY = "analytics";
 const WORKOUT_LIBRARY_SORTS = new Set([
   "newest",
   "oldest",
@@ -40,6 +41,28 @@ const SEGMENT_VISIBILITY_KEYS = [
   "auto",
   "manual",
   "gps"
+];
+const ANALYTICS_LOAD_GROUPINGS = new Set(["date", "week", "month"]);
+const ANALYTICS_POWER_GROUPINGS = new Set([
+  "year_week",
+  "year_month",
+  "year_quarter",
+  "year"
+]);
+const ANALYTICS_LOAD_SERIES_KEYS = ["atl", "ctl", "tsb", "tss"];
+const ANALYTICS_POWER_SERIES_KEYS = [
+  "cp5",
+  "cp15",
+  "cp60",
+  "cp120",
+  "cp240",
+  "cp360",
+  "cp480",
+  "cp720",
+  "cp900",
+  "cp960",
+  "cp1800",
+  "eftp"
 ];
 
 function normalizeEnum(value, allowed, fallback) {
@@ -106,9 +129,53 @@ export function normalizeWorkoutLibraryState(state = {}) {
   return normalized;
 }
 
+function normalizeSeriesVisibility(value, keys) {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : {};
+
+  return Object.fromEntries(keys.map((key) => [key, source[key] !== false]));
+}
+
+export function normalizeAnalyticsState(state = {}) {
+  /** @type {Record<string, any>} */
+  const source = state && typeof state === "object" && !Array.isArray(state)
+    ? state
+    : {};
+  const loadModel = source.loadModel && typeof source.loadModel === "object"
+    && !Array.isArray(source.loadModel)
+    ? source.loadModel
+    : {};
+  const powerCurve = source.powerCurve && typeof source.powerCurve === "object"
+    && !Array.isArray(source.powerCurve)
+    ? source.powerCurve
+    : {};
+
+  return {
+    loadModel: {
+      grouping: normalizeEnum(loadModel.grouping, ANALYTICS_LOAD_GROUPINGS, "date"),
+      seriesVisibility: normalizeSeriesVisibility(
+        loadModel.seriesVisibility,
+        ANALYTICS_LOAD_SERIES_KEYS
+      )
+    },
+    powerCurve: {
+      grouping: normalizeEnum(powerCurve.grouping, ANALYTICS_POWER_GROUPINGS, "year"),
+      seriesVisibility: normalizeSeriesVisibility(
+        powerCurve.seriesVisibility,
+        ANALYTICS_POWER_SERIES_KEYS
+      )
+    }
+  };
+}
+
 function normalizeViewState(viewKey, state) {
   if (viewKey === WORKOUT_LIBRARY_VIEW_KEY) {
     return normalizeWorkoutLibraryState(state);
+  }
+
+  if (viewKey === ANALYTICS_VIEW_KEY) {
+    return normalizeAnalyticsState(state);
   }
 
   const error = new Error("Unsupported view preference key");
@@ -118,6 +185,7 @@ function normalizeViewState(viewKey, state) {
 
 export default class ViewPreferenceService {
   static WORKOUT_LIBRARY_VIEW_KEY = WORKOUT_LIBRARY_VIEW_KEY;
+  static ANALYTICS_VIEW_KEY = ANALYTICS_VIEW_KEY;
 
   static async get(uid, viewKey, db = pool) {
     normalizeViewState(viewKey, {});
