@@ -2660,7 +2660,7 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   }
 
   .workout-library-stat__value {
-    font-size: 0.8rem;
+    font-size: 0.74rem;
   }
 
   .workout-library-actions-menu--inline {
@@ -2781,7 +2781,7 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
 }
 
 .workout-library-stat__value {
-  font-size: 0.86rem;
+  font-size: 0.74rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ui-text-strong);

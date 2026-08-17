@@ -1899,6 +1899,13 @@ export default class WorkoutLibraryView {
           value: `${this.formatInt(workout.avg_heart_rate)} bpm`
         }
       : null;
+    const trainingStressScore = Number(workout.TSS ?? workout.estimated_tss);
+    const trainingStressStat = Number.isFinite(trainingStressScore) && trainingStressScore > 0
+      ? {
+          label: "TS",
+          value: `${this.formatInt(trainingStressScore)} PTS`
+        }
+      : null;
     const ascentStat = Number.isFinite(workout.total_ascent) && Number(workout.total_ascent) > 0
       ? {
           label: "hm",
@@ -2035,6 +2042,7 @@ export default class WorkoutLibraryView {
                 <span class="workout-library-stat"><span class="workout-library-stat__label">PW</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_power)} W</span></span>
                 <span class="workout-library-stat"><span class="workout-library-stat__label">NP</span><span class="workout-library-stat__value">${this.formatInt(workout.avg_normalized_power)} W</span></span>
                 ${heartRateStat ? `<span class="workout-library-stat"><span class="workout-library-stat__label">${heartRateStat.label}</span><span class="workout-library-stat__value">${heartRateStat.value}</span></span>` : ""}
+                ${trainingStressStat ? `<span class="workout-library-stat"><span class="workout-library-stat__label">${trainingStressStat.label}</span><span class="workout-library-stat__value">${trainingStressStat.value}</span></span>` : ""}
               </div>
               <div class="workout-library-card__body-copy-group">
                 ${ascentStat ? `<span class="workout-library-stat"><span class="workout-library-stat__label">${ascentStat.label}</span><span class="workout-library-stat__value">${ascentStat.value}</span></span>` : ""}
