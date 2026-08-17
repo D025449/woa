@@ -9,6 +9,10 @@ import {
   createDefaultAnalyticsPreferences,
   mergeAnalyticsPreferences
 } from "./analytics-preferences.js";
+import {
+  resolveAnalyticsTimeRange,
+  toDateInputValue
+} from "./analytics-time-range.js";
 
 const ANALYTICS_VIEW_KEY = "analytics";
 const VIEW_PREFERENCE_SAVE_DELAY_MS = 500;
@@ -23,6 +27,7 @@ export default class Controller {
     this.workoutMetaElement = document.getElementById("analytics-workout-meta");
     this.workoutIdElement = document.getElementById("analytics-workout-id");
     this.workoutDateElement = document.getElementById("analytics-workout-date");
+    this.timeRangeSummaryElement = document.getElementById("analytics-time-range-summary");
     this.locale = window.__I18N?.locale || document.documentElement.lang || "en";
     this.layoutMeasureRaf = null;
     this.layoutObserver = null;
@@ -31,6 +36,8 @@ export default class Controller {
     this.pendingPreferenceState = null;
     this.preferenceSaveTimer = null;
     this.preferenceSaveChain = Promise.resolve();
+    this.chartTimeBounds = {};
+    this.loadedChartBounds = new Set();
     this.initViews();
     this.registerGlobalEvents();
     this.initLayoutObservers();
@@ -73,6 +80,12 @@ export default class Controller {
       this.viewPreferencesAvailable = true;
       if (storedState) {
         this.analyticsPreferences = {
+          ...this.analyticsPreferences,
+          ...storedState,
+          timeRange: {
+            ...this.analyticsPreferences.timeRange,
+            ...storedState.timeRange
+          },
           loadModel: {
             ...this.analyticsPreferences.loadModel,
             ...storedState.loadModel,
@@ -95,9 +108,13 @@ export default class Controller {
       console.warn("Analytics preferences remain at their defaults for this session:", err);
     }
 
+    this.renderTimeRangeSummary();
+
     this.cpChartView = new CPChartView('cp-chart', {
       preferences: this.analyticsPreferences.powerCurve,
       onPreferenceChange: (patch) => this.updateAnalyticsPreferences("powerCurve", patch),
+      onTimeBoundsChange: (bounds) => this.updateChartTimeBounds("powerCurve", bounds),
+      onTimeRangeChange: (range) => this.handleChartTimeRangeChange(range),
       onCPClick: async (row) => {
         const workout = await WorkoutService.loadWorkoutByRow(row.fileId);
 
@@ -110,6 +127,8 @@ export default class Controller {
     this.ctlChartView = new CTLChartView('ctl-chart', {
       preferences: this.analyticsPreferences.loadModel,
       onPreferenceChange: (patch) => this.updateAnalyticsPreferences("loadModel", patch),
+      onTimeBoundsChange: (bounds) => this.updateChartTimeBounds("loadModel", bounds),
+      onTimeRangeChange: (range) => this.handleChartTimeRangeChange(range),
       onCPClick: async (row) => {
         // aktuell leer → bewusst so gelassen
       }
@@ -122,12 +141,83 @@ export default class Controller {
       chartKey,
       patch
     );
+    this.scheduleAnalyticsPreferenceSave();
+  }
+
+  scheduleAnalyticsPreferenceSave() {
     this.pendingPreferenceState = this.analyticsPreferences;
 
     clearTimeout(this.preferenceSaveTimer);
     this.preferenceSaveTimer = setTimeout(() => {
       this.persistAnalyticsPreferences();
     }, VIEW_PREFERENCE_SAVE_DELAY_MS);
+  }
+
+  updateChartTimeBounds(chartKey, bounds) {
+    this.loadedChartBounds.add(chartKey);
+    this.chartTimeBounds[chartKey] = bounds;
+    if (this.loadedChartBounds.size >= 2) {
+      this.applySelectedTimeRange();
+    }
+  }
+
+  getSharedTimeBounds() {
+    const bounds = Object.values(this.chartTimeBounds).filter(Boolean);
+    if (!bounds.length) return null;
+    return {
+      start: Math.min(...bounds.map((item) => item.start)),
+      end: Math.max(...bounds.map((item) => item.end))
+    };
+  }
+
+  applySelectedTimeRange() {
+    const domain = this.getSharedTimeBounds();
+    const range = resolveAnalyticsTimeRange(
+      this.analyticsPreferences.timeRange,
+      domain
+    );
+    if (!range) return;
+
+    this.cpChartView?.setTimeRange(range, domain);
+    this.ctlChartView?.setTimeRange(range, domain);
+    this.renderTimeRangeSummary(range);
+  }
+
+  handleChartTimeRangeChange(range) {
+    if (!range || range.start > range.end) return;
+    const start = toDateInputValue(range.start);
+    const end = toDateInputValue(range.end);
+    if (!start || !end) return;
+
+    this.analyticsPreferences = {
+      ...this.analyticsPreferences,
+      timeRange: { mode: "custom", start, end }
+    };
+    const domain = this.getSharedTimeBounds();
+    this.cpChartView?.setTimeRange(range, domain);
+    this.ctlChartView?.setTimeRange(range, domain);
+    this.renderTimeRangeSummary(range);
+    this.scheduleAnalyticsPreferenceSave();
+  }
+
+  renderTimeRangeSummary(resolvedRange = null) {
+    if (!this.timeRangeSummaryElement) return;
+    const range = resolvedRange || resolveAnalyticsTimeRange(
+      this.analyticsPreferences.timeRange,
+      this.getSharedTimeBounds()
+    );
+    if (!range) {
+      this.timeRangeSummaryElement.textContent = "";
+      return;
+    }
+
+    const formatter = new Intl.DateTimeFormat(this.locale, {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      timeZone: "UTC"
+    });
+    this.timeRangeSummaryElement.textContent = `${formatter.format(range.start)} – ${formatter.format(range.end)}`;
   }
 
   persistAnalyticsPreferences() {

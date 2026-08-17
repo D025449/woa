@@ -15,6 +15,30 @@ body.analytics-page {
     padding-inline: 0.85rem;
 }
 
+.analytics-time-range-display {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-left: auto;
+    padding: 0.42rem 0.7rem;
+    border: 1px solid var(--ui-chip-border-soft);
+    border-radius: 999px;
+    background: var(--ui-bg-panel);
+    color: var(--ui-text-muted);
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
+.analytics-time-range-display span {
+    font-weight: 650;
+}
+
+.analytics-time-range-display output {
+    color: var(--ui-text-default);
+    font-weight: 750;
+}
+
 .analytics-workout-meta {
     flex: 0 0 auto;
     display: inline-flex;
@@ -100,6 +124,15 @@ body.analytics-page {
 }
 
 @media (max-width: 1199.98px) {
+    .analytics-hero {
+        flex-wrap: wrap;
+    }
+
+    .analytics-time-range-display {
+        order: 3;
+        margin-left: 0;
+    }
+
     .analytics-chart-grid,
     .analytics-focus-grid {
         grid-template-columns: 1fr;

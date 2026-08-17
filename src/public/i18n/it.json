@@ -889,6 +889,7 @@
     "toggleMonth": "Mese",
     "toggleQuarter": "Trimestre",
     "toggleYear": "Anno",
+    "timeRangeLabel": "Intervallo condiviso",
     "loadModelEyebrow": "Modello di carico",
     "loadModelTitle": "Analisi CTL-ATL-TSB",
     "loadModelCopy": "Viste giornaliere e aggregate su carico di allenamento, freschezza e fatica.",

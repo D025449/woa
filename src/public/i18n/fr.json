@@ -889,6 +889,7 @@
     "toggleMonth": "Mois",
     "toggleQuarter": "Trimestre",
     "toggleYear": "Année",
+    "timeRangeLabel": "Période commune",
     "loadModelEyebrow": "Modèle de charge",
     "loadModelTitle": "Analyse CTL-ATL-TSB",
     "loadModelCopy": "Vues quotidiennes et agrégées de la charge d'entraînement, de la fraîcheur et de la fatigue.",

@@ -1,4 +1,8 @@
 import { buildChartDataZoom } from "./chart-data-zoom.js";
+import {
+  findSeriesTimeBounds,
+  readZoomEventTimeRange
+} from "./analytics-time-range.js";
 
 export default class CTLChartView {
 
@@ -21,6 +25,9 @@ export default class CTLChartView {
       ['TSB', 'tsb'],
       ['TSS', 'tss']
     ]);
+    this.timeBounds = null;
+    this.timeDomain = null;
+    this.suppressTimeRangeEvent = false;
 
     this.registerChartInteractions();
     this.initGroupingControls();
@@ -46,6 +53,12 @@ export default class CTLChartView {
   // INTERACTIONS
   // -----------------------------
   registerChartInteractions() {
+    this.chart.on('datazoom', (event) => {
+      if (this.suppressTimeRangeEvent) return;
+      const range = readZoomEventTimeRange(event, this.timeDomain || this.timeBounds);
+      if (range) this.handlers?.onTimeRangeChange?.(range);
+    });
+
     this.chart.on('legendselectchanged', (params) => {
       for (const [name, key] of this.legendNameToKey) {
         if (typeof params.selected?.[name] === 'boolean') {
@@ -222,6 +235,37 @@ export default class CTLChartView {
     };
 
     this.chart.setOption(option, true);
+    this.timeBounds = findSeriesTimeBounds(series);
+    this.handlers?.onTimeBoundsChange?.(this.timeBounds);
+  }
+
+  setTimeRange(range, domain = this.timeBounds) {
+    if (!range) return;
+    this.timeDomain = domain;
+    this.suppressTimeRangeEvent = true;
+    if (domain) {
+      this.chart.setOption({
+        xAxis: { min: domain.start, max: domain.end }
+      });
+    }
+    this.chart.dispatchAction({
+      type: 'dataZoom',
+      batch: [
+        {
+          dataZoomId: 'chart-inside-zoom',
+          startValue: range.start,
+          endValue: range.end
+        },
+        {
+          dataZoomId: 'chart-slider-zoom',
+          startValue: range.start,
+          endValue: range.end
+        }
+      ]
+    }, { silent: true });
+    queueMicrotask(() => {
+      this.suppressTimeRangeEvent = false;
+    });
   }
 
   buildLoadYAxis() {

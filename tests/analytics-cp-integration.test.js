@@ -26,3 +26,39 @@ test("critical-power chart includes the new durations and rolling eFTP", async (
   assert.match(chartSource, /name: 'eFTP'/u);
   assert.match(chartSource, /formatCPDuration/u);
 });
+
+test("analytics displays and persists one slider-controlled range for both charts", async () => {
+  const markup = await readFile(new URL("src/views/analytics.ejs", projectRoot), "utf8");
+  const controller = await readFile(
+    new URL("src/public/js/analytics-controller.js", projectRoot),
+    "utf8"
+  );
+  const loadChart = await readFile(
+    new URL("src/public/js/ctl-chart-view.js", projectRoot),
+    "utf8"
+  );
+  const powerChart = await readFile(
+    new URL("src/public/js/cp-chart-view.js", projectRoot),
+    "utf8"
+  );
+
+  assert.match(markup, /id="analytics-time-range-summary"/u);
+  assert.doesNotMatch(markup, /data-range-mode/u);
+  assert.doesNotMatch(markup, /type="date"/u);
+  assert.match(controller, /timeRange/u);
+  assert.match(controller, /scheduleAnalyticsPreferenceSave/u);
+  assert.match(loadChart, /onTimeRangeChange/u);
+  assert.match(powerChart, /onTimeRangeChange/u);
+  assert.match(loadChart, /xAxis: \{ min: domain\.start, max: domain\.end \}/u);
+  assert.match(powerChart, /xAxis: \{ min: domain\.start, max: domain\.end \}/u);
+});
+
+test("every locale contains the shared analytics time-range copy", async () => {
+  for (const locale of ["de", "en", "es", "fr", "it", "pt"]) {
+    const messages = JSON.parse(await readFile(
+      new URL(`src/public/i18n/${locale}.json`, projectRoot),
+      "utf8"
+    ));
+    assert.equal(typeof messages.analyticsPage.timeRangeLabel, "string");
+  }
+});

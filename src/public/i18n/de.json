@@ -1048,6 +1048,7 @@
     "toggleMonth": "Monat",
     "toggleQuarter": "Quartal",
     "toggleYear": "Jahr",
+    "timeRangeLabel": "Gemeinsamer Zeitraum",
     "loadModelEyebrow": "Lastmodell",
     "loadModelTitle": "CTL-ATL-TSB-Analyse",
     "loadModelCopy": "Tages- und Aggregationssicht auf Trainingslast, Frische und Ermüdung.",

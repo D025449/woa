@@ -1048,6 +1048,7 @@
     "toggleMonth": "Month",
     "toggleQuarter": "Quarter",
     "toggleYear": "Year",
+    "timeRangeLabel": "Shared time range",
     "loadModelEyebrow": "Load Model",
     "loadModelTitle": "CTL-ATL-TSB Analytics",
     "loadModelCopy": "Daily and aggregated views on training load, freshness, and fatigue.",

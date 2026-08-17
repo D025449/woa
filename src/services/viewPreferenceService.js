@@ -64,6 +64,7 @@ const ANALYTICS_POWER_SERIES_KEYS = [
   "cp1800",
   "eftp"
 ];
+const ANALYTICS_TIME_RANGE_MODES = new Set(["all", "custom"]);
 
 function normalizeEnum(value, allowed, fallback) {
   const normalized = String(value ?? "").trim();
@@ -137,6 +138,30 @@ function normalizeSeriesVisibility(value, keys) {
   return Object.fromEntries(keys.map((key) => [key, source[key] !== false]));
 }
 
+function normalizeAnalyticsTimeRange(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : {};
+  const mode = normalizeEnum(source.mode, ANALYTICS_TIME_RANGE_MODES, "all");
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/u;
+  const start = String(source.start ?? "");
+  const end = String(source.end ?? "");
+  const isIsoDate = (date) => datePattern.test(date)
+    && Number.isFinite(Date.parse(date))
+    && new Date(Date.parse(date)).toISOString().slice(0, 10) === date;
+
+  if (
+    mode === "custom"
+    && isIsoDate(start)
+    && isIsoDate(end)
+    && start <= end
+  ) {
+    return { mode, start, end };
+  }
+
+  return { mode: mode === "custom" ? "all" : mode };
+}
+
 export function normalizeAnalyticsState(state = {}) {
   /** @type {Record<string, any>} */
   const source = state && typeof state === "object" && !Array.isArray(state)
@@ -152,6 +177,7 @@ export function normalizeAnalyticsState(state = {}) {
     : {};
 
   return {
+    timeRange: normalizeAnalyticsTimeRange(source.timeRange),
     loadModel: {
       grouping: normalizeEnum(loadModel.grouping, ANALYTICS_LOAD_GROUPINGS, "date"),
       seriesVisibility: normalizeSeriesVisibility(

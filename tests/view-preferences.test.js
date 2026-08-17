@@ -139,6 +139,7 @@ test("keeps legacy preferences without segment visibility backward compatible", 
 
 test("normalizes analytics chart grouping and legend visibility independently", () => {
   const state = normalizeAnalyticsState({
+    timeRange: { mode: "custom", start: "2026-01-15", end: "2026-08-17" },
     loadModel: {
       grouping: "week",
       seriesVisibility: { atl: false, ctl: true, injected: false }
@@ -149,6 +150,11 @@ test("normalizes analytics chart grouping and legend visibility independently", 
     }
   });
 
+  assert.deepEqual(state.timeRange, {
+    mode: "custom",
+    start: "2026-01-15",
+    end: "2026-08-17"
+  });
   assert.equal(state.loadModel.grouping, "week");
   assert.equal(state.loadModel.seriesVisibility.atl, false);
   assert.equal(state.loadModel.seriesVisibility.tsb, true);
@@ -159,6 +165,20 @@ test("normalizes analytics chart grouping and legend visibility independently", 
   assert.equal(state.powerCurve.seriesVisibility.cp12, undefined);
   assert.equal(state.powerCurve.seriesVisibility.eftp, true);
   assert.equal("injected" in state.powerCurve.seriesVisibility, false);
+});
+
+test("keeps only complete or slider-defined analytics time ranges", () => {
+  assert.deepEqual(normalizeAnalyticsState({
+    timeRange: { mode: "3m" }
+  }).timeRange, { mode: "all" });
+
+  assert.deepEqual(normalizeAnalyticsState({
+    timeRange: { mode: "custom", start: "2026-02-31", end: "2026-08-17" }
+  }).timeRange, { mode: "all" });
+
+  assert.deepEqual(normalizeAnalyticsState({
+    timeRange: { mode: "custom", start: "2026-08-18", end: "2026-08-17" }
+  }).timeRange, { mode: "all" });
 });
 
 test("rejects unsupported analytics groupings without dropping valid chart state", () => {
@@ -189,6 +209,7 @@ test("merges one analytics chart update without overwriting the other chart", ()
   assert.equal(withPowerChange.loadModel.seriesVisibility.ctl, true);
   assert.equal(withPowerChange.powerCurve.grouping, "year_week");
   assert.equal(withPowerChange.powerCurve.seriesVisibility.cp5, false);
+  assert.deepEqual(withPowerChange.timeRange, { mode: "all" });
 });
 
 test("upserts one JSON preference row per user and view", async () => {

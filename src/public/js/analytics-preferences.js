@@ -1,5 +1,6 @@
 export function createDefaultAnalyticsPreferences() {
   return {
+    timeRange: { mode: "all" },
     loadModel: {
       grouping: "date",
       seriesVisibility: { atl: true, ctl: true, tsb: true, tss: true }
