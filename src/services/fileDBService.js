@@ -267,9 +267,19 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
   `;
 
     const values = [grouping, durations, uid];
-
-    const result = await pool.query(query, values);
-    return result.rows;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN READ ONLY");
+      await client.query("SET LOCAL work_mem = '8MB'");
+      const result = await client.query(query, values);
+      await client.query("COMMIT");
+      return result.rows;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
 

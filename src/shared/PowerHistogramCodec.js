@@ -116,7 +116,7 @@ export function encodePowerHistogram({
   });
 }
 
-export function decodePowerHistogram(inputBytes) {
+function readPowerHistogram(inputBytes, visitBin = null, collectBins = false) {
   const bytes = inputBytes instanceof Uint8Array
     ? inputBytes
     : new Uint8Array(inputBytes || 0);
@@ -130,7 +130,7 @@ export function decodePowerHistogram(inputBytes) {
   const zeroSeconds = readVarUint(bytes, state);
   const missingSeconds = readVarUint(bytes, state);
   const binCount = readVarUint(bytes, state);
-  const bins = [];
+  const bins = collectBins ? [] : null;
   let binIndex = 0;
   let positiveSeconds = 0;
 
@@ -141,7 +141,8 @@ export function decodePowerHistogram(inputBytes) {
     const seconds = readVarUint(bytes, state);
     if (seconds < 1) throw new Error("Power histogram contains an empty bin");
     positiveSeconds += seconds;
-    bins.push({
+    visitBin?.(binIndex, binWidthWatts, seconds);
+    bins?.push({
       binIndex,
       minWatts: (binIndex * binWidthWatts) + 1,
       maxWatts: (binIndex + 1) * binWidthWatts,
@@ -160,6 +161,14 @@ export function decodePowerHistogram(inputBytes) {
     zeroSeconds,
     missingSeconds,
     positiveSeconds,
-    bins
+    ...(bins ? { bins } : {})
   };
+}
+
+export function scanPowerHistogram(inputBytes, visitBin) {
+  return readPowerHistogram(inputBytes, visitBin, false);
+}
+
+export function decodePowerHistogram(inputBytes) {
+  return readPowerHistogram(inputBytes, null, true);
 }

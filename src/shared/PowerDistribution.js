@@ -1,4 +1,4 @@
-import { decodePowerHistogram } from "./PowerHistogramCodec.js";
+import { scanPowerHistogram } from "./PowerHistogramCodec.js";
 
 export const POWER_DISTRIBUTION_ZONES = Object.freeze([
   Object.freeze({ key: "z1", maxPercent: 55, color: "#94a3b8" }),
@@ -21,8 +21,10 @@ function emptyZoneSeconds() {
   return Object.fromEntries(POWER_DISTRIBUTION_ZONES.map(({ key }) => [key, 0]));
 }
 
-function resolveZoneKey(percentFtp) {
-  return POWER_DISTRIBUTION_ZONES.find(({ maxPercent }) => percentFtp <= maxPercent)?.key || "z7";
+function resolveZoneIndex(watts, ftp) {
+  const percentFtp = (watts / ftp) * 100;
+  const index = POWER_DISTRIBUTION_ZONES.findIndex(({ maxPercent }) => percentFtp <= maxPercent);
+  return index < 0 ? POWER_DISTRIBUTION_ZONES.length - 1 : index;
 }
 
 function findLatestFtpSnapshot(snapshots, timestamp, startIndex) {
@@ -66,9 +68,17 @@ export function aggregatePowerDistribution(histogramRows, ftpSnapshots, grouping
     }
     period.workoutCount += 1;
 
+    const resolved = findLatestFtpSnapshot(snapshots, row.timestamp, snapshotIndex);
+    snapshotIndex = resolved.index;
+    const ftp = Number(resolved.snapshot?.ftp);
+    const localZoneSeconds = new Float64Array(POWER_DISTRIBUTION_ZONES.length);
     let histogram;
     try {
-      histogram = decodePowerHistogram(row.power_histogram);
+      histogram = scanPowerHistogram(row.power_histogram, (binIndex, binWidthWatts, seconds) => {
+        if (!(ftp > 0)) return;
+        const midpointWatts = (binIndex * binWidthWatts) + ((binWidthWatts + 1) / 2);
+        localZoneSeconds[resolveZoneIndex(midpointWatts, ftp)] += seconds;
+      });
     } catch {
       period.invalidHistogramCount += 1;
       continue;
@@ -80,9 +90,6 @@ export function aggregatePowerDistribution(histogramRows, ftpSnapshots, grouping
 
     period.zeroSeconds += histogram.zeroSeconds;
     period.missingSeconds += histogram.missingSeconds;
-    const resolved = findLatestFtpSnapshot(snapshots, row.timestamp, snapshotIndex);
-    snapshotIndex = resolved.index;
-    const ftp = Number(resolved.snapshot?.ftp);
     if (!(ftp > 0)) {
       period.unclassifiedSeconds += histogram.positiveSeconds;
       continue;
@@ -90,11 +97,9 @@ export function aggregatePowerDistribution(histogramRows, ftpSnapshots, grouping
 
     period.classifiedWorkoutCount += 1;
     period.activeSeconds += histogram.positiveSeconds;
-    for (const bin of histogram.bins) {
-      const midpointWatts = (bin.minWatts + bin.maxWatts) / 2;
-      const zoneKey = resolveZoneKey((midpointWatts / ftp) * 100);
-      period.zoneSeconds[zoneKey] += bin.seconds;
-    }
+    POWER_DISTRIBUTION_ZONES.forEach(({ key }, index) => {
+      period.zoneSeconds[key] += localZoneSeconds[index];
+    });
   }
 
   return [...periods.values()]

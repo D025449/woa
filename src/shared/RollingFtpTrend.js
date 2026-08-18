@@ -9,15 +9,35 @@ const FTP_DURATION_WEIGHTS = Object.freeze({
 const DEFAULT_WINDOW_DAYS = 84;
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
-function percentile(values, quantile) {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((left, right) => left - right);
-  const position = Math.max(0, Math.min(1, quantile)) * (sorted.length - 1);
+function percentileFromSorted(sortedValues, quantile) {
+  if (sortedValues.length === 0) return null;
+  const position = Math.max(0, Math.min(1, quantile)) * (sortedValues.length - 1);
   const lowerIndex = Math.floor(position);
   const upperIndex = Math.ceil(position);
-  if (lowerIndex === upperIndex) return sorted[lowerIndex];
+  if (lowerIndex === upperIndex) return sortedValues[lowerIndex];
   const ratio = position - lowerIndex;
-  return sorted[lowerIndex] + ((sorted[upperIndex] - sorted[lowerIndex]) * ratio);
+  return sortedValues[lowerIndex]
+    + ((sortedValues[upperIndex] - sortedValues[lowerIndex]) * ratio);
+}
+
+function lowerBound(sortedValues, value) {
+  let lower = 0;
+  let upper = sortedValues.length;
+  while (lower < upper) {
+    const middle = (lower + upper) >> 1;
+    if (sortedValues[middle] < value) lower = middle + 1;
+    else upper = middle;
+  }
+  return lower;
+}
+
+function insertSorted(sortedValues, value) {
+  sortedValues.splice(lowerBound(sortedValues, value), 0, value);
+}
+
+function removeSorted(sortedValues, value) {
+  const index = lowerBound(sortedValues, value);
+  if (sortedValues[index] === value) sortedValues.splice(index, 1);
 }
 
 function estimateLegacyFtp(cp8, cp15) {
@@ -165,32 +185,33 @@ export function buildRollingFtpSnapshots(rows, options = {}) {
   const windowDays = Math.max(1, Number(options.windowDays) || DEFAULT_WINDOW_DAYS);
   const windowMilliseconds = windowDays * MILLISECONDS_PER_DAY;
   const quantile = Number.isFinite(Number(options.quantile)) ? Number(options.quantile) : 0.95;
-  const activeEfforts = new Map(FTP_EFFORT_DURATIONS.map((duration) => [duration, []]));
-  const firstActiveIndexes = new Map(FTP_EFFORT_DURATIONS.map((duration) => [duration, 0]));
+  const activeEfforts = new Map(FTP_EFFORT_DURATIONS.map((duration) => [duration, {
+    efforts: [],
+    firstActiveIndex: 0,
+    sortedPowers: []
+  }]));
   const snapshots = [];
 
   for (const workout of workouts) {
     for (const duration of FTP_EFFORT_DURATIONS) {
+      const active = activeEfforts.get(duration);
       const power = workout.powers.get(duration);
-      if (power > 0) activeEfforts.get(duration).push({ timestamp: workout.timestamp, power });
-
-      const efforts = activeEfforts.get(duration);
-      let firstActiveIndex = firstActiveIndexes.get(duration);
-      const minimumTimestamp = workout.timestamp - windowMilliseconds;
-      while (firstActiveIndex < efforts.length && efforts[firstActiveIndex].timestamp < minimumTimestamp) {
-        firstActiveIndex += 1;
+      if (power > 0) {
+        active.efforts.push({ timestamp: workout.timestamp, power });
+        insertSorted(active.sortedPowers, power);
       }
-      firstActiveIndexes.set(duration, firstActiveIndex);
+
+      const minimumTimestamp = workout.timestamp - windowMilliseconds;
+      while (active.firstActiveIndex < active.efforts.length
+        && active.efforts[active.firstActiveIndex].timestamp < minimumTimestamp) {
+        removeSorted(active.sortedPowers, active.efforts[active.firstActiveIndex].power);
+        active.firstActiveIndex += 1;
+      }
     }
 
-    const valuesFor = (duration) => activeEfforts
-      .get(duration)
-      .slice(firstActiveIndexes.get(duration))
-      .map((effort) => effort.power);
-    const activeValues = new Map(FTP_EFFORT_DURATIONS.map((duration) => [duration, valuesFor(duration)]));
     const durationPowers = new Map(FTP_EFFORT_DURATIONS.map((duration) => [
       duration,
-      percentile(activeValues.get(duration), quantile)
+      percentileFromSorted(activeEfforts.get(duration).sortedPowers, quantile)
     ]));
     const estimate = estimateFtp(durationPowers);
     if (!(estimate?.ftp > 0)) continue;
@@ -206,7 +227,9 @@ export function buildRollingFtpSnapshots(rows, options = {}) {
       cp15: durationPowers.get(900),
       ftp: estimate.ftp,
       modelPointCount: estimate.pointCount,
-      confidence: Math.min(...usedDurations.map((duration) => activeValues.get(duration).length))
+      confidence: Math.min(...usedDurations.map(
+        (duration) => activeEfforts.get(duration).sortedPowers.length
+      ))
     });
   }
 
