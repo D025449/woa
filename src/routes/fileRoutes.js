@@ -1,5 +1,7 @@
 import express from "express";
 import { strToU8, zipSync } from "fflate";
+import { promisify } from "node:util";
+import { gzip } from "node:zlib";
 
 import authMiddleware from "../middleware/authMiddleware.js";
 import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
@@ -14,8 +16,10 @@ import {
   manualActivityFileName
 } from "../shared/ManualActivityExchange.js";
 import { POWER_DISTRIBUTION_ZONES } from "../shared/PowerDistribution.js";
+import { encodeAnalyticsOverview } from "../shared/AnalyticsOverviewCodec.js";
 
 const router = express.Router();
+const gzipAsync = promisify(gzip);
 const ANALYTICS_GROUPINGS = Object.freeze({
   week: "year_week",
   month: "year_month",
@@ -411,20 +415,31 @@ router.get("/analytics-overview", authMiddleware, async (req, res, next) => {
       timed("ftp", () => FileDBService.getRollingFTPValues(uid, grouping))
     ]);
 
+    const encodeStartedAt = performance.now();
+    const encoded = encodeAnalyticsOverview({
+      grouping,
+      durations: DEFAULT_CP_DURATIONS,
+      loadModelRows,
+      distributionRows,
+      cpRows,
+      rollingFtpRows
+    });
+    timings.encode = performance.now() - encodeStartedAt;
+
+    const acceptsGzip = /(?:^|,)\s*gzip\s*(?:,|$)/iu.test(req.get("accept-encoding") || "");
+    const compressionStartedAt = performance.now();
+    const body = acceptsGzip
+      ? await gzipAsync(encoded, { level: 6 })
+      : Buffer.from(encoded);
+    timings.compress = performance.now() - compressionStartedAt;
+
     res.set("Server-Timing", Object.entries(timings)
       .map(([key, duration]) => `${key};dur=${duration.toFixed(1)}`)
       .join(", "));
-    return res.json({
-      grouping,
-      loadModel: { grouping, data: loadModelRows },
-      powerDistribution: powerDistributionPayload(grouping, distributionRows),
-      powerCurve: buildCpBestEffortsPayload(
-        cpRows,
-        rollingFtpRows,
-        cpGrouping,
-        DEFAULT_CP_DURATIONS
-      )
-    });
+    res.set("Content-Type", "application/vnd.cwa24.analytics-overview-v1");
+    res.set("Vary", "Accept-Encoding");
+    if (acceptsGzip) res.set("Content-Encoding", "gzip");
+    return res.send(body);
   } catch (err) {
     console.error("GET /files/analytics-overview failed:", err);
     return next(err);

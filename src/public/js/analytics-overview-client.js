@@ -1,3 +1,5 @@
+import { decodeAnalyticsOverview } from "../../shared/AnalyticsOverviewCodec.js";
+
 const overviewRequests = new Map();
 
 function normalizeGrouping(grouping) {
@@ -19,7 +21,7 @@ export async function loadAnalyticsOverview(grouping) {
       if (!response.ok) {
         throw new Error(`Analytics load failed (${response.status})`);
       }
-      return response.json();
+      return decodeAnalyticsOverview(await response.arrayBuffer());
     });
   overviewRequests.set(sharedGrouping, request);
 

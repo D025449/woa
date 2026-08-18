@@ -154,6 +154,8 @@ test("analytics charts share one bundled backend request", async () => {
 
   assert.match(clientSource, /\/files\/analytics-overview\?grouping=/u);
   assert.match(clientSource, /overviewRequests/u);
+  assert.match(clientSource, /response\.arrayBuffer\(\)/u);
+  assert.match(clientSource, /decodeAnalyticsOverview/u);
   assert.match(loadChart, /await loadAnalyticsOverview\(this\.currentGrouping\)/u);
   assert.match(powerChart, /await loadAnalyticsOverview\(this\.currentGrouping\)/u);
 });
