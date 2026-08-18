@@ -116,7 +116,8 @@ async function createWoaFromParsed(parsed, fileName, encodingOptions) {
     normalizedPower: adjustedParsed.sessions?.[0]?.normalized_power,
     missingValue: 0xffff,
     effortLimit: 1,
-    includeHistogram: false
+    includeHistogram: false,
+    includeSparsePowerHistogram: true
   });
   const streamCodec = resolveUploadCompressionCodec(encodingOptions);
   const gpsSampleRateSeconds = normalizeGpsSampleRateSeconds(
@@ -138,6 +139,7 @@ async function createWoaFromParsed(parsed, fileName, encodingOptions) {
       distanceEncoding: "uint8-q05m",
       altitudeEncoding: "rle-delta-q1m",
       intensityModelFeatureBytes: encodeWorkoutIntensityModelFeatures(intensityFeatures),
+      powerHistogramBytes: intensityFeatures.powerHistogramBytes,
       streamCodec,
       gpsTrackBlobCodec: "identity",
       compressWorkoutStream: (bytes, options = {}) => compressWithCodec(bytes, streamCodec, options, encodingOptions),

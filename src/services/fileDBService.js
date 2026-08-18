@@ -4,7 +4,9 @@ import WorkoutSharingService from "./workoutSharingService.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
 import { toPostgresBox } from "../shared/postgresSpatial.js";
 import { normalizeIntensityTags } from "../shared/WorkoutIntensityTags.js";
-import { buildRollingFtpTrend } from "../shared/RollingFtpTrend.js";
+import { buildRollingFtpSnapshots, buildRollingFtpTrend } from "../shared/RollingFtpTrend.js";
+import { encodePowerHistogram } from "../shared/PowerHistogramCodec.js";
+import { aggregatePowerDistribution } from "../shared/PowerDistribution.js";
 
 const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
@@ -293,6 +295,11 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       throw new Error("Unauthorized");
     }
 
+    const rows = await FileDBService.getRollingFtpEffortRows(uid);
+    return buildRollingFtpTrend(rows, period);
+  }
+
+  static async getRollingFtpEffortRows(uid) {
     const result = await pool.query(`
       SELECT
         w.id AS workout_id,
@@ -312,7 +319,39 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       ORDER BY w.start_time, w.id, s.duration
     `, [uid, [360, 480, 720, 900, 960]]);
 
-    return buildRollingFtpTrend(result.rows, period);
+    return result.rows;
+  }
+
+  static async getPowerDistribution(uid, grouping) {
+    if (!uid) throw new Error("Unauthorized");
+    if (!["week", "month", "quarter", "year"].includes(grouping)) {
+      throw new TypeError(`Unsupported power distribution grouping: ${grouping}`);
+    }
+
+    const [histogramResult, effortRows] = await Promise.all([
+      pool.query(`
+        SELECT
+          id,
+          start_time,
+          year,
+          year_quarter,
+          year_month,
+          year_week,
+          power_histogram
+        FROM workouts
+        WHERE uid = $1
+          AND power_histogram IS NOT NULL
+          AND workout_type IS DISTINCT FROM 'motorsport'
+        ORDER BY start_time, id
+      `, [uid]),
+      FileDBService.getRollingFtpEffortRows(uid)
+    ]);
+
+    return aggregatePowerDistribution(
+      histogramResult.rows,
+      buildRollingFtpSnapshots(effortRows),
+      grouping
+    );
   }
 
 
@@ -1105,6 +1144,13 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     return { year, month, key };
   }
 
+  static getISOQuarter(dateStr) {
+    const year = dateStr.slice(0, 4);
+    const month = Number(dateStr.slice(5, 7));
+    const quarter = Math.floor((month - 1) / 3) + 1;
+    return { year, quarter, key: `${year}${quarter}` };
+  }
+
   static getGroupKey(dat_str, grouping) {
 
     if (grouping === 'date') {
@@ -1117,6 +1163,12 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     else if (grouping === 'month') {
       const { key } = FileDBService.getISOMonth(dat_str);
       return key;
+    }
+    else if (grouping === 'quarter') {
+      return FileDBService.getISOQuarter(dat_str).key;
+    }
+    else if (grouping === 'year') {
+      return dat_str.slice(0, 4);
     }
 
   }
@@ -1870,6 +1922,13 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     const rawWorkoutBuffer = options?.workoutStreamBytes
       ? Buffer.from(options.workoutStreamBytes)
       : Buffer.from(workoutObject.toTransportBuffer());
+    if (!fileRow.power_histogram && workoutObject) {
+      fileRow.power_histogram = encodePowerHistogram({
+        recordCount: workoutObject.length,
+        powerAtIndex: (index) => workoutObject.getPowerAt(index),
+        missingValue: Number.NaN
+      });
+    }
     timing.mark("prepare-workout-buffer", {
       rawBytes: rawWorkoutBuffer?.byteLength ?? rawWorkoutBuffer?.length ?? 0
     });
@@ -2022,6 +2081,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
         : "unknown",
       intensity_classifier_version: Math.max(0, Math.floor(Number(persistedRow.intensity_classifier_version) || 0)),
       intensity_model_features: persistedRow.intensity_model_features || null,
+      power_histogram: persistedRow.power_histogram || null,
       fit_device_metadata: persistedRow.fit_device_metadata || {
         version: 2,
         fileId: null,
@@ -2190,6 +2250,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       intensity_dose,
       intensity_classifier_version,
       intensity_model_features,
+      power_histogram,
       fit_device_metadata
     } = fileRow;
 
@@ -2241,12 +2302,13 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       intensity_dose || "unknown",
       intensity_classifier_version || 0,
       intensity_model_features ? FileDBService.toBufferView(intensity_model_features) : null,
+      power_histogram ? FileDBService.toBufferView(power_histogram) : null,
       fit_device_metadata || { version: 2, fileId: null, devices: [] }
     ];
   }
 
   static buildWorkoutInsertValuesClause(rowIndex) {
-    const offset = rowIndex * 48;
+    const offset = rowIndex * 49;
     const p = (index) => `$${offset + index}`;
     return `(
   ${p(1)},${p(2)},
@@ -2273,7 +2335,8 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
   ${p(45)},
   ${p(46)},
   ${p(47)},
-  ${p(48)}::jsonb
+  ${p(48)},
+  ${p(49)}::jsonb
 )`;
   }
 
@@ -2417,6 +2480,7 @@ INSERT INTO workouts (
   intensity_dose,
   intensity_classifier_version,
   intensity_model_features,
+  power_histogram,
   fit_device_metadata
 )
 VALUES
@@ -2522,6 +2586,7 @@ INSERT INTO workouts (
   intensity_dose,
   intensity_classifier_version,
   intensity_model_features,
+  power_histogram,
   fit_device_metadata
 )
 VALUES (
@@ -2549,7 +2614,8 @@ VALUES (
   $45,
   $46,
   $47,
-  $48::jsonb
+  $48,
+  $49::jsonb
 )
 ON CONFLICT (uid, start_time)
 DO NOTHING

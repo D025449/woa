@@ -1,5 +1,9 @@
 import { calculateNormalizedPowerFromSamples } from "./WorkoutEnergy.js";
 import { buildIntensityTags } from "./WorkoutIntensityTags.js";
+import {
+  DEFAULT_POWER_HISTOGRAM_BIN_WIDTH_WATTS,
+  encodePowerHistogramBins
+} from "./PowerHistogramCodec.js";
 
 export const INTENSITY_FEATURE_VERSION = 1;
 export const INTENSITY_CLASSIFIER_VERSION = 3;
@@ -8,6 +12,7 @@ export const INTENSITY_EFFORT_DURATIONS = Object.freeze([30, 60, 120, 240, 480, 
 const POWER_BUCKET_SECONDS = 15;
 const POWER_HISTOGRAM_STEP_WATTS = 25;
 const POWER_HISTOGRAM_BUCKETS = 41;
+const SPARSE_POWER_HISTOGRAM_FAST_BINS = 2048;
 const MODEL_WINDOW_DAYS = 365;
 const MODEL_TARGET_SAMPLE_COUNT = 20;
 
@@ -84,7 +89,8 @@ export function extractWorkoutIntensityFeatures({
   normalizedPower = null,
   missingValue = null,
   effortLimit = 3,
-  includeHistogram = true
+  includeHistogram = true,
+  includeSparsePowerHistogram = false
 }) {
   const length = Math.max(0, Math.floor(Number(recordCount) || 0));
   if (typeof powerAtIndex !== "function") throw new TypeError("powerAtIndex must be a function");
@@ -92,17 +98,41 @@ export function extractWorkoutIntensityFeatures({
   const powers = new Uint16Array(length);
   const prefixPower = new Float64Array(length + 1);
   const histogramSeconds = includeHistogram ? new Uint32Array(POWER_HISTOGRAM_BUCKETS) : null;
+  const sparseHistogramSeconds = includeSparsePowerHistogram
+    ? new Uint32Array(SPARSE_POWER_HISTOGRAM_FAST_BINS)
+    : null;
+  const occupiedSparseBins = includeSparsePowerHistogram ? [] : null;
+  const overflowSparseBins = includeSparsePowerHistogram ? new Map() : null;
   let positivePowerSeconds = 0;
+  let zeroPowerSeconds = 0;
+  let missingPowerSeconds = 0;
   let sumPower = 0;
   let sumSquaredPower = 0;
 
   for (let index = 0; index < length; index += 1) {
-    const power = Math.min(0xfffe, Math.round(finitePower(powerAtIndex(index), missingValue)));
+    const rawPower = Number(powerAtIndex(index));
+    const isMissing = !Number.isFinite(rawPower) || rawPower < 0 || (missingValue != null && rawPower === missingValue);
+    const power = Math.min(0xfffe, Math.round(finitePower(rawPower, missingValue)));
     powers[index] = power;
     prefixPower[index + 1] = prefixPower[index] + power;
     sumPower += power;
     sumSquaredPower += power * power;
     if (power > 0) positivePowerSeconds += 1;
+    if (sparseHistogramSeconds) {
+      if (isMissing) {
+        missingPowerSeconds += 1;
+      } else if (power === 0) {
+        zeroPowerSeconds += 1;
+      } else {
+        const binIndex = Math.floor((power - 1) / DEFAULT_POWER_HISTOGRAM_BIN_WIDTH_WATTS);
+        if (binIndex < sparseHistogramSeconds.length) {
+          if (sparseHistogramSeconds[binIndex] === 0) occupiedSparseBins.push(binIndex);
+          sparseHistogramSeconds[binIndex] += 1;
+        } else {
+          overflowSparseBins.set(binIndex, (overflowSparseBins.get(binIndex) || 0) + 1);
+        }
+      }
+    }
     if (histogramSeconds) {
       const histogramIndex = Math.min(POWER_HISTOGRAM_BUCKETS - 1, Math.floor(power / POWER_HISTOGRAM_STEP_WATTS));
       histogramSeconds[histogramIndex] += 1;
@@ -123,6 +153,24 @@ export function extractWorkoutIntensityFeatures({
       Math.max(1, Math.floor(Number(effortLimit) || 1))
     );
   }
+  /** @type {[number, number][]} */
+  const encodedSparseBins = [];
+  if (sparseHistogramSeconds) {
+    occupiedSparseBins.forEach((binIndex) => {
+      encodedSparseBins.push([binIndex, sparseHistogramSeconds[binIndex]]);
+    });
+    overflowSparseBins.forEach((seconds, binIndex) => {
+      encodedSparseBins.push([binIndex, seconds]);
+    });
+  }
+  const powerHistogramBytes = sparseHistogramSeconds && positivePowerSeconds > 0
+    ? encodePowerHistogramBins({
+        totalSeconds: length,
+        zeroSeconds: zeroPowerSeconds,
+        missingSeconds: missingPowerSeconds,
+        bins: encodedSparseBins
+      })
+    : null;
 
   return {
     featureVersion: INTENSITY_FEATURE_VERSION,
@@ -137,6 +185,7 @@ export function extractWorkoutIntensityFeatures({
     histogramSeconds: histogramSeconds ? Array.from(histogramSeconds) : null,
     powerBucketSeconds: POWER_BUCKET_SECONDS,
     powerBuckets: buildPowerBuckets(powers),
+    powerHistogramBytes,
     bestEfforts
   };
 }

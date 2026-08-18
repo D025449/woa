@@ -297,7 +297,12 @@ export default class TrainingFeedDBService {
       [...sqlParams, safeSize, offset]
     );
     const countResult = await db.query(
-      `${baseCte} SELECT COUNT(*) AS total FROM training_feed`,
+      `${baseCte}
+       SELECT
+         COUNT(*) AS total,
+         COALESCE(SUM(total_timer_time), 0) AS total_timer_time,
+         COALESCE(SUM(total_distance), 0) AS total_distance
+       FROM training_feed`,
       sqlParams
     );
     const rows = dataResult.rows;
@@ -324,7 +329,8 @@ export default class TrainingFeedDBService {
         : null;
       return powerProfile ? { ...enriched, power_profile: powerProfile } : enriched;
     });
-    const totalRecords = Number(countResult.rows[0]?.total) || 0;
+    const filteredSummary = countResult.rows[0] || {};
+    const totalRecords = Number(filteredSummary.total) || 0;
 
     const [summaryResult, favoritesResult] = await Promise.all([
       db.query(`
@@ -354,6 +360,11 @@ export default class TrainingFeedDBService {
       data,
       last_page: Math.max(1, Math.ceil(totalRecords / safeSize)),
       total_records: totalRecords,
+      filtered_summary: {
+        activity_count: totalRecords,
+        total_timer_time: Number(filteredSummary.total_timer_time) || 0,
+        total_distance: Number(filteredSummary.total_distance) || 0
+      },
       favorite_workout_ids: favoritesResult.rows.map((row) => String(row.workout_id)),
       own_summary: {
         workout_count: Number(summary.workout_count) || 0,

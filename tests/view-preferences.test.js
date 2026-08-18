@@ -139,6 +139,7 @@ test("keeps legacy preferences without segment visibility backward compatible", 
 
 test("normalizes analytics chart grouping and legend visibility independently", () => {
   const state = normalizeAnalyticsState({
+    grouping: "quarter",
     timeRange: { mode: "custom", start: "2026-01-15", end: "2026-08-17" },
     loadModel: {
       grouping: "week",
@@ -155,9 +156,11 @@ test("normalizes analytics chart grouping and legend visibility independently", 
     start: "2026-01-15",
     end: "2026-08-17"
   });
+  assert.equal(state.grouping, "quarter");
   assert.equal(state.loadModel.grouping, "week");
   assert.equal(state.loadModel.seriesVisibility.atl, false);
   assert.equal(state.loadModel.seriesVisibility.tsb, true);
+  assert.equal(state.loadModel.seriesVisibility.intensityDistribution, true);
   assert.equal("injected" in state.loadModel.seriesVisibility, false);
   assert.equal(state.powerCurve.grouping, "year_month");
   assert.equal(state.powerCurve.seriesVisibility.cp5, false);
@@ -181,13 +184,13 @@ test("keeps only complete or slider-defined analytics time ranges", () => {
   }).timeRange, { mode: "all" });
 });
 
-test("rejects unsupported analytics groupings without dropping valid chart state", () => {
+test("accepts shared load groupings and rejects unsupported power groupings", () => {
   const state = normalizeAnalyticsState({
     loadModel: { grouping: "quarter", seriesVisibility: { tss: false } },
     powerCurve: { grouping: "day", seriesVisibility: { cp960: false } }
   });
 
-  assert.equal(state.loadModel.grouping, "date");
+  assert.equal(state.loadModel.grouping, "quarter");
   assert.equal(state.loadModel.seriesVisibility.tss, false);
   assert.equal(state.powerCurve.grouping, "year");
   assert.equal(state.powerCurve.seriesVisibility.cp960, false);

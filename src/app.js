@@ -11,6 +11,7 @@ import collaborationRoutes from "./routes/collaborationRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
 import paymentsRoutes from "./routes/paymentsRoutes.js";
 import coachingRoutes from "./routes/coachingRoutes.js";
+import analyticsRoutes from "./routes/analyticsRoutes.js";
 import viewPreferenceRoutes from "./routes/viewPreferenceRoutes.js";
 import adminAccountBackupRoutes from "./routes/adminAccountBackupRoutes.js";
 
@@ -106,6 +107,7 @@ export async function createApp() {
     app.use('/api/profile', profileRoutes);
     app.use('/api/payments', paymentsRoutes);
     app.use('/api/coaching', coachingRoutes);
+    app.use('/api/analytics', analyticsRoutes);
     app.use('/api/view-preferences', viewPreferenceRoutes);
     app.use('/admin/accounts', adminAccountBackupRoutes);
 

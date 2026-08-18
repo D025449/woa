@@ -1,12 +1,19 @@
 export function createDefaultAnalyticsPreferences() {
   return {
     timeRange: { mode: "all" },
+    grouping: "month",
     loadModel: {
-      grouping: "date",
-      seriesVisibility: { atl: true, ctl: true, tsb: true, tss: true }
+      grouping: "month",
+      seriesVisibility: {
+        atl: true,
+        ctl: true,
+        tsb: true,
+        tss: true,
+        intensityDistribution: true
+      }
     },
     powerCurve: {
-      grouping: "year",
+      grouping: "year_month",
       seriesVisibility: {}
     }
   };

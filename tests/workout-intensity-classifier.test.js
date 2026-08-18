@@ -11,6 +11,7 @@ import {
   INTENSITY_TAG_BITS,
   intensityProfilesFromTags
 } from "../src/shared/WorkoutIntensityTags.js";
+import { decodePowerHistogram } from "../src/shared/PowerHistogramCodec.js";
 
 function featuresFromPower(power, normalizedPower = null) {
   return extractWorkoutIntensityFeatures({
@@ -64,6 +65,31 @@ test("extracts repeated non-overlapping duration efforts", () => {
   assert.equal(efforts.length, 3);
   assert.deepEqual(efforts.slice(0, 2).map((effort) => effort.avgPower), [310, 300]);
   assert.ok(features.normalizedPower > features.averagePower);
+});
+
+test("extracts the sparse power histogram during the intensity scan", () => {
+  const power = [0, 100, 104, 500, 0xffff];
+  const features = extractWorkoutIntensityFeatures({
+    recordCount: power.length,
+    powerAtIndex: (index) => power[index],
+    missingValue: 0xffff,
+    includeHistogram: false,
+    includeSparsePowerHistogram: true
+  });
+
+  assert.deepEqual(decodePowerHistogram(features.powerHistogramBytes), {
+    format: "PHD1",
+    binWidthWatts: 5,
+    totalSeconds: 5,
+    zeroSeconds: 1,
+    missingSeconds: 1,
+    positiveSeconds: 3,
+    bins: [
+      { binIndex: 19, minWatts: 96, maxWatts: 100, seconds: 1 },
+      { binIndex: 20, minWatts: 101, maxWatts: 105, seconds: 1 },
+      { binIndex: 99, minWatts: 496, maxWatts: 500, seconds: 1 }
+    ]
+  });
 });
 
 test("classifies an easy steady ride as recovery", () => {

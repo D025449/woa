@@ -14,7 +14,7 @@
     <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator_bootstrap5.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <link rel="stylesheet" href="/css/ui-system.css?v=atlas-blue-4">
-    <link rel="stylesheet" href="/css/analytics.css?v=atlas-blue-4">
+    <link rel="stylesheet" href="/css/analytics.css?v=atlas-blue-10">
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
@@ -42,9 +42,36 @@
                             <%= t("analyticsPage.subtitle") %>
                         </p>
                     </div>
-                    <div class="analytics-time-range-display">
-                        <span><%= t("analyticsPage.timeRangeLabel") %></span>
-                        <output id="analytics-time-range-summary" aria-live="polite"></output>
+                    <div class="analytics-hero-controls">
+                        <div class="analytics-voice-control">
+                            <button id="analytics-voice-button" class="analytics-voice-button" type="button"
+                                aria-label="<%= t("analyticsPage.voiceLabel") %>"
+                                title="<%= t("analyticsPage.voiceHint") %>">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M12 14.5a3.5 3.5 0 0 0 3.5-3.5V5.5a3.5 3.5 0 1 0-7 0V11a3.5 3.5 0 0 0 3.5 3.5Z" />
+                                    <path d="M5.75 10.75a6.25 6.25 0 0 0 12.5 0M12 17v3.25M8.75 20.25h6.5" />
+                                </svg>
+                            </button>
+                            <div id="analytics-voice-feedback" class="analytics-voice-feedback" role="status" aria-live="polite" hidden>
+                                <strong id="analytics-voice-status"><%= t("analyticsPage.voiceHint") %></strong>
+                                <span id="analytics-voice-transcript"></span>
+                            </div>
+                        </div>
+                        <div class="analytics-grouping-control" role="group" aria-label="<%= t("analyticsPage.groupingLabel") %>">
+                            <div class="btn-group analytics-toggle-group ui-toggle-group">
+                                <input type="radio" class="btn-check" name="analytics-grouping" id="analytics-g-week" value="week">
+                                <label class="btn btn-outline-primary btn-sm" for="analytics-g-week"><%= t("analyticsPage.toggleWeek") %></label>
+                                <input type="radio" class="btn-check" name="analytics-grouping" id="analytics-g-month" value="month">
+                                <label class="btn btn-outline-primary btn-sm" for="analytics-g-month"><%= t("analyticsPage.toggleMonth") %></label>
+                                <input type="radio" class="btn-check" name="analytics-grouping" id="analytics-g-quarter" value="quarter">
+                                <label class="btn btn-outline-primary btn-sm" for="analytics-g-quarter"><%= t("analyticsPage.toggleQuarter") %></label>
+                                <input type="radio" class="btn-check" name="analytics-grouping" id="analytics-g-year" value="year">
+                                <label class="btn btn-outline-primary btn-sm" for="analytics-g-year"><%= t("analyticsPage.toggleYear") %></label>
+                            </div>
+                        </div>
+                        <div class="analytics-time-range-display" aria-label="<%= t("analyticsPage.timeRangeLabel") %>">
+                            <output id="analytics-time-range-summary" aria-live="polite"></output>
+                        </div>
                     </div>
                     <div class="ui-hero__art" aria-hidden="true">
                         <svg viewBox="0 0 64 64" fill="none">
@@ -62,26 +89,14 @@
                     </div>
                 </section>
 
-                <section id="analytics-chart-grid" class="analytics-chart-grid analytics-chart-grid--two-panels">
+                <section id="analytics-workspace" class="analytics-workspace">
+                <div id="analytics-chart-grid" class="analytics-chart-grid analytics-chart-grid--timeline">
                     <article class="analytics-surface ui-surface ui-surface--gradient analytics-grid-panel">
-                        <div class="analytics-section-header ui-section-header">
-                            <div>
+                        <div class="analytics-section-header analytics-section-header--compact ui-section-header">
+                            <div class="analytics-compact-heading">
                                 <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.loadModelEyebrow") %></span>
+                                <span class="analytics-heading-separator" aria-hidden="true">&middot;</span>
                                 <h2 class="analytics-section-title ui-title"><%= t("analyticsPage.loadModelTitle") %></h2>
-                                <p class="analytics-section-copy ui-copy">
-                                    <%= t("analyticsPage.loadModelCopy") %>
-                                </p>
-                            </div>
-
-                            <div class="btn-group analytics-toggle-group ui-toggle-group" role="group">
-                                <input type="radio" class="btn-check" name="grouping1" id="g-date1" value="date" checked>
-                                <label class="btn btn-outline-primary btn-sm" for="g-date1"><%= t("analyticsPage.toggleDate") %></label>
-
-                                <input type="radio" class="btn-check" name="grouping1" id="g-week1" value="week">
-                                <label class="btn btn-outline-primary btn-sm" for="g-week1"><%= t("analyticsPage.toggleWeek") %></label>
-
-                                <input type="radio" class="btn-check" name="grouping1" id="g-month1" value="month">
-                                <label class="btn btn-outline-primary btn-sm" for="g-month1"><%= t("analyticsPage.toggleMonth") %></label>
                             </div>
                         </div>
 
@@ -121,27 +136,11 @@
                     </article>
 
                     <article class="analytics-surface ui-surface ui-surface--gradient analytics-grid-panel">
-                        <div class="analytics-section-header ui-section-header">
-                            <div>
+                        <div class="analytics-section-header analytics-section-header--compact ui-section-header">
+                            <div class="analytics-compact-heading">
                                 <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.powerCurveEyebrow") %></span>
+                                <span class="analytics-heading-separator" aria-hidden="true">&middot;</span>
                                 <h2 class="analytics-section-title ui-title"><%= t("analyticsPage.powerCurveTitle") %></h2>
-                                <p class="analytics-section-copy ui-copy">
-                                    <%= t("analyticsPage.powerCurveCopy") %>
-                                </p>
-                            </div>
-
-                            <div class="btn-group analytics-toggle-group ui-toggle-group" role="group">
-                                <input type="radio" class="btn-check" name="grouping" id="g-week" value="year_week">
-                                <label class="btn btn-outline-primary btn-sm" for="g-week"><%= t("analyticsPage.toggleWeek") %></label>
-
-                                <input type="radio" class="btn-check" name="grouping" id="g-month" value="year_month">
-                                <label class="btn btn-outline-primary btn-sm" for="g-month"><%= t("analyticsPage.toggleMonth") %></label>
-
-                                <input type="radio" class="btn-check" name="grouping" id="g-quarter" value="year_quarter">
-                                <label class="btn btn-outline-primary btn-sm" for="g-quarter"><%= t("analyticsPage.toggleQuarter") %></label>
-
-                                <input type="radio" class="btn-check" name="grouping" id="g-year" value="year" checked>
-                                <label class="btn btn-outline-primary btn-sm" for="g-year"><%= t("analyticsPage.toggleYear") %></label>
                             </div>
                         </div>
 
@@ -149,8 +148,24 @@
                             <div id="cp-chart"></div>
                         </div>
                     </article>
-                </section>
+                </div>
 
+                <div id="analytics-detail-column" class="analytics-detail-column">
+                <div id="analytics-detail-placeholder" class="analytics-workspace-placeholder analytics-surface ui-surface ui-surface--gradient">
+                    <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.detailEyebrow") %></span>
+                    <strong><%= t("analyticsPage.detailInitial") %></strong>
+                </div>
+
+                <section id="analytics-detail" class="analytics-detail" hidden>
+                    <div class="analytics-detail-toolbar">
+                        <div>
+                            <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.detailEyebrow") %></span>
+                            <strong id="analytics-detail-context"><%= t("analyticsPage.detailTitle") %></strong>
+                        </div>
+                        <button id="analytics-detail-close" type="button" class="btn btn-outline-secondary btn-sm">
+                            <%= t("analyticsPage.backToPeriod") %>
+                        </button>
+                    </div>
                 <section id="analytics-focus-grid" class="analytics-focus-grid">
                     <article class="analytics-surface ui-surface ui-surface--gradient analytics-focus-panel">
                         <div class="analytics-section-header ui-section-header">
@@ -173,7 +188,7 @@
                         </div>
                     </article>
 
-                    <aside class="analytics-surface ui-surface ui-surface--gradient analytics-focus-panel">
+                    <aside id="analytics-map-panel" class="analytics-surface ui-surface ui-surface--gradient analytics-focus-panel">
                         <div class="analytics-section-header ui-section-header">
                             <div>
                                 <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.spatialEyebrow") %></span>
@@ -188,6 +203,33 @@
                             <div id="workout-map"></div>
                         </div>
                     </aside>
+                </section>
+                </section>
+                </div>
+
+                <aside id="analytics-period-inspector" class="analytics-period-inspector analytics-surface ui-surface ui-surface--gradient">
+                    <div class="analytics-section-header ui-section-header">
+                        <div>
+                            <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.periodEyebrow") %></span>
+                            <h2 id="analytics-period-title" class="analytics-section-title ui-title"><%= t("analyticsPage.periodTitle") %></h2>
+                            <p id="analytics-period-summary" class="analytics-section-copy ui-copy" aria-live="polite"></p>
+                            <div id="analytics-period-kpis" class="analytics-period-kpis" hidden></div>
+                            <div id="analytics-period-power" class="analytics-period-power" hidden>
+                                <span class="analytics-period-power__label"><%= t("analyticsPage.periodPowerProfileLabel") %></span>
+                                <div id="analytics-period-power-values" class="analytics-period-power__values"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="analytics-period-workouts" class="analytics-period-workouts" aria-live="polite">
+                        <p class="analytics-period-empty"><%= t("analyticsPage.periodInitial") %></p>
+                    </div>
+                    <div id="analytics-period-load-more" class="analytics-period-load-more" hidden>
+                        <span id="analytics-period-page-status" class="analytics-period-page-status" hidden></span>
+                        <button id="analytics-period-load-more-button" type="button" class="btn btn-outline-primary btn-sm">
+                            <%= t("analyticsPage.loadMore") %>
+                        </button>
+                    </div>
+                </aside>
                 </section>
             </div>
         </div>

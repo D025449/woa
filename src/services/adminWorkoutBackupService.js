@@ -23,6 +23,7 @@ export const ADMIN_WORKOUT_COLUMNS = [
   "avg_heart_rate", "max_heart_rate", "avg_cadence", "max_cadence", "stream_codec",
   "validgps", "gps_source", "workout_type", "terrain_profile", "intensity_profile", "intensity_tags",
   "intensity_structure", "intensity_dose", "intensity_classifier_version", "intensity_model_features",
+  "power_histogram",
   "perceived_exertion",
   "fit_device_metadata",
   "manual_gps_lookup_points", "segment_processing_status", "segment_processing_error",
@@ -69,7 +70,7 @@ function serializeValue(value) {
 export function serializeAdminWorkout(row, ownerKey, segments, favoriteOwnerKeys) {
   const metadata = { ownerKey, sourceId: String(row.id) };
   for (const column of ADMIN_WORKOUT_COLUMNS) {
-    metadata[column] = column === "intensity_model_features" && row[column]
+    metadata[column] = ["intensity_model_features", "power_histogram"].includes(column) && row[column]
       ? Buffer.from(row[column]).toString("base64")
       : serializeValue(row[column]);
   }
@@ -466,7 +467,7 @@ function workoutInsertValues(workout, uid) {
     if (column === "intensity_structure") return metadata[column] ?? "unknown";
     if (column === "intensity_dose") return metadata[column] ?? "unknown";
     if (column === "intensity_classifier_version") return metadata[column] ?? 0;
-    if (column === "intensity_model_features") {
+    if (column === "intensity_model_features" || column === "power_histogram") {
       return metadata[column] ? Buffer.from(String(metadata[column]), "base64") : null;
     }
     return metadata[column] ?? null;

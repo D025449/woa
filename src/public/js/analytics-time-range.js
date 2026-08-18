@@ -14,6 +14,37 @@ export function toDateInputValue(value) {
   return time === null ? "" : new Date(time).toISOString().slice(0, 10);
 }
 
+export function resolveRelativeAnalyticsRange(domain, countValue, unit) {
+  const count = Number(countValue);
+  if (!domain || !Number.isInteger(count) || count < 1 || count > 365) return null;
+  if (!["day", "week", "month", "quarter", "year"].includes(unit)) return null;
+  const end = new Date(domain.end);
+  if (!Number.isFinite(end.getTime())) return null;
+  const start = new Date(end);
+  if (unit === "day") start.setUTCDate(start.getUTCDate() - count);
+  if (unit === "week") start.setUTCDate(start.getUTCDate() - (count * 7));
+  if (unit === "month") start.setUTCMonth(start.getUTCMonth() - count);
+  if (unit === "quarter") start.setUTCMonth(start.getUTCMonth() - (count * 3));
+  if (unit === "year") start.setUTCFullYear(start.getUTCFullYear() - count);
+  return {
+    start: Math.max(Number(domain.start), start.getTime()),
+    end: Number(domain.end)
+  };
+}
+
+export function selectRelativePeriodTimestamp(timestamps, range, offsetValue) {
+  const offset = Number(offsetValue);
+  if (!Number.isInteger(offset) || offset < 0) return null;
+  const start = finiteTime(range?.start);
+  const end = finiteTime(range?.end);
+  if (start === null || end === null) return null;
+  const visible = [...new Set((timestamps || [])
+    .map(finiteTime)
+    .filter((timestamp) => timestamp !== null && timestamp >= start && timestamp <= end))]
+    .sort((a, b) => a - b);
+  return visible.at(-(offset + 1)) ?? null;
+}
+
 export function findSeriesTimeBounds(series) {
   let start = Infinity;
   let end = -Infinity;

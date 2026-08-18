@@ -13,6 +13,7 @@ import {
   buildManualActivityDocument,
   manualActivityFileName
 } from "../shared/ManualActivityExchange.js";
+import { POWER_DISTRIBUTION_ZONES } from "../shared/PowerDistribution.js";
 
 const router = express.Router();
 
@@ -301,7 +302,7 @@ router.get("/ctl-atl", authMiddleware, async (req, res, next) => {
 
     const { period } = req.query;
 
-    const ALLOWED_PERIODS = ["date", "week", "month"];
+    const ALLOWED_PERIODS = ["date", "week", "month", "quarter", "year"];
 
     const selectedPeriod = ALLOWED_PERIODS.includes(period)
       ? period
@@ -318,6 +319,27 @@ router.get("/ctl-atl", authMiddleware, async (req, res, next) => {
   } catch (err) {
     console.error("GET /files/ctl-atl failed:", err);
     next(err);
+  }
+});
+
+router.get("/power-distribution", authMiddleware, async (req, res, next) => {
+  try {
+    const grouping = ["week", "month", "quarter", "year"].includes(req.query.grouping)
+      ? req.query.grouping
+      : "month";
+    const data = await FileDBService.getPowerDistribution(req.user?.id, grouping);
+    return res.json({
+      grouping,
+      zones: POWER_DISTRIBUTION_ZONES.map(({ key, maxPercent, color }) => ({
+        key,
+        maxPercent: Number.isFinite(maxPercent) ? maxPercent : null,
+        color
+      })),
+      data
+    });
+  } catch (err) {
+    console.error("GET /files/power-distribution failed:", err);
+    return next(err);
   }
 });
 

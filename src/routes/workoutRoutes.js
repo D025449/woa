@@ -1102,7 +1102,7 @@ router.get("/ctl-atl", authMiddleware, async (req, res, next) => {
 
     const { period } = req.query;
 
-    const ALLOWED_PERIODS = ["date", "week", "month"];
+    const ALLOWED_PERIODS = ["date", "week", "month", "quarter", "year"];
 
     const selectedPeriod = ALLOWED_PERIODS.includes(period)
       ? period

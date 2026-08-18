@@ -27,7 +27,8 @@ test("bulk workout inserts reserve parameters for terrain and intensity classifi
       intensity_tags: 20,
       intensity_structure: "intervals",
       intensity_dose: "high",
-      intensity_classifier_version: 3
+      intensity_classifier_version: 3,
+      power_histogram: Uint8Array.from([80, 72, 68, 49])
     },
     gps_track: null,
     compressedBuffer: Buffer.from([1]),
@@ -37,9 +38,10 @@ test("bulk workout inserts reserve parameters for terrain and intensity classifi
   };
 
   const params = FileDBService.buildPreparedInsertParams(prepared);
-  assert.equal(params.length, 48);
+  assert.equal(params.length, 49);
   assert.equal(params[40], "mountainous");
   assert.deepEqual(params.slice(41, 46), ["vo2max", 20, "intervals", "high", 3]);
   assert.equal(params[46], null);
-  assert.match(FileDBService.buildWorkoutInsertValuesClause(1), /\$96::jsonb/u);
+  assert.deepEqual([...params[47]], [80, 72, 68, 49]);
+  assert.match(FileDBService.buildWorkoutInsertValuesClause(1), /\$98::jsonb/u);
 });

@@ -6,21 +6,165 @@ body.analytics-page {
     color: var(--ui-page-text);
 }
 
-.analytics-shell--client {
-    --analytics-focus-height: auto;
-}
-
 .analytics-toggle-group .btn {
     font-weight: 600;
     padding-inline: 0.85rem;
 }
 
-.analytics-time-range-display {
+.analytics-hero-controls {
+    display: flex;
     flex: 0 0 auto;
+    align-items: center;
+    gap: 0.65rem;
+    margin-left: auto;
+}
+
+.analytics-voice-control {
+    position: relative;
+    z-index: 4;
+}
+
+.analytics-voice-button {
     display: inline-flex;
+    width: 2.35rem;
+    height: 2.35rem;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--ui-topbar-control-border);
+    border-radius: 999px;
+    background: var(--ui-bg-panel);
+    color: var(--ui-brand-accent);
+    box-shadow: var(--ui-shadow-soft);
+    cursor: pointer;
+    touch-action: none;
+    transition: transform 140ms ease, color 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+
+.analytics-voice-button:hover,
+.analytics-voice-button:focus-visible {
+    color: #176fbe;
+    background: var(--ui-info-bg);
+    box-shadow: var(--ui-info-shadow-sm);
+    outline: none;
+}
+
+.analytics-voice-button:active,
+.analytics-voice-button.is-recording {
+    transform: scale(0.94);
+}
+
+.analytics-voice-button.is-recording {
+    border-color: rgba(220, 38, 38, 0.55);
+    background: rgba(254, 226, 226, 0.98);
+    color: #dc2626;
+    animation: analytics-voice-pulse 1.15s ease-in-out infinite;
+}
+
+.analytics-voice-button.is-processing {
+    cursor: wait;
+    opacity: 0.72;
+}
+
+.analytics-voice-button svg {
+    width: 1.15rem;
+    height: 1.15rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.analytics-voice-feedback {
+    position: absolute;
+    top: calc(100% + 0.55rem);
+    right: 0;
+    display: grid;
+    width: min(22rem, calc(100vw - 2rem));
+    gap: 0.18rem;
+    padding: 0.65rem 0.78rem;
+    border: var(--ui-border-strong);
+    border-radius: var(--ui-radius-md);
+    background: var(--ui-bg-panel-strong);
+    box-shadow: var(--ui-shadow-floating);
+    color: var(--ui-text-body);
+    font-size: 0.78rem;
+}
+
+.analytics-voice-feedback[hidden] {
+    display: none;
+}
+
+.analytics-voice-feedback strong {
+    color: var(--ui-text-strong);
+    font-size: 0.8rem;
+}
+
+.analytics-voice-feedback span:empty {
+    display: none;
+}
+
+@keyframes analytics-voice-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.12); }
+    50% { box-shadow: 0 0 0 0.42rem rgba(220, 38, 38, 0.08); }
+}
+
+.analytics-grouping-control {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    color: var(--ui-text-default);
+    font-size: 0.78rem;
+    font-weight: 750;
+}
+
+.analytics-section-header--compact {
+    min-height: 3.2rem;
+    padding: 0.72rem 1.4rem;
+}
+
+.analytics-compact-heading {
+    display: flex;
+    align-items: baseline;
+    min-width: 0;
+    gap: 0.5rem;
+}
+
+.analytics-compact-heading .analytics-eyebrow {
+    flex: 0 0 auto;
+    margin: 0;
+}
+
+.analytics-compact-heading .analytics-section-title {
+    min-width: 0;
+    margin: 0;
+    color: var(--ui-text-muted);
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    line-height: 1.25;
+    text-transform: uppercase;
+}
+
+body.analytics-page.has-fixed-app-topbar .analytics-compact-heading .analytics-section-title {
+    color: var(--ui-text-muted);
+    font-family: inherit;
+    font-weight: 700;
+}
+
+.analytics-heading-separator {
+    color: var(--ui-brand-accent);
+    font-size: 1.05rem;
+    font-weight: 800;
+}
+
+.analytics-time-range-display,
+.analytics-workout-meta {
+    display: inline-flex;
+    flex: 0 0 auto;
     align-items: center;
     gap: 0.45rem;
-    margin-left: auto;
     padding: 0.42rem 0.7rem;
     border: 1px solid var(--ui-chip-border-soft);
     border-radius: 999px;
@@ -34,32 +178,53 @@ body.analytics-page {
     font-weight: 650;
 }
 
-.analytics-time-range-display output {
-    color: var(--ui-text-default);
-    font-weight: 750;
-}
-
-.analytics-workout-meta {
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    padding: 0.42rem 0.7rem;
-    border: 1px solid var(--ui-chip-border-soft);
-    border-radius: 999px;
-    background: var(--ui-bg-panel);
-    color: var(--ui-text-muted);
-    font-size: 0.78rem;
-    white-space: nowrap;
-}
-
-.analytics-workout-meta[hidden] {
-    display: none;
-}
-
+.analytics-time-range-display output,
 .analytics-workout-meta strong {
     color: var(--ui-text-default);
     font-weight: 750;
+}
+
+.analytics-workout-meta[hidden],
+.analytics-detail[hidden],
+.analytics-period-load-more[hidden] {
+    display: none;
+}
+
+.analytics-workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.9fr) minmax(18rem, 0.34fr);
+    gap: 1rem;
+    align-items: start;
+}
+
+.analytics-chart-grid,
+.analytics-detail-column,
+.analytics-detail,
+.analytics-focus-grid {
+    display: grid;
+    min-width: 0;
+    gap: 1rem;
+}
+
+.analytics-chart-grid--timeline,
+.analytics-focus-grid {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.analytics-chart-grid--timeline .analytics-grid-panel {
+    position: relative;
+}
+
+.analytics-chart-grid--timeline .analytics-grid-panel::before {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 1rem;
+    width: 3px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #176fbe, #42b883);
+    content: "";
+    opacity: 0.72;
 }
 
 .analytics-body {
@@ -67,60 +232,266 @@ body.analytics-page {
 }
 
 .analytics-grid-panel,
-.analytics-focus-panel {
+.analytics-focus-panel,
+.analytics-period-inspector {
     overflow: hidden;
 }
 
-.analytics-chart-grid {
+.analytics-workspace-placeholder {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 1.5rem;
+    min-height: 26rem;
+    place-content: center;
+    gap: 0.65rem;
+    padding: 2rem;
+    color: var(--ui-text-muted);
+    text-align: center;
 }
 
-.analytics-chart-grid--two-panels {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+.analytics-workspace-placeholder strong {
+    max-width: 28rem;
+    color: var(--ui-text-default);
+    font-size: 1rem;
+    line-height: 1.55;
 }
 
-.analytics-focus-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1.7fr) minmax(340px, 1fr);
-    gap: 1.5rem;
-    align-items: stretch;
-}
-
-.analytics-shell--client .analytics-focus-grid {
-    height: var(--analytics-focus-height);
-}
-
-.analytics-shell--client .analytics-focus-panel {
+.analytics-period-inspector {
+    position: sticky;
+    top: calc(var(--app-topbar-offset, 0px) + 1rem);
     display: flex;
     flex-direction: column;
-    min-height: 0;
+    min-width: 0;
+    max-height: calc(100dvh - var(--app-topbar-offset, 0px) - 2rem);
 }
 
-.analytics-shell--client .analytics-focus-panel .analytics-body {
-    flex: 1 1 auto;
-    min-height: 0;
+.analytics-period-inspector .analytics-section-header {
+    flex: 0 0 auto;
 }
 
-#ctl-chart,
+.analytics-period-kpis,
+.analytics-period-power__values {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.analytics-period-kpis {
+    margin-top: 0.7rem;
+}
+
+.analytics-period-kpis[hidden],
+.analytics-period-power[hidden],
+.analytics-period-page-status[hidden] {
+    display: none;
+}
+
+.analytics-period-kpi,
+.analytics-period-power__metric {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.28rem;
+    padding: 0.28rem 0.48rem;
+    border: 1px solid rgba(23, 111, 190, 0.14);
+    border-radius: 999px;
+    background: rgba(23, 111, 190, 0.07);
+    color: var(--ui-text-muted);
+    font-size: 0.68rem;
+    line-height: 1;
+}
+
+.analytics-period-kpi strong,
+.analytics-period-power__metric strong {
+    color: var(--ui-text-default);
+    font-size: 0.75rem;
+}
+
+.analytics-period-power {
+    margin-top: 0.75rem;
+    padding-top: 0.65rem;
+    border-top: 1px solid var(--ui-chip-border-soft);
+}
+
+.analytics-period-power__label {
+    display: block;
+    margin-bottom: 0.42rem;
+    color: var(--ui-text-muted);
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.analytics-period-power__metric {
+    background: rgba(66, 184, 131, 0.08);
+    border-color: rgba(66, 184, 131, 0.16);
+}
+
+.analytics-period-workouts {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.65rem;
+    min-height: 0;
+    padding: 0 0.85rem 0.85rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.analytics-period-card {
+    display: grid;
+    gap: 0.45rem;
+    min-width: 0;
+    padding: 0.72rem 0.8rem;
+    border: 1px solid var(--ui-chip-border-soft);
+    border-radius: 0.8rem;
+    background: var(--ui-bg-panel);
+    color: inherit;
+    text-align: left;
+    transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+button.analytics-period-card:hover,
+button.analytics-period-card:focus-visible,
+.analytics-period-card.is-selected {
+    border-color: rgba(23, 111, 190, 0.75);
+    box-shadow: 0 9px 24px rgba(15, 65, 110, 0.12);
+    transform: translateY(-1px);
+}
+
+.analytics-period-card__header,
+.analytics-period-card__metrics {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+}
+
+.analytics-period-card__header strong {
+    color: var(--ui-text-default);
+    font-size: 0.82rem;
+}
+
+.analytics-period-card__header time,
+.analytics-period-card__type,
+.analytics-period-card__metrics {
+    color: var(--ui-text-muted);
+    font-size: 0.72rem;
+}
+
+.analytics-period-card__type {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.analytics-period-card__metrics {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+}
+
+.analytics-period-card__metrics span {
+    padding: 0.18rem 0.38rem;
+    border-radius: 999px;
+    background: rgba(23, 111, 190, 0.08);
+}
+
+.analytics-period-empty {
+    margin: 0;
+    padding: 1rem 0.35rem;
+    color: var(--ui-text-muted);
+    font-size: 0.82rem;
+    line-height: 1.5;
+    text-align: center;
+}
+
+.analytics-period-load-more {
+    flex: 0 0 auto;
+    padding: 0.75rem 0.85rem;
+    border-top: 1px solid var(--ui-chip-border-soft);
+    background: color-mix(in srgb, var(--ui-bg-panel) 92%, transparent);
+}
+
+.analytics-period-page-status {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: var(--ui-text-muted);
+    font-size: 0.7rem;
+    text-align: center;
+}
+
+.analytics-period-load-more .btn {
+    width: 100%;
+}
+
+.analytics-detail-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--ui-chip-border-soft);
+    border-radius: 0.85rem;
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(10px);
+}
+
+.analytics-detail-toolbar > div {
+    display: flex;
+    align-items: baseline;
+    gap: 0.7rem;
+}
+
+.analytics-focus-grid--no-map #analytics-map-panel {
+    display: none;
+}
+
+#ctl-chart {
+    height: 500px !important;
+}
+
 #ftp-chart,
 #cp-chart {
     height: 400px !important;
 }
 
-#workout-chart {
-    height: 560px !important;
-}
-
+#workout-chart,
 #workout-map {
-    height: 560px !important;
+    height: 350px !important;
 }
 
-.analytics-shell--client #workout-chart,
-.analytics-shell--client #workout-map {
-    height: 100% !important;
-    min-height: 0;
+.analytics-focus-grid--no-map #workout-chart {
+    height: 710px !important;
+}
+
+@media (max-width: 1449.98px) {
+    .analytics-workspace {
+        grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.34fr);
+    }
+
+    .analytics-chart-grid {
+        grid-column: 1;
+        grid-row: 1;
+    }
+
+    .analytics-detail-column {
+        grid-column: 1;
+        grid-row: 2;
+    }
+
+    .analytics-period-inspector {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+    }
+
+    .analytics-focus-grid {
+        grid-template-columns: minmax(0, 1.7fr) minmax(20rem, 1fr);
+    }
+
+    .analytics-focus-grid--no-map {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .analytics-focus-grid--no-map #workout-chart {
+        height: 560px !important;
+    }
 }
 
 @media (max-width: 1199.98px) {
@@ -128,25 +499,90 @@ body.analytics-page {
         flex-wrap: wrap;
     }
 
-    .analytics-time-range-display {
+    .analytics-hero-controls {
         order: 3;
+        width: 100%;
         margin-left: 0;
-    }
-
-    .analytics-chart-grid,
-    .analytics-focus-grid {
-        grid-template-columns: 1fr;
     }
 }
 
 @media (max-width: 991.98px) {
+    .analytics-workspace {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .analytics-chart-grid,
+    .analytics-period-inspector,
+    .analytics-detail-column {
+        grid-column: 1;
+        grid-row: auto;
+    }
+
+    .analytics-chart-grid {
+        order: 1;
+    }
+
+    .analytics-period-inspector {
+        position: static;
+        order: 2;
+        max-height: none;
+    }
+
+    .analytics-period-workouts {
+        max-height: 30rem;
+    }
+
+    .analytics-detail-column {
+        order: 3;
+    }
+
+    .analytics-focus-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
     .analytics-focus-panel .analytics-section-header {
         align-items: flex-start;
         flex-wrap: wrap;
     }
 
     #workout-chart,
-    #workout-map {
+    #workout-map,
+    .analytics-focus-grid--no-map #workout-chart {
+        height: 460px !important;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .analytics-grouping-control,
+    .analytics-detail-toolbar {
+        width: 100%;
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .analytics-hero-controls {
+        flex-wrap: wrap;
+    }
+
+    .analytics-toggle-group {
+        width: 100%;
+    }
+
+    .analytics-toggle-group .btn {
+        flex: 1 1 auto;
+        padding-inline: 0.45rem;
+    }
+
+    #ctl-chart,
+    #ftp-chart,
+    #cp-chart,
+    #workout-chart,
+    #workout-map,
+    .analytics-focus-grid--no-map #workout-chart {
+        height: 380px !important;
+    }
+
+    #ctl-chart {
         height: 460px !important;
     }
 }

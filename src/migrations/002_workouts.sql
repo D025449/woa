@@ -51,6 +51,7 @@ CREATE TABLE workouts (
     intensity_dose       TEXT NOT NULL DEFAULT 'unknown',
     intensity_classifier_version SMALLINT NOT NULL DEFAULT 0,
     intensity_model_features BYTEA,
+    power_histogram BYTEA,
     perceived_exertion SMALLINT,
     fit_device_metadata  JSONB NOT NULL DEFAULT '{"version":1,"fileId":null,"devices":[]}'::jsonb,
     manual_gps_lookup_points JSONB,

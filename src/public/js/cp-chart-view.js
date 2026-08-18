@@ -4,11 +4,16 @@ import {
   findSeriesTimeBounds,
   readZoomEventTimeRange
 } from "./analytics-time-range.js";
+import {
+  formatAnalysisPeriodValue,
+  getISOWeekStartDate
+} from "./analytics-period.js";
+import { getCurrentLocale } from "./i18n.js";
 
 function formatCPDuration(durationSeconds) {
   return durationSeconds < 60
-    ? `CP ${durationSeconds} s`
-    : `CP ${durationSeconds / 60} min`;
+    ? `CP${durationSeconds}S`
+    : `CP${durationSeconds / 60}`;
 }
 
 export default class CPChartView {
@@ -16,6 +21,7 @@ export default class CPChartView {
   constructor(containerId, handlers = {}) {
     this.chart = echarts.init(document.getElementById(containerId));
     this.handlers = handlers;
+    this.locale = getCurrentLocale();
 
     this.currentGrouping = handlers.preferences?.grouping || 'year';
     this.seriesVisibility = {
@@ -25,26 +31,11 @@ export default class CPChartView {
     this.timeBounds = null;
     this.timeDomain = null;
     this.suppressTimeRangeEvent = false;
+    this.periodSummaries = new Map();
 
     this.registerChartInteractions();
-    this.initGroupingControls();
-
     // initial load
     this.loadData();
-  }
-
-  // -----------------------------
-  // GROUPING UI
-  // -----------------------------
-  initGroupingControls() {
-    document.querySelectorAll('input[name="grouping"]').forEach(el => {
-      el.checked = el.value === this.currentGrouping;
-      el.addEventListener('change', (e) => {
-        this.currentGrouping = e.target.value;
-        this.handlers?.onPreferenceChange?.({ grouping: this.currentGrouping });
-        this.loadData();
-      });
-    });
   }
 
   // -----------------------------
@@ -69,11 +60,15 @@ export default class CPChartView {
     });
 
     this.chart.on('click', async (params) => {
-      const d = params.data?.extra;
-
-      if (!d || !d.fileId) return;
-
-      await this.handlers?.onCPClick?.(d);
+      const d = params.data?.extra || null;
+      const value = Array.isArray(params.data?.value) ? params.data.value[0] : null;
+      if (!value) return;
+      await this.handlers?.onPeriodClick?.({
+        date: value,
+        grouping: this.currentGrouping,
+        seriesName: params.seriesName,
+        data: d
+      });
     });
   }
 
@@ -97,6 +92,11 @@ export default class CPChartView {
   // -----------------------------
   renderChart(apiData) {
     const { data, grouping } = apiData;
+
+    this.periodSummaries = new Map(Object.entries(data).map(([group, values]) => [
+      Date.parse(this.mapToDate(grouping, group)),
+      values
+    ]).filter(([timestamp]) => Number.isFinite(timestamp)));
 
     const durations = Array.isArray(apiData.durations)
       ? apiData.durations.map(Number).filter(Number.isFinite)
@@ -142,7 +142,8 @@ export default class CPChartView {
 
     const option = {
       tooltip: {
-        trigger: 'axis'
+        trigger: 'axis',
+        formatter: (params) => this.formatTooltip(params)
       },
 
       legend: {
@@ -164,6 +165,13 @@ export default class CPChartView {
         type: 'time'
       },
 
+      grid: {
+        left: 92,
+        right: 92,
+        top: 58,
+        bottom: 68
+      },
+
       dataZoom: buildChartDataZoom(),
 
       series
@@ -172,6 +180,21 @@ export default class CPChartView {
     this.chart.setOption(option, true);
     this.timeBounds = findSeriesTimeBounds(series);
     this.handlers?.onTimeBoundsChange?.(this.timeBounds);
+  }
+
+  formatTooltip(params) {
+    const items = Array.isArray(params) ? params : [];
+    const firstItem = items[0];
+    const periodLabel = formatAnalysisPeriodValue(
+      firstItem?.data?.value?.[0] ?? firstItem?.value?.[0],
+      this.currentGrouping,
+      this.locale
+    ) || firstItem?.axisValueLabel || '';
+    const lines = [periodLabel];
+    items.filter((item) => Number.isFinite(Number(item.value?.[1]))).forEach((item) => {
+      lines.push(`${item.marker}${item.seriesName}: ${Number(item.value[1]).toFixed(1)} W`);
+    });
+    return lines.join('<br>');
   }
 
   setTimeRange(range, domain = this.timeBounds) {
@@ -201,6 +224,23 @@ export default class CPChartView {
     queueMicrotask(() => {
       this.suppressTimeRangeEvent = false;
     });
+  }
+
+  async setGrouping(grouping) {
+    if (!["year_week", "year_month", "year_quarter", "year"].includes(grouping)) return;
+    if (this.currentGrouping === grouping) return;
+    this.currentGrouping = grouping;
+    await this.loadData();
+  }
+
+  setSeriesVisibility(key, visible) {
+    if (typeof visible !== "boolean") return false;
+    const legendName = [...this.legendNameToKey]
+      .find(([, seriesKey]) => seriesKey === key)?.[0];
+    if (!legendName) return false;
+    this.seriesVisibility[key] = visible;
+    this.chart.setOption({ legend: { selected: { [legendName]: visible } } });
+    return true;
   }
 
   // -----------------------------
@@ -233,7 +273,7 @@ export default class CPChartView {
         const year = parseInt(str.slice(0, 4), 10);
         const week = parseInt(str.slice(4, 6), 10);
 
-        return this.getDateOfISOWeek(year, week);
+        return getISOWeekStartDate(year, week);
       }
 
     } catch (e) {
@@ -242,20 +282,12 @@ export default class CPChartView {
     }
   }
 
-  getDateOfISOWeek(year, week) {
-    if (!year || !week) return null;
-
-    const simple = new Date(year, 0, 1 + (week - 1) * 7);
-    const dow = simple.getDay();
-
-    const ISOweekStart = new Date(simple);
-
-    if (dow <= 4)
-      ISOweekStart.setDate(simple.getDate() - simple.getDay() + 1);
-    else
-      ISOweekStart.setDate(simple.getDate() + 8 - simple.getDay());
-
-    return ISOweekStart.toISOString().split('T')[0];
+  getPeriodSummary(period) {
+    if (!period) return null;
+    for (const [timestamp, summary] of this.periodSummaries) {
+      if (timestamp >= period.startMs && timestamp < period.endMs) return summary;
+    }
+    return null;
   }
 
   // -----------------------------

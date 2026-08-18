@@ -22,6 +22,14 @@ test("chart zoom can filter the visible range before rendering dense series", ()
   assert.equal(slider.filterMode, "filter");
 });
 
+test("chart zoom can retain inside zoom while hiding its slider", () => {
+  const [inside, slider] = buildChartDataZoom({ slider: { show: false } });
+
+  assert.equal(inside.type, "inside");
+  assert.equal(slider.type, "slider");
+  assert.equal(slider.show, false);
+});
+
 test("chart zoom range survives a dataset resolution change", () => {
   const range = readChartZoomRange({
     getOption: () => ({ dataZoom: [{ start: 23.5, end: 61.25 }] })

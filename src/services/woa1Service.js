@@ -3,6 +3,7 @@ import {
   INTENSITY_MODEL_FEATURE_BYTES,
   decodeWorkoutIntensityModelFeatures
 } from "../shared/WorkoutIntensityModelCodec.js";
+import { decodePowerHistogram } from "../shared/PowerHistogramCodec.js";
 
 const INT32_NAN = -0x80000000;
 const MICRO_DEGREES = 1e6;
@@ -370,12 +371,19 @@ export function decodeWoa1BufferLight(buffer) {
   offset += workoutStreamLength;
   const gpsTrackStoredBytes = bytes.slice(offset, offset + gpsTrackLength);
   offset += gpsTrackLength;
-  const intensityModelFeatureBytes = bytes.byteLength - offset === INTENSITY_MODEL_FEATURE_BYTES
-    && decodeWorkoutIntensityModelFeatures(bytes.subarray(offset))
-    ? bytes.slice(offset)
+  const trailer = bytes.subarray(offset);
+  const intensityCandidate = trailer.subarray(0, INTENSITY_MODEL_FEATURE_BYTES);
+  const intensityModelFeatureBytes = decodeWorkoutIntensityModelFeatures(intensityCandidate)
+    ? intensityCandidate.slice()
+    : null;
+  const histogramOffset = intensityModelFeatureBytes ? INTENSITY_MODEL_FEATURE_BYTES : 0;
+  const histogramCandidate = trailer.subarray(histogramOffset);
+  const powerHistogramBytes = decodePowerHistogram(histogramCandidate)
+    ? histogramCandidate.slice()
     : null;
   if (meta?.persistedRow) {
     meta.persistedRow.intensity_model_features = intensityModelFeatureBytes;
+    meta.persistedRow.power_histogram = powerHistogramBytes;
   }
 
   return {

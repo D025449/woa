@@ -10,6 +10,7 @@ import {
 } from "../../shared/WorkoutEnergy.js";
 import { encodeFitDeviceMetadata } from "../../shared/FitDeviceMetadataCodec.js";
 import { classifyTerrainProfile } from "../../shared/WorkoutTerrainClassifier.js";
+import { encodePowerHistogram } from "../../shared/PowerHistogramCodec.js";
 
 const textEncoder = new TextEncoder();
 const UINT8_NAN = 0xFF;
@@ -2687,7 +2688,8 @@ export function createWoa1FileFromCompact(parsedCompact, {
   gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE,
   gpsCoordinateEncoding = "bitmap-columnar",
   altitudeEncoding = "rle-delta-q1m",
-  intensityModelFeatureBytes = null
+  intensityModelFeatureBytes = null,
+  powerHistogramBytes: suppliedPowerHistogramBytes = null
 } = {}) {
   const preparedParsedCompact = withCalculatedPedalMetrics(parsedCompact);
   const timings = {
@@ -2714,6 +2716,13 @@ export function createWoa1FileFromCompact(parsedCompact, {
     preparedParsedCompact?.compactRecords || {},
     summary
   );
+  const powerHistogramBytes = suppliedPowerHistogramBytes instanceof Uint8Array
+    ? suppliedPowerHistogramBytes
+    : (encodePowerHistogram({
+        powers: workoutCompactRecords?.powersW,
+        recordCount: workoutCompactRecords?.recordCount,
+        missingValue: UINT16_NAN
+      }) || new Uint8Array(0));
   timings.deriveSummaryMs = nowMs() - stepStartedAt;
 
   stepStartedAt = nowMs();
@@ -2764,7 +2773,8 @@ export function createWoa1FileFromCompact(parsedCompact, {
     workout_stream_raw: workoutStreamRawBytes.byteLength,
     workout_stream_compressed: workoutStreamBytes.byteLength,
     gps_track_raw: gpsTrackRawBytes.byteLength,
-    gps_track_compressed: gpsTrackBytes.byteLength
+    gps_track_compressed: gpsTrackBytes.byteLength,
+    power_histogram: powerHistogramBytes.byteLength
   };
   summary.blockStats = {
     workout_stream: workoutStreamBlock.stats
@@ -2784,7 +2794,7 @@ export function createWoa1FileFromCompact(parsedCompact, {
   const intensityBytes = intensityModelFeatureBytes instanceof Uint8Array
     ? intensityModelFeatureBytes
     : new Uint8Array(0);
-  const totalLength = headerLength + metaBytes.length + sessionBytes.length + workoutStreamBytes.length + gpsTrackBytes.length + intensityBytes.length;
+  const totalLength = headerLength + metaBytes.length + sessionBytes.length + workoutStreamBytes.length + gpsTrackBytes.length + intensityBytes.length + powerHistogramBytes.length;
 
   stepStartedAt = nowMs();
   const buffer = new ArrayBuffer(totalLength);
@@ -2792,7 +2802,7 @@ export function createWoa1FileFromCompact(parsedCompact, {
   const view = new DataView(buffer);
   bytes.set(textEncoder.encode("WOA1"), 0);
   view.setUint8(4, usesCompressedBlocks ? 2 : 1);
-  view.setUint8(5, 0);
+  view.setUint8(5, powerHistogramBytes.length > 0 ? 1 : 0);
   view.setUint16(6, 0, true);
   view.setUint32(8, metaBytes.length, true);
   view.setUint32(12, sessionBytes.length, true);
@@ -2808,6 +2818,8 @@ export function createWoa1FileFromCompact(parsedCompact, {
   bytes.set(gpsTrackBytes, offset);
   offset += gpsTrackBytes.length;
   bytes.set(intensityBytes, offset);
+  offset += intensityBytes.length;
+  bytes.set(powerHistogramBytes, offset);
   timings.assembleWoaFileMs = nowMs() - stepStartedAt;
 
   return {
@@ -2837,7 +2849,8 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
   gpsBlockSize = DEFAULT_GPS_BLOCK_SIZE,
   gpsCoordinateEncoding = "bitmap-columnar",
   altitudeEncoding = "rle-delta-q1m",
-  intensityModelFeatureBytes = null
+  intensityModelFeatureBytes = null,
+  powerHistogramBytes: suppliedPowerHistogramBytes = null
 } = {}) {
   const preparedParsedCompact = withCalculatedPedalMetrics(parsedCompact);
   const timings = {
@@ -2864,6 +2877,13 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
     preparedParsedCompact?.compactRecords || {},
     summary
   );
+  const powerHistogramBytes = suppliedPowerHistogramBytes instanceof Uint8Array
+    ? suppliedPowerHistogramBytes
+    : (encodePowerHistogram({
+        powers: workoutCompactRecords?.powersW,
+        recordCount: workoutCompactRecords?.recordCount,
+        missingValue: UINT16_NAN
+      }) || new Uint8Array(0));
   timings.deriveSummaryMs = nowMs() - stepStartedAt;
 
   stepStartedAt = nowMs();
@@ -2914,7 +2934,8 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
     workout_stream_raw: workoutStreamRawBytes.byteLength,
     workout_stream_compressed: workoutStreamBytes.byteLength,
     gps_track_raw: gpsTrackRawBytes.byteLength,
-    gps_track_compressed: gpsTrackBytes.byteLength
+    gps_track_compressed: gpsTrackBytes.byteLength,
+    power_histogram: powerHistogramBytes.byteLength
   };
   summary.blockStats = {
     workout_stream: workoutStreamBlock.stats
@@ -2934,7 +2955,7 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
   const intensityBytes = intensityModelFeatureBytes instanceof Uint8Array
     ? intensityModelFeatureBytes
     : new Uint8Array(0);
-  const totalLength = headerLength + metaBytes.length + sessionBytes.length + workoutStreamBytes.length + gpsTrackBytes.length + intensityBytes.length;
+  const totalLength = headerLength + metaBytes.length + sessionBytes.length + workoutStreamBytes.length + gpsTrackBytes.length + intensityBytes.length + powerHistogramBytes.length;
 
   stepStartedAt = nowMs();
   const buffer = new ArrayBuffer(totalLength);
@@ -2942,7 +2963,7 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
   const view = new DataView(buffer);
   bytes.set(textEncoder.encode("WOA1"), 0);
   view.setUint8(4, usesCompressedBlocks ? 2 : 1);
-  view.setUint8(5, 0);
+  view.setUint8(5, powerHistogramBytes.length > 0 ? 1 : 0);
   view.setUint16(6, 0, true);
   view.setUint32(8, metaBytes.length, true);
   view.setUint32(12, sessionBytes.length, true);
@@ -2958,6 +2979,8 @@ export async function createWoa1FileFromCompactAsync(parsedCompact, {
   bytes.set(gpsTrackBytes, offset);
   offset += gpsTrackBytes.length;
   bytes.set(intensityBytes, offset);
+  offset += intensityBytes.length;
+  bytes.set(powerHistogramBytes, offset);
   timings.assembleWoaFileMs = nowMs() - stepStartedAt;
 
   return {

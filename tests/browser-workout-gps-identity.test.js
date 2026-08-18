@@ -9,6 +9,8 @@ import {
 import GpsTrackBlobCodec from "../src/shared/GpsTrackBlobCodec.js";
 import Workout from "../src/shared/Workout.js";
 import { FileDBService } from "../src/services/fileDBService.js";
+import { decodeWoa1BufferLight } from "../src/services/woa1Service.js";
+import { decodePowerHistogram } from "../src/shared/PowerHistogramCodec.js";
 
 test("derives missing session ascent from compact altitude records", () => {
   const altitudesQ = Int16Array.from([
@@ -81,7 +83,14 @@ test("browser WOA1 keeps GPS2 raw while compressing the workout stream", async (
   assert.equal(woa.workoutStreamBytes[0], 0x1f);
   assert.equal(woa.workoutStreamBytes[1], 0x8b);
 
-  const prepared = FileDBService.preparePersistedWoaInsertPayload(woa.meta, {
+  const lightDecoded = decodeWoa1BufferLight(woa.bytes);
+  const histogram = decodePowerHistogram(lightDecoded.meta.persistedRow.power_histogram);
+  assert.equal(histogram.positiveSeconds, recordCount);
+  assert.deepEqual(histogram.bins, [
+    { binIndex: 39, minWatts: 196, maxWatts: 200, seconds: recordCount }
+  ]);
+
+  const prepared = FileDBService.preparePersistedWoaInsertPayload(lightDecoded.meta, {
     uid: 1,
     workoutStreamStoredBytes: woa.workoutStreamBytes,
     gpsTrackStoredBytes: woa.gpsTrackBytes
@@ -89,6 +98,10 @@ test("browser WOA1 keeps GPS2 raw while compressing the workout stream", async (
   assert.equal(prepared.streamCodec, "gzip");
   assert.equal(prepared.gpsTrackBlobCodec, "identity");
   assert.deepEqual(prepared.compressedGpsTrackBlob, Buffer.from(woa.gpsTrackBytes));
+  assert.deepEqual(
+    [...prepared.fileRow.power_histogram],
+    [...lightDecoded.meta.persistedRow.power_histogram]
+  );
 
   const decodedGps = await GpsTrackBlobCodec.decodeCompressed(woa.gpsTrackBytes, {
     codec: "identity"

@@ -28,7 +28,9 @@ test("manual-only training feed keeps activity semantics and total count", async
       if (String(sql).includes("SELECT * FROM training_feed")) {
         return { rows: [{ entity_type: "manual_activity", id: 9, entity_id: 9, estimated_tss: 31 }] };
       }
-      if (String(sql).includes("COUNT(*) AS total FROM training_feed")) return { rows: [{ total: "1" }] };
+      if (String(sql).includes("COUNT(*) AS total")) {
+        return { rows: [{ total: "1", total_timer_time: "1800", total_distance: "12000" }] };
+      }
       if (String(sql).includes("manual_activity_count")) {
         return { rows: [{ workout_count: 3, manual_activity_count: 1, total_timer_time: 9000, total_distance: 42000 }] };
       }
@@ -49,6 +51,11 @@ test("manual-only training feed keeps activity semantics and total count", async
   );
 
   assert.equal(result.total_records, 1);
+  assert.deepEqual(result.filtered_summary, {
+    activity_count: 1,
+    total_timer_time: 1800,
+    total_distance: 12000
+  });
   assert.equal(result.data[0].TSS, 31);
   assert.equal(result.own_summary.manual_activity_count, 1);
   assert.ok(statements[0].sql.indexOf("workout_entry WHERE activity_type") < statements[0].sql.indexOf("UNION ALL"));
@@ -64,7 +71,7 @@ test("manual cycling feed rows are enriched through the FTP load path", async ()
       if (statement.includes("SELECT * FROM training_feed")) {
         return { rows: [{ entity_type: "manual_activity", id: 12, activity_type: "cycling" }] };
       }
-      if (statement.includes("COUNT(*) AS total FROM training_feed")) return { rows: [{ total: "1" }] };
+      if (statement.includes("COUNT(*) AS total")) return { rows: [{ total: "1" }] };
       if (statement.includes("manual_activity_count")) {
         return { rows: [{ workout_count: 0, manual_activity_count: 1, total_timer_time: 1800, total_distance: 0 }] };
       }
@@ -110,7 +117,7 @@ test("manual cycling feed does not invent a zero-watt profile from a missing bas
       if (statement.includes("SELECT * FROM training_feed")) {
         return { rows: [{ entity_type: "manual_activity", id: 13, activity_type: "cycling" }] };
       }
-      if (statement.includes("COUNT(*) AS total FROM training_feed")) return { rows: [{ total: "1" }] };
+      if (statement.includes("COUNT(*) AS total")) return { rows: [{ total: "1" }] };
       if (statement.includes("LEFT JOIN training_activity_intervals")) {
         return {
           rows: [{

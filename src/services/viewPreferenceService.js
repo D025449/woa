@@ -42,14 +42,15 @@ const SEGMENT_VISIBILITY_KEYS = [
   "manual",
   "gps"
 ];
-const ANALYTICS_LOAD_GROUPINGS = new Set(["date", "week", "month"]);
+const ANALYTICS_SHARED_GROUPINGS = new Set(["week", "month", "quarter", "year"]);
+const ANALYTICS_LOAD_GROUPINGS = new Set(["date", "week", "month", "quarter", "year"]);
 const ANALYTICS_POWER_GROUPINGS = new Set([
   "year_week",
   "year_month",
   "year_quarter",
   "year"
 ]);
-const ANALYTICS_LOAD_SERIES_KEYS = ["atl", "ctl", "tsb", "tss"];
+const ANALYTICS_LOAD_SERIES_KEYS = ["atl", "ctl", "tsb", "tss", "intensityDistribution"];
 const ANALYTICS_POWER_SERIES_KEYS = [
   "cp5",
   "cp15",
@@ -178,6 +179,7 @@ export function normalizeAnalyticsState(state = {}) {
 
   return {
     timeRange: normalizeAnalyticsTimeRange(source.timeRange),
+    grouping: normalizeEnum(source.grouping, ANALYTICS_SHARED_GROUPINGS, "month"),
     loadModel: {
       grouping: normalizeEnum(loadModel.grouping, ANALYTICS_LOAD_GROUPINGS, "date"),
       seriesVisibility: normalizeSeriesVisibility(
