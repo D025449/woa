@@ -4,7 +4,7 @@ import WorkoutSharingService from "./workoutSharingService.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
 import { toPostgresBox } from "../shared/postgresSpatial.js";
 import { normalizeIntensityTags } from "../shared/WorkoutIntensityTags.js";
-import { buildRollingFtpSnapshots, buildRollingFtpTrend } from "../shared/RollingFtpTrend.js";
+import { buildRollingFtpSnapshots, groupRollingFtpSnapshots } from "../shared/RollingFtpTrend.js";
 import { encodePowerHistogram } from "../shared/PowerHistogramCodec.js";
 import { aggregatePowerDistribution } from "../shared/PowerDistribution.js";
 
@@ -12,6 +12,7 @@ const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim()
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
 const LEGACY_WORKOUT_STREAM_CODEC = "brotli";
 const GPS_TRACK_BLOB_CODEC = "identity";
+const rollingFtpSnapshotsInFlight = new Map();
 
 class FileDBService {
   static thumbnailsOnDemand = FEATURE_THUMBNAILS_ON_DEMAND;
@@ -295,8 +296,30 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       throw new Error("Unauthorized");
     }
 
-    const rows = await FileDBService.getRollingFtpEffortRows(uid);
-    return buildRollingFtpTrend(rows, period);
+    const snapshots = await FileDBService.getRollingFtpSnapshots(uid);
+    return groupRollingFtpSnapshots(snapshots, period);
+  }
+
+  static async getRollingFtpSnapshots(uid) {
+    if (!uid) {
+      throw new Error("Unauthorized");
+    }
+
+    const key = String(uid);
+    const pending = rollingFtpSnapshotsInFlight.get(key);
+    if (pending) return pending;
+
+    const calculation = FileDBService.getRollingFtpEffortRows(uid)
+      .then(rows => buildRollingFtpSnapshots(rows));
+    rollingFtpSnapshotsInFlight.set(key, calculation);
+
+    try {
+      return await calculation;
+    } finally {
+      if (rollingFtpSnapshotsInFlight.get(key) === calculation) {
+        rollingFtpSnapshotsInFlight.delete(key);
+      }
+    }
   }
 
   static async getRollingFtpEffortRows(uid) {
@@ -328,7 +351,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       throw new TypeError(`Unsupported power distribution grouping: ${grouping}`);
     }
 
-    const [histogramResult, effortRows] = await Promise.all([
+    const [histogramResult, ftpSnapshots] = await Promise.all([
       pool.query(`
         SELECT
           id,
@@ -344,12 +367,12 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
           AND workout_type IS DISTINCT FROM 'motorsport'
         ORDER BY start_time, id
       `, [uid]),
-      FileDBService.getRollingFtpEffortRows(uid)
+      FileDBService.getRollingFtpSnapshots(uid)
     ]);
 
     return aggregatePowerDistribution(
       histogramResult.rows,
-      buildRollingFtpSnapshots(effortRows),
+      ftpSnapshots,
       grouping
     );
   }

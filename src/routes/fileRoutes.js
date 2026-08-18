@@ -16,6 +16,15 @@ import {
 import { POWER_DISTRIBUTION_ZONES } from "../shared/PowerDistribution.js";
 
 const router = express.Router();
+const ANALYTICS_GROUPINGS = Object.freeze({
+  week: "year_week",
+  month: "year_month",
+  quarter: "year_quarter",
+  year: "year"
+});
+const DEFAULT_CP_DURATIONS = Object.freeze([
+  5, 15, 60, 120, 240, 360, 480, 720, 900, 960, 1800
+]);
 
 const checkAuth = (req, res, next) => {
   req.isAuthenticated = !!req.session.userInfo;
@@ -37,6 +46,49 @@ function normalizeArrayParam(value) {
   }
 
   return [];
+}
+
+function buildCpBestEffortsPayload(rows, rollingFtpRows, grouping, durations) {
+  const data = {};
+
+  for (const row of rows) {
+    if (!data[row.grp]) data[row.grp] = {};
+    data[row.grp][`CP${row.duration}`] = {
+      power: row.best_effort_avg_power,
+      heartRate: row.best_effort_avg_heart_rate,
+      cadence: row.best_effort_avg_cadence,
+      speed: row.best_effort_avg_speed,
+      fileId: row.best_effort_file_id,
+      startOffset: row.start_offset,
+      endOffset: row.end_offset,
+      startTime: row.start_time
+    };
+  }
+
+  for (const row of rollingFtpRows) {
+    const group = String(row.period);
+    if (!data[group]) data[group] = {};
+    data[group].eFTP = {
+      power: Math.round(row.ftp),
+      confidence: row.confidence,
+      modelPointCount: row.modelPointCount,
+      startTime: row.startTime
+    };
+  }
+
+  return { grouping, durations, data };
+}
+
+function powerDistributionPayload(grouping, data) {
+  return {
+    grouping,
+    zones: POWER_DISTRIBUTION_ZONES.map(({ key, maxPercent, color }) => ({
+      key,
+      maxPercent: Number.isFinite(maxPercent) ? maxPercent : null,
+      color
+    })),
+    data
+  };
 }
 router.delete("/workouts/:id", authMiddleware, requireActiveAccountWrite, async (req, res) => {
   const workoutId = req.params.id;
@@ -328,17 +380,53 @@ router.get("/power-distribution", authMiddleware, async (req, res, next) => {
       ? req.query.grouping
       : "month";
     const data = await FileDBService.getPowerDistribution(req.user?.id, grouping);
-    return res.json({
-      grouping,
-      zones: POWER_DISTRIBUTION_ZONES.map(({ key, maxPercent, color }) => ({
-        key,
-        maxPercent: Number.isFinite(maxPercent) ? maxPercent : null,
-        color
-      })),
-      data
-    });
+    return res.json(powerDistributionPayload(grouping, data));
   } catch (err) {
     console.error("GET /files/power-distribution failed:", err);
+    return next(err);
+  }
+});
+
+router.get("/analytics-overview", authMiddleware, async (req, res, next) => {
+  try {
+    const grouping = Object.hasOwn(ANALYTICS_GROUPINGS, req.query.grouping)
+      ? req.query.grouping
+      : "month";
+    const cpGrouping = ANALYTICS_GROUPINGS[grouping];
+    const uid = req.user?.id;
+    const timings = {};
+    const timed = async (key, operation) => {
+      const startedAt = performance.now();
+      try {
+        return await operation();
+      } finally {
+        timings[key] = performance.now() - startedAt;
+      }
+    };
+
+    const [loadModelRows, distributionRows, cpRows, rollingFtpRows] = await Promise.all([
+      timed("load", () => FileDBService.getCTLATL(uid, grouping)),
+      timed("distribution", () => FileDBService.getPowerDistribution(uid, grouping)),
+      timed("cp", () => FileDBService.getCPBestEfforts(cpGrouping, DEFAULT_CP_DURATIONS, uid)),
+      timed("ftp", () => FileDBService.getRollingFTPValues(uid, grouping))
+    ]);
+
+    res.set("Server-Timing", Object.entries(timings)
+      .map(([key, duration]) => `${key};dur=${duration.toFixed(1)}`)
+      .join(", "));
+    return res.json({
+      grouping,
+      loadModel: { grouping, data: loadModelRows },
+      powerDistribution: powerDistributionPayload(grouping, distributionRows),
+      powerCurve: buildCpBestEffortsPayload(
+        cpRows,
+        rollingFtpRows,
+        cpGrouping,
+        DEFAULT_CP_DURATIONS
+      )
+    });
+  } catch (err) {
+    console.error("GET /files/analytics-overview failed:", err);
     return next(err);
   }
 });
@@ -421,7 +509,7 @@ router.get("/cp-best-efforts", authMiddleware, async (req, res, next) => {
     let durationArray;
 
     if (!durations) {
-      durationArray = [5, 15, 60, 120, 240, 360, 480, 720, 900, 960, 1800];
+      durationArray = [...DEFAULT_CP_DURATIONS];
     } else {
       durationArray = durations
         .split(',')
@@ -447,44 +535,7 @@ router.get("/cp-best-efforts", authMiddleware, async (req, res, next) => {
       FileDBService.getRollingFTPValues(uid, rollingGrouping)
     ]);
 
-    // 🔄 Response strukturieren (wie vorher)
-    const data = {};
-
-    for (const row of rows) {
-      if (!data[row.grp]) {
-        data[row.grp] = {};
-      }
-
-      data[row.grp][`CP${row.duration}`] = {
-        power: row.best_effort_avg_power,
-        heartRate: row.best_effort_avg_heart_rate,
-        cadence: row.best_effort_avg_cadence,
-        speed: row.best_effort_avg_speed,
-        fileId: row.best_effort_file_id,
-        startOffset: row.start_offset,
-        endOffset: row.end_offset,
-        startTime: row.start_time
-      };
-    }
-
-    for (const row of rollingFtpRows) {
-      const group = String(row.period);
-      if (!data[group]) {
-        data[group] = {};
-      }
-      data[group].eFTP = {
-        power: Math.round(row.ftp),
-        confidence: row.confidence,
-        modelPointCount: row.modelPointCount,
-        startTime: row.startTime
-      };
-    }
-
-    res.json({
-      grouping,
-      durations: durationArray,
-      data
-    });
+    res.json(buildCpBestEffortsPayload(rows, rollingFtpRows, grouping, durationArray));
 
   } catch (err) {
     console.error("GET /files/cp-best-efforts failed:", err);

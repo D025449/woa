@@ -128,11 +128,32 @@ test("load model integrates the grouped power distribution on its shared time ax
   );
 
   assert.match(routeSource, /router\.get\("\/power-distribution"/u);
-  assert.match(chartSource, /fetch\(`\/files\/power-distribution\?grouping=/u);
+  assert.match(routeSource, /router\.get\("\/analytics-overview"/u);
+  assert.match(chartSource, /loadAnalyticsOverview/u);
   assert.match(chartSource, /id: 'intensity-distribution'/u);
   assert.match(chartSource, /type: 'custom'/u);
   assert.match(chartSource, /echarts\.graphic\.clipRectByRect/u);
   assert.match(chartSource, /xAxisIndex: showDistribution \? \[0, 1\] : 0/u);
   assert.match(chartSource, /axisPointer: showDistribution/u);
   assert.match(preferenceSource, /"intensityDistribution"/u);
+});
+
+test("analytics charts share one bundled backend request", async () => {
+  const clientSource = await readFile(
+    new URL("src/public/js/analytics-overview-client.js", projectRoot),
+    "utf8"
+  );
+  const loadChart = await readFile(
+    new URL("src/public/js/ctl-chart-view.js", projectRoot),
+    "utf8"
+  );
+  const powerChart = await readFile(
+    new URL("src/public/js/cp-chart-view.js", projectRoot),
+    "utf8"
+  );
+
+  assert.match(clientSource, /\/files\/analytics-overview\?grouping=/u);
+  assert.match(clientSource, /overviewRequests/u);
+  assert.match(loadChart, /await loadAnalyticsOverview\(this\.currentGrouping\)/u);
+  assert.match(powerChart, /await loadAnalyticsOverview\(this\.currentGrouping\)/u);
 });

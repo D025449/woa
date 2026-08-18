@@ -9,6 +9,7 @@ import {
   getISOWeekStartDate
 } from "./analytics-period.js";
 import { getCurrentLocale } from "./i18n.js";
+import { loadAnalyticsOverview } from "./analytics-overview-client.js";
 
 function formatCPDuration(durationSeconds) {
   return durationSeconds < 60
@@ -76,15 +77,9 @@ export default class CPChartView {
   // DATA LOADING
   // -----------------------------
   async loadData() {
-    const res = await fetch(`/files/cp-best-efforts?grouping=${this.currentGrouping}`);
-
-    if (res.status === 401) {
-      window.location.href = '/login';
-      return;
-    } else {
-      const json = await res.json();
-      this.renderChart(json);
-    }
+    const overview = await loadAnalyticsOverview(this.currentGrouping);
+    if (!overview) return;
+    this.renderChart(overview.powerCurve);
   }
 
   // -----------------------------

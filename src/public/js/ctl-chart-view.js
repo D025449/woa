@@ -9,6 +9,7 @@ import {
 } from "./analytics-period.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
 import { POWER_DISTRIBUTION_ZONES } from "../../shared/PowerDistribution.js";
+import { loadAnalyticsOverview } from "./analytics-overview-client.js";
 
 export default class CTLChartView {
 
@@ -82,20 +83,13 @@ export default class CTLChartView {
   // DATA LOADING
   // -----------------------------
   async loadCPLATLData() {
-    const [res, distributionRes] = await Promise.all([
-      fetch(`/files/ctl-atl?period=${this.currentGrouping}`),
-      fetch(`/files/power-distribution?grouping=${this.currentGrouping}`)
-    ]);
-
-    if (res.status === 401 || distributionRes.status === 401) {
-      window.location.href = '/login';
-      return;
-    }
-    if (!res.ok || !distributionRes.ok) {
-      throw new Error(`Analytics load failed (${res.status}/${distributionRes.status})`);
-    }
-    const [json, distributionJson] = await Promise.all([res.json(), distributionRes.json()]);
-    this.renderChart(this.currentGrouping, json, distributionJson);
+    const overview = await loadAnalyticsOverview(this.currentGrouping);
+    if (!overview) return;
+    this.renderChart(
+      this.currentGrouping,
+      overview.loadModel,
+      overview.powerDistribution
+    );
   }
 
   // -----------------------------
