@@ -159,3 +159,9 @@ test("analytics charts share one bundled backend request", async () => {
   assert.match(loadChart, /await loadAnalyticsOverview\(this\.currentGrouping\)/u);
   assert.match(powerChart, /await loadAnalyticsOverview\(this\.currentGrouping\)/u);
 });
+
+test("analytics overview permits a short private browser cache", async () => {
+  const routeSource = await readFile(new URL("src/routes/fileRoutes.js", projectRoot), "utf8");
+  assert.match(routeSource, /Cache-Control", "private, max-age=60"/u);
+  assert.match(routeSource, /Vary", "Accept-Encoding, Cookie"/u);
+});

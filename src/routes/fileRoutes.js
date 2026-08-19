@@ -420,8 +420,8 @@ router.get("/analytics-overview", authMiddleware, async (req, res, next) => {
       res.set("X-Analytics-Cache", "HIT");
       res.set("Content-Type", "application/vnd.cwa24.analytics-overview-v1");
       res.set("Content-Encoding", "gzip");
-      res.set("Cache-Control", "private, no-store");
-      res.set("Vary", "Accept-Encoding");
+      res.set("Cache-Control", "private, max-age=60");
+      res.set("Vary", "Accept-Encoding, Cookie");
       return res.send(cachedBody);
     }
     const timed = async (key, operation) => {
@@ -466,8 +466,8 @@ router.get("/analytics-overview", authMiddleware, async (req, res, next) => {
     ].join(", "));
     res.set("X-Analytics-Cache", acceptsGzip ? "MISS" : "BYPASS");
     res.set("Content-Type", "application/vnd.cwa24.analytics-overview-v1");
-    res.set("Cache-Control", "private, no-store");
-    res.set("Vary", "Accept-Encoding");
+    res.set("Cache-Control", "private, max-age=60");
+    res.set("Vary", "Accept-Encoding, Cookie");
     if (acceptsGzip) res.set("Content-Encoding", "gzip");
     return res.send(body);
   } catch (err) {
