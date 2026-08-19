@@ -28,6 +28,9 @@ test("critical-power chart includes the new durations and rolling eFTP", async (
   assert.match(chartSource, /`CP\$\{durationSeconds\}S`/u);
   assert.match(chartSource, /`CP\$\{durationSeconds \/ 60\}`/u);
   assert.doesNotMatch(chartSource, /`CP \$\{durationSeconds\} s`/u);
+  assert.match(chartSource, /showSymbol: false/u);
+  assert.match(chartSource, /sampling: 'lttb'/u);
+  assert.match(chartSource, /animation: false/u);
 });
 
 test("analytics displays and persists one slider-controlled range for both charts", async () => {

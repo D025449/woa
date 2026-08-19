@@ -105,7 +105,8 @@ export default class CPChartView {
     const series = durations.map(d => ({
       name: formatCPDuration(d),
       type: 'line',
-      smooth: true,
+      showSymbol: false,
+      sampling: 'lttb',
       yAxisIndex: (d <= 60) ? 1 : 0,
       data: Object.entries(data).map(([grp, values]) => ({
         value: [
@@ -119,7 +120,8 @@ export default class CPChartView {
     series.push({
       name: 'eFTP',
       type: 'line',
-      smooth: true,
+      showSymbol: false,
+      sampling: 'lttb',
       symbol: 'none',
       yAxisIndex: 0,
       lineStyle: {
@@ -136,6 +138,7 @@ export default class CPChartView {
     });
 
     const option = {
+      animation: false,
       tooltip: {
         trigger: 'axis',
         formatter: (params) => this.formatTooltip(params)
