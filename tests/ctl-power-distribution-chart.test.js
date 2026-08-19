@@ -44,12 +44,47 @@ test("load model renders power distribution as one replaceable zoomed series", (
 
   const option = calls.options[0];
   const distributionSeries = option.series.filter((series) => series.id === "intensity-distribution");
+  const tssSeries = option.series.find((series) => series.id === "load-tss");
   assert.equal(calls.clear, 1);
   assert.equal(distributionSeries.length, 1);
   assert.equal(distributionSeries[0].type, "custom");
+  assert.equal(tssSeries.type, "custom");
+  const originalEcharts = globalThis.echarts;
+  globalThis.echarts = {
+    graphic: { clipRectByRect: (shape) => shape }
+  };
+  try {
+    const makeApi = (values) => ({
+      value: (index) => values[index],
+      coord: ([, value]) => [120, 200 - value],
+      size: () => [40, 0],
+      style: () => ({ fill: "test" })
+    });
+    const tssShape = tssSeries.renderItem(
+      { coordSys: {} },
+      makeApi(tssSeries.data[0].value)
+    ).shape;
+    const distributionShape = distributionSeries[0].renderItem(
+      { coordSys: {} },
+      makeApi(distributionSeries[0].data[0].value)
+    ).children[0].shape;
+    assert.deepEqual(
+      { x: tssShape.x, width: tssShape.width },
+      { x: distributionShape.x, width: distributionShape.width }
+    );
+  } finally {
+    globalThis.echarts = originalEcharts;
+  }
   assert.deepEqual(option.legend.data, ["ATL_AVG", "CTL", "TSB", "TSS", "distributionLegend"]);
   assert.deepEqual(option.dataZoom.map((zoom) => zoom.xAxisIndex), [[0, 1], [0, 1]]);
   assert.equal(option.series.some((series) => series.name === "Z4"), false);
+  assert.deepEqual(
+    option.xAxis.map(({ min, max, boundaryGap }) => ({ min, max, boundaryGap })),
+    [
+      { min: Date.parse("2026-08-01"), max: Date.parse("2026-08-01"), boundaryGap: [0, 0] },
+      { min: Date.parse("2026-08-01"), max: Date.parse("2026-08-01"), boundaryGap: [0, 0] }
+    ]
+  );
 
   view.setTimeRange({ start: 1, end: 2 }, { start: 0, end: 3 });
   assert.deepEqual(calls.options[1].xAxis.map((axis) => axis.id), [

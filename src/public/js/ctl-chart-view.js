@@ -97,6 +97,32 @@ export default class CTLChartView {
   // -----------------------------
   renderChart(grouping0, apiData, distributionData = null) {
     const { data, grouping } = apiData;
+    const periodMilliseconds = {
+      date: 24 * 60 * 60 * 1000,
+      week: 7 * 24 * 60 * 60 * 1000,
+      month: 28 * 24 * 60 * 60 * 1000,
+      quarter: 90 * 24 * 60 * 60 * 1000,
+      year: 365 * 24 * 60 * 60 * 1000
+    }[grouping] || (24 * 60 * 60 * 1000);
+    const getAlignedBarWidth = (api) => Math.min(
+      30,
+      Math.max(7, api.size([periodMilliseconds, 0])[0] * 0.55)
+    );
+    const renderTssBar = (params, api) => {
+      const value = Number(api.value(1));
+      if (!Number.isFinite(value)) return null;
+      const xValue = api.value(0);
+      const bottom = api.coord([xValue, 0]);
+      const top = api.coord([xValue, value]);
+      const width = getAlignedBarWidth(api);
+      const shape = echarts.graphic.clipRectByRect({
+        x: top[0] - (width / 2),
+        y: Math.min(top[1], bottom[1]),
+        width,
+        height: Math.abs(bottom[1] - top[1])
+      }, params.coordSys);
+      return shape ? { type: 'rect', shape, style: api.style() } : null;
+    };
     this.periodSummaries = new Map(data.map((row) => {
       const date = grouping === "date" ? row.date : this.mapToDate(grouping, row.date);
       return [Date.parse(date), {
@@ -150,8 +176,10 @@ export default class CTLChartView {
       series.push({
         id: 'load-tss',
         name: 'TSS',
-        type: 'bar',
-        showSymbol: false,
+        type: 'custom',
+        coordinateSystem: 'cartesian2d',
+        encode: { x: 0, y: 1 },
+        renderItem: renderTssBar,
         yAxisIndex: 3,
         data: data.map(row => ({
           value: [row.date, row.tss ?? null]
@@ -210,8 +238,10 @@ export default class CTLChartView {
       series.push({
         id: 'load-tss',
         name: 'TSS',
-        type: 'bar',
-        showSymbol: false,
+        type: 'custom',
+        coordinateSystem: 'cartesian2d',
+        encode: { x: 0, y: 1 },
+        renderItem: renderTssBar,
         yAxisIndex: 3,
         data: data.map(row => ({
           value: [
@@ -226,12 +256,6 @@ export default class CTLChartView {
 
     const distributionRows = Array.isArray(distributionData?.data) ? distributionData.data : [];
     const showDistribution = distributionRows.some((row) => Number(row.activeSeconds) > 0);
-    const distributionPeriodMilliseconds = {
-      week: 7 * 24 * 60 * 60 * 1000,
-      month: 28 * 24 * 60 * 60 * 1000,
-      quarter: 90 * 24 * 60 * 60 * 1000,
-      year: 365 * 24 * 60 * 60 * 1000
-    }[grouping] || (7 * 24 * 60 * 60 * 1000);
     this.hasDistributionGrid = showDistribution;
     if (showDistribution) {
       series.push({
@@ -244,7 +268,7 @@ export default class CTLChartView {
         encode: { x: 0, y: [1, 2, 3, 4, 5, 6, 7] },
         renderItem: (params, api) => {
           const x = api.coord([api.value(0), 0])[0];
-          const width = Math.min(30, Math.max(7, api.size([distributionPeriodMilliseconds, 0])[0] * 0.55));
+          const width = getAlignedBarWidth(api);
           let cumulativePercent = 0;
           const children = [];
           POWER_DISTRIBUTION_ZONES.forEach((zone, zoneIndex) => {
@@ -293,6 +317,15 @@ export default class CTLChartView {
       ...new Set(series
         .map((item) => item.name))
     ];
+    const chartTimeBounds = findSeriesTimeBounds(series);
+    const sharedTimeAxis = {
+      type: 'time',
+      boundaryGap: [0, 0],
+      ...(chartTimeBounds ? {
+        min: chartTimeBounds.start,
+        max: chartTimeBounds.end
+      } : {})
+    };
     const option = {
       tooltip: {
         trigger: 'axis',
@@ -317,10 +350,10 @@ export default class CTLChartView {
         : { left: 92, right: 92, top: 58, bottom: 24 },
       xAxis: showDistribution
         ? [
-            { id: 'load-time-axis', type: 'time', gridIndex: 0, show: false },
-            { id: 'distribution-time-axis', type: 'time', gridIndex: 1, axisLabel: { fontSize: 10 }, axisTick: { show: false } }
+            { id: 'load-time-axis', ...sharedTimeAxis, gridIndex: 0, show: false },
+            { id: 'distribution-time-axis', ...sharedTimeAxis, gridIndex: 1, axisLabel: { fontSize: 10 }, axisTick: { show: false } }
           ]
-        : { type: 'time', show: false },
+        : { ...sharedTimeAxis, show: false },
       yAxis,
       dataZoom: buildChartDataZoom({
         filterMode: "filter",
@@ -335,7 +368,7 @@ export default class CTLChartView {
 
     this.chart.clear();
     this.chart.setOption(option, { notMerge: true, lazyUpdate: false });
-    this.timeBounds = findSeriesTimeBounds(series);
+    this.timeBounds = chartTimeBounds;
     this.handlers?.onTimeBoundsChange?.(this.timeBounds);
   }
 
