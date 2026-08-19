@@ -75,7 +75,15 @@ test("load model renders power distribution as one replaceable zoomed series", (
   } finally {
     globalThis.echarts = originalEcharts;
   }
-  assert.deepEqual(option.legend.data, ["ATL_AVG", "CTL", "TSB", "TSS", "distributionLegend"]);
+  assert.deepEqual(option.legend[0].data, ["ATL_AVG", "CTL", "TSB", "TSS"]);
+  assert.deepEqual(option.legend[1].data, ["distributionLegend"]);
+  const loadGrid = option.grid.find((grid) => grid.id === "load-model-grid");
+  const distributionGrid = option.grid.find((grid) => grid.id === "distribution-grid");
+  const distributionTitle = option.title[1];
+  const distributionAxis = option.yAxis.find((axis) => axis.id === "distribution-zones-axis");
+  assert.equal(distributionAxis.name, undefined);
+  assert.ok(distributionTitle.top - (loadGrid.top + loadGrid.height) >= 39);
+  assert.ok(distributionGrid.top - distributionTitle.top >= 32);
   assert.deepEqual(option.dataZoom.map((zoom) => zoom.xAxisIndex), [[0, 1], [0, 1]]);
   assert.equal(option.series.some((series) => series.name === "Z4"), false);
   assert.deepEqual(
@@ -85,6 +93,10 @@ test("load model renders power distribution as one replaceable zoomed series", (
       { min: Date.parse("2026-08-01"), max: Date.parse("2026-08-01"), boundaryGap: [0, 0] }
     ]
   );
+  assert.equal(option.xAxis[0].show, true);
+  assert.equal(option.xAxis[0].axisLine.show, false);
+  assert.equal(option.xAxis[0].axisLabel.show, false);
+  assert.equal(option.xAxis[0].axisPointer.show, true);
 
   view.setTimeRange({ start: 1, end: 2 }, { start: 0, end: 3 });
   assert.deepEqual(calls.options[1].xAxis.map((axis) => axis.id), [

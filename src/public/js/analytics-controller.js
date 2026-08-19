@@ -174,6 +174,8 @@ export default class Controller {
       onTimeRangeChange: (range) => this.handleChartTimeRangeChange(range),
       onPeriodClick: (selection) => this.handleAnalysisPointClick(selection)
     });
+
+    echarts.connect([this.ctlChartView.chart, this.cpChartView.chart]);
   }
 
   initSharedGroupingControl() {

@@ -11,6 +11,9 @@ import { createTranslator, getCurrentLocale } from "./i18n.js";
 import { POWER_DISTRIBUTION_ZONES } from "../../shared/PowerDistribution.js";
 import { loadAnalyticsOverview } from "./analytics-overview-client.js";
 
+const LOAD_GRID = Object.freeze({ top: 58, height: 242 });
+const DISTRIBUTION_GRID = Object.freeze({ top: 377, height: 72 });
+
 export default class CTLChartView {
 
   constructor(containerId, handlers = {}) {
@@ -306,8 +309,6 @@ export default class CTLChartView {
         min: 0,
         max: 100,
         interval: 50,
-        name: this.t("distributionAxis"),
-        nameGap: 12,
         axisLabel: { formatter: '{value} %', fontSize: 10 },
         splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.16)' } }
       });
@@ -317,6 +318,18 @@ export default class CTLChartView {
       ...new Set(series
         .map((item) => item.name))
     ];
+    const legendSelected = Object.fromEntries(
+      [...this.legendNameToKey].map(([name, key]) => [name, this.seriesVisibility[key] !== false])
+    );
+    const loadLegend = {
+      id: 'load-model-legend',
+      type: 'scroll',
+      top: 2,
+      right: 24,
+      left: 138,
+      data: legendData.filter((name) => this.legendNameToKey.get(name) !== 'intensityDistribution'),
+      selected: legendSelected
+    };
     const chartTimeBounds = findSeriesTimeBounds(series);
     const sharedTimeAxis = {
       type: 'time',
@@ -326,34 +339,51 @@ export default class CTLChartView {
         max: chartTimeBounds.end
       } : {})
     };
+    const hiddenTimeAxisPresentation = {
+      show: true,
+      axisLine: { show: false },
+      axisLabel: { show: false },
+      axisTick: { show: false },
+      splitLine: { show: false },
+      axisPointer: { show: true }
+    };
     const option = {
       tooltip: {
         trigger: 'axis',
         formatter: (params) => this.formatTooltip(params)
       },
       animation: false,
-      legend: {
-        type: 'scroll',
-        data: legendData,
-        selected: Object.fromEntries(
-          [...this.legendNameToKey].map(([name, key]) => [
-            name,
-            this.seriesVisibility[key] !== false
-          ])
-        )
-      },
+      title: showDistribution
+        ? [
+            { text: this.t("loadModelEyebrow"), left: 24, top: 4, textStyle: { fontSize: 14, fontWeight: 600 } },
+            { text: this.t("distributionAxis"), left: 24, top: 339, textStyle: { fontSize: 14, fontWeight: 600 } }
+          ]
+        : { text: this.t("loadModelEyebrow"), left: 24, top: 4, textStyle: { fontSize: 14, fontWeight: 600 } },
+      legend: showDistribution
+        ? [
+            loadLegend,
+            {
+              id: 'distribution-legend',
+              top: 337,
+              right: 24,
+              left: 170,
+              data: [this.t("distributionLegend")],
+              selected: legendSelected
+            }
+          ]
+        : loadLegend,
       grid: showDistribution
         ? [
-            { id: 'load-model-grid', left: 92, right: 92, top: 58, height: 260 },
-            { id: 'distribution-grid', left: 92, right: 92, top: 350, height: 72 }
+            { id: 'load-model-grid', left: 92, right: 92, ...LOAD_GRID },
+            { id: 'distribution-grid', left: 92, right: 92, ...DISTRIBUTION_GRID }
           ]
         : { left: 92, right: 92, top: 58, bottom: 24 },
       xAxis: showDistribution
         ? [
-            { id: 'load-time-axis', ...sharedTimeAxis, gridIndex: 0, show: false },
-            { id: 'distribution-time-axis', ...sharedTimeAxis, gridIndex: 1, axisLabel: { fontSize: 10 }, axisTick: { show: false } }
+            { id: 'load-time-axis', ...sharedTimeAxis, ...hiddenTimeAxisPresentation, gridIndex: 0 },
+            { id: 'distribution-time-axis', ...sharedTimeAxis, gridIndex: 1, axisLabel: { fontSize: 10 }, axisTick: { show: false }, axisPointer: { show: true } }
           ]
-        : { ...sharedTimeAxis, show: false },
+        : { ...sharedTimeAxis, ...hiddenTimeAxisPresentation },
       yAxis,
       dataZoom: buildChartDataZoom({
         filterMode: "filter",
@@ -419,7 +449,15 @@ export default class CTLChartView {
       .find(([, seriesKey]) => seriesKey === key)?.[0];
     if (!legendName) return false;
     this.seriesVisibility[key] = visible;
-    this.chart.setOption({ legend: { selected: { [legendName]: visible } } });
+    const selected = { [legendName]: visible };
+    this.chart.setOption({
+      legend: this.hasDistributionGrid
+        ? [
+            { id: 'load-model-legend', selected },
+            { id: 'distribution-legend', selected }
+          ]
+        : { id: 'load-model-legend', selected }
+    });
     return true;
   }
 

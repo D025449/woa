@@ -14,7 +14,7 @@
     <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator_bootstrap5.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <link rel="stylesheet" href="/css/ui-system.css?v=atlas-blue-4">
-    <link rel="stylesheet" href="/css/analytics.css?v=atlas-blue-10">
+    <link rel="stylesheet" href="/css/analytics.css?v=atlas-blue-13">
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
@@ -91,17 +91,14 @@
 
                 <section id="analytics-workspace" class="analytics-workspace">
                 <div id="analytics-chart-grid" class="analytics-chart-grid analytics-chart-grid--timeline">
-                    <article class="analytics-surface ui-surface ui-surface--gradient analytics-grid-panel">
-                        <div class="analytics-section-header analytics-section-header--compact ui-section-header">
-                            <div class="analytics-compact-heading">
-                                <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.loadModelEyebrow") %></span>
-                                <span class="analytics-heading-separator" aria-hidden="true">&middot;</span>
-                                <h2 class="analytics-section-title ui-title"><%= t("analyticsPage.loadModelTitle") %></h2>
-                            </div>
+                    <article class="analytics-surface ui-surface ui-surface--gradient analytics-grid-panel analytics-combined-chart-panel">
+                        <div class="analytics-body analytics-body--load-model">
+                            <div id="ctl-chart"></div>
                         </div>
 
+                        <div class="analytics-combined-chart-divider" aria-hidden="true"></div>
                         <div class="analytics-body">
-                            <div id="ctl-chart"></div>
+                            <div id="cp-chart"></div>
                         </div>
                     </article>
 
@@ -135,19 +132,6 @@
                         </div>
                     </article>
 
-                    <article class="analytics-surface ui-surface ui-surface--gradient analytics-grid-panel">
-                        <div class="analytics-section-header analytics-section-header--compact ui-section-header">
-                            <div class="analytics-compact-heading">
-                                <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.powerCurveEyebrow") %></span>
-                                <span class="analytics-heading-separator" aria-hidden="true">&middot;</span>
-                                <h2 class="analytics-section-title ui-title"><%= t("analyticsPage.powerCurveTitle") %></h2>
-                            </div>
-                        </div>
-
-                        <div class="analytics-body">
-                            <div id="cp-chart"></div>
-                        </div>
-                    </article>
                 </div>
 
                 <div id="analytics-detail-column" class="analytics-detail-column">

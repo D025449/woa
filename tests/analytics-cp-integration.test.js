@@ -12,6 +12,9 @@ test("analytics hides only the legacy FTP panel", async () => {
   assert.ok(articleFor("ctl-chart"));
   assert.ok(articleFor("ftp-chart"));
   assert.ok(articleFor("cp-chart"));
+  assert.equal(articleFor("ctl-chart"), articleFor("cp-chart"));
+  assert.match(markup, /analytics-body--load-model/u);
+  assert.match(markup, /analytics-combined-chart-divider/u);
   assert.doesNotMatch(articleFor("ctl-chart")[1], /\bhidden\b/u);
   assert.match(articleFor("ftp-chart")[1], /\bhidden\b/u);
   assert.doesNotMatch(articleFor("cp-chart")[1], /\bhidden\b/u);
@@ -58,6 +61,7 @@ test("analytics displays and persists one slider-controlled range for both chart
   assert.match(controller, /scheduleAnalyticsPreferenceSave/u);
   assert.match(loadChart, /onTimeRangeChange/u);
   assert.match(powerChart, /onTimeRangeChange/u);
+  assert.match(controller, /echarts\.connect\(\[this\.ctlChartView\.chart, this\.cpChartView\.chart\]\)/u);
   assert.match(loadChart, /formatAnalysisPeriodValue/u);
   assert.match(powerChart, /formatAnalysisPeriodValue/u);
   assert.match(loadChart, /slider: \{ show: false \}/u);
@@ -138,6 +142,8 @@ test("load model integrates the grouped power distribution on its shared time ax
   assert.match(chartSource, /echarts\.graphic\.clipRectByRect/u);
   assert.match(chartSource, /xAxisIndex: showDistribution \? \[0, 1\] : 0/u);
   assert.match(chartSource, /axisPointer: showDistribution/u);
+  assert.match(chartSource, /id: 'load-model-legend'/u);
+  assert.match(chartSource, /id: 'distribution-legend'/u);
   assert.match(preferenceSource, /"intensityDistribution"/u);
 });
 

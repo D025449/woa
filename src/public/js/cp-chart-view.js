@@ -8,7 +8,7 @@ import {
   formatAnalysisPeriodValue,
   getISOWeekStartDate
 } from "./analytics-period.js";
-import { getCurrentLocale } from "./i18n.js";
+import { createTranslator, getCurrentLocale } from "./i18n.js";
 import { loadAnalyticsOverview } from "./analytics-overview-client.js";
 
 function formatCPDuration(durationSeconds) {
@@ -22,6 +22,7 @@ export default class CPChartView {
   constructor(containerId, handlers = {}) {
     this.chart = echarts.init(document.getElementById(containerId));
     this.handlers = handlers;
+    this.t = createTranslator("analyticsPage");
     this.locale = getCurrentLocale();
 
     this.currentGrouping = handlers.preferences?.grouping || 'year';
@@ -139,13 +140,23 @@ export default class CPChartView {
 
     const option = {
       animation: false,
+      title: {
+        text: this.t("powerCurveEyebrow"),
+        left: 24,
+        top: 4,
+        textStyle: { fontSize: 14, fontWeight: 600 }
+      },
       tooltip: {
         trigger: 'axis',
         formatter: (params) => this.formatTooltip(params)
       },
 
       legend: {
+        id: 'critical-power-legend',
         type: 'scroll',
+        top: 2,
+        right: 24,
+        left: 138,
         selected: Object.fromEntries(
           [...this.legendNameToKey].map(([name, key]) => [
             name,
@@ -160,7 +171,8 @@ export default class CPChartView {
       ],
 
       xAxis: {
-        type: 'time'
+        type: 'time',
+        axisPointer: { show: true }
       },
 
       grid: {

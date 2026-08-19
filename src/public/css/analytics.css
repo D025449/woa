@@ -227,6 +227,31 @@ body.analytics-page.has-fixed-app-topbar .analytics-compact-heading .analytics-s
     opacity: 0.72;
 }
 
+.analytics-combined-chart-panel {
+    overflow: hidden;
+}
+
+.analytics-combined-chart-divider {
+    height: 1px;
+    margin: 0 1.5rem;
+    background: var(--ui-chip-border-soft);
+}
+
+.analytics-body--load-model {
+    position: relative;
+}
+
+.analytics-body--load-model::after {
+    position: absolute;
+    top: 327px;
+    right: 1.5rem;
+    left: 1.5rem;
+    height: 1px;
+    background: var(--ui-chip-border-soft);
+    content: "";
+    pointer-events: none;
+}
+
 .analytics-body {
     padding: 0;
 }
