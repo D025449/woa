@@ -11,6 +11,10 @@ import EntitlementService from "../services/entitlementService.js";
 import TrainingFeedDBService from "../services/trainingFeedDBService.js";
 import TrainingActivityDBService from "../services/trainingActivityDBService.js";
 import {
+  analyticsOverviewCache,
+  invalidateAnalyticsOverviewCache
+} from "../services/analyticsOverviewCache.js";
+import {
   buildManualActivityArchiveManifest,
   buildManualActivityDocument,
   manualActivityFileName
@@ -202,6 +206,7 @@ router.get("/workouts", authMiddleware, async (req, res, next) => {
 router.post("/training-activities", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const activity = await TrainingActivityDBService.create(req.user.id, req.body || {});
+    invalidateAnalyticsOverviewCache(req.user.id);
     return res.status(201).json({ activity });
   } catch (err) {
     if (err?.statusCode) return res.status(err.statusCode).json({ error: err.message });
@@ -262,6 +267,9 @@ router.post("/training-activities/import", authMiddleware, requireActiveAccountW
       req.body?.activities,
       req.body?.overwriteExisting === true
     );
+    if (result.createdCount > 0 || result.updatedCount > 0) {
+      invalidateAnalyticsOverviewCache(req.user.id);
+    }
     return res.status(201).json({ result });
   } catch (err) {
     if (err?.statusCode) return res.status(err.statusCode).json({ error: err.message });
@@ -300,6 +308,7 @@ router.put("/training-activities/:id", authMiddleware, requireActiveAccountWrite
   try {
     const activity = await TrainingActivityDBService.update(req.user.id, req.params.id, req.body || {});
     if (!activity) return res.status(404).json({ error: "Training activity not found" });
+    invalidateAnalyticsOverviewCache(req.user.id);
     return res.json({ activity });
   } catch (err) {
     if (err?.statusCode) return res.status(err.statusCode).json({ error: err.message });
@@ -315,6 +324,7 @@ router.post("/training-activities/:id/copies", authMiddleware, requireActiveAcco
       req.body?.targetStartTimes
     );
     if (!result) return res.status(404).json({ error: "Training activity not found" });
+    if (result.created.length > 0) invalidateAnalyticsOverviewCache(req.user.id);
     return res.status(201).json({
       createdCount: result.created.length,
       createdIds: result.created.map((activity) => activity.id),
@@ -332,6 +342,7 @@ router.delete("/training-activities/:id", authMiddleware, requireActiveAccountWr
   try {
     const activity = await TrainingActivityDBService.delete(req.user.id, req.params.id);
     if (!activity) return res.status(404).json({ error: "Training activity not found" });
+    invalidateAnalyticsOverviewCache(req.user.id);
     return res.json({ ok: true, id: activity.id });
   } catch (err) {
     if (err?.statusCode) return res.status(err.statusCode).json({ error: err.message });
@@ -399,6 +410,20 @@ router.get("/analytics-overview", authMiddleware, async (req, res, next) => {
     const cpGrouping = ANALYTICS_GROUPINGS[grouping];
     const uid = req.user?.id;
     const timings = {};
+    const acceptsGzip = /(?:^|,)\s*gzip\s*(?:,|$)/iu.test(req.get("accept-encoding") || "");
+    const cacheRevision = analyticsOverviewCache.revision(uid);
+    const cacheStartedAt = performance.now();
+    const cachedBody = acceptsGzip ? analyticsOverviewCache.get(uid, grouping) : null;
+    timings.cache = performance.now() - cacheStartedAt;
+    if (cachedBody) {
+      res.set("Server-Timing", `cache;desc=hit;dur=${timings.cache.toFixed(1)}`);
+      res.set("X-Analytics-Cache", "HIT");
+      res.set("Content-Type", "application/vnd.cwa24.analytics-overview-v1");
+      res.set("Content-Encoding", "gzip");
+      res.set("Cache-Control", "private, no-store");
+      res.set("Vary", "Accept-Encoding");
+      return res.send(cachedBody);
+    }
     const timed = async (key, operation) => {
       const startedAt = performance.now();
       try {
@@ -426,17 +451,22 @@ router.get("/analytics-overview", authMiddleware, async (req, res, next) => {
     });
     timings.encode = performance.now() - encodeStartedAt;
 
-    const acceptsGzip = /(?:^|,)\s*gzip\s*(?:,|$)/iu.test(req.get("accept-encoding") || "");
     const compressionStartedAt = performance.now();
     const body = acceptsGzip
       ? await gzipAsync(encoded, { level: 6 })
       : Buffer.from(encoded);
     timings.compress = performance.now() - compressionStartedAt;
+    if (acceptsGzip) analyticsOverviewCache.set(uid, grouping, body, cacheRevision);
 
-    res.set("Server-Timing", Object.entries(timings)
-      .map(([key, duration]) => `${key};dur=${duration.toFixed(1)}`)
-      .join(", "));
+    res.set("Server-Timing", [
+      `cache;desc=${acceptsGzip ? "miss" : "bypass"};dur=${timings.cache.toFixed(1)}`,
+      ...Object.entries(timings)
+        .filter(([key]) => key !== "cache")
+        .map(([key, duration]) => `${key};dur=${duration.toFixed(1)}`)
+    ].join(", "));
+    res.set("X-Analytics-Cache", acceptsGzip ? "MISS" : "BYPASS");
     res.set("Content-Type", "application/vnd.cwa24.analytics-overview-v1");
+    res.set("Cache-Control", "private, no-store");
     res.set("Vary", "Accept-Encoding");
     if (acceptsGzip) res.set("Content-Encoding", "gzip");
     return res.send(body);

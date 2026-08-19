@@ -7,6 +7,7 @@ import { normalizeIntensityTags } from "../shared/WorkoutIntensityTags.js";
 import { buildRollingFtpSnapshots, groupRollingFtpSnapshots } from "../shared/RollingFtpTrend.js";
 import { encodePowerHistogram } from "../shared/PowerHistogramCodec.js";
 import { aggregatePowerDistribution } from "../shared/PowerDistribution.js";
+import { invalidateAnalyticsOverviewCache } from "./analyticsOverviewCache.js";
 
 const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
@@ -586,6 +587,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       [workoutId, uid]
     );
 
+    if (result.rowCount > 0) invalidateAnalyticsOverviewCache(uid);
 
     return result;
 
@@ -615,6 +617,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       `,
       [uid, normalizedIds]
     );
+    if (result.rowCount > 0) invalidateAnalyticsOverviewCache(uid);
 
     return {
       rowCount: result.rowCount,
@@ -1764,6 +1767,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       errorMessage
     ]);
     const queryMs = performance.now() - queryStartedAt;
+    if (segmentCount > 0) invalidateAnalyticsOverviewCache(uid);
 
     return {
       insertedCount: segmentCount,
@@ -2544,6 +2548,9 @@ RETURNING id, uid, start_time;
       });
 
       if (transactionalOverwrite) await client.query("COMMIT");
+      if (result.rowCount > 0 || options?.overwriteExisting) {
+        invalidateAnalyticsOverviewCache(preparedItems[0]?.fileRow?.uid);
+      }
       return {
         insertedRows,
         existingRowsByKey,
@@ -2675,6 +2682,7 @@ RETURNING id, uid;
         status: "completed",
         workoutId: result.rows[0]?.id
       });
+      invalidateAnalyticsOverviewCache(fileRow.uid);
 
       return {
         ...result.rows[0],

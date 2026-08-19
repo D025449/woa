@@ -1,4 +1,5 @@
 import { FileDBService } from "./fileDBService.js";
+import { invalidateAnalyticsOverviewCache } from "./analyticsOverviewCache.js";
 
 const SEGMENT_TYPES = new Map([
   [1, "auto"],
@@ -170,6 +171,7 @@ export async function persistWorkoutLocalPostprocess({
     profile.updateStatusMs = performance.now() - stepStartedAt;
 
     await client.query("COMMIT");
+    invalidateAnalyticsOverviewCache(uid);
     profile.transactionMs = performance.now() - transactionStartedAt;
     return {
       workoutCount: workoutSegments.length,
