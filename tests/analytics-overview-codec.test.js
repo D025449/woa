@@ -42,8 +42,8 @@ function buildFixture() {
     cpRows: [{
       grp: 202607,
       duration: 60,
-      best_effort_avg_power: 418.25,
-      best_effort_avg_heart_rate: 174.5,
+      best_effort_avg_power: 418.4,
+      best_effort_avg_heart_rate: 174.6,
       best_effort_avg_cadence: 101.25,
       best_effort_avg_speed: 42.75,
       best_effort_file_id: "74548",
@@ -76,13 +76,21 @@ test("analytics overview binary codec preserves the chart contract", () => {
     tsb_avg: -8,
     atl_avg: 57
   });
-  assert.equal(decoded.powerDistribution.data[0].zoneSeconds.z3, 300);
-  assert.equal(decoded.powerDistribution.data[0].zonePercentages.z3, 30);
+  assert.equal(decoded.powerDistribution.data[0].zoneSeconds.z3, 302);
+  assert.ok(Math.abs(decoded.powerDistribution.data[0].zonePercentages.z3 - 30) < 0.2);
+  assert.equal(
+    Math.round(Object.values(decoded.powerDistribution.data[0].zonePercentages)
+      .reduce((sum, value) => sum + value, 0)),
+    100
+  );
   assert.equal(decoded.powerCurve.grouping, "year_month");
   assert.deepEqual(decoded.powerCurve.durations, durations);
 
   const cp = decoded.powerCurve.data["202607"].CP60;
-  assert.equal(cp.power, 418.25);
+  assert.equal(cp.power, 418);
+  assert.equal(cp.heartRate, 175);
+  assert.equal("cadence" in cp, false);
+  assert.equal("speed" in cp, false);
   assert.equal(cp.fileId, "74548");
   assert.equal(cp.startOffset, 120);
   assert.equal(cp.endOffset, 179);

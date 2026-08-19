@@ -1,13 +1,16 @@
 import { POWER_DISTRIBUTION_ZONES } from "./PowerDistribution.js";
 
 const MAGIC = Object.freeze([0x41, 0x4f, 0x56, 0x31]); // AOV1
-const VERSION = 1;
+const VERSION = 3;
 const HEADER_BYTES = 24;
-const LOAD_ROW_BYTES = 24;
-const DISTRIBUTION_ROW_BYTES = 60;
-const CP_ROW_BYTES = 44;
-const FTP_ROW_BYTES = 16;
+const LOAD_ROW_BYTES = 14;
+const DISTRIBUTION_ROW_BYTES = 39;
+const CP_ROW_BYTES = 29;
+const FTP_ROW_BYTES = 13;
 const UINT32_NULL = 0xffffffff;
+const UINT16_NULL = 0xffff;
+const UINT8_NULL = 0xff;
+const INT16_NULL = -0x8000;
 const FIT_EPOCH_MS = Date.UTC(1989, 11, 31, 0, 0, 0);
 
 const GROUPINGS = Object.freeze({
@@ -40,6 +43,13 @@ function unsignedNumber(value, nullValue = UINT32_NULL) {
     : nullValue;
 }
 
+function signedInt16Number(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number > INT16_NULL && number <= 0x7fff
+    ? number
+    : INT16_NULL;
+}
+
 function fitTimestampSeconds(value) {
   if (value == null) return UINT32_NULL;
   const timestamp = value instanceof Date ? value.getTime() : Date.parse(value);
@@ -57,18 +67,43 @@ function isoTimestampFromFitSeconds(value) {
     : new Date(FIT_EPOCH_MS + (value * 1000)).toISOString();
 }
 
-function writeFloat32(view, offset, value) {
-  view.setFloat32(offset, finiteNumber(value), true);
-  return offset + 4;
+function readUint16(view, offset) {
+  const value = view.getUint16(offset, true);
+  return value === UINT16_NULL ? null : value;
 }
 
-function readFloat32(view, offset) {
-  const value = view.getFloat32(offset, true);
-  return Number.isFinite(value) ? value : null;
+function readUint8(view, offset) {
+  const value = view.getUint8(offset);
+  return value === UINT8_NULL ? null : value;
+}
+
+function readInt16(view, offset) {
+  const value = view.getInt16(offset, true);
+  return value === INT16_NULL ? null : value;
 }
 
 function validateRows(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function quantizeZonePercentages(row) {
+  const activeSeconds = Number(row.activeSeconds);
+  if (!(activeSeconds > 0)) return new Uint8Array(POWER_DISTRIBUTION_ZONES.length);
+
+  const shares = POWER_DISTRIBUTION_ZONES.map(({ key }, index) => {
+    const exact = Math.max(0, Number(row.zoneSeconds?.[key]) || 0) * UINT8_NULL / activeSeconds;
+    const base = Math.floor(exact);
+    return { index, base, remainder: exact - base };
+  });
+  let remaining = UINT8_NULL - shares.reduce((sum, share) => sum + share.base, 0);
+  shares.sort((left, right) => right.remainder - left.remainder || left.index - right.index);
+  for (let index = 0; index < shares.length && remaining > 0; index += 1, remaining -= 1) {
+    shares[index].base += 1;
+  }
+
+  const quantized = new Uint8Array(POWER_DISTRIBUTION_ZONES.length);
+  for (const share of shares) quantized[share.index] = share.base;
+  return quantized;
 }
 
 export function encodeAnalyticsOverview({
@@ -116,11 +151,12 @@ export function encodeAnalyticsOverview({
   for (const row of loadRows) {
     view.setUint32(offset, periodNumber(row.date), true);
     offset += 4;
-    offset = writeFloat32(view, offset, row.tss_sum);
-    offset = writeFloat32(view, offset, row.ctl_start);
-    offset = writeFloat32(view, offset, row.ctl_end);
-    offset = writeFloat32(view, offset, row.tsb_avg);
-    offset = writeFloat32(view, offset, row.atl_avg);
+    view.setUint16(offset, unsignedNumber(row.tss_sum, UINT16_NULL), true);
+    view.setUint16(offset + 2, unsignedNumber(row.ctl_start, UINT16_NULL), true);
+    view.setUint16(offset + 4, unsignedNumber(row.ctl_end, UINT16_NULL), true);
+    view.setInt16(offset + 6, signedInt16Number(row.tsb_avg), true);
+    view.setUint16(offset + 8, unsignedNumber(row.atl_avg, UINT16_NULL), true);
+    offset += 10;
   }
 
   for (const row of distributions) {
@@ -138,40 +174,37 @@ export function encodeAnalyticsOverview({
       view.setUint32(offset, unsignedNumber(value, UINT32_NULL), true);
       offset += 4;
     }
-    for (const { key } of POWER_DISTRIBUTION_ZONES) {
-      view.setUint32(offset, unsignedNumber(row.zoneSeconds?.[key], UINT32_NULL), true);
-      offset += 4;
-    }
+    bytes.set(quantizeZonePercentages(row), offset);
+    offset += POWER_DISTRIBUTION_ZONES.length;
   }
 
   for (const row of criticalPowers) {
     view.setUint32(offset, periodNumber(row.grp), true);
-    view.setUint16(offset + 4, unsignedNumber(row.duration, 0xffff), true);
-    view.setUint16(offset + 6, 0, true);
-    offset += 8;
-    offset = writeFloat32(view, offset, row.best_effort_avg_power);
-    offset = writeFloat32(view, offset, row.best_effort_avg_heart_rate);
-    offset = writeFloat32(view, offset, row.best_effort_avg_cadence);
-    offset = writeFloat32(view, offset, row.best_effort_avg_speed);
-    view.setFloat64(offset, finiteNumber(row.best_effort_file_id), true);
-    offset += 8;
-    view.setUint32(offset, unsignedNumber(row.start_offset), true);
-    view.setUint32(offset + 4, unsignedNumber(row.end_offset), true);
-    offset += 8;
-    view.setUint32(offset, fitTimestampSeconds(row.start_time), true);
-    offset += 4;
+    view.setUint16(offset + 4, unsignedNumber(row.duration, UINT16_NULL), true);
+    view.setUint16(
+      offset + 6,
+      unsignedNumber(Math.round(Number(row.best_effort_avg_power)), UINT16_NULL),
+      true
+    );
+    view.setUint8(
+      offset + 8,
+      unsignedNumber(Math.round(Number(row.best_effort_avg_heart_rate)), UINT8_NULL)
+    );
+    view.setFloat64(offset + 9, finiteNumber(row.best_effort_file_id), true);
+    view.setUint32(offset + 17, unsignedNumber(row.start_offset), true);
+    view.setUint32(offset + 21, unsignedNumber(row.end_offset), true);
+    view.setUint32(offset + 25, fitTimestampSeconds(row.start_time), true);
+    offset += CP_ROW_BYTES;
   }
 
   for (const row of rollingFtp) {
     view.setUint32(offset, periodNumber(row.period), true);
     offset += 4;
-    offset = writeFloat32(view, offset, row.ftp);
-    view.setUint16(offset, unsignedNumber(row.confidence, 0xffff), true);
-    view.setUint8(offset + 2, unsignedNumber(row.modelPointCount, 0xff));
-    view.setUint8(offset + 3, 0);
-    offset += 4;
-    view.setUint32(offset, fitTimestampSeconds(row.startTime), true);
-    offset += 4;
+    view.setUint16(offset, unsignedNumber(Math.round(Number(row.ftp)), UINT16_NULL), true);
+    view.setUint16(offset + 2, unsignedNumber(row.confidence, UINT16_NULL), true);
+    view.setUint8(offset + 4, unsignedNumber(row.modelPointCount, UINT8_NULL));
+    view.setUint32(offset + 5, fitTimestampSeconds(row.startTime), true);
+    offset += 9;
   }
 
   return bytes;
@@ -219,11 +252,11 @@ export function decodeAnalyticsOverview(input) {
   for (let index = 0; index < loadCount; index += 1) {
     loadModelRows.push({
       date: String(view.getUint32(offset, true)),
-      tss_sum: readFloat32(view, offset + 4),
-      ctl_start: readFloat32(view, offset + 8),
-      ctl_end: readFloat32(view, offset + 12),
-      tsb_avg: readFloat32(view, offset + 16),
-      atl_avg: readFloat32(view, offset + 20)
+      tss_sum: readUint16(view, offset + 4),
+      ctl_start: readUint16(view, offset + 6),
+      ctl_end: readUint16(view, offset + 8),
+      tsb_avg: readInt16(view, offset + 10),
+      atl_avg: readUint16(view, offset + 12)
     });
     offset += LOAD_ROW_BYTES;
   }
@@ -236,8 +269,11 @@ export function decodeAnalyticsOverview(input) {
       values.push(view.getUint32(offset + 4 + (valueIndex * 4), true));
     }
     const zoneSeconds = {};
+    const zonePercentages = {};
     POWER_DISTRIBUTION_ZONES.forEach(({ key }, zoneIndex) => {
-      zoneSeconds[key] = view.getUint32(offset + 32 + (zoneIndex * 4), true);
+      const quantized = view.getUint8(offset + 32 + zoneIndex);
+      zonePercentages[key] = (quantized / UINT8_NULL) * 100;
+      zoneSeconds[key] = Math.round((values[3] * quantized) / UINT8_NULL);
     });
     const activeSeconds = values[3];
     distributionRows.push({
@@ -250,10 +286,7 @@ export function decodeAnalyticsOverview(input) {
       missingSeconds: values[5],
       unclassifiedSeconds: values[6],
       zoneSeconds,
-      zonePercentages: Object.fromEntries(POWER_DISTRIBUTION_ZONES.map(({ key }) => [
-        key,
-        activeSeconds > 0 ? (zoneSeconds[key] / activeSeconds) * 100 : 0
-      ]))
+      zonePercentages
     });
     offset += DISTRIBUTION_ROW_BYTES;
   }
@@ -262,19 +295,17 @@ export function decodeAnalyticsOverview(input) {
   for (let index = 0; index < cpCount; index += 1) {
     const period = String(view.getUint32(offset, true));
     const duration = view.getUint16(offset + 4, true);
-    const fileId = view.getFloat64(offset + 24, true);
-    const startOffset = view.getUint32(offset + 32, true);
-    const endOffset = view.getUint32(offset + 36, true);
+    const fileId = view.getFloat64(offset + 9, true);
+    const startOffset = view.getUint32(offset + 17, true);
+    const endOffset = view.getUint32(offset + 21, true);
     if (!powerCurveData[period]) powerCurveData[period] = {};
     powerCurveData[period][`CP${duration}`] = {
-      power: readFloat32(view, offset + 8),
-      heartRate: readFloat32(view, offset + 12),
-      cadence: readFloat32(view, offset + 16),
-      speed: readFloat32(view, offset + 20),
+      power: readUint16(view, offset + 6),
+      heartRate: readUint8(view, offset + 8),
       fileId: Number.isFinite(fileId) ? String(Math.trunc(fileId)) : null,
       startOffset: startOffset === UINT32_NULL ? null : startOffset,
       endOffset: endOffset === UINT32_NULL ? null : endOffset,
-      startTime: isoTimestampFromFitSeconds(view.getUint32(offset + 40, true))
+      startTime: isoTimestampFromFitSeconds(view.getUint32(offset + 25, true))
     };
     offset += CP_ROW_BYTES;
   }
@@ -282,13 +313,13 @@ export function decodeAnalyticsOverview(input) {
   for (let index = 0; index < ftpCount; index += 1) {
     const period = String(view.getUint32(offset, true));
     if (!powerCurveData[period]) powerCurveData[period] = {};
-    const confidence = view.getUint16(offset + 8, true);
-    const modelPointCount = view.getUint8(offset + 10);
+    const confidence = view.getUint16(offset + 6, true);
+    const modelPointCount = view.getUint8(offset + 8);
     powerCurveData[period].eFTP = {
-      power: Math.round(readFloat32(view, offset + 4)),
-      confidence: confidence === 0xffff ? null : confidence,
-      modelPointCount: modelPointCount === 0xff ? null : modelPointCount,
-      startTime: isoTimestampFromFitSeconds(view.getUint32(offset + 12, true))
+      power: readUint16(view, offset + 4),
+      confidence: confidence === UINT16_NULL ? null : confidence,
+      modelPointCount: modelPointCount === UINT8_NULL ? null : modelPointCount,
+      startTime: isoTimestampFromFitSeconds(view.getUint32(offset + 9, true))
     };
     offset += FTP_ROW_BYTES;
   }
