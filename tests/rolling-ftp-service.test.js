@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import pool from "../src/services/database.js";
 import { FileDBService } from "../src/services/fileDBService.js";
 
 test("coalesces concurrent rolling FTP snapshot calculations per user", async () => {
@@ -29,5 +30,24 @@ test("coalesces concurrent rolling FTP snapshot calculations per user", async ()
     assert.equal(loadCount, 2);
   } finally {
     FileDBService.getRollingFtpEffortRows = originalLoader;
+  }
+});
+
+test("loads one pivoted rolling FTP effort row per workout", async () => {
+  const originalQuery = pool.query;
+  let captured;
+  pool.query = async (sql, values) => {
+    captured = { sql, values };
+    return { rows: [{ workout_id: 1, power_360: 300 }] };
+  };
+
+  try {
+    const rows = await FileDBService.getRollingFtpEffortRows(77);
+    assert.deepEqual(rows, [{ workout_id: 1, power_360: 300 }]);
+    assert.match(captured.sql, /MAX\(s\.avg_power\) FILTER \(WHERE s\.duration = 360\) AS power_360/u);
+    assert.match(captured.sql, /GROUP BY w\.id/u);
+    assert.deepEqual(captured.values, [77, [360, 480, 720, 900, 960]]);
+  } finally {
+    pool.query = originalQuery;
   }
 });

@@ -341,15 +341,19 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
         w.year_quarter,
         w.year_month,
         w.year_week,
-        s.duration,
-        s.avg_power
+        MAX(s.avg_power) FILTER (WHERE s.duration = 360) AS power_360,
+        MAX(s.avg_power) FILTER (WHERE s.duration = 480) AS power_480,
+        MAX(s.avg_power) FILTER (WHERE s.duration = 720) AS power_720,
+        MAX(s.avg_power) FILTER (WHERE s.duration = 900) AS power_900,
+        MAX(s.avg_power) FILTER (WHERE s.duration = 960) AS power_960
       FROM workouts w
       INNER JOIN workout_segments s ON s.wid = w.id
       WHERE w.uid = $1
         AND s.segmenttype = 'crit'
         AND s.duration = ANY($2::int[])
         AND s.avg_power IS NOT NULL
-      ORDER BY w.start_time, w.id, s.duration
+      GROUP BY w.id
+      ORDER BY w.start_time, w.id
     `, [uid, [360, 480, 720, 900, 960]]);
 
     return result.rows;

@@ -98,6 +98,25 @@ test("fits the rolling FTP estimate across five power-duration points", () => {
   assert.ok(Math.abs(snapshots[0].ftp - expectedFtp) < 0.01);
 });
 
+test("accepts one pivoted effort row per workout", () => {
+  const powers = { 360: 340, 480: 330, 720: 310, 900: 300, 960: 295 };
+  const longRows = modelEffortRows(1, "2026-07-01", powers);
+  const wideRow = {
+    ...longRows[0],
+    duration: undefined,
+    avg_power: undefined,
+    ...Object.fromEntries(Object.entries(powers).map(([duration, power]) => [
+      `power_${duration}`,
+      power
+    ]))
+  };
+
+  assert.deepEqual(
+    buildRollingFtpSnapshots([wideRow]),
+    buildRollingFtpSnapshots(longRows)
+  );
+});
+
 test("downweights a short-duration outlier in the multi-point FTP fit", () => {
   const powerAt = (duration) => 510 - (35 * Math.log(duration));
   const powers = Object.fromEntries(

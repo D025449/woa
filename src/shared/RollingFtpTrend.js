@@ -143,13 +143,8 @@ function normalizeEfforts(rows) {
 
   for (const row of Array.isArray(rows) ? rows : []) {
     const workoutId = Number(row.workout_id);
-    const duration = Number(row.duration);
-    const power = Number(row.avg_power);
     const timestamp = new Date(row.start_time).getTime();
     if (!Number.isInteger(workoutId)
-      || !FTP_EFFORT_DURATIONS.includes(duration)
-      || !Number.isFinite(power)
-      || power <= 0
       || !Number.isFinite(timestamp)) {
       continue;
     }
@@ -171,7 +166,15 @@ function normalizeEfforts(rows) {
       workouts.set(workoutId, workout);
     }
 
-    workout.powers.set(duration, Math.max(power, workout.powers.get(duration) || 0));
+    const rowDuration = Number(row.duration);
+    const effortPairs = FTP_EFFORT_DURATIONS.includes(rowDuration)
+      ? [[rowDuration, row.avg_power]]
+      : FTP_EFFORT_DURATIONS.map((duration) => [duration, row[`power_${duration}`]]);
+    for (const [duration, rawPower] of effortPairs) {
+      const power = Number(rawPower);
+      if (!Number.isFinite(power) || power <= 0) continue;
+      workout.powers.set(duration, Math.max(power, workout.powers.get(duration) || 0));
+    }
   }
 
   return [...workouts.values()].sort((left, right) => {
