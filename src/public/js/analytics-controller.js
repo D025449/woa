@@ -1,7 +1,7 @@
 import MapView from "./map-view.js";
-import CPChartView from "./cp-chart-view.js?v=atlas-blue-19";
+import CPChartView from "./cp-chart-view.js?v=atlas-blue-20";
 import FTPChartView from "./ftp-chart-view.js";
-import CTLChartView from "./ctl-chart-view.js?v=atlas-blue-19";
+import CTLChartView from "./ctl-chart-view.js?v=atlas-blue-20";
 import ChartView from "./chart-view.js";
 import WorkoutService from "./workout-service.js";
 import ViewPreferenceService from "./view-preference-service.js";
@@ -14,8 +14,9 @@ import {
   resolveAnalyticsTimeRange,
   resolveRelativeAnalyticsRange,
   selectRelativePeriodTimestamp,
+  snapAnalyticsRangeToGrouping,
   toDateInputValue
-} from "./analytics-time-range.js";
+} from "./analytics-time-range.js?v=atlas-blue-20";
 import {
   formatAnalysisPeriod,
   mapSharedGrouping,
@@ -263,9 +264,23 @@ export default class Controller {
 
   async setSharedGrouping(value) {
     const grouping = mapSharedGrouping(value);
+    const currentRange = resolveAnalyticsTimeRange(
+      this.analyticsPreferences.timeRange,
+      this.getSharedDisplayBounds()
+    );
+    const snappedRange = this.analyticsPreferences.timeRange?.mode === "custom"
+      ? snapAnalyticsRangeToGrouping(currentRange, grouping.shared)
+      : null;
     this.analyticsPreferences = {
       ...this.analyticsPreferences,
       grouping: grouping.shared,
+      ...(snappedRange ? {
+        timeRange: {
+          mode: "custom",
+          start: toDateInputValue(snappedRange.start),
+          end: toDateInputValue(snappedRange.end)
+        }
+      } : {}),
       loadModel: { ...this.analyticsPreferences.loadModel, grouping: grouping.loadModel },
       powerCurve: { ...this.analyticsPreferences.powerCurve, grouping: grouping.powerCurve }
     };
@@ -948,8 +963,15 @@ export default class Controller {
     };
   }
 
+  getSharedDisplayBounds() {
+    return snapAnalyticsRangeToGrouping(
+      this.getSharedTimeBounds(),
+      this.analyticsPreferences.grouping
+    );
+  }
+
   applySelectedTimeRange() {
-    const domain = this.getSharedTimeBounds();
+    const domain = this.getSharedDisplayBounds();
     const range = resolveAnalyticsTimeRange(
       this.analyticsPreferences.timeRange,
       domain
@@ -971,7 +993,7 @@ export default class Controller {
       ...this.analyticsPreferences,
       timeRange: { mode: "custom", start, end }
     };
-    const domain = this.getSharedTimeBounds();
+    const domain = this.getSharedDisplayBounds();
     this.cpChartView?.setTimeRange(range, domain);
     this.ctlChartView?.setTimeRange(range, domain);
     this.renderTimeRangeSummary(range);
@@ -982,7 +1004,7 @@ export default class Controller {
     if (!this.timeRangeSummaryElement) return;
     const range = resolvedRange || resolveAnalyticsTimeRange(
       this.analyticsPreferences.timeRange,
-      this.getSharedTimeBounds()
+      this.getSharedDisplayBounds()
     );
     if (!range) {
       this.timeRangeSummaryElement.textContent = "";

@@ -1,3 +1,5 @@
+import { resolveAnalysisPeriod } from "./analytics-period.js";
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function finiteTime(value) {
@@ -76,6 +78,23 @@ export function resolveAnalyticsTimeRange(preference, bounds) {
   }
 
   return { ...bounds };
+}
+
+export function snapAnalyticsRangeToGrouping(range, grouping) {
+  const start = finiteTime(range?.start);
+  const end = finiteTime(range?.end);
+  if (start === null || end === null || start > end) return null;
+  if (!["week", "month", "quarter", "year"].includes(grouping)) {
+    return { start, end };
+  }
+
+  const startPeriod = resolveAnalysisPeriod(start, grouping);
+  const endPeriod = resolveAnalysisPeriod(end, grouping);
+  if (!startPeriod || !endPeriod) return null;
+  return {
+    start: startPeriod.startMs,
+    end: endPeriod.endMs - DAY_MS
+  };
 }
 
 export function readZoomEventTimeRange(event, bounds) {

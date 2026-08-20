@@ -59,6 +59,8 @@ test("analytics displays and persists one slider-controlled range for both chart
   assert.doesNotMatch(markup, /type="date"/u);
   assert.match(controller, /timeRange/u);
   assert.match(controller, /scheduleAnalyticsPreferenceSave/u);
+  assert.match(controller, /snapAnalyticsRangeToGrouping/u);
+  assert.match(controller, /getSharedDisplayBounds/u);
   assert.match(loadChart, /onTimeRangeChange/u);
   assert.match(powerChart, /onTimeRangeChange/u);
   assert.match(controller, /echarts\.connect\(\[this\.ctlChartView\.chart, this\.cpChartView\.chart\]\)/u);

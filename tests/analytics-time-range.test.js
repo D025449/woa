@@ -5,6 +5,7 @@ import {
   findSeriesTimeBounds,
   readZoomEventTimeRange,
   resolveAnalyticsTimeRange,
+  snapAnalyticsRangeToGrouping,
   toDateInputValue
 } from "../src/public/js/analytics-time-range.js";
 
@@ -15,6 +16,26 @@ test("uses the complete shared data range until a slider range is persisted", ()
   };
 
   assert.deepEqual(resolveAnalyticsTimeRange({ mode: "all" }, bounds), bounds);
+});
+
+test("expands analytics ranges to complete calendar groups", () => {
+  const range = {
+    start: Date.parse("2026-08-19T00:00:00.000Z"),
+    end: Date.parse("2026-08-23T00:00:00.000Z")
+  };
+
+  assert.deepEqual(snapAnalyticsRangeToGrouping(range, "week"), {
+    start: Date.parse("2026-08-17T00:00:00.000Z"),
+    end: Date.parse("2026-08-23T00:00:00.000Z")
+  });
+  assert.deepEqual(snapAnalyticsRangeToGrouping(range, "month"), {
+    start: Date.parse("2026-08-01T00:00:00.000Z"),
+    end: Date.parse("2026-08-31T00:00:00.000Z")
+  });
+  assert.deepEqual(snapAnalyticsRangeToGrouping(range, "quarter"), {
+    start: Date.parse("2026-07-01T00:00:00.000Z"),
+    end: Date.parse("2026-09-30T00:00:00.000Z")
+  });
 });
 
 test("resolves and serializes exact slider-defined analytics dates", () => {
