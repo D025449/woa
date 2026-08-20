@@ -1070,7 +1070,6 @@
     "periodTssLabel": "TSS",
     "periodDistanceLabel": "Distanz",
     "periodPowerProfileLabel": "Leistungsprofil",
-    "periodHoverHint": "Live-Vorschau · Klicken, um den Zeitraum zu fixieren",
     "periodEmpty": "In diesem Zeitraum wurden keine Aktivitäten gefunden.",
     "periodInitial": "Wähle einen Analysepunkt, um die zugehörigen Trainings anzuzeigen.",
     "loadMore": "Mehr laden",

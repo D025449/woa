@@ -50,7 +50,7 @@ const ANALYTICS_POWER_GROUPINGS = new Set([
   "year_quarter",
   "year"
 ]);
-const ANALYTICS_LOAD_SERIES_KEYS = ["atl", "ctl", "tsb", "tss", "intensityDistribution"];
+const ANALYTICS_LOAD_SERIES_KEYS = ["atl", "ctl", "tsb", "tss"];
 const ANALYTICS_POWER_SERIES_KEYS = [
   "cp5",
   "cp15",

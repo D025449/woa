@@ -2,10 +2,11 @@ import { buildChartDataZoom } from "./chart-data-zoom.js";
 import {
   findSeriesTimeBounds,
   readZoomEventTimeRange
-} from "./analytics-time-range.js";
+} from "./analytics-time-range.js?v=atlas-blue-22";
 import {
   formatAnalysisPeriodValue,
-  getISOWeekStartDate
+  getISOWeekStartDate,
+  resolveAnalysisPeriod
 } from "./analytics-period.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
 import { POWER_DISTRIBUTION_ZONES } from "../../shared/PowerDistribution.js";
@@ -28,7 +29,6 @@ export default class CTLChartView {
       ctl: true,
       tsb: true,
       tss: true,
-      intensityDistribution: true,
       ...handlers.preferences?.seriesVisibility
     };
     this.legendNameToKey = new Map([
@@ -36,13 +36,13 @@ export default class CTLChartView {
       ['ATL_AVG', 'atl'],
       ['CTL', 'ctl'],
       ['TSB', 'tsb'],
-      ['TSS', 'tss'],
-      [this.t("distributionLegend"), 'intensityDistribution']
+      ['TSS', 'tss']
     ]);
     this.timeBounds = null;
     this.timeDomain = null;
     this.suppressTimeRangeEvent = false;
     this.periodSummaries = new Map();
+    this.periodTimestamps = [];
     this.distributionSummaries = new Map();
     this.hasDistributionGrid = false;
 
@@ -78,7 +78,8 @@ export default class CTLChartView {
         date: value,
         grouping: this.currentGrouping,
         seriesName: params.seriesName,
-        data: params.data?.extra || null
+        data: params.data?.extra || null,
+        preferHoveredPeriod: true
       });
     });
 
@@ -114,28 +115,43 @@ export default class CTLChartView {
   // -----------------------------
   renderChart(grouping0, apiData, distributionData = null) {
     const { data, grouping } = apiData;
-    const periodMilliseconds = {
-      date: 24 * 60 * 60 * 1000,
-      week: 7 * 24 * 60 * 60 * 1000,
-      month: 28 * 24 * 60 * 60 * 1000,
-      quarter: 90 * 24 * 60 * 60 * 1000,
-      year: 365 * 24 * 60 * 60 * 1000
-    }[grouping] || (24 * 60 * 60 * 1000);
-    const getAlignedBarWidth = (api) => Math.min(
-      30,
-      Math.max(7, api.size([periodMilliseconds, 0])[0] * 0.55)
-    );
+    const resolveBarPeriod = (value) => {
+      if (grouping !== "date") return resolveAnalysisPeriod(value, grouping);
+      const startMs = typeof value === "number" ? value : Date.parse(value);
+      return Number.isFinite(startMs)
+        ? { startMs, endMs: startMs + (24 * 60 * 60 * 1000) }
+        : null;
+    };
+    const getPeriodMidpoint = (value) => {
+      const period = resolveBarPeriod(value);
+      return period ? period.startMs + ((period.endMs - period.startMs) / 2) : value;
+    };
+    const getPeriodPixelBounds = (api, value) => {
+      const period = resolveBarPeriod(value);
+      if (!period) return null;
+      const startX = api.coord([period.startMs, 0])[0];
+      const endX = api.coord([period.endMs, 0])[0];
+      const rawWidth = Math.abs(endX - startX);
+      const inset = rawWidth >= 8
+        ? Math.min(3, Math.max(1, Math.round(rawWidth * 0.06)))
+        : 0;
+      return {
+        x: Math.min(startX, endX) + inset,
+        width: Math.max(1, rawWidth - (inset * 2))
+      };
+    };
     const renderTssBar = (params, api) => {
       const value = Number(api.value(1));
       if (!Number.isFinite(value)) return null;
       const xValue = api.value(0);
+      const horizontal = getPeriodPixelBounds(api, xValue);
+      if (!horizontal) return null;
       const bottom = api.coord([xValue, 0]);
       const top = api.coord([xValue, value]);
-      const width = getAlignedBarWidth(api);
       const shape = echarts.graphic.clipRectByRect({
-        x: top[0] - (width / 2),
+        x: horizontal.x,
         y: Math.min(top[1], bottom[1]),
-        width,
+        width: horizontal.width,
         height: Math.abs(bottom[1] - top[1])
       }, params.coordSys);
       return shape ? { type: 'rect', shape, style: api.style() } : null;
@@ -152,6 +168,9 @@ export default class CTLChartView {
         totalDistance: Number(row.total_distance) || 0
       }];
     }).filter(([timestamp]) => Number.isFinite(timestamp)));
+    this.periodTimestamps = [...this.periodSummaries.keys()]
+      .map(getPeriodMidpoint)
+      .sort((left, right) => left - right);
 
     const series = [];
     let yAxis = [];
@@ -165,7 +184,7 @@ export default class CTLChartView {
         sampling: "lttb",
         yAxisIndex: 0,
         data: data.map(row => ({
-          value: [row.date, row.atl ?? null]
+          value: [getPeriodMidpoint(row.date), row.atl ?? null]
         }))
       });
 
@@ -177,7 +196,7 @@ export default class CTLChartView {
         sampling: "lttb",
         yAxisIndex: 1,
         data: data.map(row => ({
-          value: [row.date, row.ctl ?? null]
+          value: [getPeriodMidpoint(row.date), row.ctl ?? null]
         }))
       });
 
@@ -189,7 +208,7 @@ export default class CTLChartView {
         sampling: "lttb",
         yAxisIndex: 2,
         data: data.map(row => ({
-          value: [row.date, row.tsb ?? null]
+          value: [getPeriodMidpoint(row.date), row.tsb ?? null]
         }))
       });
 
@@ -219,7 +238,7 @@ export default class CTLChartView {
         yAxisIndex: 0,
         data: data.map(row => ({
           value: [
-            this.mapToDate(grouping, row.date),
+            getPeriodMidpoint(this.mapToDate(grouping, row.date)),
             row.atl_avg ?? null
           ]
         }))
@@ -234,7 +253,7 @@ export default class CTLChartView {
         yAxisIndex: 1,
         data: data.map(row => ({
           value: [
-            this.mapToDate(grouping, row.date),
+            getPeriodMidpoint(this.mapToDate(grouping, row.date)),
             row.ctl_end ?? null
           ]
         }))
@@ -249,7 +268,7 @@ export default class CTLChartView {
         yAxisIndex: 2,
         data: data.map(row => ({
           value: [
-            this.mapToDate(grouping, row.date),
+            getPeriodMidpoint(this.mapToDate(grouping, row.date)),
             row.tsb_avg
           ]
         }))
@@ -291,8 +310,8 @@ export default class CTLChartView {
         yAxisIndex: 4,
         encode: { x: 0, y: [1, 2, 3, 4, 5, 6, 7] },
         renderItem: (params, api) => {
-          const x = api.coord([api.value(0), 0])[0];
-          const width = getAlignedBarWidth(api);
+          const horizontal = getPeriodPixelBounds(api, api.value(0));
+          if (!horizontal) return null;
           let cumulativePercent = 0;
           const children = [];
           POWER_DISTRIBUTION_ZONES.forEach((zone, zoneIndex) => {
@@ -302,9 +321,9 @@ export default class CTLChartView {
             cumulativePercent += percent;
             const top = api.coord([api.value(0), cumulativePercent])[1];
             const shape = echarts.graphic.clipRectByRect({
-              x: x - (width / 2),
+              x: horizontal.x,
               y: top,
-              width,
+              width: horizontal.width,
               height: Math.max(0, bottom - top)
             }, params.coordSys);
             if (shape) children.push({
@@ -335,10 +354,6 @@ export default class CTLChartView {
       });
     }
 
-    const legendData = [
-      ...new Set(series
-        .map((item) => item.name))
-    ];
     const legendSelected = Object.fromEntries(
       [...this.legendNameToKey].map(([name, key]) => [name, this.seriesVisibility[key] !== false])
     );
@@ -348,7 +363,7 @@ export default class CTLChartView {
       top: 2,
       right: 24,
       left: 138,
-      data: legendData.filter((name) => this.legendNameToKey.get(name) !== 'intensityDistribution'),
+      data: [...this.legendNameToKey.keys()],
       selected: legendSelected
     };
     const chartTimeBounds = findSeriesTimeBounds(series);
@@ -381,19 +396,7 @@ export default class CTLChartView {
             { text: this.t("distributionAxis"), left: 24, top: 339, textStyle: { fontSize: 14, fontWeight: 600 } }
           ]
         : { text: this.t("loadModelEyebrow"), left: 24, top: 4, textStyle: { fontSize: 14, fontWeight: 600 } },
-      legend: showDistribution
-        ? [
-            loadLegend,
-            {
-              id: 'distribution-legend',
-              top: 337,
-              right: 24,
-              left: 170,
-              data: [this.t("distributionLegend")],
-              selected: legendSelected
-            }
-          ]
-        : loadLegend,
+      legend: loadLegend,
       grid: showDistribution
         ? [
             { id: 'load-model-grid', left: 92, right: 92, ...LOAD_GRID },
@@ -403,7 +406,14 @@ export default class CTLChartView {
       xAxis: showDistribution
         ? [
             { id: 'load-time-axis', ...sharedTimeAxis, ...hiddenTimeAxisPresentation, gridIndex: 0 },
-            { id: 'distribution-time-axis', ...sharedTimeAxis, gridIndex: 1, axisLabel: { fontSize: 10 }, axisTick: { show: false }, axisPointer: { show: true, snap: false } }
+            {
+              id: 'distribution-time-axis',
+              ...sharedTimeAxis,
+              gridIndex: 1,
+              axisLabel: { show: false },
+              axisTick: { show: false },
+              axisPointer: { show: true, snap: false }
+            }
           ]
         : { ...sharedTimeAxis, ...hiddenTimeAxisPresentation },
       yAxis,
@@ -472,19 +482,43 @@ export default class CTLChartView {
     if (!legendName) return false;
     this.seriesVisibility[key] = visible;
     const selected = { [legendName]: visible };
-    this.chart.setOption({
-      legend: this.hasDistributionGrid
-        ? [
-            { id: 'load-model-legend', selected },
-            { id: 'distribution-legend', selected }
-          ]
-        : { id: 'load-model-legend', selected }
-    });
+    this.chart.setOption({ legend: { id: 'load-model-legend', selected } });
     return true;
   }
 
+  setSelectedPeriod(period) {
+    const markAreaData = period
+      ? [[{ xAxis: period.startMs }, { xAxis: period.endMs }]]
+      : [];
+    const buildMarker = (id, xAxisIndex, yAxisIndex) => ({
+      id,
+      type: 'line',
+      xAxisIndex,
+      yAxisIndex,
+      data: [],
+      silent: true,
+      tooltip: { show: false },
+      z: 0,
+      markArea: {
+        silent: true,
+        label: { show: false },
+        itemStyle: {
+          color: 'rgba(23, 111, 190, 0.08)',
+          borderColor: 'rgba(23, 111, 190, 0.48)',
+          borderWidth: 1
+        },
+        data: markAreaData
+      }
+    });
+    const series = [buildMarker('selected-load-period', 0, 0)];
+    if (this.hasDistributionGrid) {
+      series.push(buildMarker('selected-distribution-period', 1, 4));
+    }
+    this.chart.setOption({ series });
+  }
+
   getPeriodTimestamps() {
-    return [...this.periodSummaries.keys()];
+    return this.periodTimestamps;
   }
 
   buildLoadYAxis() {

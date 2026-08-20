@@ -3,10 +3,11 @@ import { buildChartDataZoom } from "./chart-data-zoom.js";
 import {
   findSeriesTimeBounds,
   readZoomEventTimeRange
-} from "./analytics-time-range.js";
+} from "./analytics-time-range.js?v=atlas-blue-22";
 import {
   formatAnalysisPeriodValue,
-  getISOWeekStartDate
+  getISOWeekStartDate,
+  resolveAnalysisPeriod
 } from "./analytics-period.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
 import { loadAnalyticsOverview } from "./analytics-overview-client.js?v=atlas-blue-19";
@@ -16,6 +17,11 @@ function formatCPDuration(durationSeconds) {
     ? `CP${durationSeconds}S`
     : `CP${durationSeconds / 60}`;
 }
+
+const FALLBACK_SERIES_COLORS = [
+  '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272',
+  '#fc8452', '#9a60b4', '#ea7ccc', '#2f4554', '#61a0a8'
+];
 
 export default class CPChartView {
 
@@ -34,6 +40,7 @@ export default class CPChartView {
     this.timeDomain = null;
     this.suppressTimeRangeEvent = false;
     this.periodSummaries = new Map();
+    this.lastSeriesClickTime = 0;
 
     this.registerChartInteractions();
     // initial load
@@ -62,6 +69,7 @@ export default class CPChartView {
     });
 
     this.chart.on('click', async (params) => {
+      this.lastSeriesClickTime = Date.now();
       const d = params.data?.extra || null;
       const value = Array.isArray(params.data?.value) ? params.data.value[0] : null;
       if (!value) return;
@@ -80,6 +88,21 @@ export default class CPChartView {
       if (Number.isFinite(Number(timestamp))) {
         this.handlers?.onPeriodHover?.({ date: Number(timestamp) });
       }
+    });
+    this.chart.getZr().on('click', (event) => {
+      const point = [event.offsetX, event.offsetY];
+      if (!this.chart.containPixel({ gridIndex: 0 }, point)) return;
+      const timestamp = Number(this.chart.convertFromPixel({ xAxisIndex: 0 }, event.offsetX));
+      if (!Number.isFinite(timestamp)) return;
+      setTimeout(() => {
+        if (Date.now() - this.lastSeriesClickTime < 100) return;
+        void this.handlers?.onPeriodClick?.({
+          date: timestamp,
+          grouping: this.currentGrouping,
+          data: null,
+          preferHoveredPeriod: true
+        });
+      }, 0);
     });
     this.chart.getZr().on('globalout', () => this.handlers?.onPeriodHoverEnd?.());
   }
@@ -111,7 +134,7 @@ export default class CPChartView {
     this.legendNameToKey = new Map(
       durations.map((duration) => [formatCPDuration(duration), `cp${duration}`])
     );
-    this.legendNameToKey.set('eFTP', 'eftp');
+    this.legendNameToKey.set('FTP', 'eftp');
 
     const series = durations.map(d => ({
       name: formatCPDuration(d),
@@ -121,7 +144,7 @@ export default class CPChartView {
       yAxisIndex: (d <= 60) ? 1 : 0,
       data: Object.entries(data).map(([grp, values]) => ({
         value: [
-          this.mapToDate(grouping, grp),
+          this.getPeriodMidpoint(grouping, grp),
           values[`CP${d}`]?.power ?? null
         ],
         extra: values[`CP${d}`]
@@ -129,7 +152,7 @@ export default class CPChartView {
     }));
 
     series.push({
-      name: 'eFTP',
+      name: 'FTP',
       type: 'line',
       showSymbol: false,
       sampling: 'lttb',
@@ -141,7 +164,7 @@ export default class CPChartView {
       },
       data: Object.entries(data).map(([grp, values]) => ({
         value: [
-          this.mapToDate(grouping, grp),
+          this.getPeriodMidpoint(grouping, grp),
           values.eFTP?.power ?? null
         ],
         extra: values.eFTP
@@ -264,6 +287,44 @@ export default class CPChartView {
     return true;
   }
 
+  getPeriodMidpoint(grouping, group) {
+    const sharedGrouping = {
+      year_week: "week",
+      year_month: "month",
+      year_quarter: "quarter"
+    }[grouping] || grouping;
+    const period = resolveAnalysisPeriod(this.mapToDate(grouping, group), sharedGrouping);
+    return period ? period.startMs + ((period.endMs - period.startMs) / 2) : null;
+  }
+
+  setSelectedPeriod(period) {
+    const markAreaData = period
+      ? [[{ xAxis: period.startMs }, { xAxis: period.endMs }]]
+      : [];
+    this.chart.setOption({
+      series: [{
+        id: 'selected-power-period',
+        type: 'line',
+        xAxisIndex: 0,
+        yAxisIndex: 0,
+        data: [],
+        silent: true,
+        tooltip: { show: false },
+        z: 0,
+        markArea: {
+          silent: true,
+          label: { show: false },
+          itemStyle: {
+            color: 'rgba(23, 111, 190, 0.08)',
+            borderColor: 'rgba(23, 111, 190, 0.48)',
+            borderWidth: 1
+          },
+          data: markAreaData
+        }
+      }]
+    });
+  }
+
   // -----------------------------
   // DATE MAPPING
   // -----------------------------
@@ -318,7 +379,29 @@ export default class CPChartView {
     return [...this.legendNameToKey].flatMap(([label, key]) => {
       if (this.seriesVisibility[key] === false) return [];
       const metric = key === "eftp" ? summary.eFTP : summary[`CP${key.slice(2)}`];
-      return Number.isFinite(Number(metric?.power)) ? [[label, Number(metric.power)]] : [];
+      return Number.isFinite(Number(metric?.power))
+        ? [[label, Number(metric.power), metric]]
+        : [];
+    });
+  }
+
+  getPeriodWorkoutHighlights(period) {
+    const summary = this.getPeriodSummary(period);
+    if (!summary) return [];
+
+    return [...this.legendNameToKey].flatMap(([label, key], seriesIndex) => {
+      if (key === "eftp") return [];
+      const metric = summary[`CP${key.slice(2)}`];
+      const fileId = Number(metric?.fileId);
+      if (!Number.isInteger(fileId) || fileId <= 0) return [];
+      const visualColor = this.chart.getVisual?.({ seriesIndex }, 'color');
+      return [{
+        fileId,
+        label,
+        color: typeof visualColor === 'string'
+          ? visualColor
+          : FALLBACK_SERIES_COLORS[seriesIndex % FALLBACK_SERIES_COLORS.length]
+      }];
     });
   }
 

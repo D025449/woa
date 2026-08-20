@@ -911,7 +911,6 @@
     "periodTssLabel": "TSS",
     "periodDistanceLabel": "Distanza",
     "periodPowerProfileLabel": "Profilo di potenza",
-    "periodHoverHint": "Anteprima live · Fai clic per fissare il periodo",
     "periodEmpty": "Nessuna attività in questo periodo.",
     "periodInitial": "Seleziona un punto di analisi per visualizzare i relativi allenamenti.",
     "loadMore": "Carica altro",

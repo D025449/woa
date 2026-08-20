@@ -26,7 +26,7 @@ test("critical-power chart includes the new durations and rolling eFTP", async (
 
   assert.match(routeSource, /240, 360, 480, 720, 900, 960, 1800/u);
   assert.match(routeSource, /getRollingFTPValues/u);
-  assert.match(chartSource, /name: 'eFTP'/u);
+  assert.match(chartSource, /name: 'FTP'/u);
   assert.match(chartSource, /formatCPDuration/u);
   assert.match(chartSource, /`CP\$\{durationSeconds\}S`/u);
   assert.match(chartSource, /`CP\$\{durationSeconds \/ 60\}`/u);
@@ -74,11 +74,11 @@ test("analytics displays and persists one slider-controlled range for both chart
 });
 
 test("analytics uses one grouping control and a two-level workout drill-down", async () => {
-  const markup = await readFile(new URL("src/views/analytics.ejs", projectRoot), "utf8");
-  const controller = await readFile(
-    new URL("src/public/js/analytics-controller.js", projectRoot),
-    "utf8"
-  );
+  const [markup, controller, powerChart] = await Promise.all([
+    readFile(new URL("src/views/analytics.ejs", projectRoot), "utf8"),
+    readFile(new URL("src/public/js/analytics-controller.js", projectRoot), "utf8"),
+    readFile(new URL("src/public/js/cp-chart-view.js", projectRoot), "utf8")
+  ]);
 
   assert.match(markup, /name="analytics-grouping"/u);
   assert.doesNotMatch(markup, /name="grouping1"/u);
@@ -91,8 +91,25 @@ test("analytics uses one grouping control and a two-level workout drill-down", a
   assert.match(markup, /id="analytics-detail-placeholder"/u);
   assert.match(markup, /id="analytics-detail"[^>]*hidden/u);
   assert.match(controller, /loadPeriodWorkouts/u);
+  assert.match(controller, /if \(isSelectedPeriod && !hasWorkoutTarget\) return;/u);
+  assert.match(controller, /preserveSnapshot: preserveHoveredSnapshot/u);
+  assert.match(controller, /if \(!preserveSnapshot\) this\.renderPeriodHeaderDetails\(\);/u);
+  assert.match(controller, /PERIOD_HOVER_WORKOUT_DELAY_MS = 180/u);
+  assert.match(controller, /this\.schedulePeriodWorkoutPreview\(period\)/u);
+  assert.match(controller, /this\.periodWorkoutCache\.size > PERIOD_WORKOUT_CACHE_LIMIT/u);
   assert.match(controller, /loadNextPeriodWorkoutPage/u);
   assert.match(controller, /size: "20"/u);
+  assert.match(controller, /analytics-period-card__identity/u);
+  assert.match(controller, /card\.append\(header, metrics\)/u);
+  assert.match(controller, /getPeriodWorkoutHighlights/u);
+  assert.match(controller, /analytics-period-card__cp-markers/u);
+  assert.match(powerChart, /getPeriodWorkoutHighlights\(period\)/u);
+  assert.match(powerChart, /metric\?\.fileId/u);
+  assert.match(powerChart, /this\.chart\.getVisual/u);
+  assert.match(controller, /createPeriodPowerMetric\(label, value, target\)/u);
+  assert.match(controller, /this\.openWorkoutDetail\(workoutId, target, label\)/u);
+  assert.match(controller, /endOffset > startOffset/u);
+  assert.match(powerChart, /\[label, Number\(metric\.power\), metric\]/u);
   assert.match(controller, /openWorkoutDetail/u);
   assert.match(controller, /analytics-focus-grid--no-map/u);
   assert.doesNotMatch(controller, /ResizeObserver/u);
@@ -115,7 +132,6 @@ test("every locale contains the shared analytics time-range copy", async () => {
     assert.equal(typeof messages.analyticsPage.periodTssLabel, "string");
     assert.equal(typeof messages.analyticsPage.periodDistanceLabel, "string");
     assert.equal(typeof messages.analyticsPage.periodPowerProfileLabel, "string");
-    assert.equal(typeof messages.analyticsPage.periodHoverHint, "string");
     assert.equal(typeof messages.analyticsPage.detailInitial, "string");
     assert.equal(typeof messages.analyticsPage.loadMore, "string");
     assert.equal(typeof messages.analyticsPage.distributionLegend, "string");
@@ -146,8 +162,11 @@ test("load model integrates the grouped power distribution on its shared time ax
   assert.match(chartSource, /xAxisIndex: showDistribution \? \[0, 1\] : 0/u);
   assert.match(chartSource, /axisPointer: showDistribution/u);
   assert.match(chartSource, /id: 'load-model-legend'/u);
-  assert.match(chartSource, /id: 'distribution-legend'/u);
-  assert.match(preferenceSource, /"intensityDistribution"/u);
+  assert.doesNotMatch(chartSource, /id: 'distribution-legend'/u);
+  assert.doesNotMatch(preferenceSource, /"intensityDistribution"/u);
+  assert.match(chartSource, /setSelectedPeriod\(period\)/u);
+  assert.match(chartSource, /getPeriodPixelBounds/u);
+  assert.match(chartSource, /getPeriodMidpoint/u);
 });
 
 test("analytics charts share one bundled backend request", async () => {
@@ -186,6 +205,10 @@ test("analytics replaces floating tooltips with a persistent hover inspector", a
   assert.match(controller, /getVisiblePeriodMetrics/u);
   assert.match(loadChart, /showContent: false/u);
   assert.match(powerChart, /showContent: false/u);
+  assert.match(powerChart, /getZr\(\)\.on\('click'/u);
+  assert.match(powerChart, /preferHoveredPeriod: true/u);
+  assert.match(loadChart, /preferHoveredPeriod: true/u);
+  assert.match(controller, /selection\?\.preferHoveredPeriod && this\.hoveredPeriod/u);
 });
 
 test("load-model hover forwards its time to the power curve without a connect loop", async () => {
@@ -225,4 +248,38 @@ test("analytics overview permits a short private browser cache", async () => {
   const routeSource = await readFile(new URL("src/routes/fileRoutes.js", projectRoot), "utf8");
   assert.match(routeSource, /Cache-Control", "private, max-age=60"/u);
   assert.match(routeSource, /Vary", "Accept-Encoding, Cookie"/u);
+});
+
+test("analytics keeps scrolling inside its stable desktop application shell", async () => {
+  const [markup, css] = await Promise.all([
+    readFile(new URL("src/views/analytics.ejs", projectRoot), "utf8"),
+    readFile(new URL("src/public/css/analytics.css", projectRoot), "utf8")
+  ]);
+
+  assert.match(markup, /class="analytics-app-viewport container-fluid/u);
+  assert.match(
+    css,
+    /body\.analytics-page\.has-fixed-app-topbar\s*\{[^}]*height:\s*100dvh;[^}]*overflow:\s*hidden;/su
+  );
+  assert.match(
+    css,
+    /> \.analytics-app-viewport\s*\{[^}]*height:\s*calc\(100dvh[^}]*overflow-y:\s*auto;[^}]*scrollbar-width:\s*none;/su
+  );
+  assert.match(
+    css,
+    /has-fixed-app-topbar \.analytics-period-inspector\s*\{[^}]*top:\s*0\.5rem;[^}]*height:\s*calc\(100dvh - var\(--app-topbar-offset, 78px\) - 1rem\);/su
+  );
+  assert.match(
+    css,
+    /\.analytics-period-inspector\s*\{[^}]*height:\s*calc\(100dvh[^}]*max-height:/su
+  );
+  assert.match(
+    css,
+    /\.analytics-period-workouts\s*\{[^}]*flex:\s*1 1 auto;[^}]*overflow-y:\s*scroll;[^}]*scrollbar-gutter:\s*stable;/su
+  );
+  assert.match(css, /grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/u);
+  assert.match(
+    css,
+    /@media \(max-width:\s*991\.98px\)[\s\S]*?\.analytics-period-inspector\s*\{[^}]*height:\s*auto;[^}]*max-height:\s*none;/u
+  );
 });

@@ -5,9 +5,36 @@ import {
   findSeriesTimeBounds,
   readZoomEventTimeRange,
   resolveAnalyticsTimeRange,
+  selectStablePeriodTimestamp,
   snapAnalyticsRangeToGrouping,
   toDateInputValue
 } from "../src/public/js/analytics-time-range.js";
+
+test("keeps grouped chart hover on the nearest rendered period", () => {
+  const periods = [
+    Date.parse("2026-06-01T00:00:00.000Z"),
+    Date.parse("2026-07-01T00:00:00.000Z"),
+    Date.parse("2026-08-01T00:00:00.000Z")
+  ];
+
+  assert.equal(
+    selectStablePeriodTimestamp(periods, Date.parse("2026-06-24T00:00:00.000Z")),
+    periods[1]
+  );
+  assert.equal(
+    selectStablePeriodTimestamp(periods, Date.parse("2026-07-08T00:00:00.000Z")),
+    periods[1]
+  );
+});
+
+test("uses hysteresis when crossing grouped chart period boundaries", () => {
+  const periods = [0, 100, 200];
+
+  assert.equal(selectStablePeriodTimestamp(periods, 154, 100), 100);
+  assert.equal(selectStablePeriodTimestamp(periods, 156, 100), 200);
+  assert.equal(selectStablePeriodTimestamp(periods, 146, 200), 200);
+  assert.equal(selectStablePeriodTimestamp(periods, 144, 200), 100);
+});
 
 test("uses the complete shared data range until a slider range is persisted", () => {
   const bounds = {

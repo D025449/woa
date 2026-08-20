@@ -47,6 +47,40 @@ export function selectRelativePeriodTimestamp(timestamps, range, offsetValue) {
   return visible.at(-(offset + 1)) ?? null;
 }
 
+export function selectStablePeriodTimestamp(timestamps, value, currentValue = null) {
+  const pointer = finiteTime(value);
+  if (pointer === null) return null;
+  const periods = Array.isArray(timestamps) ? timestamps : [];
+  if (!periods.length) return pointer;
+
+  let low = 0;
+  let high = periods.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (periods[middle] < pointer) low = middle + 1;
+    else high = middle;
+  }
+  const rightIndex = low;
+  const leftIndex = Math.max(0, rightIndex - 1);
+  const candidateIndex = Math.abs(periods[leftIndex] - pointer)
+    <= Math.abs(periods[rightIndex] - pointer)
+    ? leftIndex
+    : rightIndex;
+
+  const current = finiteTime(currentValue);
+  const currentIndex = current === null ? -1 : periods.indexOf(current);
+  if (currentIndex < 0 || currentIndex === candidateIndex) return periods[candidateIndex];
+  if (Math.abs(candidateIndex - currentIndex) > 1) return periods[candidateIndex];
+
+  const candidate = periods[candidateIndex];
+  const boundary = (current + candidate) / 2;
+  const hysteresis = Math.abs(candidate - current) * 0.05;
+  if (candidate > current) {
+    return pointer >= boundary + hysteresis ? candidate : current;
+  }
+  return pointer <= boundary - hysteresis ? candidate : current;
+}
+
 export function findSeriesTimeBounds(series) {
   let start = Infinity;
   let end = -Infinity;

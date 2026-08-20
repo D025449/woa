@@ -1,7 +1,7 @@
 import MapView from "./map-view.js";
-import CPChartView from "./cp-chart-view.js?v=atlas-blue-20";
+import CPChartView from "./cp-chart-view.js?v=atlas-blue-27";
 import FTPChartView from "./ftp-chart-view.js";
-import CTLChartView from "./ctl-chart-view.js?v=atlas-blue-20";
+import CTLChartView from "./ctl-chart-view.js?v=atlas-blue-27";
 import ChartView from "./chart-view.js";
 import WorkoutService from "./workout-service.js";
 import ViewPreferenceService from "./view-preference-service.js";
@@ -14,9 +14,10 @@ import {
   resolveAnalyticsTimeRange,
   resolveRelativeAnalyticsRange,
   selectRelativePeriodTimestamp,
+  selectStablePeriodTimestamp,
   snapAnalyticsRangeToGrouping,
   toDateInputValue
-} from "./analytics-time-range.js?v=atlas-blue-20";
+} from "./analytics-time-range.js?v=atlas-blue-22";
 import {
   formatAnalysisPeriod,
   mapSharedGrouping,
@@ -29,7 +30,9 @@ const ANALYTICS_VIEW_KEY = "analytics";
 const VIEW_PREFERENCE_SAVE_DELAY_MS = 500;
 const VOICE_RECORDING_MAX_MS = 15_000;
 const VOICE_FEEDBACK_HIDE_MS = 5_000;
-const LOAD_MODEL_SERIES = new Set(["atl", "ctl", "tsb", "tss", "intensityDistribution"]);
+const PERIOD_HOVER_WORKOUT_DELAY_MS = 180;
+const PERIOD_WORKOUT_CACHE_LIMIT = 24;
+const LOAD_MODEL_SERIES = new Set(["atl", "ctl", "tsb", "tss"]);
 
 export default class Controller {
 
@@ -72,6 +75,8 @@ export default class Controller {
     this.loadedChartBounds = new Set();
     this.selectedPeriod = null;
     this.hoveredPeriod = null;
+    this.hoveredPeriodTimestamp = null;
+    this.renderedPeriod = null;
     this.selectedWorkoutId = null;
     this.periodRequestId = 0;
     this.periodWorkouts = [];
@@ -80,6 +85,11 @@ export default class Controller {
     this.periodTotal = 0;
     this.periodAggregate = null;
     this.periodLoading = false;
+    this.preservedPeriodSnapshotRequestId = null;
+    this.periodWorkoutCache = new Map();
+    this.periodWorkoutPreviewTimer = null;
+    this.periodWorkoutPreviewController = null;
+    this.previewedWorkoutPeriod = null;
     this.voicePressActive = false;
     this.voiceRecorder = null;
     this.voiceStream = null;
@@ -534,14 +544,31 @@ export default class Controller {
   }
 
   async handleAnalysisPointClick(selection) {
-    const period = resolveAnalysisPeriod(selection?.date, this.analyticsPreferences.grouping);
+    const period = selection?.preferHoveredPeriod && this.hoveredPeriod
+      ? this.hoveredPeriod
+      : resolveAnalysisPeriod(selection?.date, this.analyticsPreferences.grouping);
     if (!period) return;
+    const workoutId = Number(selection?.data?.fileId);
+    const hasWorkoutTarget = Number.isInteger(workoutId) && workoutId > 0;
+    const isSelectedPeriod = this.isSamePeriod(period, this.selectedPeriod);
+    this.ctlChartView?.setSelectedPeriod?.(period);
+    this.cpChartView?.setSelectedPeriod?.(period);
+    if (isSelectedPeriod && !hasWorkoutTarget) return;
+    const preserveHoveredSnapshot = this.isSamePeriod(period, this.hoveredPeriod);
+    this.cancelPeriodWorkoutPreview();
+    if (preserveHoveredSnapshot) {
+      this.periodSummaryElement.textContent = "";
+      this.periodSummaryElement.hidden = true;
+    }
 
     try {
-      const isCurrentPeriod = await this.loadPeriodWorkouts(period);
-      if (!isCurrentPeriod) return;
-      const workoutId = Number(selection?.data?.fileId);
-      if (Number.isInteger(workoutId) && workoutId > 0) {
+      if (!isSelectedPeriod) {
+        const isCurrentPeriod = await this.loadPeriodWorkouts(period, {
+          preserveSnapshot: preserveHoveredSnapshot
+        });
+        if (!isCurrentPeriod) return;
+      }
+      if (hasWorkoutTarget) {
         await this.openWorkoutDetail(workoutId, selection.data, selection.seriesName);
       }
     } catch (err) {
@@ -557,8 +584,14 @@ export default class Controller {
   }
 
   handleAnalysisPeriodHover(selection) {
-    const period = resolveAnalysisPeriod(selection?.date, this.analyticsPreferences.grouping);
+    const timestamp = selectStablePeriodTimestamp(
+      this.ctlChartView?.getPeriodTimestamps?.() || [],
+      selection?.date,
+      this.hoveredPeriodTimestamp
+    );
+    const period = resolveAnalysisPeriod(timestamp, this.analyticsPreferences.grouping);
     if (!period || this.isSamePeriod(period, this.hoveredPeriod)) return;
+    this.hoveredPeriodTimestamp = timestamp;
     this.hoveredPeriod = period;
     const isSelected = this.isSamePeriod(period, this.selectedPeriod);
     this.renderPeriodSnapshot(period, {
@@ -566,13 +599,26 @@ export default class Controller {
       total: isSelected ? this.periodTotal : null,
       preview: !isSelected
     });
+    this.schedulePeriodWorkoutPreview(period);
   }
 
   handleAnalysisPeriodHoverEnd() {
     if (!this.hoveredPeriod) return;
+    this.cancelPeriodWorkoutPreview();
     this.hoveredPeriod = null;
+    this.hoveredPeriodTimestamp = null;
+    this.restoreSelectedPeriodWorkoutList();
     if (this.selectedPeriod) {
       if (this.periodLoading) {
+        if (this.preservedPeriodSnapshotRequestId === this.periodRequestId) {
+          if (this.isSamePeriod(this.selectedPeriod, this.renderedPeriod)) {
+            this.periodSummaryElement.textContent = "";
+            this.periodSummaryElement.hidden = true;
+          } else {
+            this.renderPeriodSnapshot(this.selectedPeriod, { preview: false });
+          }
+          return;
+        }
         this.periodTitleElement.textContent = formatAnalysisPeriod(
           this.selectedPeriod,
           this.analyticsPreferences.grouping,
@@ -582,7 +628,12 @@ export default class Controller {
         this.periodSummaryElement.hidden = false;
         this.clearPeriodHeaderDetails();
       } else {
-        this.renderPeriodHeaderDetails();
+        if (this.isSamePeriod(this.selectedPeriod, this.renderedPeriod)) {
+          this.periodSummaryElement.textContent = "";
+          this.periodSummaryElement.hidden = true;
+        } else {
+          this.renderPeriodHeaderDetails();
+        }
       }
       return;
     }
@@ -592,8 +643,9 @@ export default class Controller {
     this.clearPeriodHeaderDetails();
   }
 
-  async loadPeriodWorkouts(period) {
+  async loadPeriodWorkouts(period, { preserveSnapshot = false } = {}) {
     const requestId = ++this.periodRequestId;
+    this.preservedPeriodSnapshotRequestId = preserveSnapshot ? requestId : null;
     this.selectedPeriod = period;
     this.periodWorkouts = [];
     this.periodPage = 0;
@@ -601,16 +653,37 @@ export default class Controller {
     this.periodTotal = 0;
     this.periodAggregate = null;
     this.periodLoading = false;
-    this.periodTitleElement.textContent = formatAnalysisPeriod(
-      period,
-      this.analyticsPreferences.grouping,
-      this.locale
-    );
-    this.periodSummaryElement.textContent = this.t("periodLoading");
-    this.periodSummaryElement.hidden = false;
-    this.clearPeriodHeaderDetails();
-    this.periodWorkoutsElement.replaceChildren();
+    if (preserveSnapshot) {
+      this.periodSummaryElement.textContent = "";
+      this.periodSummaryElement.hidden = true;
+    } else {
+      this.periodTitleElement.textContent = formatAnalysisPeriod(
+        period,
+        this.analyticsPreferences.grouping,
+        this.locale
+      );
+      this.periodSummaryElement.textContent = this.t("periodLoading");
+      this.periodSummaryElement.hidden = false;
+      this.clearPeriodHeaderDetails();
+      this.periodWorkoutsElement.replaceChildren();
+    }
     this.periodLoadMoreElement.hidden = true;
+    const cached = this.periodWorkoutCache.get(this.getPeriodWorkoutCacheKey(period));
+    if (cached) {
+      const workouts = Array.isArray(cached.data) ? cached.data : [];
+      this.periodPage = 1;
+      this.periodLastPage = Math.max(1, Number(cached.last_page) || 1);
+      this.periodTotal = Number(cached.total_records) || workouts.length;
+      this.periodAggregate = cached.filtered_summary || null;
+      this.periodWorkouts = [...workouts];
+      const previewAlreadyRendered = this.isSamePeriod(period, this.previewedWorkoutPeriod);
+      if (!previewAlreadyRendered) this.renderPeriodWorkouts(workouts);
+      this.previewedWorkoutPeriod = null;
+      if (!preserveSnapshot) this.renderPeriodHeaderDetails();
+      this.renderPeriodPaginationState();
+      this.preservedPeriodSnapshotRequestId = null;
+      return true;
+    }
     await this.loadNextPeriodWorkoutPage();
     return requestId === this.periodRequestId && this.selectedPeriod === period;
   }
@@ -628,26 +701,126 @@ export default class Controller {
     });
   }
 
+  getPeriodWorkoutCacheKey(period) {
+    return `${this.analyticsPreferences.grouping}:${period.startMs}:${period.endMs}`;
+  }
+
+  cachePeriodWorkoutResult(period, result) {
+    const key = this.getPeriodWorkoutCacheKey(period);
+    this.periodWorkoutCache.delete(key);
+    this.periodWorkoutCache.set(key, result);
+    while (this.periodWorkoutCache.size > PERIOD_WORKOUT_CACHE_LIMIT) {
+      this.periodWorkoutCache.delete(this.periodWorkoutCache.keys().next().value);
+    }
+  }
+
+  cancelPeriodWorkoutPreview() {
+    if (this.periodWorkoutPreviewTimer !== null) {
+      clearTimeout(this.periodWorkoutPreviewTimer);
+      this.periodWorkoutPreviewTimer = null;
+    }
+    this.periodWorkoutPreviewController?.abort();
+    this.periodWorkoutPreviewController = null;
+  }
+
+  schedulePeriodWorkoutPreview(period) {
+    this.cancelPeriodWorkoutPreview();
+    if (this.isSamePeriod(period, this.selectedPeriod)) {
+      this.restoreSelectedPeriodWorkoutList();
+      return;
+    }
+    if (this.previewedWorkoutPeriod && !this.isSamePeriod(period, this.previewedWorkoutPeriod)) {
+      this.restoreSelectedPeriodWorkoutList();
+    }
+    this.periodWorkoutPreviewTimer = setTimeout(() => {
+      this.periodWorkoutPreviewTimer = null;
+      void this.loadPeriodWorkoutPreview(period);
+    }, PERIOD_HOVER_WORKOUT_DELAY_MS);
+  }
+
+  async loadPeriodWorkoutPreview(period) {
+    const cacheKey = this.getPeriodWorkoutCacheKey(period);
+    let result = this.periodWorkoutCache.get(cacheKey);
+    let requestController = null;
+    try {
+      if (!result) {
+        requestController = new AbortController();
+        this.periodWorkoutPreviewController = requestController;
+        result = await this.fetchPeriodWorkoutPage(period, 1, requestController.signal);
+        if (!result) return;
+        this.cachePeriodWorkoutResult(period, result);
+      }
+      if (!this.isSamePeriod(period, this.hoveredPeriod)) return;
+      const workouts = Array.isArray(result.data) ? result.data : [];
+      this.renderPeriodWorkouts(workouts);
+      this.previewedWorkoutPeriod = period;
+      this.periodLoadMoreElement.hidden = true;
+    } catch (err) {
+      if (err?.name !== "AbortError") {
+        console.warn("Analytics period workout preview failed:", err);
+      }
+    } finally {
+      if (this.periodWorkoutPreviewController === requestController) {
+        this.periodWorkoutPreviewController = null;
+      }
+    }
+  }
+
+  restoreSelectedPeriodWorkoutList() {
+    if (!this.previewedWorkoutPeriod) return;
+    this.previewedWorkoutPeriod = null;
+    if (this.selectedPeriod) {
+      this.renderPeriodWorkouts(this.periodWorkouts);
+      if (this.selectedWorkoutId) this.markSelectedWorkoutCard(this.selectedWorkoutId);
+      this.renderPeriodPaginationState();
+      return;
+    }
+    this.periodWorkoutsElement.replaceChildren();
+    const empty = document.createElement("p");
+    empty.className = "analytics-period-empty";
+    empty.textContent = this.t("periodInitial");
+    this.periodWorkoutsElement.append(empty);
+    this.periodLoadMoreElement.hidden = true;
+  }
+
+  async fetchPeriodWorkoutPage(period, page, signal = undefined) {
+    const params = this.buildPeriodWorkoutParams(period, page);
+    const response = await fetch(`/files/workouts?${params.toString()}`, { signal });
+    if (response.status === 401) {
+      window.location.href = "/login";
+      return null;
+    }
+    if (!response.ok) throw new Error(`Period workouts failed (${response.status})`);
+    return response.json();
+  }
+
+  renderPeriodPaginationState() {
+    const hasMore = this.periodPage < this.periodLastPage;
+    this.periodLoadMoreElement.hidden = !hasMore;
+    this.periodPageStatusElement.hidden = !hasMore;
+    if (hasMore) {
+      this.periodPageStatusElement.textContent = this.t("periodLoadedSummary", {
+        shown: this.periodWorkouts.length,
+        count: this.periodTotal
+      });
+    }
+  }
+
   async loadNextPeriodWorkoutPage() {
     if (!this.selectedPeriod || this.periodLoading || this.periodPage >= this.periodLastPage) {
       return;
     }
 
     const requestId = this.periodRequestId;
+    const preserveSnapshot = this.preservedPeriodSnapshotRequestId === requestId;
     const page = this.periodPage + 1;
     this.periodLoading = true;
     this.periodLoadMoreButton.disabled = true;
     this.periodWorkoutsElement.setAttribute("aria-busy", "true");
 
     try {
-      const params = this.buildPeriodWorkoutParams(this.selectedPeriod, page);
-      const response = await fetch(`/files/workouts?${params.toString()}`);
-      if (response.status === 401) {
-        window.location.href = "/login";
-        return;
-      }
-      if (!response.ok) throw new Error(`Period workouts failed (${response.status})`);
-      const result = await response.json();
+      const result = await this.fetchPeriodWorkoutPage(this.selectedPeriod, page);
+      if (!result) return;
       if (requestId !== this.periodRequestId) return;
 
       const workouts = Array.isArray(result.data) ? result.data : [];
@@ -655,20 +828,13 @@ export default class Controller {
       this.periodLastPage = Math.max(1, Number(result.last_page) || 1);
       this.periodTotal = Number(result.total_records) || workouts.length;
       if (page === 1) this.periodAggregate = result.filtered_summary || null;
+      if (page === 1) this.cachePeriodWorkoutResult(this.selectedPeriod, result);
       this.periodWorkouts.push(...workouts);
       this.renderPeriodWorkouts(workouts, { append: page > 1 });
       this.periodSummaryElement.textContent = "";
       this.periodSummaryElement.hidden = true;
-      this.renderPeriodHeaderDetails();
-      this.periodLoadMoreElement.hidden = this.periodPage >= this.periodLastPage;
-      const hasMore = this.periodPage < this.periodLastPage;
-      this.periodPageStatusElement.hidden = !hasMore;
-      if (hasMore) {
-        this.periodPageStatusElement.textContent = this.t("periodLoadedSummary", {
-          shown: this.periodWorkouts.length,
-          count: this.periodTotal
-        });
-      }
+      if (!preserveSnapshot) this.renderPeriodHeaderDetails();
+      this.renderPeriodPaginationState();
     } catch (err) {
       if (requestId === this.periodRequestId) {
         this.periodSummaryElement.textContent = this.t("periodError");
@@ -678,6 +844,9 @@ export default class Controller {
     } finally {
       if (requestId === this.periodRequestId) {
         this.periodLoading = false;
+        if (this.preservedPeriodSnapshotRequestId === requestId) {
+          this.preservedPeriodSnapshotRequestId = null;
+        }
         this.periodLoadMoreButton.disabled = false;
         this.periodWorkoutsElement.removeAttribute("aria-busy");
       }
@@ -712,20 +881,43 @@ export default class Controller {
     card.dataset.entityKey = `${workout.entity_type}:${workout.id}`;
     if (isWorkout) card.type = "button";
 
+    const cpHighlights = isWorkout
+      ? (this.cpChartView?.getPeriodWorkoutHighlights(this.renderedPeriod || this.selectedPeriod) || [])
+        .filter((highlight) => highlight.fileId === Number(workout.id))
+      : [];
+    if (cpHighlights.length > 0) {
+      card.classList.add("has-cp-highlights");
+      const markerRail = document.createElement("span");
+      markerRail.className = "analytics-period-card__cp-markers";
+      markerRail.style.setProperty("--cp-marker-count", String(cpHighlights.length));
+      markerRail.title = cpHighlights.map(({ label }) => label).join(" · ");
+      markerRail.setAttribute("aria-label", markerRail.title);
+      markerRail.append(...cpHighlights.map(({ label, color }) => {
+        const marker = document.createElement("span");
+        marker.className = "analytics-period-card__cp-marker";
+        marker.style.backgroundColor = color;
+        marker.dataset.cpLabel = label;
+        return marker;
+      }));
+      card.append(markerRail);
+    }
+
     const header = document.createElement("div");
     header.className = "analytics-period-card__header";
+    const identity = document.createElement("div");
+    identity.className = "analytics-period-card__identity";
     const id = document.createElement("strong");
     id.textContent = isWorkout ? `W-${workout.id}` : this.t("manualActivity");
+    const type = document.createElement("span");
+    type.className = "analytics-period-card__type";
+    type.textContent = workout.title || workout.workout_type || workout.activity_type || "";
+    identity.append(id, type);
     const time = document.createElement("time");
     const date = new Date(workout.start_time);
     time.textContent = Number.isNaN(date.getTime())
       ? ""
       : new Intl.DateTimeFormat(this.locale, { dateStyle: "medium" }).format(date);
-    header.append(id, time);
-
-    const type = document.createElement("span");
-    type.className = "analytics-period-card__type";
-    type.textContent = workout.title || workout.workout_type || workout.activity_type || "";
+    header.append(identity, time);
 
     const metrics = document.createElement("div");
     metrics.className = "analytics-period-card__metrics";
@@ -738,7 +930,7 @@ export default class Controller {
       metric.textContent = value;
       metrics.append(metric);
     });
-    card.append(header, type, metrics);
+    card.append(header, metrics);
     if (isWorkout) {
       card.addEventListener("click", () => this.openWorkoutDetail(Number(workout.id)));
     }
@@ -772,7 +964,42 @@ export default class Controller {
     return metric;
   }
 
+  createPeriodPowerMetric(label, value, target) {
+    const workoutId = Number(target?.fileId);
+    const startOffset = Number(target?.startOffset);
+    const endOffset = Number(target?.endOffset);
+    const hasWorkoutTarget = Number.isInteger(workoutId)
+      && workoutId > 0
+      && Number.isFinite(startOffset)
+      && Number.isFinite(endOffset)
+      && endOffset > startOffset;
+    if (!hasWorkoutTarget) {
+      return this.createPeriodMetric(label, value, "analytics-period-power__metric");
+    }
+
+    const metric = document.createElement("button");
+    metric.type = "button";
+    metric.className = "analytics-period-power__metric analytics-period-power__metric--action";
+    metric.title = `${label} · W-${workoutId}`;
+    metric.setAttribute("aria-label", `${label}, ${value}, W-${workoutId}`);
+    const metricValue = document.createElement("strong");
+    metricValue.textContent = value;
+    const metricLabel = document.createElement("span");
+    metricLabel.textContent = label;
+    metric.append(metricValue, metricLabel);
+    metric.addEventListener("click", async () => {
+      metric.disabled = true;
+      try {
+        await this.openWorkoutDetail(workoutId, target, label);
+      } finally {
+        metric.disabled = false;
+      }
+    });
+    return metric;
+  }
+
   clearPeriodHeaderDetails() {
+    this.renderedPeriod = null;
     this.periodKpisElement?.replaceChildren();
     this.periodPowerValuesElement?.replaceChildren();
     this.periodZoneBarElement?.replaceChildren();
@@ -797,6 +1024,7 @@ export default class Controller {
 
   renderPeriodSnapshot(period, { aggregate = null, total = null, preview = false } = {}) {
     if (!period || !this.periodKpisElement || !this.periodPowerValuesElement) return;
+    this.renderedPeriod = period;
     const loadSummary = this.ctlChartView?.getPeriodSummary(period) || {};
     const distribution = this.ctlChartView?.getPeriodDistribution(period);
     const summary = aggregate || {};
@@ -809,8 +1037,8 @@ export default class Controller {
       this.analyticsPreferences.grouping,
       this.locale
     );
-    this.periodSummaryElement.textContent = preview ? this.t("periodHoverHint") : "";
-    this.periodSummaryElement.hidden = !preview;
+    this.periodSummaryElement.textContent = "";
+    this.periodSummaryElement.hidden = true;
 
     const metrics = [
       [this.t("periodActivitiesLabel"), activityCount > 0 ? String(activityCount) : null],
@@ -828,8 +1056,8 @@ export default class Controller {
 
     this.renderPeriodDistribution(distribution);
     const powerMetrics = this.cpChartView?.getVisiblePeriodMetrics(period) || [];
-    this.periodPowerValuesElement.replaceChildren(...powerMetrics.map(([label, value]) => (
-      this.createPeriodMetric(label, `${Math.round(value)} W`, "analytics-period-power__metric")
+    this.periodPowerValuesElement.replaceChildren(...powerMetrics.map(([label, value, target]) => (
+      this.createPeriodPowerMetric(label, `${Math.round(value)} W`, target)
     )));
     this.periodPowerElement.hidden = powerMetrics.length === 0;
   }
@@ -902,8 +1130,13 @@ export default class Controller {
   }
 
   hidePeriodInspector() {
+    this.cancelPeriodWorkoutPreview();
+    this.ctlChartView?.setSelectedPeriod?.(null);
+    this.cpChartView?.setSelectedPeriod?.(null);
     this.selectedPeriod = null;
     this.hoveredPeriod = null;
+    this.hoveredPeriodTimestamp = null;
+    this.renderedPeriod = null;
     this.selectedWorkoutId = null;
     ++this.periodRequestId;
     this.periodWorkouts = [];
@@ -912,6 +1145,8 @@ export default class Controller {
     this.periodTotal = 0;
     this.periodAggregate = null;
     this.periodLoading = false;
+    this.preservedPeriodSnapshotRequestId = null;
+    this.previewedWorkoutPeriod = null;
     this.periodLoadMoreButton.disabled = false;
     this.periodWorkoutsElement.removeAttribute("aria-busy");
     this.periodTitleElement.textContent = this.t("periodTitle");

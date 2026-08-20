@@ -19,15 +19,13 @@ test("load model renders power distribution as one replaceable zoomed series", (
     atl: true,
     ctl: true,
     tsb: true,
-    tss: true,
-    intensityDistribution: true
+    tss: true
   };
   view.legendNameToKey = new Map([
     ["ATL_AVG", "atl"],
     ["CTL", "ctl"],
     ["TSB", "tsb"],
-    ["TSS", "tss"],
-    ["distributionLegend", "intensityDistribution"]
+    ["TSS", "tss"]
   ]);
 
   view.renderChart("month", {
@@ -55,9 +53,14 @@ test("load model renders power distribution as one replaceable zoomed series", (
     graphic: { clipRectByRect: (shape) => shape }
   };
   try {
+    const augustStart = Date.parse("2026-08-01T00:00:00.000Z");
+    const dayMs = 24 * 60 * 60 * 1000;
     const makeApi = (values) => ({
       value: (index) => values[index],
-      coord: ([, value]) => [120, 200 - value],
+      coord: ([x, value]) => [
+        ((typeof x === "number" ? x : Date.parse(x)) - augustStart) / dayMs,
+        200 - value
+      ],
       size: () => [40, 0],
       style: () => ({ fill: "test" })
     });
@@ -73,11 +76,11 @@ test("load model renders power distribution as one replaceable zoomed series", (
       { x: tssShape.x, width: tssShape.width },
       { x: distributionShape.x, width: distributionShape.width }
     );
+    assert.deepEqual({ x: tssShape.x, width: tssShape.width }, { x: 2, width: 27 });
   } finally {
     globalThis.echarts = originalEcharts;
   }
-  assert.deepEqual(option.legend[0].data, ["ATL_AVG", "CTL", "TSB", "TSS"]);
-  assert.deepEqual(option.legend[1].data, ["distributionLegend"]);
+  assert.deepEqual(option.legend.data, ["ATL_AVG", "CTL", "TSB", "TSS"]);
   const loadGrid = option.grid.find((grid) => grid.id === "load-model-grid");
   const distributionGrid = option.grid.find((grid) => grid.id === "distribution-grid");
   const distributionTitle = option.title[1];
@@ -90,14 +93,15 @@ test("load model renders power distribution as one replaceable zoomed series", (
   assert.deepEqual(
     option.xAxis.map(({ min, max, boundaryGap }) => ({ min, max, boundaryGap })),
     [
-      { min: Date.parse("2026-08-01"), max: Date.parse("2026-08-01"), boundaryGap: [0, 0] },
-      { min: Date.parse("2026-08-01"), max: Date.parse("2026-08-01"), boundaryGap: [0, 0] }
+      { min: Date.parse("2026-08-01"), max: Date.parse("2026-08-16T12:00:00.000Z"), boundaryGap: [0, 0] },
+      { min: Date.parse("2026-08-01"), max: Date.parse("2026-08-16T12:00:00.000Z"), boundaryGap: [0, 0] }
     ]
   );
   assert.equal(option.xAxis[0].show, true);
   assert.equal(option.xAxis[0].axisLine.show, false);
   assert.equal(option.xAxis[0].axisLabel.show, false);
   assert.equal(option.xAxis[0].axisPointer.show, true);
+  assert.equal(option.xAxis[1].axisLabel.show, false);
   const tssAxis = option.yAxis.find((axis) => axis.name === "TSS");
   assert.equal(tssAxis.axisLabel.formatter(999), "999");
   assert.equal(tssAxis.axisLabel.formatter(1200), "1,2K");
@@ -110,6 +114,18 @@ test("load model renders power distribution as one replaceable zoomed series", (
     "distribution-time-axis"
   ]);
   assert.equal(calls.actions[0].batch.length, 2);
+});
+
+test("critical-power points use the middle of their grouped period", () => {
+  const view = Object.create(CPChartView.prototype);
+  assert.equal(
+    view.getPeriodMidpoint("year_month", 202608),
+    Date.parse("2026-08-16T12:00:00.000Z")
+  );
+  assert.equal(
+    view.getPeriodMidpoint("year_quarter", 20263),
+    Date.parse("2026-08-16T00:00:00.000Z")
+  );
 });
 
 test("analytics chart tooltips describe periods instead of their first date", () => {

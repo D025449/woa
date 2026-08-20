@@ -28,7 +28,6 @@ const SERIES = new Set([
   "ctl",
   "tsb",
   "tss",
-  "intensityDistribution",
   "cp5",
   "cp15",
   "cp60",
@@ -360,7 +359,7 @@ export default class AnalyticsVoiceCommandService {
                 "Opening a relative visible group uses open_relative_period: last=0, penultimate/second-last=1, antepenultimate/third-last=2.",
                 "Opening a named period uses open_period with an ISO date and periodGrouping. A named month selects month, Q1-Q4 selects quarter, a year selects year, and an exact date selects its week.",
                 "Opening the current week/month/quarter/year uses open_calendar_period with periodOffset=0 and the matching periodGrouping. Last uses offset=1, second-last=2 and third-last=3. This differs from the last visible group.",
-                "Series aliases: ATL or ATL_AVG=atl, CTL=ctl, TSB=tsb, TSS=tss, power distribution=intensityDistribution.",
+                "Series aliases: ATL or ATL_AVG=atl, CTL=ctl, TSB=tsb, TSS=tss.",
                 "Critical-power aliases map seconds or minutes to cp5, cp15, cp60, cp120, cp240, cp360, cp480, cp720, cp900, cp960, cp1800; eFTP=eftp.",
                 "German phrases such as einblenden/anzeigen mean visible=true and ausblenden/verbergen mean visible=false.",
                 `The UI locale is ${String(locale || "en").slice(0, 16)}.`

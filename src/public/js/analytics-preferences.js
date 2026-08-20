@@ -8,8 +8,7 @@ export function createDefaultAnalyticsPreferences() {
         atl: true,
         ctl: true,
         tsb: true,
-        tss: true,
-        intensityDistribution: true
+        tss: true
       }
     },
     powerCurve: {

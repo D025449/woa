@@ -160,7 +160,7 @@ test("normalizes analytics chart grouping and legend visibility independently", 
   assert.equal(state.loadModel.grouping, "week");
   assert.equal(state.loadModel.seriesVisibility.atl, false);
   assert.equal(state.loadModel.seriesVisibility.tsb, true);
-  assert.equal(state.loadModel.seriesVisibility.intensityDistribution, true);
+  assert.equal(state.loadModel.seriesVisibility.intensityDistribution, undefined);
   assert.equal("injected" in state.loadModel.seriesVisibility, false);
   assert.equal(state.powerCurve.grouping, "year_month");
   assert.equal(state.powerCurve.seriesVisibility.cp5, false);
