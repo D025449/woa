@@ -14,7 +14,7 @@
     <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator_bootstrap5.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <link rel="stylesheet" href="/css/ui-system.css?v=atlas-blue-4">
-    <link rel="stylesheet" href="/css/analytics.css?v=atlas-blue-13">
+    <link rel="stylesheet" href="/css/analytics.css?v=atlas-blue-14">
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
@@ -198,6 +198,11 @@
                             <h2 id="analytics-period-title" class="analytics-section-title ui-title"><%= t("analyticsPage.periodTitle") %></h2>
                             <p id="analytics-period-summary" class="analytics-section-copy ui-copy" aria-live="polite"></p>
                             <div id="analytics-period-kpis" class="analytics-period-kpis" hidden></div>
+                            <div id="analytics-period-zones" class="analytics-period-zones" hidden>
+                                <span class="analytics-period-power__label"><%= t("analyticsPage.distributionAxis") %></span>
+                                <div id="analytics-period-zone-bar" class="analytics-period-zone-bar"></div>
+                                <div id="analytics-period-zone-values" class="analytics-period-zone-values"></div>
+                            </div>
                             <div id="analytics-period-power" class="analytics-period-power" hidden>
                                 <span class="analytics-period-power__label"><%= t("analyticsPage.periodPowerProfileLabel") %></span>
                                 <div id="analytics-period-power-values" class="analytics-period-power__values"></div>
@@ -235,11 +240,11 @@
         
                 <!-- Charts -->
 
-                <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+                <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
                 <script>
                     window.__I18N = <%- JSON.stringify(i18n || { locale: "en", messages: {} }) %>;
                 </script>
-                <script type="module" src="/js/analytics-ui.js"></script>
+                <script type="module" src="/js/analytics-ui.js?v=atlas-blue-19"></script>
                 <!--script type="module" src="/js/dashboard-table.js"></script-->
 
 </body>

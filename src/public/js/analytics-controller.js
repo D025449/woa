@@ -1,7 +1,7 @@
 import MapView from "./map-view.js";
-import CPChartView from "./cp-chart-view.js";
+import CPChartView from "./cp-chart-view.js?v=atlas-blue-19";
 import FTPChartView from "./ftp-chart-view.js";
-import CTLChartView from "./ctl-chart-view.js";
+import CTLChartView from "./ctl-chart-view.js?v=atlas-blue-19";
 import ChartView from "./chart-view.js";
 import WorkoutService from "./workout-service.js";
 import ViewPreferenceService from "./view-preference-service.js";
@@ -22,6 +22,7 @@ import {
   resolveAnalysisPeriod,
   resolveCalendarAnalysisPeriod
 } from "./analytics-period.js";
+import { POWER_DISTRIBUTION_ZONES } from "../../shared/PowerDistribution.js";
 
 const ANALYTICS_VIEW_KEY = "analytics";
 const VIEW_PREFERENCE_SAVE_DELAY_MS = 500;
@@ -39,6 +40,9 @@ export default class Controller {
     this.periodKpisElement = document.getElementById("analytics-period-kpis");
     this.periodPowerElement = document.getElementById("analytics-period-power");
     this.periodPowerValuesElement = document.getElementById("analytics-period-power-values");
+    this.periodZonesElement = document.getElementById("analytics-period-zones");
+    this.periodZoneBarElement = document.getElementById("analytics-period-zone-bar");
+    this.periodZoneValuesElement = document.getElementById("analytics-period-zone-values");
     this.periodWorkoutsElement = document.getElementById("analytics-period-workouts");
     this.periodLoadMoreElement = document.getElementById("analytics-period-load-more");
     this.periodPageStatusElement = document.getElementById("analytics-period-page-status");
@@ -66,6 +70,7 @@ export default class Controller {
     this.chartTimeBounds = {};
     this.loadedChartBounds = new Set();
     this.selectedPeriod = null;
+    this.hoveredPeriod = null;
     this.selectedWorkoutId = null;
     this.periodRequestId = 0;
     this.periodWorkouts = [];
@@ -161,6 +166,8 @@ export default class Controller {
       onPreferenceChange: (patch) => this.updateAnalyticsPreferences("powerCurve", patch),
       onTimeBoundsChange: (bounds) => this.updateChartTimeBounds("powerCurve", bounds),
       onTimeRangeChange: (range) => this.handleChartTimeRangeChange(range),
+      onPeriodHover: (selection) => this.handleAnalysisPeriodHover(selection),
+      onPeriodHoverEnd: () => this.handleAnalysisPeriodHoverEnd(),
       onPeriodClick: (selection) => this.handleAnalysisPointClick(selection)
     });
 
@@ -172,10 +179,76 @@ export default class Controller {
       onPreferenceChange: (patch) => this.updateAnalyticsPreferences("loadModel", patch),
       onTimeBoundsChange: (bounds) => this.updateChartTimeBounds("loadModel", bounds),
       onTimeRangeChange: (range) => this.handleChartTimeRangeChange(range),
+      onPeriodHover: (selection) => this.handleAnalysisPeriodHover(selection),
+      onPeriodHoverEnd: () => this.handleAnalysisPeriodHoverEnd(),
       onPeriodClick: (selection) => this.handleAnalysisPointClick(selection)
     });
 
     echarts.connect([this.ctlChartView.chart, this.cpChartView.chart]);
+    this.connectLoadModelPointerToPowerCurve();
+    this.connectPowerCurvePointerToLoadModel();
+  }
+
+  connectLoadModelPointerToPowerCurve() {
+    const sourceChart = this.ctlChartView.chart;
+    const targetChart = this.cpChartView.chart;
+    let pendingPointer = null;
+    let animationFrame = null;
+
+    sourceChart.getZr().on('mousemove', (event) => {
+      const sourcePoint = [event.offsetX, event.offsetY];
+      if (!sourceChart.containPixel({ gridIndex: 0 }, sourcePoint)) return;
+
+      pendingPointer = sourceChart.convertFromPixel({ xAxisIndex: 0 }, event.offsetX);
+      if (!Number.isFinite(Number(pendingPointer)) || animationFrame !== null) return;
+
+      animationFrame = requestAnimationFrame(() => {
+        animationFrame = null;
+        const timestamp = Number(pendingPointer);
+        const targetX = targetChart.convertToPixel({ xAxisIndex: 0 }, timestamp);
+        const targetGrid = targetChart.getModel().getComponent('grid', 0)?.coordinateSystem?.getRect();
+        if (!Number.isFinite(targetX) || !targetGrid) return;
+
+        targetChart.dispatchAction({
+          type: 'updateAxisPointer',
+          currTrigger: 'mousemove',
+          x: targetX,
+          y: targetGrid.y + (targetGrid.height / 2),
+          escapeConnect: true
+        });
+      });
+    });
+  }
+
+  connectPowerCurvePointerToLoadModel() {
+    const sourceChart = this.cpChartView.chart;
+    const targetChart = this.ctlChartView.chart;
+    let pendingPointer = null;
+    let animationFrame = null;
+
+    sourceChart.getZr().on('mousemove', (event) => {
+      const sourcePoint = [event.offsetX, event.offsetY];
+      if (!sourceChart.containPixel({ gridIndex: 0 }, sourcePoint)) return;
+
+      pendingPointer = sourceChart.convertFromPixel({ xAxisIndex: 0 }, event.offsetX);
+      if (!Number.isFinite(Number(pendingPointer)) || animationFrame !== null) return;
+
+      animationFrame = requestAnimationFrame(() => {
+        animationFrame = null;
+        const timestamp = Number(pendingPointer);
+        const targetX = targetChart.convertToPixel({ xAxisIndex: 0 }, timestamp);
+        const targetGrid = targetChart.getModel().getComponent('grid', 0)?.coordinateSystem?.getRect();
+        if (!Number.isFinite(targetX) || !targetGrid) return;
+
+        targetChart.dispatchAction({
+          type: 'updateAxisPointer',
+          currTrigger: 'mousemove',
+          x: targetX,
+          y: targetGrid.y + (targetGrid.height / 2),
+          escapeConnect: true
+        });
+      });
+    });
   }
 
   initSharedGroupingControl() {
@@ -464,6 +537,46 @@ export default class Controller {
     }
   }
 
+  isSamePeriod(left, right) {
+    return Boolean(left && right && left.startMs === right.startMs && left.endMs === right.endMs);
+  }
+
+  handleAnalysisPeriodHover(selection) {
+    const period = resolveAnalysisPeriod(selection?.date, this.analyticsPreferences.grouping);
+    if (!period || this.isSamePeriod(period, this.hoveredPeriod)) return;
+    this.hoveredPeriod = period;
+    const isSelected = this.isSamePeriod(period, this.selectedPeriod);
+    this.renderPeriodSnapshot(period, {
+      aggregate: isSelected ? this.periodAggregate : null,
+      total: isSelected ? this.periodTotal : null,
+      preview: !isSelected
+    });
+  }
+
+  handleAnalysisPeriodHoverEnd() {
+    if (!this.hoveredPeriod) return;
+    this.hoveredPeriod = null;
+    if (this.selectedPeriod) {
+      if (this.periodLoading) {
+        this.periodTitleElement.textContent = formatAnalysisPeriod(
+          this.selectedPeriod,
+          this.analyticsPreferences.grouping,
+          this.locale
+        );
+        this.periodSummaryElement.textContent = this.t("periodLoading");
+        this.periodSummaryElement.hidden = false;
+        this.clearPeriodHeaderDetails();
+      } else {
+        this.renderPeriodHeaderDetails();
+      }
+      return;
+    }
+    this.periodTitleElement.textContent = this.t("periodTitle");
+    this.periodSummaryElement.textContent = "";
+    this.periodSummaryElement.hidden = true;
+    this.clearPeriodHeaderDetails();
+  }
+
   async loadPeriodWorkouts(period) {
     const requestId = ++this.periodRequestId;
     this.selectedPeriod = period;
@@ -647,7 +760,10 @@ export default class Controller {
   clearPeriodHeaderDetails() {
     this.periodKpisElement?.replaceChildren();
     this.periodPowerValuesElement?.replaceChildren();
+    this.periodZoneBarElement?.replaceChildren();
+    this.periodZoneValuesElement?.replaceChildren();
     if (this.periodKpisElement) this.periodKpisElement.hidden = true;
+    if (this.periodZonesElement) this.periodZonesElement.hidden = true;
     if (this.periodPowerElement) this.periodPowerElement.hidden = true;
     if (this.periodPageStatusElement) {
       this.periodPageStatusElement.hidden = true;
@@ -656,43 +772,88 @@ export default class Controller {
   }
 
   renderPeriodHeaderDetails() {
-    if (!this.selectedPeriod || !this.periodKpisElement || !this.periodPowerValuesElement) return;
-    const loadSummary = this.ctlChartView?.getPeriodSummary(this.selectedPeriod);
-    const powerSummary = this.cpChartView?.getPeriodSummary(this.selectedPeriod);
-    const aggregate = this.periodAggregate || {};
-    const duration = this.formatDurationMetric(aggregate.total_timer_time);
-    const distance = this.formatDistanceMetric(aggregate.total_distance);
+    if (!this.selectedPeriod) return;
+    this.renderPeriodSnapshot(this.selectedPeriod, {
+      aggregate: this.periodAggregate,
+      total: this.periodTotal,
+      preview: false
+    });
+  }
 
-    this.periodKpisElement.replaceChildren();
-    this.periodKpisElement.append(this.createPeriodMetric(
-      this.t("periodActivitiesLabel"),
-      String(Number(aggregate.activity_count) || this.periodTotal)
-    ));
-    if (duration) {
-      this.periodKpisElement.append(this.createPeriodMetric(this.t("periodDurationLabel"), duration));
-    }
-    if (loadSummary?.tss != null) {
-      this.periodKpisElement.append(this.createPeriodMetric(
-        this.t("periodTssLabel"),
-        String(Math.round(Number(loadSummary.tss) || 0))
-      ));
-    }
-    if (distance) {
-      this.periodKpisElement.append(this.createPeriodMetric(this.t("periodDistanceLabel"), distance));
-    }
-    this.periodKpisElement.hidden = false;
+  renderPeriodSnapshot(period, { aggregate = null, total = null, preview = false } = {}) {
+    if (!period || !this.periodKpisElement || !this.periodPowerValuesElement) return;
+    const loadSummary = this.ctlChartView?.getPeriodSummary(period) || {};
+    const distribution = this.ctlChartView?.getPeriodDistribution(period);
+    const summary = aggregate || {};
+    const activityCount = Number(summary.activity_count ?? loadSummary.activityCount ?? total) || 0;
+    const duration = this.formatDurationMetric(summary.total_timer_time ?? loadSummary.totalTimerTime);
+    const distance = this.formatDistanceMetric(summary.total_distance ?? loadSummary.totalDistance);
 
-    const powerMetrics = [
-      ["eFTP", powerSummary?.eFTP?.power],
-      ["5 s", powerSummary?.CP5?.power],
-      ["1 min", powerSummary?.CP60?.power],
-      ["4 min", powerSummary?.CP240?.power],
-      ["16 min", powerSummary?.CP960?.power]
-    ].filter(([, value]) => Number.isFinite(Number(value)));
+    this.periodTitleElement.textContent = formatAnalysisPeriod(
+      period,
+      this.analyticsPreferences.grouping,
+      this.locale
+    );
+    this.periodSummaryElement.textContent = preview ? this.t("periodHoverHint") : "";
+    this.periodSummaryElement.hidden = !preview;
+
+    const metrics = [
+      [this.t("periodActivitiesLabel"), activityCount > 0 ? String(activityCount) : null],
+      [this.t("periodDurationLabel"), duration],
+      [this.t("periodTssLabel"), Number.isFinite(Number(loadSummary.tss)) ? String(Math.round(loadSummary.tss)) : null],
+      ["CTL", Number.isFinite(Number(loadSummary.ctl)) ? String(Math.round(loadSummary.ctl)) : null],
+      ["ATL", Number.isFinite(Number(loadSummary.atl)) ? String(Math.round(loadSummary.atl)) : null],
+      ["TSB", Number.isFinite(Number(loadSummary.tsb)) ? String(Math.round(loadSummary.tsb)) : null],
+      [this.t("periodDistanceLabel"), distance]
+    ].filter(([, value]) => value != null);
+    this.periodKpisElement.replaceChildren(...metrics.map(([label, value]) => (
+      this.createPeriodMetric(label, value)
+    )));
+    this.periodKpisElement.hidden = metrics.length === 0;
+
+    this.renderPeriodDistribution(distribution);
+    const powerMetrics = this.cpChartView?.getVisiblePeriodMetrics(period) || [];
     this.periodPowerValuesElement.replaceChildren(...powerMetrics.map(([label, value]) => (
-      this.createPeriodMetric(label, `${Math.round(Number(value))} W`, "analytics-period-power__metric")
+      this.createPeriodMetric(label, `${Math.round(value)} W`, "analytics-period-power__metric")
     )));
     this.periodPowerElement.hidden = powerMetrics.length === 0;
+  }
+
+  renderPeriodDistribution(distribution) {
+    if (!this.periodZonesElement || !this.periodZoneBarElement || !this.periodZoneValuesElement) return;
+    const zones = distribution
+      ? POWER_DISTRIBUTION_ZONES.map((zone) => ({
+          ...zone,
+          percent: Number(distribution.zonePercentages?.[zone.key]) || 0
+        })).filter((zone) => zone.percent > 0)
+      : [];
+    this.periodZoneBarElement.replaceChildren(...zones.map((zone) => {
+      const segment = document.createElement("span");
+      segment.className = "analytics-period-zone-bar__segment";
+      segment.style.width = `${zone.percent}%`;
+      segment.style.backgroundColor = zone.color;
+      return segment;
+    }));
+    const zoneValues = zones.map((zone) => {
+      const value = document.createElement("span");
+      value.className = "analytics-period-zone-value";
+      value.style.setProperty("--analytics-zone-color", zone.color);
+      const duration = this.formatDurationMetric(distribution.zoneSeconds?.[zone.key]);
+      value.textContent = `${zone.key.toUpperCase()} ${zone.percent.toFixed(1)} %${duration ? ` · ${duration}` : ""}`;
+      return value;
+    });
+    const distributionDetails = distribution ? [
+      [this.t("distributionActive"), distribution.activeSeconds],
+      [this.t("distributionCoasting"), distribution.zeroSeconds],
+      [this.t("distributionWithoutFtp"), distribution.unclassifiedSeconds]
+    ].filter(([, seconds]) => Number(seconds) > 0).map(([label, seconds]) => {
+      const value = document.createElement("span");
+      value.className = "analytics-period-zone-value analytics-period-zone-value--summary";
+      value.textContent = `${label}: ${this.formatDurationMetric(seconds)}`;
+      return value;
+    }) : [];
+    this.periodZoneValuesElement.replaceChildren(...zoneValues, ...distributionDetails);
+    this.periodZonesElement.hidden = zones.length === 0;
   }
 
   async openWorkoutDetail(workoutId, cpRow = null, seriesName = "") {
@@ -727,6 +888,7 @@ export default class Controller {
 
   hidePeriodInspector() {
     this.selectedPeriod = null;
+    this.hoveredPeriod = null;
     this.selectedWorkoutId = null;
     ++this.periodRequestId;
     this.periodWorkouts = [];

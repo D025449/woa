@@ -9,7 +9,7 @@ import {
 } from "./analytics-period.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
 import { POWER_DISTRIBUTION_ZONES } from "../../shared/PowerDistribution.js";
-import { loadAnalyticsOverview } from "./analytics-overview-client.js";
+import { loadAnalyticsOverview } from "./analytics-overview-client.js?v=atlas-blue-19";
 
 const LOAD_GRID = Object.freeze({ top: 58, height: 242 });
 const DISTRIBUTION_GRID = Object.freeze({ top: 377, height: 72 });
@@ -43,6 +43,7 @@ export default class CTLChartView {
     this.timeDomain = null;
     this.suppressTimeRangeEvent = false;
     this.periodSummaries = new Map();
+    this.distributionSummaries = new Map();
     this.hasDistributionGrid = false;
 
     this.registerChartInteractions();
@@ -80,6 +81,19 @@ export default class CTLChartView {
         data: params.data?.extra || null
       });
     });
+
+    this.chart.getZr().on('mousemove', (event) => {
+      const point = [event.offsetX, event.offsetY];
+      const axisIndex = this.chart.containPixel({ gridIndex: 0 }, point)
+        ? 0
+        : (this.hasDistributionGrid && this.chart.containPixel({ gridIndex: 1 }, point) ? 1 : null);
+      if (axisIndex === null) return;
+      const timestamp = this.chart.convertFromPixel({ xAxisIndex: axisIndex }, event.offsetX);
+      if (Number.isFinite(Number(timestamp))) {
+        this.handlers?.onPeriodHover?.({ date: Number(timestamp) });
+      }
+    });
+    this.chart.getZr().on('globalout', () => this.handlers?.onPeriodHoverEnd?.());
   }
 
   // -----------------------------
@@ -132,7 +146,10 @@ export default class CTLChartView {
         tss: Number(grouping === "date" ? row.tss : row.tss_sum) || 0,
         ctl: Number(grouping === "date" ? row.ctl : row.ctl_end) || 0,
         atl: Number(grouping === "date" ? row.atl : row.atl_avg) || 0,
-        tsb: Number(grouping === "date" ? row.tsb : row.tsb_avg) || 0
+        tsb: Number(grouping === "date" ? row.tsb : row.tsb_avg) || 0,
+        activityCount: Number(row.activity_count) || 0,
+        totalTimerTime: Number(row.total_timer_time) || 0,
+        totalDistance: Number(row.total_distance) || 0
       }];
     }).filter(([timestamp]) => Number.isFinite(timestamp)));
 
@@ -258,6 +275,10 @@ export default class CTLChartView {
     }
 
     const distributionRows = Array.isArray(distributionData?.data) ? distributionData.data : [];
+    this.distributionSummaries = new Map(distributionRows.map((row) => [
+      Date.parse(this.mapToDate(grouping, row.period)),
+      row
+    ]).filter(([timestamp]) => Number.isFinite(timestamp)));
     const showDistribution = distributionRows.some((row) => Number(row.activeSeconds) > 0);
     this.hasDistributionGrid = showDistribution;
     if (showDistribution) {
@@ -345,11 +366,12 @@ export default class CTLChartView {
       axisLabel: { show: false },
       axisTick: { show: false },
       splitLine: { show: false },
-      axisPointer: { show: true }
+      axisPointer: { show: true, snap: false }
     };
     const option = {
       tooltip: {
         trigger: 'axis',
+        showContent: false,
         formatter: (params) => this.formatTooltip(params)
       },
       animation: false,
@@ -381,7 +403,7 @@ export default class CTLChartView {
       xAxis: showDistribution
         ? [
             { id: 'load-time-axis', ...sharedTimeAxis, ...hiddenTimeAxisPresentation, gridIndex: 0 },
-            { id: 'distribution-time-axis', ...sharedTimeAxis, gridIndex: 1, axisLabel: { fontSize: 10 }, axisTick: { show: false }, axisPointer: { show: true } }
+            { id: 'distribution-time-axis', ...sharedTimeAxis, gridIndex: 1, axisLabel: { fontSize: 10 }, axisTick: { show: false }, axisPointer: { show: true, snap: false } }
           ]
         : { ...sharedTimeAxis, ...hiddenTimeAxisPresentation },
       yAxis,
@@ -476,8 +498,27 @@ export default class CTLChartView {
       { ...common, name: "ATL", position: "left" },
       { ...common, name: "CTL", position: "right" },
       { ...common, name: "TSB", position: "left", offset: 48 },
-      { ...common, name: "TSS", position: "right", offset: 48 }
+      {
+        ...common,
+        name: "TSS",
+        position: "right",
+        offset: 48,
+        axisLabel: {
+          ...common.axisLabel,
+          formatter: (value) => this.formatCompactTssAxisValue(value)
+        }
+      }
     ];
+  }
+
+  formatCompactTssAxisValue(value) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue) || Math.abs(numericValue) < 1000) return `${value}`;
+
+    const thousands = numericValue / 1000;
+    return `${new Intl.NumberFormat(this.locale || "en", {
+      maximumFractionDigits: Math.abs(thousands) < 10 ? 1 : 0
+    }).format(thousands)}K`;
   }
 
   formatDuration(seconds) {
@@ -569,6 +610,14 @@ export default class CTLChartView {
     if (!period) return null;
     for (const [timestamp, summary] of this.periodSummaries) {
       if (timestamp >= period.startMs && timestamp < period.endMs) return summary;
+    }
+    return null;
+  }
+
+  getPeriodDistribution(period) {
+    if (!period) return null;
+    for (const [timestamp, distribution] of this.distributionSummaries) {
+      if (timestamp >= period.startMs && timestamp < period.endMs) return distribution;
     }
     return null;
   }

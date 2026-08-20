@@ -18,7 +18,10 @@ function buildFixture() {
       ctl_start: 43,
       ctl_end: 51,
       tsb_avg: -8,
-      atl_avg: 57
+      atl_avg: 57,
+      activity_count: 12,
+      total_timer_time: 45678,
+      total_distance: 321456
     }],
     distributionRows: [{
       period: 202607,
@@ -74,7 +77,10 @@ test("analytics overview binary codec preserves the chart contract", () => {
     ctl_start: 43,
     ctl_end: 51,
     tsb_avg: -8,
-    atl_avg: 57
+    atl_avg: 57,
+    activity_count: 12,
+    total_timer_time: 45678,
+    total_distance: 321456
   });
   assert.equal(decoded.powerDistribution.data[0].zoneSeconds.z3, 302);
   assert.ok(Math.abs(decoded.powerDistribution.data[0].zonePercentages.z3 - 30) < 0.2);

@@ -113,6 +113,7 @@ test("every locale contains the shared analytics time-range copy", async () => {
     assert.equal(typeof messages.analyticsPage.periodTssLabel, "string");
     assert.equal(typeof messages.analyticsPage.periodDistanceLabel, "string");
     assert.equal(typeof messages.analyticsPage.periodPowerProfileLabel, "string");
+    assert.equal(typeof messages.analyticsPage.periodHoverHint, "string");
     assert.equal(typeof messages.analyticsPage.detailInitial, "string");
     assert.equal(typeof messages.analyticsPage.loadMore, "string");
     assert.equal(typeof messages.analyticsPage.distributionLegend, "string");
@@ -167,6 +168,55 @@ test("analytics charts share one bundled backend request", async () => {
   assert.match(clientSource, /decodeAnalyticsOverview/u);
   assert.match(loadChart, /await loadAnalyticsOverview\(this\.currentGrouping\)/u);
   assert.match(powerChart, /await loadAnalyticsOverview\(this\.currentGrouping\)/u);
+});
+
+test("analytics replaces floating tooltips with a persistent hover inspector", async () => {
+  const [markup, controller, loadChart, powerChart] = await Promise.all([
+    readFile(new URL("src/views/analytics.ejs", projectRoot), "utf8"),
+    readFile(new URL("src/public/js/analytics-controller.js", projectRoot), "utf8"),
+    readFile(new URL("src/public/js/ctl-chart-view.js", projectRoot), "utf8"),
+    readFile(new URL("src/public/js/cp-chart-view.js", projectRoot), "utf8")
+  ]);
+
+  assert.match(markup, /id="analytics-period-zone-bar"/u);
+  assert.match(controller, /handleAnalysisPeriodHover/u);
+  assert.match(controller, /renderPeriodSnapshot/u);
+  assert.match(controller, /getVisiblePeriodMetrics/u);
+  assert.match(loadChart, /showContent: false/u);
+  assert.match(powerChart, /showContent: false/u);
+});
+
+test("load-model hover forwards its time to the power curve without a connect loop", async () => {
+  const controllerSource = await readFile(
+    new URL("src/public/js/analytics-controller.js", projectRoot),
+    "utf8"
+  );
+
+  assert.match(controllerSource, /containPixel\(\{ gridIndex: 0 \}/u);
+  assert.match(controllerSource, /convertFromPixel\(\{ xAxisIndex: 0 \}/u);
+  assert.match(controllerSource, /type: 'updateAxisPointer'/u);
+  assert.match(controllerSource, /escapeConnect: true/u);
+});
+
+test("power-curve hover forwards its time independently of visible power series", async () => {
+  const controllerSource = await readFile(
+    new URL("src/public/js/analytics-controller.js", projectRoot),
+    "utf8"
+  );
+
+  assert.match(controllerSource, /connectPowerCurvePointerToLoadModel\(\)/u);
+  assert.match(controllerSource, /const sourceChart = this\.cpChartView\.chart;/u);
+  assert.match(controllerSource, /const targetChart = this\.ctlChartView\.chart;/u);
+});
+
+test("analytics time pointers do not depend on visible series samples", async () => {
+  const [loadChartSource, powerChartSource] = await Promise.all([
+    readFile(new URL("src/public/js/ctl-chart-view.js", projectRoot), "utf8"),
+    readFile(new URL("src/public/js/cp-chart-view.js", projectRoot), "utf8")
+  ]);
+
+  assert.match(loadChartSource, /axisPointer: \{ show: true, snap: false \}/u);
+  assert.match(powerChartSource, /axisPointer: \{ show: true, snap: false \}/u);
 });
 
 test("analytics overview permits a short private browser cache", async () => {

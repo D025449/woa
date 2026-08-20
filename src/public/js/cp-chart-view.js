@@ -9,7 +9,7 @@ import {
   getISOWeekStartDate
 } from "./analytics-period.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
-import { loadAnalyticsOverview } from "./analytics-overview-client.js";
+import { loadAnalyticsOverview } from "./analytics-overview-client.js?v=atlas-blue-19";
 
 function formatCPDuration(durationSeconds) {
   return durationSeconds < 60
@@ -72,6 +72,16 @@ export default class CPChartView {
         data: d
       });
     });
+
+    this.chart.getZr().on('mousemove', (event) => {
+      const point = [event.offsetX, event.offsetY];
+      if (!this.chart.containPixel({ gridIndex: 0 }, point)) return;
+      const timestamp = this.chart.convertFromPixel({ xAxisIndex: 0 }, event.offsetX);
+      if (Number.isFinite(Number(timestamp))) {
+        this.handlers?.onPeriodHover?.({ date: Number(timestamp) });
+      }
+    });
+    this.chart.getZr().on('globalout', () => this.handlers?.onPeriodHoverEnd?.());
   }
 
   // -----------------------------
@@ -148,6 +158,7 @@ export default class CPChartView {
       },
       tooltip: {
         trigger: 'axis',
+        showContent: false,
         formatter: (params) => this.formatTooltip(params)
       },
 
@@ -172,7 +183,7 @@ export default class CPChartView {
 
       xAxis: {
         type: 'time',
-        axisPointer: { show: true }
+        axisPointer: { show: true, snap: false }
       },
 
       grid: {
@@ -298,6 +309,17 @@ export default class CPChartView {
       if (timestamp >= period.startMs && timestamp < period.endMs) return summary;
     }
     return null;
+  }
+
+  getVisiblePeriodMetrics(period) {
+    const summary = this.getPeriodSummary(period);
+    if (!summary) return [];
+
+    return [...this.legendNameToKey].flatMap(([label, key]) => {
+      if (this.seriesVisibility[key] === false) return [];
+      const metric = key === "eftp" ? summary.eFTP : summary[`CP${key.slice(2)}`];
+      return Number.isFinite(Number(metric?.power)) ? [[label, Number(metric.power)]] : [];
+    });
   }
 
   // -----------------------------

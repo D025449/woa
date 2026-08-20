@@ -304,6 +304,7 @@ body.analytics-page.has-fixed-app-topbar .analytics-compact-heading .analytics-s
 }
 
 .analytics-period-kpis[hidden],
+.analytics-period-zones[hidden],
 .analytics-period-power[hidden],
 .analytics-period-page-status[hidden] {
     display: none;
@@ -333,6 +334,55 @@ body.analytics-page.has-fixed-app-topbar .analytics-compact-heading .analytics-s
     margin-top: 0.75rem;
     padding-top: 0.65rem;
     border-top: 1px solid var(--ui-chip-border-soft);
+}
+
+.analytics-period-zones {
+    margin-top: 0.75rem;
+    padding-top: 0.65rem;
+    border-top: 1px solid var(--ui-chip-border-soft);
+}
+
+.analytics-period-zone-bar {
+    display: flex;
+    height: 0.58rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.16);
+}
+
+.analytics-period-zone-bar__segment {
+    min-width: 1px;
+}
+
+.analytics-period-zone-values {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.28rem 0.55rem;
+    margin-top: 0.45rem;
+    color: var(--ui-text-muted);
+    font-size: 0.66rem;
+}
+
+.analytics-period-zone-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.24rem;
+}
+
+.analytics-period-zone-value::before {
+    width: 0.42rem;
+    height: 0.42rem;
+    border-radius: 50%;
+    background: var(--analytics-zone-color);
+    content: "";
+}
+
+.analytics-period-zone-value--summary {
+    flex-basis: 100%;
+}
+
+.analytics-period-zone-value--summary::before {
+    display: none;
 }
 
 .analytics-period-power__label {

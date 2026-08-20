@@ -1,9 +1,9 @@
 import { POWER_DISTRIBUTION_ZONES } from "./PowerDistribution.js";
 
 const MAGIC = Object.freeze([0x41, 0x4f, 0x56, 0x31]); // AOV1
-const VERSION = 3;
+const VERSION = 4;
 const HEADER_BYTES = 24;
-const LOAD_ROW_BYTES = 14;
+const LOAD_ROW_BYTES = 24;
 const DISTRIBUTION_ROW_BYTES = 39;
 const CP_ROW_BYTES = 29;
 const FTP_ROW_BYTES = 13;
@@ -156,7 +156,10 @@ export function encodeAnalyticsOverview({
     view.setUint16(offset + 4, unsignedNumber(row.ctl_end, UINT16_NULL), true);
     view.setInt16(offset + 6, signedInt16Number(row.tsb_avg), true);
     view.setUint16(offset + 8, unsignedNumber(row.atl_avg, UINT16_NULL), true);
-    offset += 10;
+    view.setUint16(offset + 10, unsignedNumber(row.activity_count, UINT16_NULL), true);
+    view.setUint32(offset + 12, unsignedNumber(Math.round(Number(row.total_timer_time))), true);
+    view.setUint32(offset + 16, unsignedNumber(Math.round(Number(row.total_distance))), true);
+    offset += 20;
   }
 
   for (const row of distributions) {
@@ -256,7 +259,14 @@ export function decodeAnalyticsOverview(input) {
       ctl_start: readUint16(view, offset + 6),
       ctl_end: readUint16(view, offset + 8),
       tsb_avg: readInt16(view, offset + 10),
-      atl_avg: readUint16(view, offset + 12)
+      atl_avg: readUint16(view, offset + 12),
+      activity_count: readUint16(view, offset + 14),
+      total_timer_time: view.getUint32(offset + 16, true) === UINT32_NULL
+        ? null
+        : view.getUint32(offset + 16, true),
+      total_distance: view.getUint32(offset + 20, true) === UINT32_NULL
+        ? null
+        : view.getUint32(offset + 20, true)
     });
     offset += LOAD_ROW_BYTES;
   }

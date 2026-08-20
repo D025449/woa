@@ -14,6 +14,7 @@ test("load model renders power distribution as one replaceable zoomed series", (
   };
   view.handlers = {};
   view.t = (key) => key;
+  view.locale = "de";
   view.seriesVisibility = {
     atl: true,
     ctl: true,
@@ -97,6 +98,11 @@ test("load model renders power distribution as one replaceable zoomed series", (
   assert.equal(option.xAxis[0].axisLine.show, false);
   assert.equal(option.xAxis[0].axisLabel.show, false);
   assert.equal(option.xAxis[0].axisPointer.show, true);
+  const tssAxis = option.yAxis.find((axis) => axis.name === "TSS");
+  assert.equal(tssAxis.axisLabel.formatter(999), "999");
+  assert.equal(tssAxis.axisLabel.formatter(1200), "1,2K");
+  assert.equal(tssAxis.axisLabel.formatter(3000), "3K");
+  assert.equal(tssAxis.axisLabel.formatter(35000), "35K");
 
   view.setTimeRange({ start: 1, end: 2 }, { start: 0, end: 3 });
   assert.deepEqual(calls.options[1].xAxis.map((axis) => axis.id), [

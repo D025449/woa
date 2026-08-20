@@ -1001,6 +1001,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
          'workout'::text AS entity_type,
          start_time,
          total_timer_time,
+         total_distance,
          avg_normalized_power,
          workout_type,
          NULL::double precision AS estimated_tss,
@@ -1013,6 +1014,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
          'manual_activity'::text AS entity_type,
          start_time,
          duration_seconds AS total_timer_time,
+         NULL::double precision AS total_distance,
          avg_normalized_power,
          workout_type,
          estimated_tss,
@@ -1043,15 +1045,32 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     const ctl = FileDBService.computeCTLATL(filled);
 
 
-    if (period === 'date') {
-      return ctl;
+    const groupedLoad = period === 'date' ? ctl : FileDBService.groupByAny(ctl, period);
+    const activitySummaries = new Map();
+    for (const activity of enriched) {
+      const start = new Date(activity.start_time);
+      if (Number.isNaN(start.getTime())) continue;
+      const day = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`;
+      const key = FileDBService.getGroupKey(day, period);
+      const summary = activitySummaries.get(key) || {
+        activity_count: 0,
+        total_timer_time: 0,
+        total_distance: 0
+      };
+      summary.activity_count += 1;
+      summary.total_timer_time += Number(activity.total_timer_time) || 0;
+      summary.total_distance += Number(activity.total_distance) || 0;
+      activitySummaries.set(key, summary);
     }
-    else if (period === 'week') {
-      return FileDBService.groupByAny(ctl, period);
-    }
-    else {
-      return FileDBService.groupByAny(ctl, period);
-    }
+
+    return groupedLoad.map((row) => ({
+      ...row,
+      ...(activitySummaries.get(String(row.date)) || {
+        activity_count: 0,
+        total_timer_time: 0,
+        total_distance: 0
+      })
+    }));
   }
 
   static fillMissingDays(daily) {

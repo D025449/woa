@@ -1,4 +1,4 @@
-import { decodeAnalyticsOverview } from "../../shared/AnalyticsOverviewCodec.js";
+import { decodeAnalyticsOverview } from "../../shared/AnalyticsOverviewCodec.js?v=4";
 
 const overviewRequests = new Map();
 
@@ -12,7 +12,7 @@ export async function loadAnalyticsOverview(grouping) {
   const pending = overviewRequests.get(sharedGrouping);
   if (pending) return pending;
 
-  const request = fetch(`/files/analytics-overview?grouping=${sharedGrouping}`)
+  const request = fetch(`/files/analytics-overview?grouping=${sharedGrouping}&format=4`)
     .then(async (response) => {
       if (response.status === 401) {
         window.location.href = "/login";
