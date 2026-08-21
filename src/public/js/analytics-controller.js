@@ -1,5 +1,5 @@
 import MapView from "./map-view.js";
-import CPChartView from "./cp-chart-view.js?v=atlas-blue-27";
+import CPChartView from "./cp-chart-view.js?v=atlas-blue-29";
 import FTPChartView from "./ftp-chart-view.js";
 import CTLChartView from "./ctl-chart-view.js?v=atlas-blue-29";
 import ChartView from "./chart-view.js";

@@ -36,6 +36,22 @@ test("critical-power chart includes the new durations and rolling eFTP", async (
   assert.match(chartSource, /animation: false/u);
 });
 
+test("critical-power colors follow one semantic short-to-long intensity scale", async () => {
+  const chartSource = await readFile(
+    new URL("src/public/js/cp-chart-view.js", projectRoot),
+    "utf8"
+  );
+
+  const expectedColors = [
+    "#6D28D9", "#9333EA", "#C026D3", "#DB2777", "#E11D48", "#EA580C",
+    "#F59E0B", "#84A11D", "#16A34A", "#0D9488", "#0284C7", "#334155"
+  ];
+  for (const color of expectedColors) assert.match(chartSource, new RegExp(color, "u"));
+  assert.match(chartSource, /lineStyle: \{ color, width: 2 \}/u);
+  assert.match(chartSource, /itemStyle: \{ color \}/u);
+  assert.match(chartSource, /color: getCPSeriesColor\(Number\(key\.slice\(2\)\)\)/u);
+});
+
 test("analytics displays and persists one slider-controlled range for both charts", async () => {
   const markup = await readFile(new URL("src/views/analytics.ejs", projectRoot), "utf8");
   const controller = await readFile(
@@ -105,7 +121,7 @@ test("analytics uses one grouping control and a two-level workout drill-down", a
   assert.match(controller, /analytics-period-card__cp-markers/u);
   assert.match(powerChart, /getPeriodWorkoutHighlights\(period\)/u);
   assert.match(powerChart, /metric\?\.fileId/u);
-  assert.match(powerChart, /this\.chart\.getVisual/u);
+  assert.match(powerChart, /color: getCPSeriesColor\(Number\(key\.slice\(2\)\)\)/u);
   assert.match(controller, /createPeriodPowerMetric\(label, value, target\)/u);
   assert.match(controller, /this\.openWorkoutDetail\(workoutId, target, label\)/u);
   assert.match(controller, /endOffset > startOffset/u);

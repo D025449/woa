@@ -18,10 +18,25 @@ function formatCPDuration(durationSeconds) {
     : `CP${durationSeconds / 60}`;
 }
 
-const FALLBACK_SERIES_COLORS = [
-  '#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272',
-  '#fc8452', '#9a60b4', '#ea7ccc', '#2f4554', '#61a0a8'
-];
+const CP_SERIES_COLORS = Object.freeze({
+  5: '#6D28D9',
+  15: '#9333EA',
+  60: '#C026D3',
+  120: '#DB2777',
+  240: '#E11D48',
+  360: '#EA580C',
+  480: '#F59E0B',
+  720: '#84A11D',
+  900: '#16A34A',
+  960: '#0D9488',
+  1800: '#0284C7'
+});
+const FTP_SERIES_COLOR = '#334155';
+const FALLBACK_SERIES_COLOR = '#5470C6';
+
+function getCPSeriesColor(durationSeconds) {
+  return CP_SERIES_COLORS[durationSeconds] || FALLBACK_SERIES_COLOR;
+}
 
 export default class CPChartView {
 
@@ -136,20 +151,25 @@ export default class CPChartView {
     );
     this.legendNameToKey.set('FTP', 'eftp');
 
-    const series = durations.map(d => ({
-      name: formatCPDuration(d),
-      type: 'line',
-      showSymbol: false,
-      sampling: 'lttb',
-      yAxisIndex: (d <= 60) ? 1 : 0,
-      data: Object.entries(data).map(([grp, values]) => ({
-        value: [
-          this.getPeriodMidpoint(grouping, grp),
-          values[`CP${d}`]?.power ?? null
-        ],
-        extra: values[`CP${d}`]
-      }))
-    }));
+    const series = durations.map((duration) => {
+      const color = getCPSeriesColor(duration);
+      return {
+        name: formatCPDuration(duration),
+        type: 'line',
+        showSymbol: false,
+        sampling: 'lttb',
+        yAxisIndex: (duration <= 60) ? 1 : 0,
+        lineStyle: { color, width: 2 },
+        itemStyle: { color },
+        data: Object.entries(data).map(([grp, values]) => ({
+          value: [
+            this.getPeriodMidpoint(grouping, grp),
+            values[`CP${duration}`]?.power ?? null
+          ],
+          extra: values[`CP${duration}`]
+        }))
+      };
+    });
 
     series.push({
       name: 'FTP',
@@ -159,9 +179,11 @@ export default class CPChartView {
       symbol: 'none',
       yAxisIndex: 0,
       lineStyle: {
-        type: 'dashed',
+        color: FTP_SERIES_COLOR,
+        type: 'solid',
         width: 3
       },
+      itemStyle: { color: FTP_SERIES_COLOR },
       data: Object.entries(data).map(([grp, values]) => ({
         value: [
           this.getPeriodMidpoint(grouping, grp),
@@ -389,18 +411,15 @@ export default class CPChartView {
     const summary = this.getPeriodSummary(period);
     if (!summary) return [];
 
-    return [...this.legendNameToKey].flatMap(([label, key], seriesIndex) => {
+    return [...this.legendNameToKey].flatMap(([label, key]) => {
       if (key === "eftp") return [];
       const metric = summary[`CP${key.slice(2)}`];
       const fileId = Number(metric?.fileId);
       if (!Number.isInteger(fileId) || fileId <= 0) return [];
-      const visualColor = this.chart.getVisual?.({ seriesIndex }, 'color');
       return [{
         fileId,
         label,
-        color: typeof visualColor === 'string'
-          ? visualColor
-          : FALLBACK_SERIES_COLORS[seriesIndex % FALLBACK_SERIES_COLORS.length]
+        color: getCPSeriesColor(Number(key.slice(2)))
       }];
     });
   }
