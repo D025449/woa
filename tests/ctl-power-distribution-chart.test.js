@@ -76,7 +76,8 @@ test("load model renders power distribution as one replaceable zoomed series", (
       { x: tssShape.x, width: tssShape.width },
       { x: distributionShape.x, width: distributionShape.width }
     );
-    assert.deepEqual({ x: tssShape.x, width: tssShape.width }, { x: 2, width: 27 });
+    assert.equal(tssShape.x, 2);
+    assert.ok(Math.abs(tssShape.width - 27) < 0.0001);
   } finally {
     globalThis.echarts = originalEcharts;
   }
@@ -89,12 +90,18 @@ test("load model renders power distribution as one replaceable zoomed series", (
   assert.ok(distributionTitle.top - (loadGrid.top + loadGrid.height) >= 39);
   assert.ok(distributionGrid.top - distributionTitle.top >= 32);
   assert.deepEqual(option.dataZoom.map((zoom) => zoom.xAxisIndex), [[0, 1], [0, 1]]);
+  assert.deepEqual(option.dataZoom.map((zoom) => zoom.filterMode), ["weakFilter", "weakFilter"]);
+  assert.deepEqual(tssSeries.encode.x, [0, 2, 3]);
+  assert.deepEqual(distributionSeries[0].encode.x, [0, 8, 9]);
+  assert.equal(tssSeries.data[0].value[0], Date.parse("2026-08-16T12:00:00.000Z"));
+  assert.equal(tssSeries.data[0].value[2], Date.parse("2026-08-01T00:00:00.000Z"));
+  assert.equal(tssSeries.data[0].value[3], Date.parse("2026-09-01T00:00:00.000Z") - 1);
   assert.equal(option.series.some((series) => series.name === "Z4"), false);
   assert.deepEqual(
     option.xAxis.map(({ min, max, boundaryGap }) => ({ min, max, boundaryGap })),
     [
-      { min: Date.parse("2026-08-01"), max: Date.parse("2026-08-16T12:00:00.000Z"), boundaryGap: [0, 0] },
-      { min: Date.parse("2026-08-01"), max: Date.parse("2026-08-16T12:00:00.000Z"), boundaryGap: [0, 0] }
+      { min: Date.parse("2026-08-01"), max: Date.parse("2026-09-01T00:00:00.000Z") - 1, boundaryGap: [0, 0] },
+      { min: Date.parse("2026-08-01"), max: Date.parse("2026-09-01T00:00:00.000Z") - 1, boundaryGap: [0, 0] }
     ]
   );
   assert.equal(option.xAxis[0].show, true);

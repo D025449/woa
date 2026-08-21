@@ -163,6 +163,20 @@ function normalizeAnalyticsTimeRange(value) {
   return { mode: mode === "custom" ? "all" : mode };
 }
 
+function normalizeAnalyticsSelectedPeriod(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : {};
+  const grouping = normalizeEnum(source.grouping, ANALYTICS_SHARED_GROUPINGS, "");
+  const start = String(source.start ?? "");
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/u;
+  const isIsoDate = datePattern.test(start)
+    && Number.isFinite(Date.parse(start))
+    && new Date(Date.parse(start)).toISOString().slice(0, 10) === start;
+
+  return grouping && isIsoDate ? { grouping, start } : null;
+}
+
 export function normalizeAnalyticsState(state = {}) {
   /** @type {Record<string, any>} */
   const source = state && typeof state === "object" && !Array.isArray(state)
@@ -180,6 +194,7 @@ export function normalizeAnalyticsState(state = {}) {
   return {
     timeRange: normalizeAnalyticsTimeRange(source.timeRange),
     grouping: normalizeEnum(source.grouping, ANALYTICS_SHARED_GROUPINGS, "month"),
+    selectedPeriod: normalizeAnalyticsSelectedPeriod(source.selectedPeriod),
     loadModel: {
       grouping: normalizeEnum(loadModel.grouping, ANALYTICS_LOAD_GROUPINGS, "date"),
       seriesVisibility: normalizeSeriesVisibility(

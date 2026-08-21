@@ -2,6 +2,7 @@ export function createDefaultAnalyticsPreferences() {
   return {
     timeRange: { mode: "all" },
     grouping: "month",
+    selectedPeriod: null,
     loadModel: {
       grouping: "month",
       seriesVisibility: {

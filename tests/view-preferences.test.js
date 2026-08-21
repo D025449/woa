@@ -140,6 +140,7 @@ test("keeps legacy preferences without segment visibility backward compatible", 
 test("normalizes analytics chart grouping and legend visibility independently", () => {
   const state = normalizeAnalyticsState({
     grouping: "quarter",
+    selectedPeriod: { grouping: "quarter", start: "2026-04-01" },
     timeRange: { mode: "custom", start: "2026-01-15", end: "2026-08-17" },
     loadModel: {
       grouping: "week",
@@ -157,6 +158,7 @@ test("normalizes analytics chart grouping and legend visibility independently", 
     end: "2026-08-17"
   });
   assert.equal(state.grouping, "quarter");
+  assert.deepEqual(state.selectedPeriod, { grouping: "quarter", start: "2026-04-01" });
   assert.equal(state.loadModel.grouping, "week");
   assert.equal(state.loadModel.seriesVisibility.atl, false);
   assert.equal(state.loadModel.seriesVisibility.tsb, true);
@@ -182,6 +184,19 @@ test("keeps only complete or slider-defined analytics time ranges", () => {
   assert.deepEqual(normalizeAnalyticsState({
     timeRange: { mode: "custom", start: "2026-08-18", end: "2026-08-17" }
   }).timeRange, { mode: "all" });
+});
+
+test("keeps only valid analytics selected-period anchors", () => {
+  assert.deepEqual(normalizeAnalyticsState({
+    selectedPeriod: { grouping: "week", start: "2026-08-17" }
+  }).selectedPeriod, { grouping: "week", start: "2026-08-17" });
+
+  assert.equal(normalizeAnalyticsState({
+    selectedPeriod: { grouping: "day", start: "2026-08-17" }
+  }).selectedPeriod, null);
+  assert.equal(normalizeAnalyticsState({
+    selectedPeriod: { grouping: "month", start: "2026-02-31" }
+  }).selectedPeriod, null);
 });
 
 test("accepts shared load groupings and rejects unsupported power groupings", () => {

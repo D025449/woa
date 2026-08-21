@@ -126,11 +126,20 @@ export default class CTLChartView {
       const period = resolveBarPeriod(value);
       return period ? period.startMs + ((period.endMs - period.startMs) / 2) : value;
     };
-    const getPeriodPixelBounds = (api, value) => {
+    const getPeriodBarValue = (value, measurements) => {
       const period = resolveBarPeriod(value);
-      if (!period) return null;
-      const startX = api.coord([period.startMs, 0])[0];
-      const endX = api.coord([period.endMs, 0])[0];
+      if (!period) return [value, ...measurements, value, value];
+      return [
+        period.startMs + ((period.endMs - period.startMs) / 2),
+        ...measurements,
+        period.startMs,
+        period.endMs - 1
+      ];
+    };
+    const getPeriodPixelBounds = (api, startValue, endValue) => {
+      const startX = api.coord([startValue, 0])[0];
+      const endX = api.coord([endValue, 0])[0];
+      if (!Number.isFinite(startX) || !Number.isFinite(endX)) return null;
       const rawWidth = Math.abs(endX - startX);
       const inset = rawWidth >= 8
         ? Math.min(3, Math.max(1, Math.round(rawWidth * 0.06)))
@@ -144,7 +153,7 @@ export default class CTLChartView {
       const value = Number(api.value(1));
       if (!Number.isFinite(value)) return null;
       const xValue = api.value(0);
-      const horizontal = getPeriodPixelBounds(api, xValue);
+      const horizontal = getPeriodPixelBounds(api, api.value(2), api.value(3));
       if (!horizontal) return null;
       const bottom = api.coord([xValue, 0]);
       const top = api.coord([xValue, value]);
@@ -217,11 +226,11 @@ export default class CTLChartView {
         name: 'TSS',
         type: 'custom',
         coordinateSystem: 'cartesian2d',
-        encode: { x: 0, y: 1 },
+        encode: { x: [0, 2, 3], y: 1 },
         renderItem: renderTssBar,
         yAxisIndex: 3,
         data: data.map(row => ({
-          value: [row.date, row.tss ?? null]
+          value: getPeriodBarValue(row.date, [row.tss ?? null])
         }))
       });
 
@@ -279,14 +288,14 @@ export default class CTLChartView {
         name: 'TSS',
         type: 'custom',
         coordinateSystem: 'cartesian2d',
-        encode: { x: 0, y: 1 },
+        encode: { x: [0, 2, 3], y: 1 },
         renderItem: renderTssBar,
         yAxisIndex: 3,
         data: data.map(row => ({
-          value: [
+          value: getPeriodBarValue(
             this.mapToDate(grouping, row.date),
-            row.tss_sum
-          ]
+            [row.tss_sum]
+          )
         }))
       });
 
@@ -308,9 +317,9 @@ export default class CTLChartView {
         coordinateSystem: 'cartesian2d',
         xAxisIndex: 1,
         yAxisIndex: 4,
-        encode: { x: 0, y: [1, 2, 3, 4, 5, 6, 7] },
+        encode: { x: [0, 8, 9], y: [1, 2, 3, 4, 5, 6, 7] },
         renderItem: (params, api) => {
-          const horizontal = getPeriodPixelBounds(api, api.value(0));
+          const horizontal = getPeriodPixelBounds(api, api.value(8), api.value(9));
           if (!horizontal) return null;
           let cumulativePercent = 0;
           const children = [];
@@ -335,10 +344,10 @@ export default class CTLChartView {
           return { type: 'group', children };
         },
         data: distributionRows.map((row) => ({
-          value: [
+          value: getPeriodBarValue(
             this.mapToDate(grouping, row.period),
-            ...POWER_DISTRIBUTION_ZONES.map((zone) => Number(row.zonePercentages?.[zone.key]) || 0)
-          ],
+            POWER_DISTRIBUTION_ZONES.map((zone) => Number(row.zonePercentages?.[zone.key]) || 0)
+          ),
           distribution: row
         }))
       });
@@ -366,7 +375,24 @@ export default class CTLChartView {
       data: [...this.legendNameToKey.keys()],
       selected: legendSelected
     };
-    const chartTimeBounds = findSeriesTimeBounds(series);
+    const seriesTimeBounds = findSeriesTimeBounds(series);
+    const periodTimeBounds = data.reduce((bounds, row) => {
+      const value = grouping === "date" ? row.date : this.mapToDate(grouping, row.date);
+      const period = resolveBarPeriod(value);
+      if (!period) return bounds;
+      return {
+        start: Math.min(bounds.start, period.startMs),
+        end: Math.max(bounds.end, period.endMs - 1)
+      };
+    }, { start: Infinity, end: -Infinity });
+    const hasPeriodTimeBounds = Number.isFinite(periodTimeBounds.start)
+      && Number.isFinite(periodTimeBounds.end);
+    const chartTimeBounds = hasPeriodTimeBounds
+      ? {
+          start: Math.min(periodTimeBounds.start, seriesTimeBounds?.start ?? Infinity),
+          end: Math.max(periodTimeBounds.end, seriesTimeBounds?.end ?? -Infinity)
+        }
+      : seriesTimeBounds;
     const sharedTimeAxis = {
       type: 'time',
       boundaryGap: [0, 0],
@@ -418,7 +444,7 @@ export default class CTLChartView {
         : { ...sharedTimeAxis, ...hiddenTimeAxisPresentation },
       yAxis,
       dataZoom: buildChartDataZoom({
-        filterMode: "filter",
+        filterMode: "weakFilter",
         slider: { show: false }
       }).map((zoom) => ({
         ...zoom,

@@ -1,7 +1,7 @@
 import MapView from "./map-view.js";
 import CPChartView from "./cp-chart-view.js?v=atlas-blue-27";
 import FTPChartView from "./ftp-chart-view.js";
-import CTLChartView from "./ctl-chart-view.js?v=atlas-blue-27";
+import CTLChartView from "./ctl-chart-view.js?v=atlas-blue-29";
 import ChartView from "./chart-view.js";
 import WorkoutService from "./workout-service.js";
 import ViewPreferenceService from "./view-preference-service.js";
@@ -73,6 +73,7 @@ export default class Controller {
     this.preferenceSaveChain = Promise.resolve();
     this.chartTimeBounds = {};
     this.loadedChartBounds = new Set();
+    this.selectedPeriodRestoreAttempted = false;
     this.selectedPeriod = null;
     this.hoveredPeriod = null;
     this.hoveredPeriodTimestamp = null;
@@ -291,6 +292,7 @@ export default class Controller {
           end: toDateInputValue(snappedRange.end)
         }
       } : {}),
+      selectedPeriod: null,
       loadModel: { ...this.analyticsPreferences.loadModel, grouping: grouping.loadModel },
       powerCurve: { ...this.analyticsPreferences.powerCurve, grouping: grouping.powerCurve }
     };
@@ -548,6 +550,7 @@ export default class Controller {
       ? this.hoveredPeriod
       : resolveAnalysisPeriod(selection?.date, this.analyticsPreferences.grouping);
     if (!period) return;
+    this.rememberSelectedPeriod(period);
     const workoutId = Number(selection?.data?.fileId);
     const hasWorkoutTarget = Number.isInteger(workoutId) && workoutId > 0;
     const isSelectedPeriod = this.isSamePeriod(period, this.selectedPeriod);
@@ -581,6 +584,22 @@ export default class Controller {
 
   isSamePeriod(left, right) {
     return Boolean(left && right && left.startMs === right.startMs && left.endMs === right.endMs);
+  }
+
+  rememberSelectedPeriod(period) {
+    const start = toDateInputValue(period?.startMs);
+    if (!start) return;
+    const selectedPeriod = {
+      grouping: this.analyticsPreferences.grouping,
+      start
+    };
+    const current = this.analyticsPreferences.selectedPeriod;
+    if (current?.grouping === selectedPeriod.grouping && current?.start === start) return;
+    this.analyticsPreferences = {
+      ...this.analyticsPreferences,
+      selectedPeriod
+    };
+    this.scheduleAnalyticsPreferenceSave();
   }
 
   handleAnalysisPeriodHover(selection) {
@@ -1186,7 +1205,37 @@ export default class Controller {
     this.chartTimeBounds[chartKey] = bounds;
     if (this.loadedChartBounds.size >= 2) {
       this.applySelectedTimeRange();
+      void this.restorePersistedSelectedPeriod();
     }
+  }
+
+  async restorePersistedSelectedPeriod() {
+    if (this.selectedPeriodRestoreAttempted || this.loadedChartBounds.size < 2) return;
+    const saved = this.analyticsPreferences.selectedPeriod;
+    this.selectedPeriodRestoreAttempted = true;
+    if (!saved || saved.grouping !== this.analyticsPreferences.grouping) return;
+
+    const requestedPeriod = resolveAnalysisPeriod(saved.start, saved.grouping);
+    const timestamp = (this.ctlChartView?.getPeriodTimestamps?.() || []).find((value) => (
+      this.isSamePeriod(
+        resolveAnalysisPeriod(value, saved.grouping),
+        requestedPeriod
+      )
+    ));
+    if (!Number.isFinite(Number(timestamp))) {
+      this.analyticsPreferences = {
+        ...this.analyticsPreferences,
+        selectedPeriod: null
+      };
+      this.scheduleAnalyticsPreferenceSave();
+      return;
+    }
+
+    await this.handleAnalysisPointClick({
+      date: Number(timestamp),
+      grouping: saved.grouping,
+      data: null
+    });
   }
 
   getSharedTimeBounds() {
