@@ -141,6 +141,7 @@ test("normalizes analytics chart grouping and legend visibility independently", 
   const state = normalizeAnalyticsState({
     grouping: "quarter",
     selectedPeriod: { grouping: "quarter", start: "2026-04-01" },
+    selectedWorkout: { id: 85047, startOffset: 120, endOffset: 360 },
     timeRange: { mode: "custom", start: "2026-01-15", end: "2026-08-17" },
     loadModel: {
       grouping: "week",
@@ -159,6 +160,7 @@ test("normalizes analytics chart grouping and legend visibility independently", 
   });
   assert.equal(state.grouping, "quarter");
   assert.deepEqual(state.selectedPeriod, { grouping: "quarter", start: "2026-04-01" });
+  assert.deepEqual(state.selectedWorkout, { id: 85047, startOffset: 120, endOffset: 360 });
   assert.equal(state.loadModel.grouping, "week");
   assert.equal(state.loadModel.seriesVisibility.atl, false);
   assert.equal(state.loadModel.seriesVisibility.tsb, true);
@@ -197,6 +199,41 @@ test("keeps only valid analytics selected-period anchors", () => {
   assert.equal(normalizeAnalyticsState({
     selectedPeriod: { grouping: "month", start: "2026-02-31" }
   }).selectedPeriod, null);
+});
+
+test("keeps analytics workout details only for their valid selected period", () => {
+  assert.deepEqual(normalizeAnalyticsState({
+    grouping: "month",
+    selectedPeriod: { grouping: "month", start: "2026-08-01" },
+    selectedWorkout: { id: 85047 }
+  }).selectedWorkout, { id: 85047 });
+
+  assert.deepEqual(normalizeAnalyticsState({
+    grouping: "month",
+    selectedPeriod: { grouping: "month", start: "2026-08-01" },
+    selectedWorkout: { id: 85047, startOffset: 100.5, endOffset: 340.5 }
+  }).selectedWorkout, { id: 85047, startOffset: 100.5, endOffset: 340.5 });
+
+  assert.deepEqual(normalizeAnalyticsState({
+    grouping: "month",
+    selectedPeriod: { grouping: "month", start: "2026-08-01" },
+    selectedWorkout: { id: 85047, startOffset: 400, endOffset: 100 }
+  }).selectedWorkout, { id: 85047 });
+
+  assert.equal(normalizeAnalyticsState({
+    grouping: "month",
+    selectedWorkout: { id: 85047 }
+  }).selectedWorkout, null);
+  assert.equal(normalizeAnalyticsState({
+    grouping: "month",
+    selectedPeriod: { grouping: "month", start: "2026-08-01" },
+    selectedWorkout: { id: "not-a-workout" }
+  }).selectedWorkout, null);
+  assert.equal(normalizeAnalyticsState({
+    grouping: "quarter",
+    selectedPeriod: { grouping: "month", start: "2026-08-01" },
+    selectedWorkout: { id: 85047 }
+  }).selectedWorkout, null);
 });
 
 test("accepts shared load groupings and rejects unsupported power groupings", () => {

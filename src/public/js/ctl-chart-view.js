@@ -12,8 +12,26 @@ import { createTranslator, getCurrentLocale } from "./i18n.js";
 import { POWER_DISTRIBUTION_ZONES } from "../../shared/PowerDistribution.js";
 import { loadAnalyticsOverview } from "./analytics-overview-client.js?v=atlas-blue-19";
 
-const LOAD_GRID = Object.freeze({ top: 58, height: 242 });
-const DISTRIBUTION_GRID = Object.freeze({ top: 377, height: 72 });
+const LOAD_GRID_TOP = 58;
+const DEFAULT_CHART_HEIGHT = 480;
+
+function clamp(value, minimum, maximum) {
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
+function resolveLoadModelLayout(chartHeight) {
+  const height = Math.max(300, Number(chartHeight) || DEFAULT_CHART_HEIGHT);
+  const distributionHeight = clamp(Math.round(height * 0.15), 56, 90);
+  const distributionTop = height - 31 - distributionHeight;
+  const distributionTitleTop = distributionTop - 38;
+  const loadHeight = Math.max(78, distributionTitleTop - 39 - LOAD_GRID_TOP);
+  return {
+    loadGrid: { top: LOAD_GRID_TOP, height: loadHeight },
+    distributionGrid: { top: distributionTop, height: distributionHeight },
+    distributionTitleTop,
+    separatorTop: LOAD_GRID_TOP + loadHeight + 27
+  };
+}
 
 export default class CTLChartView {
 
@@ -309,6 +327,8 @@ export default class CTLChartView {
     ]).filter(([timestamp]) => Number.isFinite(timestamp)));
     const showDistribution = distributionRows.some((row) => Number(row.activeSeconds) > 0);
     this.hasDistributionGrid = showDistribution;
+    const layout = resolveLoadModelLayout(this.chart.getHeight?.());
+    this.updateLayoutMarker(showDistribution, layout);
     if (showDistribution) {
       series.push({
         id: 'intensity-distribution',
@@ -418,15 +438,15 @@ export default class CTLChartView {
       animation: false,
       title: showDistribution
         ? [
-            { text: this.t("loadModelEyebrow"), left: 24, top: 4, textStyle: { fontSize: 14, fontWeight: 600 } },
-            { text: this.t("distributionAxis"), left: 24, top: 339, textStyle: { fontSize: 14, fontWeight: 600 } }
+            { id: 'load-model-title', text: this.t("loadModelEyebrow"), left: 24, top: 4, textStyle: { fontSize: 14, fontWeight: 600 } },
+            { id: 'distribution-title', text: this.t("distributionAxis"), left: 24, top: layout.distributionTitleTop, textStyle: { fontSize: 14, fontWeight: 600 } }
           ]
         : { text: this.t("loadModelEyebrow"), left: 24, top: 4, textStyle: { fontSize: 14, fontWeight: 600 } },
       legend: loadLegend,
       grid: showDistribution
         ? [
-            { id: 'load-model-grid', left: 92, right: 92, ...LOAD_GRID },
-            { id: 'distribution-grid', left: 92, right: 92, ...DISTRIBUTION_GRID }
+            { id: 'load-model-grid', left: 92, right: 92, ...layout.loadGrid },
+            { id: 'distribution-grid', left: 92, right: 92, ...layout.distributionGrid }
           ]
         : { left: 92, right: 92, top: 58, bottom: 24 },
       xAxis: showDistribution
@@ -458,6 +478,17 @@ export default class CTLChartView {
     this.chart.setOption(option, { notMerge: true, lazyUpdate: false });
     this.timeBounds = chartTimeBounds;
     this.handlers?.onTimeBoundsChange?.(this.timeBounds);
+  }
+
+  updateLayoutMarker(showDistribution, layout) {
+    const body = this.chart.getDom?.()?.parentElement;
+    if (!body) return;
+    body.classList.toggle("has-distribution", showDistribution);
+    if (showDistribution) {
+      body.style.setProperty("--analytics-load-separator-top", `${layout.separatorTop}px`);
+    } else {
+      body.style.removeProperty("--analytics-load-separator-top");
+    }
   }
 
   setTimeRange(range, domain = this.timeBounds) {
@@ -687,6 +718,19 @@ export default class CTLChartView {
   // -----------------------------
   resize() {
     this.chart.resize();
+    if (!this.hasDistributionGrid) return;
+    const layout = resolveLoadModelLayout(this.chart.getHeight?.());
+    this.updateLayoutMarker(true, layout);
+    this.chart.setOption({
+      title: [
+        { id: 'load-model-title', top: 4 },
+        { id: 'distribution-title', top: layout.distributionTitleTop }
+      ],
+      grid: [
+        { id: 'load-model-grid', ...layout.loadGrid },
+        { id: 'distribution-grid', ...layout.distributionGrid }
+      ]
+    });
   }
 
   showLoading() {

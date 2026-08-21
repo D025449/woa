@@ -123,6 +123,43 @@ test("load model renders power distribution as one replaceable zoomed series", (
   assert.equal(calls.actions[0].batch.length, 2);
 });
 
+test("load model redistributes its internal sections when the chart height changes", () => {
+  const calls = { resize: 0, options: [] };
+  const classes = new Set();
+  const properties = new Map();
+  const body = {
+    classList: {
+      toggle(name, enabled) {
+        if (enabled) classes.add(name);
+        else classes.delete(name);
+      }
+    },
+    style: {
+      setProperty(name, value) { properties.set(name, value); },
+      removeProperty(name) { properties.delete(name); }
+    }
+  };
+  const view = Object.create(CTLChartView.prototype);
+  view.hasDistributionGrid = true;
+  view.chart = {
+    resize() { calls.resize += 1; },
+    getHeight() { return 640; },
+    getDom() { return { parentElement: body }; },
+    setOption(option) { calls.options.push(option); }
+  };
+
+  view.resize();
+
+  assert.equal(calls.resize, 1);
+  assert.equal(calls.options.length, 1);
+  assert.equal(classes.has("has-distribution"), true);
+  assert.equal(properties.get("--analytics-load-separator-top"), "469px");
+  const loadGrid = calls.options[0].grid.find((grid) => grid.id === "load-model-grid");
+  const distributionGrid = calls.options[0].grid.find((grid) => grid.id === "distribution-grid");
+  assert.ok(loadGrid.height > 242);
+  assert.ok(distributionGrid.top > 377);
+});
+
 test("critical-power points use the middle of their grouped period", () => {
   const view = Object.create(CPChartView.prototype);
   assert.equal(

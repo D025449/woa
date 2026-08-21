@@ -14,7 +14,7 @@
     <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator_bootstrap5.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <link rel="stylesheet" href="/css/ui-system.css?v=atlas-blue-4">
-    <link rel="stylesheet" href="/css/analytics.css?v=atlas-blue-22">
+    <link rel="stylesheet" href="/css/analytics.css?v=atlas-blue-24">
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
@@ -141,24 +141,12 @@
                 </div>
 
                 <section id="analytics-detail" class="analytics-detail" hidden>
-                    <div class="analytics-detail-toolbar">
-                        <div>
-                            <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.detailEyebrow") %></span>
-                            <strong id="analytics-detail-context"><%= t("analyticsPage.detailTitle") %></strong>
-                        </div>
-                        <button id="analytics-detail-close" type="button" class="btn btn-outline-secondary btn-sm">
-                            <%= t("analyticsPage.backToPeriod") %>
-                        </button>
-                    </div>
                 <section id="analytics-focus-grid" class="analytics-focus-grid">
                     <article class="analytics-surface ui-surface ui-surface--gradient analytics-focus-panel">
                         <div class="analytics-section-header ui-section-header">
                             <div>
                                 <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.workoutContextEyebrow") %></span>
                                 <h2 class="analytics-section-title ui-title"><%= t("analyticsPage.workoutContextTitle") %></h2>
-                                <p class="analytics-section-copy ui-copy">
-                                    <%= t("analyticsPage.workoutContextCopy") %>
-                                </p>
                             </div>
                             <div id="analytics-workout-meta" class="analytics-workout-meta" hidden aria-live="polite">
                                 <strong id="analytics-workout-id"></strong>
@@ -177,9 +165,6 @@
                             <div>
                                 <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.spatialEyebrow") %></span>
                                 <h2 class="analytics-section-title ui-title"><%= t("analyticsPage.spatialTitle") %></h2>
-                                <p class="analytics-section-copy ui-copy">
-                                    <%= t("analyticsPage.spatialCopy") %>
-                                </p>
                             </div>
                         </div>
 
@@ -244,7 +229,7 @@
                 <script>
                     window.__I18N = <%- JSON.stringify(i18n || { locale: "en", messages: {} }) %>;
                 </script>
-                <script type="module" src="/js/analytics-ui.js?v=atlas-blue-39"></script>
+                <script type="module" src="/js/analytics-ui.js?v=atlas-blue-42"></script>
                 <!--script type="module" src="/js/dashboard-table.js"></script-->
 
 </body>

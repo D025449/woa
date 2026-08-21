@@ -1,7 +1,7 @@
 import MapView from "./map-view.js";
 import CPChartView from "./cp-chart-view.js?v=atlas-blue-29";
 import FTPChartView from "./ftp-chart-view.js";
-import CTLChartView from "./ctl-chart-view.js?v=atlas-blue-29";
+import CTLChartView from "./ctl-chart-view.js?v=atlas-blue-30";
 import ChartView from "./chart-view.js";
 import WorkoutService from "./workout-service.js";
 import ViewPreferenceService from "./view-preference-service.js";
@@ -53,8 +53,6 @@ export default class Controller {
     this.periodLoadMoreButton = document.getElementById("analytics-period-load-more-button");
     this.detailPlaceholderElement = document.getElementById("analytics-detail-placeholder");
     this.detailElement = document.getElementById("analytics-detail");
-    this.detailContextElement = document.getElementById("analytics-detail-context");
-    this.detailCloseButton = document.getElementById("analytics-detail-close");
     this.mapPanelElement = document.getElementById("analytics-map-panel");
     this.workoutMetaElement = document.getElementById("analytics-workout-meta");
     this.workoutIdElement = document.getElementById("analytics-workout-id");
@@ -293,6 +291,7 @@ export default class Controller {
         }
       } : {}),
       selectedPeriod: null,
+      selectedWorkout: null,
       loadModel: { ...this.analyticsPreferences.loadModel, grouping: grouping.loadModel },
       powerCurve: { ...this.analyticsPreferences.powerCurve, grouping: grouping.powerCurve }
     };
@@ -597,7 +596,33 @@ export default class Controller {
     if (current?.grouping === selectedPeriod.grouping && current?.start === start) return;
     this.analyticsPreferences = {
       ...this.analyticsPreferences,
-      selectedPeriod
+      selectedPeriod,
+      selectedWorkout: null
+    };
+    this.scheduleAnalyticsPreferenceSave();
+  }
+
+  rememberSelectedWorkout(workoutId, cpRow = null) {
+    const id = Number(workoutId);
+    if (!Number.isSafeInteger(id) || id <= 0) return;
+    const startOffset = Number(cpRow?.startOffset);
+    const endOffset = Number(cpRow?.endOffset);
+    const hasCriticalPowerTarget = Number.isFinite(startOffset)
+      && startOffset >= 0
+      && Number.isFinite(endOffset)
+      && endOffset > startOffset;
+    const selectedWorkout = hasCriticalPowerTarget
+      ? { id, startOffset, endOffset }
+      : { id };
+    const current = this.analyticsPreferences.selectedWorkout;
+    if (
+      current?.id === selectedWorkout.id
+      && current?.startOffset === selectedWorkout.startOffset
+      && current?.endOffset === selectedWorkout.endOffset
+    ) return;
+    this.analyticsPreferences = {
+      ...this.analyticsPreferences,
+      selectedWorkout
     };
     this.scheduleAnalyticsPreferenceSave();
   }
@@ -999,6 +1024,12 @@ export default class Controller {
     const metric = document.createElement("button");
     metric.type = "button";
     metric.className = "analytics-period-power__metric analytics-period-power__metric--action";
+    metric.dataset.workoutId = String(workoutId);
+    metric.dataset.startOffset = String(startOffset);
+    metric.dataset.endOffset = String(endOffset);
+    const isSelected = this.isSelectedPowerMetric(workoutId, target);
+    metric.classList.toggle("is-selected", isSelected);
+    metric.setAttribute("aria-pressed", String(isSelected));
     metric.title = `${label} · W-${workoutId}`;
     metric.setAttribute("aria-label", `${label}, ${value}, W-${workoutId}`);
     const metricValue = document.createElement("strong");
@@ -1120,7 +1151,7 @@ export default class Controller {
 
   async openWorkoutDetail(workoutId, cpRow = null, seriesName = "") {
     const workout = await WorkoutService.loadWorkoutByRow(workoutId);
-    if (!workout) return;
+    if (!workout) return false;
     this.selectedWorkoutId = workoutId;
     this.detailPlaceholderElement.hidden = true;
     this.detailElement.hidden = false;
@@ -1131,12 +1162,15 @@ export default class Controller {
       this.chartView.updateWorkout(workout);
     }
     this.mapView.renderTrack(workout);
-    this.renderWorkoutMeta(workout, seriesName);
+    this.renderWorkoutMeta(workout);
     this.markSelectedWorkoutCard(workoutId);
+    this.rememberSelectedWorkout(workoutId, cpRow);
+    this.markSelectedPowerMetric(workoutId, cpRow);
     requestAnimationFrame(() => {
       this.chartView.resize();
       this.mapView.resize();
     });
+    return true;
   }
 
   markSelectedWorkoutCard(workoutId) {
@@ -1145,6 +1179,33 @@ export default class Controller {
         "is-selected",
         card.dataset.entityKey === `workout:${workoutId}`
       );
+    });
+  }
+
+  isSelectedPowerMetric(workoutId, cpRow) {
+    const selected = this.analyticsPreferences.selectedWorkout;
+    return selected?.id === Number(workoutId)
+      && Number.isFinite(Number(cpRow?.startOffset))
+      && Number.isFinite(Number(cpRow?.endOffset))
+      && selected.startOffset === Number(cpRow.startOffset)
+      && selected.endOffset === Number(cpRow.endOffset);
+  }
+
+  markSelectedPowerMetric(workoutId, cpRow = null) {
+    const selectedStart = Number(cpRow?.startOffset);
+    const selectedEnd = Number(cpRow?.endOffset);
+    const hasTarget = Number.isFinite(selectedStart)
+      && Number.isFinite(selectedEnd)
+      && selectedEnd > selectedStart;
+    this.periodPowerValuesElement?.querySelectorAll(
+      "button.analytics-period-power__metric--action"
+    ).forEach((metric) => {
+      const isSelected = hasTarget
+        && Number(metric.dataset.workoutId) === Number(workoutId)
+        && Number(metric.dataset.startOffset) === selectedStart
+        && Number(metric.dataset.endOffset) === selectedEnd;
+      metric.classList.toggle("is-selected", isSelected);
+      metric.setAttribute("aria-pressed", String(isSelected));
     });
   }
 
@@ -1225,7 +1286,8 @@ export default class Controller {
     if (!Number.isFinite(Number(timestamp))) {
       this.analyticsPreferences = {
         ...this.analyticsPreferences,
-        selectedPeriod: null
+        selectedPeriod: null,
+        selectedWorkout: null
       };
       this.scheduleAnalyticsPreferenceSave();
       return;
@@ -1236,6 +1298,20 @@ export default class Controller {
       grouping: saved.grouping,
       data: null
     });
+
+    const selectedWorkout = this.analyticsPreferences.selectedWorkout;
+    if (!selectedWorkout) return;
+    try {
+      const restored = await this.openWorkoutDetail(selectedWorkout.id, selectedWorkout);
+      if (restored) return;
+    } catch (err) {
+      console.warn("Persisted analytics workout could not be restored:", err);
+    }
+    this.analyticsPreferences = {
+      ...this.analyticsPreferences,
+      selectedWorkout: null
+    };
+    this.scheduleAnalyticsPreferenceSave();
   }
 
   getSharedTimeBounds() {
@@ -1304,7 +1380,7 @@ export default class Controller {
     this.timeRangeSummaryElement.textContent = `${formatter.format(range.start)} – ${formatter.format(range.end)}`;
   }
 
-  persistAnalyticsPreferences() {
+  persistAnalyticsPreferences({ keepalive = false } = {}) {
     const state = this.pendingPreferenceState;
     if (!state || !this.viewPreferencesAvailable) {
       return;
@@ -1313,6 +1389,13 @@ export default class Controller {
     this.pendingPreferenceState = null;
     clearTimeout(this.preferenceSaveTimer);
     this.preferenceSaveTimer = null;
+
+    if (keepalive) {
+      void ViewPreferenceService.save(ANALYTICS_VIEW_KEY, state, { keepalive })
+        .catch((err) => console.warn("Analytics preferences could not be saved:", err));
+      return;
+    }
+
     this.preferenceSaveChain = this.preferenceSaveChain
       .catch(() => {})
       .then(() => ViewPreferenceService.save(ANALYTICS_VIEW_KEY, state))
@@ -1321,7 +1404,7 @@ export default class Controller {
       });
   }
 
-  renderWorkoutMeta(workout, seriesName = "") {
+  renderWorkoutMeta(workout) {
     if (!this.workoutMetaElement || !this.workoutIdElement || !this.workoutDateElement) {
       return;
     }
@@ -1349,14 +1432,6 @@ export default class Controller {
     this.workoutIdElement.hidden = workoutId == null;
     this.workoutDateElement.hidden = !hasDate;
     this.workoutMetaElement.hidden = false;
-    if (this.detailContextElement) {
-      const parts = [workoutId == null ? null : `W-${workoutId}`];
-      if (hasDate) {
-        parts.push(new Intl.DateTimeFormat(this.locale, { dateStyle: "medium" }).format(date));
-      }
-      if (seriesName) parts.push(seriesName);
-      this.detailContextElement.textContent = parts.filter(Boolean).join(" · ");
-    }
   }
 
   // -----------------------------
@@ -1364,6 +1439,9 @@ export default class Controller {
   // -----------------------------
   registerGlobalEvents() {
     window.addEventListener("resize", () => this.onResize());
+    window.addEventListener("pagehide", () => {
+      this.persistAnalyticsPreferences({ keepalive: true });
+    });
     document.addEventListener("pointerdown", (event) => {
       if (this.voiceFeedbackElement?.hidden) return;
       if (this.voiceButtonElement?.contains(event.target)) return;
@@ -1372,12 +1450,6 @@ export default class Controller {
     });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") this.hideVoiceFeedback();
-    });
-    this.detailCloseButton?.addEventListener("click", () => {
-      this.detailElement.hidden = true;
-      this.detailPlaceholderElement.hidden = false;
-      this.selectedWorkoutId = null;
-      this.markSelectedWorkoutCard(null);
     });
     this.periodLoadMoreButton?.addEventListener("click", () => {
       void this.loadNextPeriodWorkoutPage().catch((err) => {

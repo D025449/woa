@@ -177,6 +177,25 @@ function normalizeAnalyticsSelectedPeriod(value) {
   return grouping && isIsoDate ? { grouping, start } : null;
 }
 
+function normalizeAnalyticsSelectedWorkout(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : {};
+  const id = Number(source.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return null;
+
+  const startOffset = Number(source.startOffset);
+  const endOffset = Number(source.endOffset);
+  const hasCriticalPowerTarget = Number.isFinite(startOffset)
+    && startOffset >= 0
+    && Number.isFinite(endOffset)
+    && endOffset > startOffset;
+
+  return hasCriticalPowerTarget
+    ? { id, startOffset, endOffset }
+    : { id };
+}
+
 export function normalizeAnalyticsState(state = {}) {
   /** @type {Record<string, any>} */
   const source = state && typeof state === "object" && !Array.isArray(state)
@@ -190,11 +209,16 @@ export function normalizeAnalyticsState(state = {}) {
     && !Array.isArray(source.powerCurve)
     ? source.powerCurve
     : {};
+  const grouping = normalizeEnum(source.grouping, ANALYTICS_SHARED_GROUPINGS, "month");
+  const selectedPeriod = normalizeAnalyticsSelectedPeriod(source.selectedPeriod);
 
   return {
     timeRange: normalizeAnalyticsTimeRange(source.timeRange),
-    grouping: normalizeEnum(source.grouping, ANALYTICS_SHARED_GROUPINGS, "month"),
-    selectedPeriod: normalizeAnalyticsSelectedPeriod(source.selectedPeriod),
+    grouping,
+    selectedPeriod,
+    selectedWorkout: selectedPeriod?.grouping === grouping
+      ? normalizeAnalyticsSelectedWorkout(source.selectedWorkout)
+      : null,
     loadModel: {
       grouping: normalizeEnum(loadModel.grouping, ANALYTICS_LOAD_GROUPINGS, "date"),
       seriesVisibility: normalizeSeriesVisibility(

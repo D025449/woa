@@ -6,7 +6,7 @@ body.analytics-page {
     color: var(--ui-page-text);
 }
 
-@media (min-width: 992px) {
+@media (min-width: 1200px) {
     body.analytics-page.has-fixed-app-topbar {
         box-sizing: border-box;
         height: 100dvh;
@@ -14,20 +14,38 @@ body.analytics-page {
     }
 
     body.analytics-page.has-fixed-app-topbar > .analytics-app-viewport {
+        box-sizing: border-box;
         height: calc(100dvh - var(--app-topbar-offset, 78px));
-        overflow-y: auto;
+        overflow: hidden;
         overscroll-behavior-y: contain;
-        scrollbar-width: none;
     }
 
-    body.analytics-page.has-fixed-app-topbar > .analytics-app-viewport::-webkit-scrollbar {
-        display: none;
+    body.analytics-page.has-fixed-app-topbar .analytics-shell {
+        height: 100%;
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: 1rem;
+    }
+
+    body.analytics-page.has-fixed-app-topbar .analytics-workspace,
+    body.analytics-page.has-fixed-app-topbar .analytics-chart-grid,
+    body.analytics-page.has-fixed-app-topbar .analytics-detail-column {
+        height: 100%;
+        min-height: 0;
+    }
+
+    body.analytics-page.has-fixed-app-topbar .analytics-workspace {
+        overflow: hidden;
+    }
+
+    body.analytics-page.has-fixed-app-topbar .analytics-workspace-placeholder {
+        min-height: 0;
     }
 
     body.analytics-page.has-fixed-app-topbar .analytics-period-inspector {
-        top: 0.5rem;
-        height: calc(100dvh - var(--app-topbar-offset, 78px) - 1rem);
-        max-height: calc(100dvh - var(--app-topbar-offset, 78px) - 1rem);
+        position: relative;
+        top: auto;
+        height: 100%;
+        max-height: none;
     }
 }
 
@@ -219,7 +237,8 @@ body.analytics-page.has-fixed-app-topbar .analytics-compact-heading .analytics-s
     display: grid;
     grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.9fr) minmax(23rem, 0.42fr);
     gap: 1rem;
-    align-items: start;
+    align-items: stretch;
+    min-height: 0;
 }
 
 .analytics-chart-grid,
@@ -228,6 +247,7 @@ body.analytics-page.has-fixed-app-topbar .analytics-compact-heading .analytics-s
 .analytics-focus-grid {
     display: grid;
     min-width: 0;
+    min-height: 0;
     gap: 1rem;
 }
 
@@ -238,6 +258,7 @@ body.analytics-page.has-fixed-app-topbar .analytics-compact-heading .analytics-s
 
 .analytics-chart-grid--timeline .analytics-grid-panel {
     position: relative;
+    height: 100%;
 }
 
 .analytics-chart-grid--timeline .analytics-grid-panel::before {
@@ -253,6 +274,9 @@ body.analytics-page.has-fixed-app-topbar .analytics-compact-heading .analytics-s
 }
 
 .analytics-combined-chart-panel {
+    display: grid;
+    grid-template-rows: minmax(0, 1.18fr) 1px minmax(0, 0.82fr);
+    min-height: 0;
     overflow: hidden;
 }
 
@@ -266,9 +290,9 @@ body.analytics-page.has-fixed-app-topbar .analytics-compact-heading .analytics-s
     position: relative;
 }
 
-.analytics-body--load-model::after {
+.analytics-body--load-model.has-distribution::after {
     position: absolute;
-    top: 327px;
+    top: var(--analytics-load-separator-top, 327px);
     right: 1.5rem;
     left: 1.5rem;
     height: 1px;
@@ -278,7 +302,9 @@ body.analytics-page.has-fixed-app-topbar .analytics-compact-heading .analytics-s
 }
 
 .analytics-body {
+    min-height: 0;
     padding: 0;
+    overflow: hidden;
 }
 
 .analytics-grid-panel,
@@ -302,6 +328,38 @@ body.analytics-page.has-fixed-app-topbar .analytics-compact-heading .analytics-s
     color: var(--ui-text-default);
     font-size: 1rem;
     line-height: 1.55;
+}
+
+.analytics-detail-column,
+.analytics-detail,
+.analytics-focus-grid {
+    height: 100%;
+}
+
+.analytics-detail {
+    min-height: 0;
+}
+
+.analytics-focus-grid {
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+.analytics-focus-grid--no-map {
+    grid-template-rows: minmax(0, 1fr);
+}
+
+.analytics-focus-panel {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+}
+
+.analytics-focus-panel .analytics-section-header {
+    flex: 0 0 auto;
+}
+
+.analytics-focus-panel .analytics-body {
+    flex: 1 1 auto;
 }
 
 .analytics-period-inspector {
@@ -447,6 +505,19 @@ button.analytics-period-power__metric--action:focus-visible {
     outline: none;
 }
 
+button.analytics-period-power__metric--action.is-selected {
+    border-color: rgba(13, 148, 136, 0.72);
+    background: rgba(13, 148, 136, 0.22);
+    box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.58),
+        0 0 0 2px rgba(13, 148, 136, 0.13);
+    color: #0f766e;
+}
+
+button.analytics-period-power__metric--action.is-selected strong {
+    color: #0f5f59;
+}
+
 button.analytics-period-power__metric--action:disabled {
     cursor: wait;
     opacity: 0.68;
@@ -579,47 +650,29 @@ button.analytics-period-card:focus-visible,
     width: 100%;
 }
 
-.analytics-detail-toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.75rem 1rem;
-    border: 1px solid var(--ui-chip-border-soft);
-    border-radius: 0.85rem;
-    background: rgba(255, 255, 255, 0.72);
-    backdrop-filter: blur(10px);
-}
-
-.analytics-detail-toolbar > div {
-    display: flex;
-    align-items: baseline;
-    gap: 0.7rem;
-}
-
 .analytics-focus-grid--no-map #analytics-map-panel {
     display: none;
 }
 
-#ctl-chart {
-    height: 480px !important;
-}
-
-#ftp-chart,
+#ctl-chart,
 #cp-chart {
-    height: 400px !important;
+    width: 100%;
+    height: 100% !important;
+    min-height: 0;
 }
 
 #workout-chart,
 #workout-map {
-    height: 350px !important;
+    width: 100%;
+    height: 100% !important;
+    min-height: 0;
 }
 
 .analytics-focus-grid--no-map #workout-chart {
-    height: 710px !important;
+    height: 100% !important;
 }
 
-@media (max-width: 1449.98px) {
+@media (max-width: 1199.98px) {
     .analytics-workspace {
         grid-template-columns: minmax(0, 1fr) minmax(23rem, 0.42fr);
     }
@@ -649,6 +702,19 @@ button.analytics-period-card:focus-visible,
 
     .analytics-focus-grid--no-map #workout-chart {
         height: 560px !important;
+    }
+
+    #ctl-chart {
+        height: 480px !important;
+    }
+
+    #cp-chart {
+        height: 400px !important;
+    }
+
+    #workout-chart,
+    #workout-map {
+        height: 350px !important;
     }
 }
 
@@ -720,8 +786,7 @@ button.analytics-period-card:focus-visible,
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .analytics-grouping-control,
-    .analytics-detail-toolbar {
+    .analytics-grouping-control {
         width: 100%;
         align-items: flex-start;
         flex-direction: column;

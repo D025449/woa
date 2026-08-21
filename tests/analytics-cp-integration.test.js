@@ -75,6 +75,11 @@ test("analytics displays and persists one slider-controlled range for both chart
   assert.doesNotMatch(markup, /type="date"/u);
   assert.match(controller, /timeRange/u);
   assert.match(controller, /scheduleAnalyticsPreferenceSave/u);
+  assert.match(controller, /rememberSelectedWorkout\(workoutId, cpRow\)/u);
+  assert.match(controller, /openWorkoutDetail\(selectedWorkout\.id, selectedWorkout\)/u);
+  assert.match(controller, /markSelectedPowerMetric\(workoutId, cpRow\)/u);
+  assert.match(controller, /selectedWorkout:\s*null/u);
+  assert.match(controller, /pagehide[\s\S]*persistAnalyticsPreferences\(\{ keepalive: true \}\)/u);
   assert.match(controller, /snapAnalyticsRangeToGrouping/u);
   assert.match(controller, /getSharedDisplayBounds/u);
   assert.match(loadChart, /onTimeRangeChange/u);
@@ -266,7 +271,7 @@ test("analytics overview permits a short private browser cache", async () => {
   assert.match(routeSource, /Vary", "Accept-Encoding, Cookie"/u);
 });
 
-test("analytics keeps scrolling inside its stable desktop application shell", async () => {
+test("analytics fills its stable desktop client area without a page scrollbar", async () => {
   const [markup, css] = await Promise.all([
     readFile(new URL("src/views/analytics.ejs", projectRoot), "utf8"),
     readFile(new URL("src/public/css/analytics.css", projectRoot), "utf8")
@@ -279,21 +284,27 @@ test("analytics keeps scrolling inside its stable desktop application shell", as
   );
   assert.match(
     css,
-    /> \.analytics-app-viewport\s*\{[^}]*height:\s*calc\(100dvh[^}]*overflow-y:\s*auto;[^}]*scrollbar-width:\s*none;/su
+    /> \.analytics-app-viewport\s*\{[^}]*height:\s*calc\(100dvh[^}]*overflow:\s*hidden;/su
   );
   assert.match(
     css,
-    /has-fixed-app-topbar \.analytics-period-inspector\s*\{[^}]*top:\s*0\.5rem;[^}]*height:\s*calc\(100dvh - var\(--app-topbar-offset, 78px\) - 1rem\);/su
+    /has-fixed-app-topbar \.analytics-shell\s*\{[^}]*height:\s*100%;[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\);/su
   );
   assert.match(
     css,
-    /\.analytics-period-inspector\s*\{[^}]*height:\s*calc\(100dvh[^}]*max-height:/su
+    /has-fixed-app-topbar \.analytics-period-inspector\s*\{[^}]*height:\s*100%;[^}]*max-height:\s*none;/su
   );
   assert.match(
     css,
     /\.analytics-period-workouts\s*\{[^}]*flex:\s*1 1 auto;[^}]*overflow-y:\s*scroll;[^}]*scrollbar-gutter:\s*stable;/su
   );
   assert.match(css, /grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/u);
+  assert.match(css, /\.analytics-combined-chart-panel\s*\{[^}]*grid-template-rows:/su);
+  assert.match(css, /#ctl-chart,[^}]*#cp-chart\s*\{[^}]*height:\s*100% !important;/su);
+  assert.doesNotMatch(markup, /id="analytics-detail-close"/u);
+  assert.doesNotMatch(markup, /class="analytics-detail-toolbar"/u);
+  assert.doesNotMatch(markup, /analyticsPage\.(?:workoutContextCopy|spatialCopy)/u);
+  assert.match(css, /analytics-period-power__metric--action\.is-selected/u);
   assert.match(
     css,
     /@media \(max-width:\s*991\.98px\)[\s\S]*?\.analytics-period-inspector\s*\{[^}]*height:\s*auto;[^}]*max-height:\s*none;/u
