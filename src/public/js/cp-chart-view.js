@@ -198,7 +198,7 @@ export default class CPChartView {
       title: {
         text: this.t("powerCurveEyebrow"),
         left: 24,
-        top: 4,
+        top: 12,
         textStyle: { fontSize: 14, fontWeight: 600 }
       },
       tooltip: {
@@ -210,7 +210,7 @@ export default class CPChartView {
       legend: {
         id: 'critical-power-legend',
         type: 'scroll',
-        top: 2,
+        top: 10,
         right: 24,
         left: 138,
         selected: Object.fromEntries(
@@ -234,7 +234,7 @@ export default class CPChartView {
       grid: {
         left: 92,
         right: 92,
-        top: 58,
+        top: 66,
         bottom: 68
       },
 

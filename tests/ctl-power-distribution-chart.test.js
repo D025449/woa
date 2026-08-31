@@ -87,6 +87,9 @@ test("load model renders power distribution as one replaceable zoomed series", (
   const distributionTitle = option.title[1];
   const distributionAxis = option.yAxis.find((axis) => axis.id === "distribution-zones-axis");
   assert.equal(distributionAxis.name, undefined);
+  assert.equal(option.title[0].top, 12);
+  assert.equal(option.legend.top, 10);
+  assert.equal(loadGrid.top, 66);
   assert.ok(distributionTitle.top - (loadGrid.top + loadGrid.height) >= 39);
   assert.ok(distributionGrid.top - distributionTitle.top >= 32);
   assert.deepEqual(option.dataZoom.map((zoom) => zoom.xAxisIndex), [[0, 1], [0, 1]]);
@@ -157,6 +160,7 @@ test("load model redistributes its internal sections when the chart height chang
   const loadGrid = calls.options[0].grid.find((grid) => grid.id === "load-model-grid");
   const distributionGrid = calls.options[0].grid.find((grid) => grid.id === "distribution-grid");
   assert.ok(loadGrid.height > 242);
+  assert.equal(calls.options[0].title[0].top, 12);
   assert.ok(distributionGrid.top > 377);
 });
 

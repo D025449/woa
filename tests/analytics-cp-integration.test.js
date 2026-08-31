@@ -84,6 +84,9 @@ test("analytics displays and persists one slider-controlled range for both chart
   assert.match(controller, /getSharedDisplayBounds/u);
   assert.match(loadChart, /onTimeRangeChange/u);
   assert.match(powerChart, /onTimeRangeChange/u);
+  assert.match(powerChart, /text: this\.t\("powerCurveEyebrow"\),[\s\S]*top: 12,/u);
+  assert.match(powerChart, /id: 'critical-power-legend',[\s\S]*top: 10,/u);
+  assert.match(powerChart, /grid: \{[\s\S]*top: 66,/u);
   assert.match(controller, /echarts\.connect\(\[this\.ctlChartView\.chart, this\.cpChartView\.chart\]\)/u);
   assert.match(loadChart, /formatAnalysisPeriodValue/u);
   assert.match(powerChart, /formatAnalysisPeriodValue/u);

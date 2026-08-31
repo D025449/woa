@@ -12,8 +12,9 @@ import { createTranslator, getCurrentLocale } from "./i18n.js";
 import { POWER_DISTRIBUTION_ZONES } from "../../shared/PowerDistribution.js";
 import { loadAnalyticsOverview } from "./analytics-overview-client.js?v=atlas-blue-19";
 
-const LOAD_GRID_TOP = 58;
+const LOAD_GRID_TOP = 66;
 const DEFAULT_CHART_HEIGHT = 480;
+const SECTION_TITLE_TOP = 12;
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));
@@ -389,7 +390,7 @@ export default class CTLChartView {
     const loadLegend = {
       id: 'load-model-legend',
       type: 'scroll',
-      top: 2,
+      top: 10,
       right: 24,
       left: 138,
       data: [...this.legendNameToKey.keys()],
@@ -438,17 +439,17 @@ export default class CTLChartView {
       animation: false,
       title: showDistribution
         ? [
-            { id: 'load-model-title', text: this.t("loadModelEyebrow"), left: 24, top: 4, textStyle: { fontSize: 14, fontWeight: 600 } },
+            { id: 'load-model-title', text: this.t("loadModelEyebrow"), left: 24, top: SECTION_TITLE_TOP, textStyle: { fontSize: 14, fontWeight: 600 } },
             { id: 'distribution-title', text: this.t("distributionAxis"), left: 24, top: layout.distributionTitleTop, textStyle: { fontSize: 14, fontWeight: 600 } }
           ]
-        : { text: this.t("loadModelEyebrow"), left: 24, top: 4, textStyle: { fontSize: 14, fontWeight: 600 } },
+        : { text: this.t("loadModelEyebrow"), left: 24, top: SECTION_TITLE_TOP, textStyle: { fontSize: 14, fontWeight: 600 } },
       legend: loadLegend,
       grid: showDistribution
         ? [
             { id: 'load-model-grid', left: 92, right: 92, ...layout.loadGrid },
             { id: 'distribution-grid', left: 92, right: 92, ...layout.distributionGrid }
           ]
-        : { left: 92, right: 92, top: 58, bottom: 24 },
+        : { left: 92, right: 92, top: LOAD_GRID_TOP, bottom: 24 },
       xAxis: showDistribution
         ? [
             { id: 'load-time-axis', ...sharedTimeAxis, ...hiddenTimeAxisPresentation, gridIndex: 0 },
@@ -723,7 +724,7 @@ export default class CTLChartView {
     this.updateLayoutMarker(true, layout);
     this.chart.setOption({
       title: [
-        { id: 'load-model-title', top: 4 },
+        { id: 'load-model-title', top: SECTION_TITLE_TOP },
         { id: 'distribution-title', top: layout.distributionTitleTop }
       ],
       grid: [

@@ -1,0 +1,86 @@
+erDiagram
+    USERS {
+        BIGINT id PK "identity"
+        VARCHAR auth_sub "unique"
+        VARCHAR email
+        BOOLEAN email_verified
+        VARCHAR display_name
+    }
+    USER_PROFILES {
+        BIGINT user_id PK, FK
+        VARCHAR phone
+        DATE date_of_birth
+    }
+    IMPORT_JOBS {
+        BIGINT id PK
+        BIGINT uid FK
+        BIGINT size_bytes
+        TEXT status
+    }
+    WORKOUTS {
+        BIGINT id PK
+        BIGINT uid FK
+        TIMESTAMP start_time
+        TIMESTAMP end_time
+        DOUBLE total_distance
+        BYTEA stream
+    }
+    WORKOUT_SEGMENTS {
+        BIGINT id PK
+        BIGINT wid FK
+        BIGINT uid FK
+        INTEGER start_offset
+        INTEGER duration
+    }
+    GPS_SEGMENTS {
+        BIGINT id PK
+        BIGINT uid FK
+        DOUBLE distance
+        BYTEA track_blob
+    }
+    GROUPS {
+        BIGINT id PK
+        VARCHAR name
+        BIGINT owner_user_id FK
+    }
+    GROUP_MEMBERS {
+        BIGINT group_id PK, FK
+        BIGINT user_id PK, FK
+        VARCHAR role
+    }
+    GROUP_INVITES {
+        BIGINT id PK
+        BIGINT group_id FK
+        BIGINT invited_user_id FK
+    }
+    TRAINING_PLANS {
+        BIGINT id PK
+        BIGINT user_id FK
+        TEXT plan_name
+    }
+    TRAINING_PLAN_WEEKS {
+        BIGINT id PK
+        BIGINT training_plan_id FK
+        INTEGER week_number
+    }
+    TRAINING_PLAN_SESSIONS {
+        BIGINT id PK
+        BIGINT training_plan_week_id FK
+        DATE planned_date
+    }
+
+    USERS ||--o{ IMPORT_JOBS : "owns"
+    USERS ||--o{ WORKOUTS : "has"
+    USERS ||--o{ GPS_SEGMENTS : "has"
+    USERS ||--o{ GROUP_MEMBERS : "member"
+    USERS ||--o{ GROUP_INVITES : "invited"
+    USERS ||--o{ TRAINING_PLANS : "owns"
+    USERS ||--o{ USER_PROFILES : "profile"
+
+    WORKOUTS ||--o{ WORKOUT_SEGMENTS : "contains"
+    WORKOUTS }o--|| USERS : "belongs to"
+    WORKOUT_SEGMENTS }o--|| USERS : "belongs to"
+    GROUPS ||--o{ GROUP_MEMBERS : "has members"
+    GROUPS ||--o{ GROUP_INVITES : "has invites"
+    TRAINING_PLANS ||--o{ TRAINING_PLAN_WEEKS : "has weeks"
+    TRAINING_PLAN_WEEKS ||--o{ TRAINING_PLAN_SESSIONS : "has sessions"
