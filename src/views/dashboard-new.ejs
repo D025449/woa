@@ -12,7 +12,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
     <link rel="stylesheet" href="/css/ui-system.css?v=atlas-blue-4">
-    <link rel="stylesheet" href="/css/dashboard-new.css?v=atlas-blue-4">
+    <link rel="stylesheet" href="/css/dashboard-new.css?v=atlas-blue-5">
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -678,6 +678,37 @@
                             </div>
 
                             <div class="dashboard-surface-body dashboard-chart-stage ui-surface-body ui-surface-body--flush">
+                                <div
+                                    id="dashboard-chart-readout"
+                                    class="dashboard-chart-readout"
+                                    aria-label="<%= t('dashboardNewPage.chart.snapshot') %>"
+                                    aria-live="off">
+                                    <div class="dashboard-chart-readout__position">
+                                        <span class="dashboard-chart-readout__eyebrow"><%= t("dashboardNewPage.chart.snapshot") %></span>
+                                        <div class="dashboard-chart-readout__axis">
+                                            <strong data-chart-readout-time>0:00</strong>
+                                            <span data-chart-readout-distance-group hidden>
+                                                <span aria-hidden="true">·</span>
+                                                <span data-chart-readout-distance>– km</span>
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div class="dashboard-chart-readout__metrics">
+                                        <% for (const [key, label] of [
+                                            ["power", "power"],
+                                            ["heartRate", "heartRate"],
+                                            ["cadence", "cadence"],
+                                            ["speed", "speed"],
+                                            ["altitude", "altitude"],
+                                            ["leftRightBalance", "leftRightBalance"]
+                                        ]) { %>
+                                            <div class="dashboard-chart-readout__metric" data-chart-readout-metric="<%= key %>">
+                                                <span><%= t(`dashboardNewPage.chart.${label}`) %></span>
+                                                <strong data-chart-readout-value>–</strong>
+                                            </div>
+                                        <% } %>
+                                    </div>
+                                </div>
                                 <div id="workout-chart"></div>
                             </div>
                             </article>

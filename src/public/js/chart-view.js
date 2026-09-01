@@ -217,6 +217,35 @@ export function getAvailableWorkoutSeries(workoutObject) {
   return availability;
 }
 
+function finiteNumberOrNull(value) {
+  return Number.isFinite(value) ? value : null;
+}
+
+export function buildWorkoutMetricSnapshot(workoutObject, index) {
+  const length = Math.max(0, Number(workoutObject?.length) || 0);
+  const normalizedIndex = Math.max(0, Math.min(
+    Math.max(0, length - 1),
+    Math.round(Number(index) || 0)
+  ));
+  const metrics = length > 0
+    ? workoutObject?.getMetricsAt?.(normalizedIndex)
+    : null;
+  const distanceMeters = length > 0
+    ? Number(workoutObject?.getDistanceAt?.(normalizedIndex))
+    : Number.NaN;
+
+  return {
+    index: normalizedIndex,
+    distanceKm: Number.isFinite(distanceMeters) ? distanceMeters / 1000 : null,
+    power: finiteNumberOrNull(metrics?.power),
+    heartRate: finiteNumberOrNull(metrics?.hr),
+    cadence: finiteNumberOrNull(metrics?.cadence),
+    speed: finiteNumberOrNull(metrics?.speed),
+    altitude: finiteNumberOrNull(metrics?.altitude),
+    leftRightBalance: finiteNumberOrNull(metrics?.leftRightBalance)
+  };
+}
+
 function roundAxisMaximum(value, quantum) {
   if (!Number.isFinite(value) || value <= 0) {
     return null;
@@ -312,6 +341,23 @@ export default class ChartView {
     this.smoothingSlot = document.getElementById("dashboard-smoothing-slot");
     this.seriesToggleSlot = document.getElementById("dashboard-series-toggle-slot");
     this.segmentToggleSlot = document.getElementById("dashboard-segment-toggle-slot");
+    this.chartReadout = handlers.readoutId
+      ? document.getElementById(handlers.readoutId)
+      : null;
+    this.chartReadoutTime = this.chartReadout?.querySelector("[data-chart-readout-time]") || null;
+    this.chartReadoutDistance = this.chartReadout?.querySelector("[data-chart-readout-distance]") || null;
+    this.chartReadoutDistanceGroup = this.chartReadout?.querySelector("[data-chart-readout-distance-group]") || null;
+    this.chartReadoutMetrics = new Map(
+      Array.from(this.chartReadout?.querySelectorAll("[data-chart-readout-metric]") || [])
+        .map((element) => [
+          element.dataset.chartReadoutMetric,
+          {
+            element,
+            value: element.querySelector("[data-chart-readout-value]")
+          }
+        ])
+    );
+    this.chartReadoutIndex = 0;
     this.seriesVisibility = {
       power: true,
       heartRate: true,
@@ -552,6 +598,7 @@ export default class ChartView {
       tooltip: {
         trigger: "axis",
         confine: true,
+        showContent: !this.chartReadout,
         axisPointer: { type: "line", snap: true },
         formatter: (params) => this.formatTooltip(params)
       },
@@ -667,6 +714,7 @@ export default class ChartView {
     this.renderSmoothingControls();
     this.baseMarkAreas = this.buildMarkAreasForMode(workout);
     this.applyMarkAreas();
+    this.updateChartReadout(workoutChanged ? 0 : this.chartReadoutIndex);
   }
 
   updateWorkoutCP(workout, cpview) {
@@ -712,6 +760,7 @@ export default class ChartView {
     this.baseMarkAreas = this.buildMarkAreasCPForMode(cpview);
     this.applyMarkAreas();
     this.zoomToCriticalPowerEffort(cpview);
+    this.updateChartReadout(0);
   }
 
   // -----------------------------
@@ -721,7 +770,9 @@ export default class ChartView {
     this.chart.getZr().on("mousemove", (p) => {
       const x = this.chart.convertFromPixel({ xAxisIndex: 0 }, p.offsetX);
       if (!isNaN(x)) {
-        this.handlers.onChartHoverIndex?.(this.xValueToIndex(x));
+        const index = this.xValueToIndex(x);
+        this.updateChartReadout(index);
+        this.handlers.onChartHoverIndex?.(index);
       }
       if (this.selectionStart != null && (this.mode === "create" || this.mode === "gps-create")) {
         this.updateSelectionPreview(x);
@@ -1803,6 +1854,45 @@ export default class ChartView {
         `).join("")}
       </div>
     `;
+  }
+
+  updateChartReadout(index) {
+    if (!this.chartReadout || !this.currentWorkout?.workoutObject) {
+      return;
+    }
+
+    const snapshot = buildWorkoutMetricSnapshot(this.currentWorkout.workoutObject, index);
+    this.chartReadoutIndex = snapshot.index;
+
+    if (this.chartReadoutTime) {
+      this.chartReadoutTime.textContent = Utils.formatSeconds(snapshot.index);
+    }
+
+    const showDistance = this.hasDistanceXAxis() && Number.isFinite(snapshot.distanceKm);
+    if (this.chartReadoutDistanceGroup) {
+      this.chartReadoutDistanceGroup.hidden = !showDistance;
+    }
+    if (showDistance && this.chartReadoutDistance) {
+      this.chartReadoutDistance.textContent = `${snapshot.distanceKm.toFixed(2)} km`;
+    }
+
+    const values = {
+      power: snapshot.power == null ? "–" : `${Math.round(snapshot.power)} W`,
+      heartRate: snapshot.heartRate == null ? "–" : `${Math.round(snapshot.heartRate)} bpm`,
+      cadence: snapshot.cadence == null ? "–" : `${Math.round(snapshot.cadence)} rpm`,
+      speed: snapshot.speed == null ? "–" : `${snapshot.speed.toFixed(1)} km/h`,
+      altitude: snapshot.altitude == null ? "–" : `${Math.round(snapshot.altitude)} m`,
+      leftRightBalance: snapshot.leftRightBalance == null
+        ? "–"
+        : `${snapshot.leftRightBalance.toFixed(1)} %`
+    };
+
+    for (const [key, readout] of this.chartReadoutMetrics) {
+      readout.element.hidden = this.seriesAvailability[key] === false;
+      if (readout.value) {
+        readout.value.textContent = values[key] || "–";
+      }
+    }
   }
 
   initSegmentHoverTooltip() {

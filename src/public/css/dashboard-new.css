@@ -3238,6 +3238,131 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
 
 .dashboard-chart-stage {
   position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-chart-readout {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 1rem;
+  min-height: 4rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--ui-card-border-faint);
+  background: color-mix(in srgb, var(--ui-bg-subtle) 72%, white);
+  color: var(--ui-text-default);
+}
+
+.dashboard-chart-readout__position {
+  flex: 0 0 auto;
+  min-width: 7.5rem;
+}
+
+.dashboard-chart-readout__eyebrow,
+.dashboard-chart-readout__metric > span {
+  display: block;
+  color: var(--ui-text-muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.dashboard-chart-readout__axis {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-top: 0.15rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dashboard-chart-readout__axis > strong {
+  font-size: 1rem;
+}
+
+.dashboard-chart-readout__axis [data-chart-readout-distance-group] {
+  display: inline-flex;
+  gap: 0.4rem;
+  color: var(--ui-text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.dashboard-chart-readout__axis [data-chart-readout-distance-group][hidden] {
+  display: none;
+}
+
+.dashboard-chart-readout__metrics {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.dashboard-chart-readout__metric {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+  padding: 0.1rem 0.65rem;
+  border-left: 2px solid var(--ui-card-border-soft);
+}
+
+.dashboard-chart-readout__metric[hidden] {
+  display: none;
+}
+
+.dashboard-chart-readout__metric[data-chart-readout-metric="power"] {
+  border-left-color: #2563eb;
+}
+
+.dashboard-chart-readout__metric[data-chart-readout-metric="heartRate"] {
+  border-left-color: #16a34a;
+}
+
+.dashboard-chart-readout__metric[data-chart-readout-metric="cadence"] {
+  border-left-color: #f59e0b;
+}
+
+.dashboard-chart-readout__metric[data-chart-readout-metric="speed"] {
+  border-left-color: #ef4444;
+}
+
+.dashboard-chart-readout__metric[data-chart-readout-metric="altitude"] {
+  border-left-color: #38bdf8;
+}
+
+.dashboard-chart-readout__metric[data-chart-readout-metric="leftRightBalance"] {
+  border-left-color: #d946ef;
+}
+
+.dashboard-chart-readout__metric > strong {
+  overflow: hidden;
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .dashboard-chart-readout {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+
+  .dashboard-chart-readout__metrics {
+    overflow-x: auto;
+    padding-bottom: 0.15rem;
+  }
+
+  .dashboard-chart-readout__metric {
+    flex: 1 0 5.25rem;
+  }
 }
 
 .dashboard-chart-mode-status {
@@ -3435,6 +3560,10 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
 .dashboard-master-detail #workout-map {
   height: 100% !important;
   min-height: 0;
+}
+
+.dashboard-master-detail #workout-chart {
+  flex: 1 1 auto;
 }
 
 @media (max-width: 991.98px) {

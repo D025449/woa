@@ -288,6 +288,7 @@ export default class Controller {
 
     this.chartView = new ChartView("workout-chart", {
       initialState: this.chartViewState,
+      readoutId: "dashboard-chart-readout",
       onChartHoverIndex: (idx) => {
         this.mapView.moveMarkerToIndex(idx);
       },
