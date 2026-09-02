@@ -7,6 +7,7 @@ import WorkoutLibraryView, {
 } from "../src/public/js/workout-library-view.js";
 
 const dashboardViewUrl = new URL("../src/views/dashboard-new.ejs", import.meta.url);
+const libraryViewUrl = new URL("../src/public/js/workout-library-view.js", import.meta.url);
 
 function createHeadlessView(handlers = {}) {
   const originalDocument = globalThis.document;
@@ -50,6 +51,21 @@ test("workout library navigates by replacing the current page", async () => {
 
   await view.goToPage(4);
   assert.equal(requests.length, 2);
+});
+
+test("workout card row numbers continue across pages and render for both card types", async () => {
+  const view = createHeadlessView({ initialPageSize: 24 });
+
+  assert.equal(view.getRowNumber(0), 1);
+  assert.equal(view.getRowNumber(23), 24);
+
+  view.page = 3;
+  assert.equal(view.getRowNumber(0), 49);
+  assert.equal(view.getRowNumber(7), 56);
+
+  const source = await readFile(libraryViewUrl, "utf8");
+  const positionChips = source.match(/workout-library-card__context-position/g) || [];
+  assert.equal(positionChips.length, 2);
 });
 
 test("dashboard renders workout page navigation and page-size controls", async () => {

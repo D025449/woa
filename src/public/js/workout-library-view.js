@@ -1525,6 +1525,10 @@ export default class WorkoutLibraryView {
     return this.items.filter((entry) => entry.entity_type !== "manual_activity");
   }
 
+  getRowNumber(index) {
+    return ((this.page - 1) * this.pageSize) + index + 1;
+  }
+
   render() {
     if (!this.container) {
       return;
@@ -1546,7 +1550,7 @@ export default class WorkoutLibraryView {
     }
 
     this.container.innerHTML = renderableItems
-      .map((workout) => this.renderWorkoutCard(workout))
+      .map((workout, index) => this.renderWorkoutCard(workout, this.getRowNumber(index)))
       .join("");
 
     this.bindCardEvents();
@@ -1908,9 +1912,9 @@ export default class WorkoutLibraryView {
     }
   }
 
-  renderWorkoutCard(workout) {
+  renderWorkoutCard(workout, rowNumber) {
     if (workout.entity_type === "manual_activity") {
-      return this.renderManualActivityCard(workout);
+      return this.renderManualActivityCard(workout, rowNumber);
     }
 
     const isSelected = String(workout.id) === this.selectedWorkoutId;
@@ -2011,6 +2015,7 @@ export default class WorkoutLibraryView {
           <div class="workout-library-card__identity">
             <div class="workout-library-card__context">
               ${isSelectable ? `<label class="workout-library-card__select"><input type="checkbox" data-workout-select="${workoutId}" ${isSelectedForBulk ? "checked" : ""}></label>` : ""}
+              <span class="workout-library-card__context-chip workout-library-card__context-position">#${this.formatNumber(rowNumber, 0)}</span>
               <span class="workout-library-card__context-chip workout-library-card__context-id">${this.t("workoutLabel", { id: workout.id })}</span>
               <span class="workout-library-card__context-chip">${dayLabel}</span>
               <span class="workout-library-card__context-chip">${hasValidGps ? this.t("gps") : this.t("noGps")}</span>
@@ -2179,7 +2184,7 @@ export default class WorkoutLibraryView {
     `;
   }
 
-  renderManualActivityCard(activity) {
+  renderManualActivityCard(activity, rowNumber) {
     const startedAt = activity.start_time ? new Date(activity.start_time) : null;
     const dayLabel = startedAt
       ? startedAt.toLocaleDateString(this.locale, { dateStyle: "short" })
@@ -2210,6 +2215,7 @@ export default class WorkoutLibraryView {
         <div class="workout-library-card__head">
           <div class="workout-library-card__identity">
             <div class="workout-library-card__context">
+              <span class="workout-library-card__context-chip workout-library-card__context-position">#${this.formatNumber(rowNumber, 0)}</span>
               <span class="workout-library-card__context-chip workout-library-card__context-id">A-${activity.id}</span>
               <span class="workout-library-card__context-chip">${dayLabel}</span>
               <span class="workout-library-card__context-chip">${this.escapeHtml(activityTypeLabel)}</span>
