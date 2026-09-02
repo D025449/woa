@@ -2845,19 +2845,59 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   font-weight: 600;
 }
 
-.workout-library-load-more {
+.workout-library-pagination {
   position: sticky;
   bottom: 0;
   z-index: 2;
   margin-top: 0.9rem;
   padding: 0.85rem 0 0.2rem;
   display: flex;
-  justify-content: center;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0), var(--ui-bg-panel) 42%);
 }
 
-.workout-library-load-more .btn {
-  padding-inline: 1rem;
+.workout-library-pagination__size,
+.workout-library-pagination__navigation {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.workout-library-pagination__size {
+  color: var(--ui-text-muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.workout-library-pagination__size .form-select {
+  width: auto;
+  min-width: 4rem;
+}
+
+.workout-library-pagination__button {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.workout-library-pagination__button svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.workout-library-pagination__status {
+  min-width: 5.25rem;
+  color: var(--ui-text-default);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .dashboard-detail-grid {

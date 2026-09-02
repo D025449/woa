@@ -6,6 +6,12 @@ import { createTranslator, getCurrentLocale } from "./i18n.js";
 const TERRAIN_PROFILE_VALUES = ["flat", "rolling", "mountainous", "altitude_missing", "altitude_invalid"];
 const INTENSITY_PROFILE_VALUES = ["recovery", "endurance", "tempo", "threshold", "vo2max", "anaerobic", "unknown"];
 const ACTIVITY_TYPE_VALUES = ["cycling", "strength_training", "mobility", "other"];
+const PAGE_SIZE_OPTIONS = [12, 24, 48, 96];
+
+export function normalizeWorkoutLibraryPageSize(value) {
+  const pageSize = Number(value);
+  return PAGE_SIZE_OPTIONS.includes(pageSize) ? pageSize : 24;
+}
 
 export function buildManualPowerThumbnailSvg(activity = {}) {
   const profile = activity?.power_profile;
@@ -104,8 +110,11 @@ export default class WorkoutLibraryView {
     this.sortTrigger = document.getElementById("workout-library-sort-trigger");
     this.sortTriggerLabel = document.getElementById("workout-library-sort-trigger-label");
     this.sortMenu = document.getElementById("workout-library-sort-menu");
-    this.loadMoreContainer = document.getElementById(handlers.loadMoreButtonId || "workout-library-load-more");
-    this.loadMoreButton = this.loadMoreContainer?.querySelector("button") || null;
+    this.paginationContainer = document.getElementById(handlers.paginationContainerId || "workout-library-pagination");
+    this.previousPageButton = document.getElementById(handlers.previousPageButtonId || "workout-library-page-previous");
+    this.nextPageButton = document.getElementById(handlers.nextPageButtonId || "workout-library-page-next");
+    this.pageStatusElement = document.getElementById(handlers.pageStatusElementId || "workout-library-page-status");
+    this.pageSizeSelect = document.getElementById(handlers.pageSizeSelectId || "workout-library-page-size");
     this.activeFiltersElement = document.getElementById(handlers.activeFiltersId || "workout-library-active-filters");
     this.scopeMineButton = document.getElementById(handlers.scopeMineButtonId || "workout-library-scope-mine");
     this.scopeSharedButton = document.getElementById(handlers.scopeSharedButtonId || "workout-library-scope-shared");
@@ -157,7 +166,7 @@ export default class WorkoutLibraryView {
       groupIds: []
     };
     this.page = 1;
-    this.pageSize = handlers.pageSize || 24;
+    this.pageSize = normalizeWorkoutLibraryPageSize(handlers.initialPageSize ?? handlers.pageSize);
     this.lastPage = 1;
     this.totalRecords = 0;
     this.resultsLoaded = false;
@@ -196,6 +205,9 @@ export default class WorkoutLibraryView {
 
     if (this.searchInput) {
       this.searchInput.value = this.searchInputValue;
+    }
+    if (this.pageSizeSelect) {
+      this.pageSizeSelect.value = String(this.pageSize);
     }
 
     if (this.sortSelect) {
@@ -265,9 +277,13 @@ export default class WorkoutLibraryView {
     this.intensityProfileValue = INTENSITY_PROFILE_VALUES.includes(state.intensityProfile)
       ? state.intensityProfile
       : "all";
+    this.pageSize = normalizeWorkoutLibraryPageSize(state.pageSize ?? this.pageSize);
 
     if (this.searchInput) {
       this.searchInput.value = this.searchInputValue;
+    }
+    if (this.pageSizeSelect) {
+      this.pageSizeSelect.value = String(this.pageSize);
     }
     if (this.sortSelect) {
       this.sortSelect.value = this.sortValue;
@@ -516,13 +532,22 @@ export default class WorkoutLibraryView {
       this.closeBulkSharePanel();
     });
 
-    this.loadMoreButton?.addEventListener("click", async () => {
-      if (this.page >= this.lastPage) {
+    this.previousPageButton?.addEventListener("click", async () => {
+      await this.goToPage(this.page - 1);
+    });
+
+    this.nextPageButton?.addEventListener("click", async () => {
+      await this.goToPage(this.page + 1);
+    });
+
+    this.pageSizeSelect?.addEventListener("change", async () => {
+      const pageSize = normalizeWorkoutLibraryPageSize(this.pageSizeSelect?.value);
+      if (pageSize === this.pageSize) {
         return;
       }
-
-      this.page += 1;
-      await this.fetchPage({ append: true });
+      this.pageSize = pageSize;
+      this.handlers.onStateChange?.(this.getState());
+      await this.reload();
     });
 
     document.querySelectorAll("[data-search-example]").forEach((element) => {
@@ -597,7 +622,7 @@ export default class WorkoutLibraryView {
     this.renderHeader();
     this.renderActiveFilters();
     this.render();
-    this.updateLoadMoreButton();
+    this.updatePagination();
     this.handlers.onRendered?.({
       append,
       totalRecords: this.totalRecords
@@ -613,6 +638,17 @@ export default class WorkoutLibraryView {
     params.set("scope", this.scopeValue || "mine");
     params.set("favoritesOnly", this.favoriteFilterActive ? "1" : "0");
     return `/files/workouts?${params.toString()}`;
+  }
+
+  async goToPage(page) {
+    const targetPage = Math.min(this.lastPage, Math.max(1, Math.trunc(Number(page)) || 1));
+    if (targetPage === this.page) {
+      return;
+    }
+
+    this.page = targetPage;
+    await this.fetchPage({ append: false });
+    this.scrollRoot?.scrollTo?.({ top: 0, behavior: "smooth" });
   }
 
   buildSort() {
@@ -1351,14 +1387,21 @@ export default class WorkoutLibraryView {
     return false;
   }
 
-  updateLoadMoreButton() {
-    if (!this.loadMoreContainer || !this.loadMoreButton) {
+  updatePagination() {
+    if (!this.paginationContainer) {
       return;
     }
 
-    const hasMore = this.page < this.lastPage;
-    this.loadMoreContainer.classList.toggle("d-none", !hasMore);
-    this.loadMoreButton.disabled = !hasMore;
+    const hasResults = this.resultsLoaded && this.totalRecords > 0;
+    this.paginationContainer.classList.toggle("d-none", !hasResults);
+    if (this.previousPageButton) this.previousPageButton.disabled = this.page <= 1;
+    if (this.nextPageButton) this.nextPageButton.disabled = this.page >= this.lastPage;
+    if (this.pageStatusElement) {
+      this.pageStatusElement.textContent = this.pageT("paginationStatus", {
+        page: this.page,
+        pages: this.lastPage
+      });
+    }
   }
 
   setSelectedWorkout(workoutId) {
@@ -1459,7 +1502,8 @@ export default class WorkoutLibraryView {
       workoutType: this.workoutTypeValue,
       terrainProfile: this.terrainProfileValue,
       intensityProfile: this.intensityProfileValue,
-      gpsFilter: this.gpsFilterValue
+      gpsFilter: this.gpsFilterValue,
+      pageSize: this.pageSize
     };
   }
 

@@ -409,7 +409,7 @@ textarea {
 
 .dashboard-toolbar .btn,
 .workout-library-card .btn,
-.workout-library-load-more .btn {
+.workout-library-pagination .btn {
   border-radius: 999px;
   font-weight: 600;
   box-shadow: none;

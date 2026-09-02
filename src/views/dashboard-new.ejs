@@ -520,8 +520,42 @@
 
                                 <div class="workout-library-scroll">
                                     <div id="workout-library" class="workout-library-grid"></div>
-                                    <div id="workout-library-load-more" class="workout-library-load-more d-none">
-                                        <button class="btn btn-outline-primary" type="button"><%= t("dashboardNewPage.loadMore") %></button>
+                                    <div id="workout-library-pagination" class="workout-library-pagination d-none">
+                                        <label class="workout-library-pagination__size" for="workout-library-page-size">
+                                            <span><%= t("dashboardNewPage.itemsPerPage") %></span>
+                                            <select
+                                                id="workout-library-page-size"
+                                                class="form-select form-select-sm"
+                                                aria-label="<%= t('dashboardNewPage.itemsPerPage') %>">
+                                                <option value="12">12</option>
+                                                <option value="24" selected>24</option>
+                                                <option value="48">48</option>
+                                                <option value="96">96</option>
+                                            </select>
+                                        </label>
+                                        <div class="workout-library-pagination__navigation" role="group" aria-label="<%= t('dashboardNewPage.paginationAria') %>">
+                                            <button
+                                                id="workout-library-page-previous"
+                                                class="btn btn-outline-primary workout-library-pagination__button"
+                                                type="button"
+                                                aria-label="<%= t('dashboardNewPage.previousPage') %>"
+                                                title="<%= t('dashboardNewPage.previousPage') %>">
+                                                <svg viewBox="0 0 20 20" aria-hidden="true">
+                                                    <path d="M12.5 4.5 7 10l5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                                                </svg>
+                                            </button>
+                                            <span id="workout-library-page-status" class="workout-library-pagination__status" aria-live="polite"></span>
+                                            <button
+                                                id="workout-library-page-next"
+                                                class="btn btn-outline-primary workout-library-pagination__button"
+                                                type="button"
+                                                aria-label="<%= t('dashboardNewPage.nextPage') %>"
+                                                title="<%= t('dashboardNewPage.nextPage') %>">
+                                                <svg viewBox="0 0 20 20" aria-hidden="true">
+                                                    <path d="m7.5 4.5 5.5 5.5-5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

@@ -35,7 +35,8 @@ export default class Controller {
       workoutType: "all",
       terrainProfile: "all",
       intensityProfile: "all",
-      gpsFilter: "all"
+      gpsFilter: "all",
+      pageSize: 24
     });
     this.chartViewState = this.uiState.get("chartViewState", {
       xAxisMode: "time",
@@ -408,6 +409,7 @@ export default class Controller {
       initialTerrainProfile: this.libraryState?.terrainProfile || "all",
       initialIntensityProfile: this.libraryState?.intensityProfile || "all",
       initialGpsFilter: this.libraryState?.gpsFilter || "all",
+      initialPageSize: this.libraryState?.pageSize,
       initialFavoriteFilterActive: !!this.libraryState?.favoritesOnly,
       initialFavoriteWorkoutIds: this.favoriteWorkoutIds,
       onWorkoutOpen: async (workoutId) => {
