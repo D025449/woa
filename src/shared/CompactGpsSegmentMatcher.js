@@ -93,11 +93,20 @@ function findProjectionCandidates(
   const latitudeRadiusE5 = maxDistanceMeters / METERS_PER_E5_LAT;
   const longitudeRadiusE5 = maxDistanceMeters / metersPerE5Lng;
   let segmentIndex = 0;
+  // Collapse one contiguous visit into its closest interpolated projection.
+  let closestInEncounter = null;
+  const finishEncounter = () => {
+    if (!closestInEncounter) return false;
+    results.push(closestInEncounter);
+    closestInEncounter = null;
+    return results.length >= maxHitCount;
+  };
 
   for (let index = 0; index < track.latitudesE5.length - 1; index += 1) {
     const leftProgress = Number(track.slotIndices[index]);
     const rightProgress = Number(track.slotIndices[index + 1]);
     if (rightProgress !== leftProgress + 1) {
+      if (finishEncounter()) return results;
       segmentIndex += 1;
       continue;
     }
@@ -111,6 +120,7 @@ function findProjectionCandidates(
       || pointLatE5 > Math.max(leftLatE5, rightLatE5) + latitudeRadiusE5
       || pointLngE5 < Math.min(leftLngE5, rightLngE5) - longitudeRadiusE5
       || pointLngE5 > Math.max(leftLngE5, rightLngE5) + longitudeRadiusE5) {
+      if (finishEncounter()) return results;
       continue;
     }
 
@@ -131,15 +141,21 @@ function findProjectionCandidates(
       rightLngE5,
       metersPerE5Lng
     );
-    if (distanceSquared >= maxDistanceSquared) continue;
-
-    results.push({
-      segmentIndex,
-      index,
-      progress: leftProgress + ((rightProgress - leftProgress) * interpolation)
-    });
-    if (results.length >= maxHitCount) return results;
+    if (distanceSquared < maxDistanceSquared) {
+      const candidate = {
+        segmentIndex,
+        index,
+        distanceSquared,
+        progress: leftProgress + ((rightProgress - leftProgress) * interpolation)
+      };
+      if (!closestInEncounter || candidate.distanceSquared < closestInEncounter.distanceSquared) {
+        closestInEncounter = candidate;
+      }
+    } else if (finishEncounter()) {
+      return results;
+    }
   }
+  finishEncounter();
   return results;
 }
 
@@ -222,8 +238,8 @@ export function matchCompactGpsSegmentBestEfforts(compactTrack, preparedSegments
         segment.metersPerE5Lng
       );
       if (!ends.length || !validatesRoute(track, segment, start, ends[0])) continue;
-      const startOffset = Math.floor(start.progress * sampleRate);
-      const endOffset = Math.ceil(ends[0].progress * sampleRate);
+      const startOffset = Math.round(start.progress * sampleRate);
+      const endOffset = Math.round(ends[0].progress * sampleRate);
       if (endOffset <= startOffset) continue;
       matches.push({ segmentId: segment.id, startOffset, endOffset });
       lastEndProgress = ends[0].progress;

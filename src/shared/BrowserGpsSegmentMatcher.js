@@ -26,6 +26,15 @@ function findProjectionCandidates(point, trackSegments, maxDistance, startProgre
   const results = [];
   for (let segmentIndex = 0; segmentIndex < trackSegments.length; segmentIndex += 1) {
     const polyline = trackSegments[segmentIndex];
+    // Collapse one contiguous visit into its closest interpolated projection.
+    let closestInEncounter = null;
+    const finishEncounter = () => {
+      if (!closestInEncounter) return false;
+      results.push(closestInEncounter);
+      closestInEncounter = null;
+      return results.length >= maxHitCount;
+    };
+
     for (let index = 0; index < polyline.length - 1; index += 1) {
       const left = polyline[index];
       const right = polyline[index + 1];
@@ -46,14 +55,22 @@ function findProjectionCandidates(point, trackSegments, maxDistance, startProgre
         lat: left.lat + interpolation * deltaLat
       };
       const distance = gpsDistanceMeters(point, projected);
-      if (distance >= maxDistance) continue;
-      results.push({
-        segmentIndex,
-        index,
-        progress: leftProgress + ((rightProgress - leftProgress) * interpolation)
-      });
-      if (results.length >= maxHitCount) return results;
+      if (distance < maxDistance) {
+        const candidate = {
+          segmentIndex,
+          index,
+          distance,
+          progress: leftProgress + ((rightProgress - leftProgress) * interpolation)
+        };
+        if (!closestInEncounter || candidate.distance < closestInEncounter.distance) {
+          closestInEncounter = candidate;
+        }
+      } else if (finishEncounter()) {
+        return results;
+      }
     }
+
+    if (finishEncounter()) return results;
   }
   return results;
 }
@@ -120,8 +137,8 @@ export function benchmarkGpsSegmentBestEfforts(gpsTrack, segmentDefinitions = []
         1
       );
       if (!ends.length || !validatesGpsSegmentRoute(trackSegments, segmentTrack, start, ends[0])) continue;
-      const startOffset = Math.floor(start.progress * sampleRate);
-      const endOffset = Math.ceil(ends[0].progress * sampleRate);
+      const startOffset = Math.round(start.progress * sampleRate);
+      const endOffset = Math.round(ends[0].progress * sampleRate);
       if (endOffset <= startOffset) continue;
       matches.push(addAverages(
         { segmentId: Number(segment.id), startOffset, endOffset },

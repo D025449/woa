@@ -126,10 +126,20 @@ export default class SegmentMatcher {
     static findProjectionCandidates(wid, sid, pos, point, segments, maxDist, startProgress = 0, maxHitCount = 100) {
         const results = [];
 
-        let min = Infinity;
-
         for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
             const polyline = segments[segmentIndex];
+            // One pass can contain several in-radius edges. Keep its closest
+            // projection so the boundary time is interpolated instead of
+            // snapping to the first five-second GPS sample in the radius.
+            let closestInEncounter = null;
+
+            const finishEncounter = () => {
+                if (!closestInEncounter) return false;
+                results.push(closestInEncounter);
+                closestInEncounter = null;
+                return results.length >= maxHitCount;
+            };
+
             for (let i = 0; i < polyline.length - 1; i++) {
                 const a = polyline[i];
                 const b = polyline[i + 1];
@@ -157,20 +167,23 @@ export default class SegmentMatcher {
                 };
 
                 const dist = this.distance(point, proj);
-                min = Math.min(min, dist);
                 if (dist < maxDist) {
-                    results.push({
+                    const candidate = {
                         segmentIndex,
                         index: i,
                         t,
                         dist,
                         progress: aProgress + ((bProgress - aProgress) * t)
-                    });
-                    if (results.length >= maxHitCount) {
-                        return results
+                    };
+                    if (!closestInEncounter || candidate.dist < closestInEncounter.dist) {
+                        closestInEncounter = candidate;
                     }
+                } else if (finishEncounter()) {
+                    return results;
                 }
             }
+
+            if (finishEncounter()) return results;
         }
         return results;
     }
@@ -296,8 +309,8 @@ export default class SegmentMatcher {
             }
             const endCandidate = endCandidates[0];
             if (this.validateSegment(workoutSegments, segment, startCandidate, endCandidate)) {
-                const startOffset = Math.floor(startCandidate.progress * downsamplingFactor);
-                const endOffset = Math.ceil(endCandidate.progress * downsamplingFactor);
+                const startOffset = Math.round(startCandidate.progress * downsamplingFactor);
+                const endOffset = Math.round(endCandidate.progress * downsamplingFactor);
 
                 if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) {
                     continue;

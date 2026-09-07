@@ -82,3 +82,44 @@ test("compact E5 GPS matcher preserves object matcher offsets across invalid slo
     endOffset
   })));
 });
+
+test("GPS matchers interpolate endpoint times between five-second track samples", () => {
+  const points = Array.from({ length: 12 }, (_, slotIndex) => ({
+    lat: 48,
+    lng: 8 + slotIndex * 0.0002,
+    slotIndex
+  }));
+  const segmentTrack = [
+    { lat: 48, lng: 8.00044 },
+    { lat: 48, lng: 8.00152 }
+  ];
+  const bounds = { minLat: 48, maxLat: 48, minLng: 8, maxLng: 8.0022 };
+  const definition = { id: 11, distance: 100, bounds, track: segmentTrack };
+
+  const backend = SegmentMatcher.findMatches({
+    wid: 2,
+    segments: [points],
+    sampleRate: 5
+  }, { id: definition.id, track: segmentTrack });
+  const browser = benchmarkGpsSegmentBestEfforts({
+    sampleRateSeconds: 5,
+    bbox: bounds,
+    segments: [points]
+  }, [definition]).matches;
+  const compact = matchCompactGpsSegmentBestEfforts({
+    sampleRateGps: 5,
+    latitudesE5: Int32Array.from(points, (point) => Math.round(point.lat * 100000)),
+    longitudesE5: Int32Array.from(points, (point) => Math.round(point.lng * 100000)),
+    slotIndices: Uint32Array.from(points, (point) => point.slotIndex)
+  }, prepareCompactGpsSegmentDefinitions([definition])).matches;
+
+  assert.deepEqual(backend.map(({ start_offset, end_offset }) => ({ start_offset, end_offset })), [
+    { start_offset: 11, end_offset: 38 }
+  ]);
+  assert.deepEqual(browser.map(({ startOffset, endOffset }) => ({ startOffset, endOffset })), [
+    { startOffset: 11, endOffset: 38 }
+  ]);
+  assert.deepEqual(compact.map(({ startOffset, endOffset }) => ({ startOffset, endOffset })), [
+    { startOffset: 11, endOffset: 38 }
+  ]);
+});
