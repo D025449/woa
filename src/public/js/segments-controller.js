@@ -1,8 +1,10 @@
 import MapView from "./segment-map-view.js";
 import SegmentBestEffortsCardView from "./segment-best-efforts-card-view.js";
 import SegmentElevationView from "./segment-elevation-view.js";
+import WorkoutService from "./workout-service.js";
 import FlyoverView from "./flyover-view.js";
 import MapSegment from "../../shared/MapSegment.js";
+import { buildSegmentComparisonProfile } from "../../shared/SegmentComparison.js";
 import UIStateManager from "./UIStateManager.js"
 import confirmModal from "./confirm-modal.js";
 import { createTranslator } from "./i18n.js";
@@ -63,6 +65,8 @@ export default class Controller {
     this.toast = this.toastElement && globalThis.bootstrap
       ? new globalThis.bootstrap.Toast(this.toastElement, { delay: 2800 })
       : null;
+    this.comparisonWorkoutCache = new Map();
+    this.comparisonLoadRevision = 0;
     this.initViews();
     this.didRestoreMapViewState = false;
     this.registerEvents();
@@ -111,7 +115,9 @@ export default class Controller {
       initialScope: this.bestEffortsScope,
       initialPerUser: this.bestEffortsPerUser,
       formatSegmentHeaderMarkup: (...args) => this.formatSegmentHeaderMarkup(...args),
-      onHeaderRendered: () => this.bindSegmentHeaderEvents()
+      onHeaderRendered: () => this.bindSegmentHeaderEvents(),
+      onComparisonChange: (rows) => this.loadSegmentComparisons(rows),
+      onComparisonLimit: (limit) => this.showToast(this.t("messages.comparisonLimit", { limit }))
     });
 
     this.elevationView = new SegmentElevationView(
@@ -560,12 +566,14 @@ export default class Controller {
   }
 
   selectSegment(segment) {
+    this.comparisonLoadRevision += 1;
     this.selectedSegment = segment;
     this.selectedSegmentSharing = segment?.sharing || null;
     this.uiState.set("selectedSegmentId", segment?.id ?? null);
     this.pushRecentSegment(segment?.id);
     this.flyoverView?.setWorkout(segment);
     this.mapView.selectSegment(segment);
+    this.elevationView.setComparisons([]);
     this.elevationView.updateSegment(segment);
     this.updateDeleteButton();
     this.updateShareUi();
@@ -655,6 +663,7 @@ export default class Controller {
   }
 
   clearSelectedSegment() {
+    this.comparisonLoadRevision += 1;
     this.selectedSegment = null;
     this.selectedSegmentSharing = null;
     this.closeSegmentVisibilityPopover({ render: false });
@@ -674,6 +683,63 @@ export default class Controller {
     this.updateDetailNavigation();
     if (window.matchMedia("(max-width: 991.98px)").matches) {
       this.setDetailSheetState("peek", { persist: false });
+    }
+  }
+
+  async loadSegmentComparisons(rows = []) {
+    const revision = ++this.comparisonLoadRevision;
+    const segment = this.selectedSegment;
+    const selectedRows = Array.isArray(rows) ? rows.slice(0, 3) : [];
+
+    if (!segment || selectedRows.length === 0) {
+      this.elevationView.setComparisonLoading(false);
+      this.elevationView.setComparisons([]);
+      return;
+    }
+
+    this.elevationView.setComparisonLoading(true);
+    try {
+      const profiles = await Promise.all(selectedRows.map(async (row) => {
+        const workout = await this.loadComparisonWorkout(row.wid);
+        return {
+          ...buildSegmentComparisonProfile(workout, row, segment.distance),
+          key: this.cardView.comparisonKey(row),
+          rank: Number(row.rn),
+          startTime: row.start_time || workout?.start_time || null,
+          ownerLabel: row.owner_display_name || row.owner_email || null
+        };
+      }));
+
+      if (revision !== this.comparisonLoadRevision || String(this.selectedSegment?.id) !== String(segment.id)) {
+        return;
+      }
+      this.elevationView.setComparisons(profiles);
+    } catch (error) {
+      if (revision !== this.comparisonLoadRevision) return;
+      console.error(error);
+      this.elevationView.setComparisons([]);
+      this.showToast(this.t("messages.comparisonLoadFailed"));
+    } finally {
+      if (revision === this.comparisonLoadRevision) {
+        this.elevationView.setComparisonLoading(false);
+      }
+    }
+  }
+
+  async loadComparisonWorkout(workoutId) {
+    const key = String(workoutId);
+    if (!this.comparisonWorkoutCache.has(key)) {
+      this.comparisonWorkoutCache.set(key, WorkoutService.loadWorkoutByRow(workoutId));
+      while (this.comparisonWorkoutCache.size > 8) {
+        this.comparisonWorkoutCache.delete(this.comparisonWorkoutCache.keys().next().value);
+      }
+    }
+
+    try {
+      return await this.comparisonWorkoutCache.get(key);
+    } catch (error) {
+      this.comparisonWorkoutCache.delete(key);
+      throw error;
     }
   }
 

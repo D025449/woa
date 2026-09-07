@@ -944,6 +944,17 @@
     "elevationTitle": "Höhenprofil",
     "elevationLabel": "Höhenprofil",
     "elevationEmpty": "Wähle ein Segment auf der Karte aus, um sein Höhenprofil zu sehen.",
+    "comparisonTitle": "Segmentvergleich",
+    "comparisonHint": "Wähle bis zu 3 Best Efforts aus.",
+    "comparisonLoading": "Workout-Daten werden geladen …",
+    "comparisonCount": "{count}/3 Workouts ausgewählt",
+    "comparisonAdd": "Vergleichen",
+    "comparisonSelected": "Kurve {index}",
+    "comparisonAddAria": "{workout} zum Segmentvergleich hinzufügen",
+    "comparisonRemoveAria": "{workout} aus dem Segmentvergleich entfernen",
+    "comparisonDistanceAxis": "Distanz (km)",
+    "comparisonPowerAxis": "Leistung (W)",
+    "comparisonElevationAxis": "Höhe (m)",
     "workoutContextEyebrow": "Workout-Kontext",
     "workoutContextTitle": "Workout-Daten",
     "workoutContextCopy": "Nutze das Chart als ergänzende Analysefläche für Segmentbereiche und manuelle Bearbeitung innerhalb des geladenen Workouts.",
@@ -987,7 +998,9 @@
       "deleteSegmentPrompt": "Dieses Segment löschen?\n\n{label}",
       "cancel": "Abbrechen",
       "failedDeleteSegment": "Segment konnte nicht gelöscht werden",
-      "failedBestEffortsStatus": "Best-Efforts-Status konnte nicht geladen werden"
+      "failedBestEffortsStatus": "Best-Efforts-Status konnte nicht geladen werden",
+      "comparisonLimit": "Du kannst maximal {limit} Workouts vergleichen.",
+      "comparisonLoadFailed": "Die Workout-Daten für den Vergleich konnten nicht geladen werden."
     },
     "table": {
       "rank": "Rang",

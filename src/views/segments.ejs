@@ -226,8 +226,11 @@
                         <div class="segments-detail-grid">
                             <div class="segments-panel segments-panel--elevation">
                                 <div class="segments-panel-header">
-                                    <h3 class="segments-panel-title"><%= t("segmentsPage.elevationTitle") %></h3>
-                                    <div id="segment-elevation-stats" class="small text-muted"></div>
+                                    <div>
+                                        <h3 class="segments-panel-title"><%= t("segmentsPage.comparisonTitle") %></h3>
+                                        <div id="segment-comparison-status" class="segments-comparison-status"><%= t("segmentsPage.comparisonHint") %></div>
+                                    </div>
+                                    <div id="segment-elevation-stats" class="small text-muted text-end"></div>
                                 </div>
                                 <div id="segment-elevation-panel" class="d-none h-100">
                                     <div id="segment-elevation-chart"></div>

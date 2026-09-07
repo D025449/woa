@@ -1254,6 +1254,18 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-scope-toggl
     margin: 0;
 }
 
+.segments-comparison-status {
+    margin-top: 0.22rem;
+    color: var(--ui-text-muted);
+    font-size: 0.74rem;
+    font-weight: 600;
+    line-height: 1.25;
+}
+
+.segments-comparison-status.is-loading {
+    color: var(--ui-info-text);
+}
+
 .segment-bestefforts-scope-toggle .btn {
     padding-inline: 0.8rem;
 }
@@ -1288,11 +1300,21 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-scope-toggl
     background: transparent;
     box-shadow: none;
     padding: 0.72rem 0.65rem;
-    transition: background 120ms ease;
+    cursor: pointer;
+    outline: none;
+    transition: background 120ms ease, box-shadow 120ms ease;
 }
 
 .segments-best-effort-card:hover {
     background: var(--ui-bg-subtle-faint);
+}
+
+.segments-best-effort-card:focus-visible {
+    box-shadow: inset 0 0 0 2px var(--ui-info-text);
+}
+
+.segments-best-effort-card.is-comparison-selected {
+    background: color-mix(in srgb, var(--ui-info-bg-soft) 62%, transparent);
 }
 
 .segments-best-effort-card__head {
@@ -1338,6 +1360,47 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-scope-toggl
 
 .segments-best-effort-card__workout:hover {
     text-decoration: underline;
+}
+
+.segments-best-effort-card__actions {
+    display: grid;
+    justify-items: end;
+    gap: 0.28rem;
+}
+
+.segments-best-effort-card__compare {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: var(--ui-text-muted);
+    font-size: 0.68rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.segments-best-effort-card__compare-dot {
+    width: 0.58rem;
+    height: 0.58rem;
+    border: 1.5px solid currentColor;
+    border-radius: 999px;
+    background: transparent;
+}
+
+.segments-best-effort-card.is-comparison-selected .segments-best-effort-card__compare {
+    color: var(--ui-info-text);
+}
+
+.segments-best-effort-card.is-comparison-selected .segments-best-effort-card__compare-dot {
+    border-color: transparent;
+    background: #2563eb;
+}
+
+.segments-best-effort-card.is-comparison-selected[data-comparison-index="2"] .segments-best-effort-card__compare-dot {
+    background: #d946ef;
+}
+
+.segments-best-effort-card.is-comparison-selected[data-comparison-index="3"] .segments-best-effort-card__compare-dot {
+    background: #f59e0b;
 }
 
 .segments-best-effort-card__stats {

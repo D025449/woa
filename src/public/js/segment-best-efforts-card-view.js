@@ -1,4 +1,5 @@
 import Utils from "../../shared/Utils.js";
+import { MAX_SEGMENT_COMPARISON_WORKOUTS } from "../../shared/SegmentComparison.js";
 import { createTranslator } from "./i18n.js";
 
 export default class SegmentBestEffortsCardView {
@@ -19,6 +20,21 @@ export default class SegmentBestEffortsCardView {
     this.lastPage = 1;
     this.fastestDuration = null;
     this.lastMatchCount = null;
+    this.comparisonRows = new Map();
+    this.rowsByComparisonKey = new Map();
+
+    this.container?.addEventListener("click", (event) => {
+      if (event.target?.closest?.("a")) return;
+      const card = event.target?.closest?.("[data-segment-comparison-key]");
+      if (card) this.toggleComparison(card.dataset.segmentComparisonKey);
+    });
+    this.container?.addEventListener("keydown", (event) => {
+      if (!['Enter', ' '].includes(event.key) || event.target?.closest?.("a")) return;
+      const card = event.target?.closest?.("[data-segment-comparison-key]");
+      if (!card) return;
+      event.preventDefault();
+      this.toggleComparison(card.dataset.segmentComparisonKey);
+    });
 
     this.loadMoreButton?.addEventListener("click", async () => {
       if (!this.currentSegment || this.page >= this.lastPage) {
@@ -39,7 +55,9 @@ export default class SegmentBestEffortsCardView {
   }
 
   async loadSegment(segment) {
+    const segmentChanged = String(this.currentSegment?.id ?? "") !== String(segment?.id ?? "");
     this.currentSegment = segment;
+    if (segmentChanged) this.clearComparisons();
     this.stopBestEffortsPolling();
     this.page = 1;
     this.lastPage = 1;
@@ -99,6 +117,8 @@ export default class SegmentBestEffortsCardView {
       return;
     }
 
+    if (!append) this.rowsByComparisonKey.clear();
+
     if (!rows.length) {
       if (!append) {
         this.container.innerHTML = `
@@ -111,13 +131,16 @@ export default class SegmentBestEffortsCardView {
       return;
     }
 
+    rows.forEach((row) => this.rowsByComparisonKey.set(this.comparisonKey(row), row));
     const markup = rows.map((row) => this.renderRow(row)).join("");
     if (append) {
       this.container.insertAdjacentHTML("beforeend", markup);
+      this.syncComparisonCards();
       return;
     }
 
     this.container.innerHTML = markup;
+    this.syncComparisonCards();
   }
 
   buildRequestUrl(segmentId) {
@@ -155,15 +178,24 @@ export default class SegmentBestEffortsCardView {
       row?.avg_heart_rate != null ? `${Number(row.avg_heart_rate).toFixed(0)} bpm` : null
     ].filter(Boolean).join(" · ");
 
+    const comparisonKey = this.comparisonKey(row);
     return `
-      <article class="segments-best-effort-card">
+      <article class="segments-best-effort-card" role="checkbox" tabindex="0"
+        aria-checked="false" aria-label="${this.escapeHtml(this.t("comparisonAddAria", { workout: `W-${row.wid}` }))}"
+        data-segment-comparison-key="${this.escapeHtml(comparisonKey)}">
         <div class="segments-best-effort-card__head">
           <div class="segments-best-effort-card__rank">#${this.escapeHtml(row.rn)}</div>
           <div class="segments-best-effort-card__identity">
             <div class="segments-best-effort-card__duration">${this.escapeHtml(Utils.formatDuration(row.duration))}${this.perUserValue === "1" ? ` <span class="segments-best-efforts-badge">PR</span>` : ""}</div>
             <div class="segments-best-effort-card__meta">${this.escapeHtml(this.formatStart(row))}</div>
           </div>
-          <a class="segments-best-effort-card__workout" href="/dashboard-new?workoutId=${encodeURIComponent(row.wid)}">W-${this.escapeHtml(row.wid)}</a>
+          <div class="segments-best-effort-card__actions">
+            <span class="segments-best-effort-card__compare" aria-hidden="true">
+              <span class="segments-best-effort-card__compare-dot"></span>
+              <span data-comparison-label>${this.t("comparisonAdd")}</span>
+            </span>
+            <a class="segments-best-effort-card__workout" href="/dashboard-new?workoutId=${encodeURIComponent(row.wid)}">W-${this.escapeHtml(row.wid)}</a>
+          </div>
         </div>
         <div class="segments-best-effort-card__stats">${this.escapeHtml(meta || this.t("na"))}</div>
         ${ownerLabel ? `<div class="segments-best-effort-card__owner">${this.t("table.ownerShort")}: ${this.escapeHtml(ownerLabel)}</div>` : ""}
@@ -193,6 +225,8 @@ export default class SegmentBestEffortsCardView {
     this.lastPage = 1;
     this.fastestDuration = null;
     this.lastMatchCount = null;
+    this.clearComparisons();
+    this.rowsByComparisonKey.clear();
     if (this.container) {
       this.container.innerHTML = "";
     }
@@ -200,6 +234,54 @@ export default class SegmentBestEffortsCardView {
   }
 
   resize() {}
+
+  comparisonKey(row) {
+    return [row?.wid, row?.start_offset, row?.end_offset].map((value) => String(value ?? "")).join(":");
+  }
+
+  toggleComparison(key) {
+    const row = this.rowsByComparisonKey.get(String(key));
+    if (!row) return;
+
+    if (this.comparisonRows.has(String(key))) {
+      this.comparisonRows.delete(String(key));
+    } else {
+      if (this.comparisonRows.size >= MAX_SEGMENT_COMPARISON_WORKOUTS) {
+        this.handlers.onComparisonLimit?.(MAX_SEGMENT_COMPARISON_WORKOUTS);
+        return;
+      }
+      this.comparisonRows.set(String(key), row);
+    }
+
+    this.syncComparisonCards();
+    this.handlers.onComparisonChange?.([...this.comparisonRows.values()]);
+  }
+
+  clearComparisons() {
+    if (this.comparisonRows.size === 0) return;
+    this.comparisonRows.clear();
+    this.syncComparisonCards();
+    this.handlers.onComparisonChange?.([]);
+  }
+
+  syncComparisonCards() {
+    const selectedKeys = [...this.comparisonRows.keys()];
+    this.container?.querySelectorAll?.("[data-segment-comparison-key]").forEach((card) => {
+      const selectedIndex = selectedKeys.indexOf(card.dataset.segmentComparisonKey);
+      const selected = selectedIndex >= 0;
+      card.classList.toggle("is-comparison-selected", selected);
+      card.setAttribute("aria-checked", selected ? "true" : "false");
+      card.dataset.comparisonIndex = selected ? String(selectedIndex + 1) : "";
+      const row = this.rowsByComparisonKey.get(card.dataset.segmentComparisonKey);
+      card.setAttribute("aria-label", this.t(selected ? "comparisonRemoveAria" : "comparisonAddAria", {
+        workout: `W-${row?.wid ?? ""}`
+      }));
+      const label = card.querySelector("[data-comparison-label]");
+      if (label) label.textContent = selected
+        ? this.t("comparisonSelected", { index: selectedIndex + 1 })
+        : this.t("comparisonAdd");
+    });
+  }
 
   shouldPollBestEfforts(segment, rowCount = 0) {
     const status = String(segment?.bestEffortsStatus || "").toLowerCase();

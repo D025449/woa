@@ -944,6 +944,17 @@
     "elevationTitle": "Elevation Profile",
     "elevationLabel": "Elevation Profile",
     "elevationEmpty": "Select a segment on the map to see its elevation profile.",
+    "comparisonTitle": "Segment comparison",
+    "comparisonHint": "Select up to 3 best efforts.",
+    "comparisonLoading": "Loading workout data…",
+    "comparisonCount": "{count}/3 workouts selected",
+    "comparisonAdd": "Compare",
+    "comparisonSelected": "Curve {index}",
+    "comparisonAddAria": "Add {workout} to the segment comparison",
+    "comparisonRemoveAria": "Remove {workout} from the segment comparison",
+    "comparisonDistanceAxis": "Distance (km)",
+    "comparisonPowerAxis": "Power (W)",
+    "comparisonElevationAxis": "Elevation (m)",
     "workoutContextEyebrow": "Workout Context",
     "workoutContextTitle": "Workout Data",
     "workoutContextCopy": "Use the chart as a complementary analysis surface for segment ranges and manual editing inside the loaded workout.",
@@ -987,7 +998,9 @@
       "deleteSegmentPrompt": "Delete this segment?\n\n{label}",
       "cancel": "Cancel",
       "failedDeleteSegment": "Failed to delete segment",
-      "failedBestEffortsStatus": "Failed to fetch best-efforts status"
+      "failedBestEffortsStatus": "Failed to fetch best-efforts status",
+      "comparisonLimit": "You can compare up to {limit} workouts.",
+      "comparisonLoadFailed": "The workout data for this comparison could not be loaded."
     },
     "table": {
       "rank": "Rank",
