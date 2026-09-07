@@ -33,7 +33,7 @@ export default class SegmentElevationView {
         type: "scroll",
         textStyle: { fontSize: 11 }
       },
-      grid: { left: 52, right: 48, top: 18, bottom: 30 },
+      grid: { left: 52, right: 48, top: 18, bottom: 45 },
       tooltip: {
         trigger: "axis",
         confine: true,
