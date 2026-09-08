@@ -1266,6 +1266,44 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-scope-toggl
     color: var(--ui-info-text);
 }
 
+.segments-comparison-header-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+}
+
+.segments-comparison-heart-rate-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.32rem 0.58rem;
+    border: 1px solid var(--ui-card-border-soft);
+    border-radius: 999px;
+    background: var(--ui-bg-subtle);
+    color: var(--ui-text-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.segments-comparison-heart-rate-toggle:hover {
+    border-color: var(--ui-info-text);
+    color: var(--ui-info-text);
+}
+
+.segments-comparison-heart-rate-toggle[aria-pressed="true"] {
+    border-color: color-mix(in srgb, var(--ui-info-text) 52%, var(--ui-card-border-soft));
+    background: var(--ui-info-bg-soft);
+    color: var(--ui-info-text);
+}
+
+.segments-comparison-heart-rate-toggle__line {
+    width: 1.15rem;
+    border-top: 2px dashed currentColor;
+}
+
 .segment-bestefforts-scope-toggle .btn {
     padding-inline: 0.8rem;
 }

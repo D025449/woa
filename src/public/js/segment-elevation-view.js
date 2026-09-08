@@ -1,6 +1,7 @@
 import { createTranslator } from "./i18n.js";
 
 const COMPARISON_COLORS = ["#2563eb", "#d946ef", "#f59e0b"];
+const HEART_RATE_PREFERENCE_KEY = "segmentComparisonShowHeartRate";
 
 export default class SegmentElevationView {
   constructor(containerId, panelId, statsId, handlers = {}) {
@@ -9,12 +10,14 @@ export default class SegmentElevationView {
     this.panel = document.getElementById(panelId);
     this.stats = document.getElementById(statsId);
     this.status = document.getElementById("segment-comparison-status");
+    this.heartRateToggle = document.getElementById("segment-comparison-heart-rate-toggle");
     this.emptyState = document.getElementById("segment-elevation-empty");
     this.handlers = handlers;
     this.chart = this.container ? echarts.init(this.container) : null;
     this.currentSegment = null;
     this.comparisons = [];
     this.comparisonLoading = false;
+    this.showHeartRate = this.loadHeartRatePreference();
     this.profileData = [];
     this.initChart();
     this.registerEvents();
@@ -71,13 +74,35 @@ export default class SegmentElevationView {
   }
 
   registerEvents() {
-    if (!this.chart) return;
-    this.chart.on("mousemove", (params) => {
-      if (params?.componentType !== "series") return;
-      const point = this.pointAtDistance(Number(params?.data?.[0]));
-      if (point) this.handlers.onHoverPoint?.(point, null, this.currentSegment);
+    this.heartRateToggle?.addEventListener("click", () => {
+      this.showHeartRate = !this.showHeartRate;
+      this.saveHeartRatePreference();
+      this.render();
     });
-    this.chart.on("globalout", () => this.handlers.onLeave?.());
+    if (this.chart) {
+      this.chart.on("mousemove", (params) => {
+        if (params?.componentType !== "series") return;
+        const point = this.pointAtDistance(Number(params?.data?.[0]));
+        if (point) this.handlers.onHoverPoint?.(point, null, this.currentSegment);
+      });
+      this.chart.on("globalout", () => this.handlers.onLeave?.());
+    }
+  }
+
+  loadHeartRatePreference() {
+    try {
+      return window.localStorage?.getItem(HEART_RATE_PREFERENCE_KEY) !== "0";
+    } catch {
+      return true;
+    }
+  }
+
+  saveHeartRatePreference() {
+    try {
+      window.localStorage?.setItem(HEART_RATE_PREFERENCE_KEY, this.showHeartRate ? "1" : "0");
+    } catch {
+      // The comparison still works when storage is unavailable.
+    }
   }
 
   updateSegment(segment) {
@@ -104,6 +129,11 @@ export default class SegmentElevationView {
       .filter((altitude) => Number.isFinite(altitude));
     const hasElevation = altitudeValues.length > 0;
     const hasComparisons = this.comparisons.some((comparison) => comparison.points?.length);
+    const hasHeartRate = this.comparisons.some((comparison) =>
+      comparison.points?.some((point) => Number.isFinite(point.heartRate))
+    );
+    const showHeartRatePane = hasComparisons && hasHeartRate && this.showHeartRate;
+    this.syncHeartRateToggle(hasHeartRate);
 
     if (!hasElevation && !hasComparisons && !this.comparisonLoading) {
       this.panel?.classList.add("d-none");
@@ -124,6 +154,7 @@ export default class SegmentElevationView {
       series.push({
         name: this.t("elevationLabel"),
         type: "line",
+        xAxisIndex: 0,
         yAxisIndex: 1,
         showSymbol: false,
         smooth: true,
@@ -139,6 +170,7 @@ export default class SegmentElevationView {
       series.push({
         name: this.comparisonLabel(comparison),
         type: "line",
+        xAxisIndex: 0,
         yAxisIndex: 0,
         showSymbol: false,
         connectNulls: false,
@@ -148,6 +180,22 @@ export default class SegmentElevationView {
         emphasis: { lineStyle: { width: 3 } },
         data: comparison.points.map((point) => [point.distanceKm, point.power, point.elapsedSeconds])
       });
+
+      if (showHeartRatePane && comparison.points.some((point) => Number.isFinite(point.heartRate))) {
+        series.push({
+          name: this.comparisonLabel(comparison),
+          type: "line",
+          xAxisIndex: 1,
+          yAxisIndex: 2,
+          showSymbol: false,
+          connectNulls: false,
+          sampling: "lttb",
+          lineStyle: { width: 2, type: "dashed", color },
+          itemStyle: { color },
+          emphasis: { lineStyle: { width: 2.8, type: "dashed" } },
+          data: comparison.points.map((point) => [point.distanceKm, point.heartRate, point.elapsedSeconds])
+        });
+      }
     });
 
     const profileMin = hasElevation ? Math.min(...altitudeValues) : null;
@@ -158,24 +206,97 @@ export default class SegmentElevationView {
       ...series.flatMap((entry) => entry.data.map((point) => Number(point[0]) || 0))
     );
 
+    const sharedXAxis = {
+      type: "value",
+      min: 0,
+      max: segmentDistanceKm > 0 ? segmentDistanceKm : null,
+      axisLabel: { formatter: (value) => Number(value).toFixed(1) }
+    };
+    const grids = showHeartRatePane
+      ? [
+          { left: 58, right: 48, top: 42, bottom: "43%" },
+          { left: 58, right: 48, top: "64%", bottom: 45 }
+        ]
+      : [{ left: 58, right: 48, top: hasComparisons ? 42 : 18, bottom: 45 }];
+    const xAxes = showHeartRatePane
+      ? [
+          {
+            ...sharedXAxis,
+            gridIndex: 0,
+            axisLabel: { show: false },
+            axisTick: { show: false },
+            axisLine: { show: false }
+          },
+          {
+            ...sharedXAxis,
+            gridIndex: 1,
+            name: this.t("comparisonDistanceAxis"),
+            nameLocation: "middle",
+            nameGap: 25
+          }
+        ]
+      : [{
+          ...sharedXAxis,
+          gridIndex: 0,
+          name: this.t("comparisonDistanceAxis"),
+          nameLocation: "middle",
+          nameGap: 25
+        }];
+
     this.chart.setOption({
       legend: {
         show: hasComparisons,
         data: this.comparisons.map((comparison) => this.comparisonLabel(comparison))
       },
-      grid: { top: hasComparisons ? 42 : 18 },
-      xAxis: { min: 0, max: segmentDistanceKm > 0 ? segmentDistanceKm : null },
+      axisPointer: showHeartRatePane ? { link: [{ xAxisIndex: "all" }] } : { link: [] },
+      grid: grids,
+      xAxis: xAxes,
       yAxis: [
-        { show: hasComparisons, min: 0 },
         {
+          type: "value",
+          gridIndex: 0,
+          show: hasComparisons,
+          name: this.t("comparisonPowerAxis"),
+          min: 0,
+          splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.16)" } }
+        },
+        {
+          type: "value",
+          gridIndex: 0,
           show: hasElevation,
+          name: this.t("comparisonElevationAxis"),
+          position: "right",
           min: hasElevation ? Math.floor(profileMin - padding) : null,
-          max: hasElevation ? Math.ceil(profileMax + padding) : null
+          max: hasElevation ? Math.ceil(profileMax + padding) : null,
+          splitLine: { show: false },
+          axisLine: { show: false },
+          axisTick: { show: false },
+          axisLabel: { color: "#94a3b8" }
+        },
+        {
+          type: "value",
+          gridIndex: showHeartRatePane ? 1 : 0,
+          show: showHeartRatePane,
+          name: this.t("comparisonHeartRateAxis"),
+          scale: true,
+          splitNumber: 3,
+          splitLine: { lineStyle: { color: "rgba(148, 163, 184, 0.12)" } }
         }
       ],
       series
-    }, { replaceMerge: ["series"] });
+    }, { replaceMerge: ["grid", "xAxis", "yAxis", "series"] });
     this.resize();
+  }
+
+  syncHeartRateToggle(hasHeartRate) {
+    if (!this.heartRateToggle) return;
+    this.heartRateToggle.classList.toggle("d-none", !hasHeartRate);
+    this.heartRateToggle.setAttribute("aria-pressed", this.showHeartRate ? "true" : "false");
+    this.heartRateToggle.setAttribute(
+      "aria-label",
+      this.t(this.showHeartRate ? "comparisonHeartRateHideAria" : "comparisonHeartRateShowAria")
+    );
+    this.container?.classList.toggle("is-heart-rate-visible", hasHeartRate && this.showHeartRate);
   }
 
   comparisonLabel(comparison) {
@@ -187,16 +308,43 @@ export default class SegmentElevationView {
     const entries = Array.isArray(params) ? params : [];
     if (!entries.length) return "";
     const distanceKm = Number(entries[0]?.data?.[0]);
+    if (!Number.isFinite(distanceKm)) return "";
     const lines = [`<strong>${distanceKm.toFixed(2)} km</strong>`];
-    for (const entry of entries) {
-      const rawValue = entry?.data?.[1];
-      if (rawValue == null) continue;
-      const value = Number(rawValue);
-      if (!Number.isFinite(value)) continue;
-      const unit = entry.seriesName === this.t("elevationLabel") ? "m" : "W";
-      lines.push(`${entry.marker}${entry.seriesName}: ${Math.round(value)} ${unit}`);
+
+    this.comparisons.forEach((comparison, index) => {
+      const point = this.nearestComparisonPoint(comparison.points, distanceKm);
+      if (!point) return;
+      const values = [];
+      if (Number.isFinite(point.power)) values.push(`${Math.round(point.power)} W`);
+      if (this.showHeartRate && Number.isFinite(point.heartRate)) {
+        values.push(`${Math.round(point.heartRate)} bpm`);
+      }
+      if (!values.length) return;
+      const color = COMPARISON_COLORS[index];
+      const marker = `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${color};margin-right:5px"></span>`;
+      lines.push(`${marker}${this.comparisonLabel(comparison)}: ${values.join(" · ")}`);
+    });
+
+    const elevationPoint = this.profileData.reduce((nearest, point) => {
+      if (!Number.isFinite(point?.[1])) return nearest;
+      if (!nearest) return point;
+      return Math.abs(point[0] - distanceKm) < Math.abs(nearest[0] - distanceKm) ? point : nearest;
+    }, null);
+    if (elevationPoint) {
+      lines.push(`${this.t("elevationLabel")}: ${Math.round(elevationPoint[1])} m`);
     }
     return lines.join("<br/>");
+  }
+
+  nearestComparisonPoint(points, distanceKm) {
+    if (!Array.isArray(points) || !points.length) return null;
+    return points.reduce((nearest, point) => {
+      if (!Number.isFinite(point?.distanceKm)) return nearest;
+      if (!nearest) return point;
+      return Math.abs(point.distanceKm - distanceKm) < Math.abs(nearest.distanceKm - distanceKm)
+        ? point
+        : nearest;
+    }, null);
   }
 
   renderStats(altitudeValues) {
@@ -235,7 +383,16 @@ export default class SegmentElevationView {
       if (index > 0) distanceMeters += this.haversine(track[index - 1], point);
       result.push([distanceMeters / 1000, Number.isFinite(altitude) ? altitude : null, index]);
     }
-    return result;
+    const officialDistance = Number(segment.distance);
+    if (!Number.isFinite(officialDistance) || officialDistance <= 0 || distanceMeters <= 0) {
+      return result;
+    }
+    const distanceScale = officialDistance / distanceMeters;
+    return result.map(([distanceKm, altitude, index]) => [
+      distanceKm * distanceScale,
+      altitude,
+      index
+    ]);
   }
 
   pointAtDistance(distanceKm) {
@@ -270,6 +427,8 @@ export default class SegmentElevationView {
     this.emptyState?.classList.remove("d-none");
     if (this.stats) this.stats.textContent = "";
     if (this.status) this.status.textContent = this.t("comparisonHint");
+    this.heartRateToggle?.classList.add("d-none");
+    this.container?.classList.remove("is-heart-rate-visible");
     this.chart?.setOption({ series: [] }, { replaceMerge: ["series"] });
     this.handlers.onLeave?.();
   }

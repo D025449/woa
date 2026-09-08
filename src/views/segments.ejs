@@ -230,7 +230,16 @@
                                         <h3 class="segments-panel-title"><%= t("segmentsPage.comparisonTitle") %></h3>
                                         <div id="segment-comparison-status" class="segments-comparison-status"><%= t("segmentsPage.comparisonHint") %></div>
                                     </div>
-                                    <div id="segment-elevation-stats" class="small text-muted text-end"></div>
+                                    <div class="segments-comparison-header-actions">
+                                        <button id="segment-comparison-heart-rate-toggle"
+                                            class="segments-comparison-heart-rate-toggle d-none" type="button"
+                                            aria-pressed="true"
+                                            aria-label="<%= t('segmentsPage.comparisonHeartRateHideAria') %>">
+                                            <span class="segments-comparison-heart-rate-toggle__line" aria-hidden="true"></span>
+                                            <%= t("segmentsPage.comparisonHeartRateToggle") %>
+                                        </button>
+                                        <div id="segment-elevation-stats" class="small text-muted text-end"></div>
+                                    </div>
                                 </div>
                                 <div id="segment-elevation-panel" class="d-none h-100">
                                     <div id="segment-elevation-chart"></div>
