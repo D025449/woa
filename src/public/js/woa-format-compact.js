@@ -637,7 +637,8 @@ function buildUint8RunLengthPayloadColumnDelta(values, sentinel, encoding = "rle
   for (let index = 1; index < runCount; index += 1) {
     const current = runValues[index];
     const delta = current - prevValue;
-    if (delta < -128 || delta >= 127) {
+    // Decoders cannot apply a delta to a missing value. Resume with an absolute token.
+    if (prevValue === sentinel || current === sentinel || delta < -128 || delta >= 127) {
       valueTokens[index - 1] = 127;
       absoluteTailValues.push(current);
       escapeCount += 1;
