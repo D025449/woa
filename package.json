@@ -29,6 +29,7 @@
     "db:explain-workout-insert": "node src/scripts/explain-workout-insert.js",
     "fit:deduplicate": "node src/scripts/build-deduplicated-fit-archive.js",
     "migrate:workout-streams:absolute": "node src/scripts/migrate-workout-streams-to-absolute.js",
+    "migrate:gps-segment-best-efforts": "node src/scripts/rebuild-gps-segment-best-efforts.js",
     "hooks:install": "git config core.hooksPath .githooks && chmod +x .githooks/pre-push && echo 'Git hooks installed (.githooks)'",
     "check:syntax": "rg --files src -g '*.js' | xargs -n1 node --check",
     "check:lint": "eslint src",

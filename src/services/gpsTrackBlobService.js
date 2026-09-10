@@ -631,6 +631,10 @@ function decodeGpsCoordinatePayload(bytes, pointCount, layoutVersion = 1) {
 }
 
 export default class GpsTrackBlobService {
+  static inferCompressedCodec(bufferLike, fallback = DEFAULT_GPS_TRACK_BLOB_CODEC) {
+    return inferCompressedCodec(bufferLike, fallback);
+  }
+
   static isValidGpsSlot(slot) {
     return isValidGpsSlotPoint(slot);
   }

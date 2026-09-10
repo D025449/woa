@@ -329,17 +329,8 @@ export default class SegmentDBService {
 
   }
 
-  static async storeSegmentBestEffortsForWorkoutsBulk(matches, workoutObjectsById, segmentDefinitionsById) {
-    const segmentIds = [];
-    const fileIds = [];
-    const starts = [];
-    const ends = [];
-    const durations = [];
-    const powers = [];
-    const heartRates = [];
-    const cadences = [];
-    const speeds = [];
-
+  static buildSegmentBestEffortRowsForWorkoutsBulk(matches, workoutObjectsById, segmentDefinitionsById) {
+    const rows = [];
     for (const match of Array.isArray(matches) ? matches : []) {
       const workoutId = Number(match?.workout_id);
       const segmentId = Number(match?.segment_id);
@@ -356,22 +347,29 @@ export default class SegmentDBService {
         continue;
       }
       const averages = workoutObject.getAverages(startOffset, endOffset);
-      segmentIds.push(segmentId);
-      fileIds.push(workoutId);
-      starts.push(startOffset);
-      ends.push(endOffset);
-      durations.push(duration);
-      powers.push(Math.round(averages.power ?? 0));
-      heartRates.push(Math.round(averages.hr ?? 0));
-      cadences.push(Math.round(averages.cadence ?? 0));
-      speeds.push(this.calculateNormalizedSegmentSpeed(segmentDefinition.distance, duration));
+      rows.push({
+        sid: segmentId,
+        wid: workoutId,
+        start_offset: startOffset,
+        end_offset: endOffset,
+        duration,
+        avg_power: Math.round(averages.power ?? 0),
+        avg_heart_rate: Math.round(averages.hr ?? 0),
+        avg_cadence: Math.round(averages.cadence ?? 0),
+        avg_speed: this.calculateNormalizedSegmentSpeed(segmentDefinition.distance, duration)
+      });
     }
 
-    if (segmentIds.length === 0) {
+    return rows;
+  }
+
+  static async storeSegmentBestEffortRowsBulk(rows, queryable = pool) {
+    const normalizedRows = Array.isArray(rows) ? rows : [];
+    if (normalizedRows.length === 0) {
       return { insertedCount: 0 };
     }
 
-    await pool.query(`
+    await queryable.query(`
       INSERT INTO gps_segment_best_efforts (
         sid,
         wid,
@@ -395,9 +393,33 @@ export default class SegmentDBService {
         $8::float8[],
         $9::float8[]
       )
-    `, [segmentIds, fileIds, starts, ends, durations, powers, heartRates, cadences, speeds]);
+    `, [
+      normalizedRows.map((row) => row.sid),
+      normalizedRows.map((row) => row.wid),
+      normalizedRows.map((row) => row.start_offset),
+      normalizedRows.map((row) => row.end_offset),
+      normalizedRows.map((row) => row.duration),
+      normalizedRows.map((row) => row.avg_power),
+      normalizedRows.map((row) => row.avg_heart_rate),
+      normalizedRows.map((row) => row.avg_cadence),
+      normalizedRows.map((row) => row.avg_speed)
+    ]);
 
-    return { insertedCount: segmentIds.length };
+    return { insertedCount: normalizedRows.length };
+  }
+
+  static async storeSegmentBestEffortsForWorkoutsBulk(
+    matches,
+    workoutObjectsById,
+    segmentDefinitionsById,
+    queryable = pool
+  ) {
+    const rows = this.buildSegmentBestEffortRowsForWorkoutsBulk(
+      matches,
+      workoutObjectsById,
+      segmentDefinitionsById
+    );
+    return this.storeSegmentBestEffortRowsBulk(rows, queryable);
   }
 
   static async getMatchingSegmentCandidatesV2(bounds, uid, workoutId = null, options = {}) {
@@ -1050,7 +1072,8 @@ export default class SegmentDBService {
     const compactTrack = await GpsTrackBlobService.decodeCompressedCompact(
       workoutRow.gps_track_blob,
       {
-        codec: workoutRow.gps_track_blob_codec || "identity",
+        codec: workoutRow.gps_track_blob_codec
+          || GpsTrackBlobService.inferCompressedCodec(workoutRow.gps_track_blob, "brotli"),
         includeSlotIndices: true
       }
     );
@@ -1858,107 +1881,34 @@ export default class SegmentDBService {
 
   static async rescanSegmentBestEffortsForWorkout(uid, workoutId, options = {}) {
     const includeProfile = options?.includeProfile === true;
-    const includeExistingBestEfforts = options?.includeExistingBestEfforts === true;
-    const profile = {
-      loadWorkoutTrackMs: 0,
-      buildBoundsMs: 0,
-      loadSegmentCandidatesMs: 0,
-      matchSegmentsMs: 0,
-      loadWorkoutObjectMs: 0,
-      persistBestEffortsMs: 0,
-      candidateCount: 0,
-      rawMatchCount: 0
-    };
-
-    const loadWorkoutTrackStartedAt = Date.now();
-    const workoutRowResult = await pool.query(`
-      SELECT
-        id,
-        samplerategps,
-        gps_track_blob,
-        gps_track_blob_codec
-      FROM workouts
-      WHERE id = $1
-        AND uid = $2
-        AND workout_type <> 'motorsport'
-      LIMIT 1
-    `, [workoutId, uid]);
-    profile.loadWorkoutTrackMs += Date.now() - loadWorkoutTrackStartedAt;
-
-    if (workoutRowResult.rowCount === 0) {
-      return includeProfile ? { matches: [], profile } : [];
-    }
-
-    const workoutRow = workoutRowResult.rows[0];
-    const decodeTrackStartedAt = Date.now();
-    const decodedTrack = await GpsTrackBlobService.decodeRowTrack({
-      gps_track_blob: workoutRow.gps_track_blob,
-      gps_track_blob_codec: workoutRow.gps_track_blob_codec,
-      samplerategps: workoutRow.samplerategps
-    }, { includeGeoJson: false });
-    profile.loadWorkoutTrackMs += Date.now() - decodeTrackStartedAt;
-    const track = decodedTrack.points;
-    const trackSegments = Array.isArray(decodedTrack.segments) ? decodedTrack.segments : [];
-
-    if (track.length === 0) {
-      return includeProfile ? { matches: [], profile } : [];
-    }
-
-    const buildBoundsStartedAt = Date.now();
-    const bounds = track.reduce((acc, point) => ({
-      minLat: Math.min(acc.minLat, point.lat),
-      maxLat: Math.max(acc.maxLat, point.lat),
-      minLng: Math.min(acc.minLng, point.lng),
-      maxLng: Math.max(acc.maxLng, point.lng)
-    }), {
-      minLat: Infinity,
-      maxLat: -Infinity,
-      minLng: Infinity,
-      maxLng: -Infinity
-    });
-    profile.buildBoundsMs += Date.now() - buildBoundsStartedAt;
-
-    const loadSegmentCandidatesStartedAt = Date.now();
-    const candidates = await SegmentDBService.getMatchingSegmentCandidatesV2(bounds, uid, workoutId, {
-      includeExistingBestEfforts
-    });
-    profile.loadSegmentCandidatesMs += Date.now() - loadSegmentCandidatesStartedAt;
-    profile.candidateCount = Array.isArray(candidates) ? candidates.length : 0;
-
-    if (candidates.length === 0) {
-      return includeProfile ? { matches: [], profile } : [];
-    }
-
-    const workout = {
-      id: workoutId,
-      track,
-      trackSegments,
-      sampleRate: Number(decodedTrack.sampleRateGps) > 0
-        ? Number(decodedTrack.sampleRateGps)
-        : workoutRow.samplerategps
-    };
-
-    const matchSegmentsStartedAt = Date.now();
-    const matches = SegmentDBService.matchSegments(workout, candidates);
-    profile.matchSegmentsMs += Date.now() - matchSegmentsStartedAt;
-    profile.rawMatchCount = Array.isArray(matches) ? matches.length : 0;
-    if (matches.length === 0) {
-      return includeProfile ? { matches: [], profile } : [];
-    }
-
-    const loadWorkoutObjectStartedAt = Date.now();
-    const workoutObject = await WorkoutDBService.getWorkout(workoutId);
-    profile.loadWorkoutObjectMs += Date.now() - loadWorkoutObjectStartedAt;
-
-    const persistBestEffortsStartedAt = Date.now();
-    await SegmentDBService.storeSegmentBestEfforts(matches, workoutObject);
-    profile.persistBestEffortsMs += Date.now() - persistBestEffortsStartedAt;
-
-    return includeProfile ? { matches, profile } : matches;
+    const [result] = await this.rescanSegmentBestEffortsForWorkoutsBatch(uid, [workoutId], options);
+    const matches = result?.matches || [];
+    return includeProfile
+      ? {
+          matches,
+          profile: result?.profile || {
+            loadWorkoutTrackMs: 0,
+            buildBoundsMs: 0,
+            loadSegmentCandidatesMs: 0,
+            matchSegmentsMs: 0,
+            loadWorkoutObjectMs: 0,
+            persistBestEffortsMs: 0,
+            candidateCount: 0,
+            rawMatchCount: 0,
+            gpsPointCount: 0,
+            matcherMode: SEGMENT_BEST_EFFORTS_COMPACT_MATCHER ? "compact-e5" : "legacy"
+          }
+        }
+      : matches;
   }
 
   static async rescanSegmentBestEffortsForWorkoutsBatch(uid, workoutIds, options = {}) {
     const includeExistingBestEfforts = options?.includeExistingBestEfforts === true;
+    const includePreparedBestEfforts = options?.includePreparedBestEfforts === true;
+    const persistBestEfforts = options?.persistBestEfforts !== false;
+    const useCompactMatcher = options?.compactMatcher == null
+      ? SEGMENT_BEST_EFFORTS_COMPACT_MATCHER
+      : options.compactMatcher === true;
     const normalizedIds = [...new Set((Array.isArray(workoutIds) ? workoutIds : [])
       .map(Number)
       .filter(Number.isInteger))];
@@ -1980,6 +1930,10 @@ export default class SegmentDBService {
 
     const loadSegmentDefinitionsStartedAt = Date.now();
     const segmentDefinitionsById = await this.loadSegmentMatchDefinitionsBulk(segmentIds);
+    const compactSegmentDefinitionsById = useCompactMatcher
+      ? new Map(prepareCompactGpsSegmentDefinitions([...segmentDefinitionsById.values()])
+        .map((segment) => [Number(segment.id), segment]))
+      : null;
     const loadSegmentDefinitionsMs = Date.now() - loadSegmentDefinitionsStartedAt;
     const loadSegmentCandidatesMs = loadSegmentCandidateIdsMs + loadSegmentDefinitionsMs;
 
@@ -1996,32 +1950,56 @@ export default class SegmentDBService {
         loadWorkoutObjectMs: 0,
         persistBestEffortsMs: 0,
         candidateCount: 0,
-        rawMatchCount: 0
+        rawMatchCount: 0,
+        gpsPointCount: 0
       };
       const row = trackRowsByWorkoutId.get(workoutId);
       let matches = [];
       if (row) {
         const decodeTrackStartedAt = Date.now();
-        const decodedTrack = await GpsTrackBlobService.decodeRowTrack(row, { includeGeoJson: false });
+        const decodedTrack = useCompactMatcher
+          ? await GpsTrackBlobService.decodeCompressedCompact(row.gps_track_blob, {
+              codec: row.gps_track_blob_codec
+                || GpsTrackBlobService.inferCompressedCodec(row.gps_track_blob, "brotli"),
+              includeSlotIndices: true
+            })
+          : await GpsTrackBlobService.decodeRowTrack(row, { includeGeoJson: false });
         profile.loadWorkoutTrackMs += Date.now() - decodeTrackStartedAt;
         const candidateIds = candidatesByWorkoutId.get(workoutId) || [];
         const candidates = candidateIds
-          .map((segmentId) => segmentDefinitionsById.get(segmentId))
+          .map((segmentId) => useCompactMatcher
+            ? compactSegmentDefinitionsById.get(segmentId)
+            : segmentDefinitionsById.get(segmentId))
           .filter(Boolean);
         profile.candidateCount = candidates.length;
         candidateOccurrenceCount += candidates.length;
 
-        if (decodedTrack.points.length > 0 && candidates.length > 0) {
-          const workout = {
-            id: workoutId,
-            track: decodedTrack.points,
-            trackSegments: Array.isArray(decodedTrack.segments) ? decodedTrack.segments : [],
-            sampleRate: Number(decodedTrack.sampleRateGps) > 0
-              ? Number(decodedTrack.sampleRateGps)
-              : row.samplerategps
-          };
+        const pointCount = Number(decodedTrack.pointCount)
+          || (Array.isArray(decodedTrack.points) ? decodedTrack.points.length : 0);
+        profile.gpsPointCount = pointCount;
+        if (pointCount > 0 && candidates.length > 0) {
           const matchSegmentsStartedAt = Date.now();
-          matches = this.matchSegments(workout, candidates);
+          if (useCompactMatcher) {
+            decodedTrack.sampleRateGps = Number(decodedTrack.sampleRateGps) > 0
+              ? Number(decodedTrack.sampleRateGps)
+              : Number(row.samplerategps) || 1;
+            matches = matchCompactGpsSegmentBestEfforts(decodedTrack, candidates).matches
+              .map((match) => ({
+                workout_id: workoutId,
+                segment_id: Number(match.segmentId),
+                start_offset: Number(match.startOffset),
+                end_offset: Number(match.endOffset)
+              }));
+          } else {
+            matches = this.matchSegments({
+              id: workoutId,
+              track: decodedTrack.points,
+              trackSegments: Array.isArray(decodedTrack.segments) ? decodedTrack.segments : [],
+              sampleRate: Number(decodedTrack.sampleRateGps) > 0
+                ? Number(decodedTrack.sampleRateGps)
+                : row.samplerategps
+            }, candidates);
+          }
           profile.matchSegmentsMs += Date.now() - matchSegmentsStartedAt;
           profile.rawMatchCount = matches.length;
           allMatches.push(...matches);
@@ -2041,12 +2019,20 @@ export default class SegmentDBService {
     );
     const loadWorkoutObjectMs = Date.now() - loadWorkoutObjectsStartedAt;
 
-    const persistBestEffortsStartedAt = Date.now();
-    const persistResult = await this.storeSegmentBestEffortsForWorkoutsBulk(
+    const bestEffortRows = this.buildSegmentBestEffortRowsForWorkoutsBulk(
       allMatches,
       workoutObjectsById,
       segmentDefinitionsById
     );
+    const bestEffortRowsByWorkoutId = new Map(normalizedIds.map((workoutId) => [workoutId, []]));
+    for (const row of bestEffortRows) {
+      bestEffortRowsByWorkoutId.get(Number(row.wid))?.push(row);
+    }
+
+    const persistBestEffortsStartedAt = Date.now();
+    const persistResult = persistBestEfforts
+      ? await this.storeSegmentBestEffortRowsBulk(bestEffortRows)
+      : { insertedCount: 0 };
     const persistBestEffortsMs = Date.now() - persistBestEffortsStartedAt;
 
     const batchSize = normalizedIds.length;
@@ -2072,6 +2058,8 @@ export default class SegmentDBService {
       profile.segmentCacheReuseRatio = segmentCacheReuseRatio;
       profile.matchedWorkoutRatio = matchedWorkoutIds.length / batchSize;
       profile.insertedBestEffortsPerWorkout = Number(persistResult.insertedCount || 0) / batchSize;
+      profile.preparedBestEffortsPerWorkout = bestEffortRows.length / batchSize;
+      profile.matcherMode = useCompactMatcher ? "compact-e5" : "legacy";
       const elapsedMs = profile.loadWorkoutTrackMs
         + profile.loadSegmentCandidatesMs
         + profile.matchSegmentsMs
@@ -2081,9 +2069,178 @@ export default class SegmentDBService {
         workoutId,
         matches: matchesByWorkoutId.get(workoutId) || [],
         profile,
-        elapsedMs
+        elapsedMs,
+        ...(includePreparedBestEfforts
+          ? { preparedBestEfforts: bestEffortRowsByWorkoutId.get(workoutId) || [] }
+          : {})
       };
     });
+  }
+
+  static buildSegmentBestEffortMatchKey(row) {
+    return [
+      Number(row?.sid ?? row?.segment_id),
+      Number(row?.wid ?? row?.workout_id),
+      Number(row?.start_offset),
+      Number(row?.end_offset)
+    ].join(":");
+  }
+
+  static buildSegmentBestEffortMetricFingerprint(row) {
+    return [
+      row?.duration,
+      row?.avg_power,
+      row?.avg_heart_rate,
+      row?.avg_cadence,
+      row?.avg_speed
+    ].map((value) => value == null ? null : Number(value)).join(":");
+  }
+
+  static async rebuildSegmentBestEffortsForWorkoutsBatch(uid, workoutIds, options = {}) {
+    const apply = options?.apply === true;
+    const normalizedIds = [...new Set((Array.isArray(workoutIds) ? workoutIds : [])
+      .map(Number)
+      .filter((workoutId) => Number.isInteger(workoutId) && workoutId > 0))];
+    if (!Number.isInteger(Number(uid)) || Number(uid) <= 0 || normalizedIds.length === 0) {
+      return {
+        workoutCount: 0,
+        oldRowCount: 0,
+        newRowCount: 0,
+        addedMatchKeyCount: 0,
+        removedMatchKeyCount: 0,
+        changedRowCount: 0,
+        results: []
+      };
+    }
+
+    const ownsClient = !options?.client;
+    const client = options?.client || await pool.connect();
+    let transactionStarted = false;
+
+    try {
+      if (apply) {
+        await client.query("BEGIN");
+        transactionStarted = true;
+        await client.query(
+          "LOCK TABLE gps_segment_best_efforts IN SHARE ROW EXCLUSIVE MODE"
+        );
+      }
+
+      const eligibleResult = await client.query(`
+        SELECT id
+        FROM workouts
+        WHERE uid = $1
+          AND id = ANY($2::bigint[])
+          AND validgps = true
+          AND workout_type <> 'motorsport'
+          AND gps_track_blob IS NOT NULL
+          AND gps_bounds IS NOT NULL
+        ${apply ? "FOR UPDATE" : ""}
+      `, [uid, normalizedIds]);
+      const eligibleWorkoutIds = new Set(eligibleResult.rows.map((row) => Number(row.id)));
+      const ineligibleWorkoutIds = normalizedIds.filter((workoutId) => !eligibleWorkoutIds.has(workoutId));
+      if (ineligibleWorkoutIds.length > 0) {
+        throw new Error(
+          `Cannot safely rebuild ineligible workout IDs: ${ineligibleWorkoutIds.join(", ")}`
+        );
+      }
+
+      const results = await this.rescanSegmentBestEffortsForWorkoutsBatch(uid, normalizedIds, {
+        includeExistingBestEfforts: true,
+        includePreparedBestEfforts: true,
+        persistBestEfforts: false,
+        compactMatcher: true
+      });
+      const undecodableWorkoutIds = results
+        .filter((result) => Number(result?.profile?.gpsPointCount) <= 0)
+        .map((result) => Number(result.workoutId));
+      if (undecodableWorkoutIds.length > 0) {
+        throw new Error(
+          `Cannot safely rebuild workouts with empty decoded GPS tracks: ${undecodableWorkoutIds.join(", ")}`
+        );
+      }
+      const newRows = results.flatMap((result) => result.preparedBestEfforts || []);
+
+      const existingResult = await client.query(`
+        SELECT
+          effort.sid,
+          effort.wid,
+          effort.start_offset,
+          effort.end_offset,
+          effort.duration,
+          effort.avg_power,
+          effort.avg_heart_rate,
+          effort.avg_cadence,
+          effort.avg_speed
+        FROM gps_segment_best_efforts effort
+        INNER JOIN workouts workout
+          ON workout.id = effort.wid
+        WHERE workout.uid = $1
+          AND effort.wid = ANY($2::bigint[])
+        ORDER BY effort.wid, effort.sid, effort.start_offset, effort.end_offset
+      `, [uid, normalizedIds]);
+
+      const oldRowsByKey = new Map(existingResult.rows.map((row) => [
+        this.buildSegmentBestEffortMatchKey(row),
+        row
+      ]));
+      const newRowsByKey = new Map(newRows.map((row) => [
+        this.buildSegmentBestEffortMatchKey(row),
+        row
+      ]));
+      let addedMatchKeyCount = 0;
+      let removedMatchKeyCount = 0;
+      let changedRowCount = 0;
+      for (const [key, row] of newRowsByKey) {
+        if (!oldRowsByKey.has(key)) {
+          addedMatchKeyCount += 1;
+        } else if (
+          this.buildSegmentBestEffortMetricFingerprint(row)
+          !== this.buildSegmentBestEffortMetricFingerprint(oldRowsByKey.get(key))
+        ) {
+          changedRowCount += 1;
+        }
+      }
+      for (const key of oldRowsByKey.keys()) {
+        if (!newRowsByKey.has(key)) removedMatchKeyCount += 1;
+      }
+      const summary = {
+        workoutCount: normalizedIds.length,
+        oldRowCount: existingResult.rowCount,
+        newRowCount: newRows.length,
+        addedMatchKeyCount,
+        removedMatchKeyCount,
+        changedRowCount,
+        results
+      };
+
+      if (apply) {
+        await client.query(`
+          DELETE FROM gps_segment_best_efforts effort
+          USING workouts workout
+          WHERE workout.id = effort.wid
+            AND workout.uid = $1
+            AND effort.wid = ANY($2::bigint[])
+        `, [uid, normalizedIds]);
+        await this.storeSegmentBestEffortRowsBulk(newRows, client);
+        if (typeof options?.beforeCommit === "function") {
+          await options.beforeCommit(summary, client);
+        }
+        await client.query("COMMIT");
+        transactionStarted = false;
+      }
+
+      return summary;
+    } catch (error) {
+      if (transactionStarted) {
+        await client.query("ROLLBACK");
+      }
+      throw error;
+    } finally {
+      if (ownsClient) {
+        client.release();
+      }
+    }
   }
 
   static async insertGpsSegmentsBulk(uid, segments, queryable = pool) {
