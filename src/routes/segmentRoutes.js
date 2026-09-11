@@ -34,13 +34,6 @@ import {
 import { buildGpxRoutingAnchors } from "../services/gpxTrackService.js";
 
 const router = express.Router();
-const SEGMENT_BEST_EFFORTS_ON_DEMAND = String(
-  process.env.SEGMENT_BEST_EFFORTS_ON_DEMAND || "1"
-).trim() !== "0";
-const SEGMENT_BEST_EFFORTS_ON_DEMAND_LIMIT = Math.min(
-  100,
-  Math.max(1, Math.floor(Number(process.env.SEGMENT_BEST_EFFORTS_ON_DEMAND_LIMIT) || 100))
-);
 const segmentArchiveUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -817,48 +810,13 @@ router.get("/bestefforts/:id/data", authMiddleware, async (req, res, next) => {
     const uid = req.user?.id;
 
     console.log("QUERY:", req.query);
-    const page = parseInt(req.query.page || req.body.page) || 1;
-    const size = parseInt(req.query.size || req.body.size) || 20;
+    const page = Math.max(1, parseInt(req.query.page || req.body?.page) || 1);
+    const requestedSize = Number(req.query.size || req.body?.size);
+    const size = [10, 25, 50].includes(requestedSize) ? requestedSize : 25;
     const sort = req.query.sort || [];
     const filters = req.query.filter || [];
-    const scope = req.query.scope || req.body.scope || "mine";
-    const perUser = req.query.perUser || req.body.perUser || "all";
-
-    const accessibleSegment = SEGMENT_BEST_EFFORTS_ON_DEMAND
-      ? await SegmentDBService.getAccessibleSegment(uid, segmentid)
-      : null;
-    const useOnDemand = SEGMENT_BEST_EFFORTS_ON_DEMAND
-      && Number(accessibleSegment?.uid) === Number(uid)
-      && String(scope).toLowerCase() === "mine"
-      && String(perUser).toLowerCase() === "all";
-
-    if (useOnDemand) {
-      const startedAt = performance.now();
-      const result = await SegmentDBService.materializeOnDemandSegmentBestEfforts(uid, segmentid, {
-        limit: SEGMENT_BEST_EFFORTS_ON_DEMAND_LIMIT
-      });
-      const totalMs = performance.now() - startedAt;
-      console.log("[segments] best-efforts.on-demand.profile", {
-        uid: String(uid),
-        segmentId: String(segmentid),
-        totalMatchCount: result.total_records,
-        returnedMatchCount: result.returned_records,
-        limit: SEGMENT_BEST_EFFORTS_ON_DEMAND_LIMIT,
-        totalMs: Math.round(totalMs * 100) / 100,
-        profile: result.profile
-      });
-      return res.json({
-        data: result.data,
-        last_page: 1,
-        total_records: result.total_records,
-        returned_records: result.returned_records,
-        result_limit: SEGMENT_BEST_EFFORTS_ON_DEMAND_LIMIT,
-        on_demand: true,
-        best_efforts_status: "completed",
-        best_efforts_error: null
-      });
-    }
-
+    const scope = req.query.scope || req.body?.scope || "mine";
+    const perUser = req.query.perUser || req.body?.perUser || "all";
 
     const [result, statusRow] = await Promise.all([
       SegmentDBService.getBestEffortsBySegment(

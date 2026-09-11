@@ -1480,14 +1480,63 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-scope-toggl
     line-height: 1.35;
 }
 
-.segments-best-efforts-load-more {
+.segment-best-efforts-pagination {
     position: sticky;
     bottom: 0;
     z-index: 2;
     display: flex;
-    justify-content: center;
-    padding: 0.85rem 0 0.1rem;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 0.9rem;
+    padding: 0.85rem 0 0.2rem;
     background: linear-gradient(180deg, rgba(248, 250, 252, 0), rgba(248, 250, 252, 0.96) 38%, rgba(248, 250, 252, 1));
+}
+
+.segment-best-efforts-pagination__size,
+.segment-best-efforts-pagination__navigation {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.segment-best-efforts-pagination__size {
+    color: var(--ui-text-muted);
+    font-size: 0.76rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.segment-best-efforts-pagination__size .form-select {
+    width: auto;
+    min-width: 4rem;
+}
+
+.segment-best-efforts-pagination__button {
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    display: inline-grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    font-weight: 600;
+    box-shadow: none;
+}
+
+.segment-best-efforts-pagination__button svg {
+    width: 1rem;
+    height: 1rem;
+}
+
+.segment-best-efforts-pagination__status {
+    min-width: 5.25rem;
+    color: var(--ui-text-default);
+    font-size: 0.76rem;
+    font-weight: 700;
+    text-align: center;
+    white-space: nowrap;
 }
 
 #segment-elevation-chart,

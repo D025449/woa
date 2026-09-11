@@ -2,12 +2,21 @@ import Utils from "../../shared/Utils.js";
 import { MAX_SEGMENT_COMPARISON_WORKOUTS } from "../../shared/SegmentComparison.js";
 import { createTranslator } from "./i18n.js";
 
+export function normalizeSegmentBestEffortsPageSize(value) {
+  const pageSize = Number(value);
+  return [10, 25, 50].includes(pageSize) ? pageSize : 25;
+}
+
 export default class SegmentBestEffortsCardView {
   constructor(containerSelector, handlers = {}) {
     this.t = createTranslator("segmentsPage");
+    this.pageT = createTranslator("dashboardNewPage");
     this.container = document.querySelector(containerSelector);
-    this.loadMoreContainer = document.getElementById(handlers.loadMoreButtonId || "segment-best-efforts-load-more");
-    this.loadMoreButton = this.loadMoreContainer?.querySelector("button") || null;
+    this.paginationContainer = document.getElementById("segment-best-efforts-pagination");
+    this.previousPageButton = document.getElementById("segment-best-efforts-page-previous");
+    this.nextPageButton = document.getElementById("segment-best-efforts-page-next");
+    this.pageStatusElement = document.getElementById("segment-best-efforts-page-status");
+    this.pageSizeSelect = document.getElementById("segment-best-efforts-page-size");
     this.handlers = handlers;
     this.currentSegment = null;
     this.scopeValue = handlers.initialScope ?? "mine";
@@ -16,8 +25,10 @@ export default class SegmentBestEffortsCardView {
     this.pollAttempt = 0;
     this.pollDeadline = 0;
     this.page = 1;
-    this.pageSize = handlers.pageSize || 20;
+    this.pageSize = normalizeSegmentBestEffortsPageSize(handlers.pageSize);
     this.lastPage = 1;
+    this.loading = false;
+    this.pendingRequestId = 0;
     this.fastestDuration = null;
     this.lastMatchCount = null;
     this.comparisonRows = new Map();
@@ -36,14 +47,25 @@ export default class SegmentBestEffortsCardView {
       this.toggleComparison(card.dataset.segmentComparisonKey);
     });
 
-    this.loadMoreButton?.addEventListener("click", async () => {
-      if (!this.currentSegment || this.page >= this.lastPage) {
-        return;
-      }
-
-      this.page += 1;
-      await this.loadSegmentBestEfforts(this.currentSegment, { append: true });
+    this.previousPageButton?.addEventListener("click", () => this.goToPage(this.page - 1));
+    this.nextPageButton?.addEventListener("click", () => this.goToPage(this.page + 1));
+    if (this.pageSizeSelect) this.pageSizeSelect.value = String(this.pageSize);
+    this.pageSizeSelect?.addEventListener("change", async () => {
+      const pageSize = normalizeSegmentBestEffortsPageSize(this.pageSizeSelect.value);
+      if (pageSize === this.pageSize) return;
+      this.pageSize = pageSize;
+      this.page = 1;
+      if (this.currentSegment) await this.loadSegmentBestEfforts(this.currentSegment);
     });
+  }
+
+  async goToPage(page) {
+    if (!this.currentSegment || this.loading) return;
+    const targetPage = Math.min(this.lastPage, Math.max(1, Math.trunc(Number(page)) || 1));
+    if (targetPage === this.page) return;
+    this.page = targetPage;
+    await this.loadSegmentBestEfforts(this.currentSegment);
+    this.container?.parentElement?.scrollTo?.({ top: 0, behavior: "smooth" });
   }
 
   setScope(scope) {
@@ -64,17 +86,19 @@ export default class SegmentBestEffortsCardView {
     this.fastestDuration = null;
     this.lastMatchCount = null;
     this.updateHeader(segment);
-    await this.loadSegmentBestEfforts(segment, { append: false });
+    await this.loadSegmentBestEfforts(segment);
   }
 
-  async loadSegmentBestEfforts(segment, { append = false, showLoading = true } = {}) {
+  async loadSegmentBestEfforts(segment, { showLoading = true } = {}) {
     if (!this.container || !segment?.id) {
       return;
     }
 
-    if (!append && showLoading) {
+    const requestId = ++this.pendingRequestId;
+    this.loading = true;
+    this.updatePagination();
+    if (showLoading) {
       this.container.innerHTML = `<div class="segments-best-efforts-empty">${this.t("messages.loading")}</div>`;
-      this.updateLoadMore();
     }
 
     try {
@@ -84,61 +108,57 @@ export default class SegmentBestEffortsCardView {
       }
 
       const result = await response.json();
+      if (requestId !== this.pendingRequestId) return;
       const rows = Array.isArray(result?.data) ? result.data : [];
       if (result?.best_efforts_status) {
         segment.bestEffortsStatus = result.best_efforts_status;
       }
-      if (!append) {
-        this.fastestDuration = rows.length ? Number(rows[0]?.duration) : null;
-      }
-      this.lastPage = result?.last_page || 1;
+      this.fastestDuration = rows.length ? Number(rows[0]?.leader_duration ?? rows[0]?.duration) : null;
+      this.lastPage = Math.max(1, Number(result?.last_page) || 1);
+      this.page = Math.min(this.lastPage, Math.max(1, Number(result?.current_page) || this.page));
       this.lastMatchCount = Number.isFinite(Number(result?.total_records))
         ? Number(result.total_records)
         : null;
       this.updateHeader(segment, result?.total_records);
-      this.renderRows(rows, { append });
-      this.updateLoadMore();
+      this.renderRows(rows);
 
       if (this.shouldPollBestEfforts(segment, rows.length)) {
         this.startBestEffortsPolling(segment.id);
       }
     } catch (error) {
+      if (requestId !== this.pendingRequestId) return;
       console.error(error);
       this.container.innerHTML = `<div class="segments-best-efforts-empty">${this.t("messages.failedBestEffortsStatus")}</div>`;
-      this.updateLoadMore();
       if (this.shouldPollBestEfforts(segment, 0)) {
         this.startBestEffortsPolling(segment.id);
+      }
+    } finally {
+      if (requestId === this.pendingRequestId) {
+        this.loading = false;
+        this.updatePagination();
       }
     }
   }
 
-  renderRows(rows, { append = false } = {}) {
+  renderRows(rows) {
     if (!this.container) {
       return;
     }
 
-    if (!append) this.rowsByComparisonKey.clear();
+    this.rowsByComparisonKey.clear();
 
     if (!rows.length) {
-      if (!append) {
-        this.container.innerHTML = `
-          <div class="segments-best-efforts-empty">
-            <div class="segments-best-efforts-empty__title">${this.t("bestEffortsEmptyTitle")}</div>
-            <div class="segments-best-efforts-empty__copy">${this.t("bestEffortsEmpty")}</div>
-          </div>
-        `;
-      }
+      this.container.innerHTML = `
+        <div class="segments-best-efforts-empty">
+          <div class="segments-best-efforts-empty__title">${this.t("bestEffortsEmptyTitle")}</div>
+          <div class="segments-best-efforts-empty__copy">${this.t("bestEffortsEmpty")}</div>
+        </div>
+      `;
       return;
     }
 
     rows.forEach((row) => this.rowsByComparisonKey.set(this.comparisonKey(row), row));
     const markup = rows.map((row) => this.renderRow(row)).join("");
-    if (append) {
-      this.container.insertAdjacentHTML("beforeend", markup);
-      this.syncComparisonCards();
-      return;
-    }
-
     this.container.innerHTML = markup;
     this.syncComparisonCards();
   }
@@ -151,17 +171,28 @@ export default class SegmentBestEffortsCardView {
     params.set("size", String(this.pageSize));
     params.set("sort[0][field]", "duration");
     params.set("sort[0][dir]", "asc");
+    params.set("sort[1][field]", "wid");
+    params.set("sort[1][dir]", "asc");
+    params.set("sort[2][field]", "start_offset");
+    params.set("sort[2][dir]", "asc");
+    params.set("sort[3][field]", "end_offset");
+    params.set("sort[3][dir]", "asc");
     return `/segments/bestefforts/${segmentId}/data?${params.toString()}`;
   }
 
-  updateLoadMore() {
-    if (!this.loadMoreContainer || !this.loadMoreButton) {
-      return;
+  updatePagination() {
+    if (!this.paginationContainer) return;
+    const hasResults = Number(this.lastMatchCount) > 0;
+    this.paginationContainer.classList.toggle("d-none", !hasResults);
+    if (this.previousPageButton) this.previousPageButton.disabled = this.loading || this.page <= 1;
+    if (this.nextPageButton) this.nextPageButton.disabled = this.loading || this.page >= this.lastPage;
+    if (this.pageSizeSelect) this.pageSizeSelect.disabled = this.loading;
+    if (this.pageStatusElement) {
+      this.pageStatusElement.textContent = this.pageT("paginationStatus", {
+        page: this.page,
+        pages: this.lastPage
+      });
     }
-
-    const hasMore = this.page < this.lastPage;
-    this.loadMoreContainer.classList.toggle("d-none", !hasMore);
-    this.loadMoreButton.disabled = !hasMore;
   }
 
   renderRow(row) {
@@ -219,6 +250,8 @@ export default class SegmentBestEffortsCardView {
   }
 
   clear() {
+    this.pendingRequestId += 1;
+    this.loading = false;
     this.currentSegment = null;
     this.stopBestEffortsPolling();
     this.page = 1;
@@ -230,7 +263,7 @@ export default class SegmentBestEffortsCardView {
     if (this.container) {
       this.container.innerHTML = "";
     }
-    this.updateLoadMore();
+    this.updatePagination();
   }
 
   resize() {}
@@ -324,7 +357,6 @@ export default class SegmentBestEffortsCardView {
         if (data.status === "completed" || data.status === "failed") {
           this.page = 1;
           await this.loadSegmentBestEfforts(this.currentSegment, {
-            append: false,
             showLoading: false
           });
           this.stopBestEffortsPolling();

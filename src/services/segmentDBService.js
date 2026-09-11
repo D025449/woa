@@ -1224,11 +1224,12 @@ export default class SegmentDBService {
         base.*,
         ROW_NUMBER() OVER (
           PARTITION BY base.sid
-          ORDER BY base.duration ASC
+          ORDER BY base.duration ASC, base.wid ASC, base.start_offset ASC, base.end_offset ASC
         ) AS rn,
+        MIN(base.duration) OVER (PARTITION BY base.sid) AS leader_duration,
         ROW_NUMBER() OVER (
           PARTITION BY base.sid, base.uid
-          ORDER BY base.duration ASC
+          ORDER BY base.duration ASC, base.wid ASC, base.start_offset ASC, base.end_offset ASC
         ) AS user_rank
       FROM base
     )
@@ -1247,7 +1248,8 @@ export default class SegmentDBService {
       owner.display_name AS owner_display_name,
       owner.email AS owner_email,
       ranked.avg_speed,
-      ranked.rn
+      ranked.rn,
+      ranked.leader_duration
     FROM ranked
     LEFT JOIN users owner
       ON owner.id = ranked.uid
@@ -1301,6 +1303,7 @@ export default class SegmentDBService {
     return {
       data: dataResult.rows,
       last_page: Math.ceil(totalRecords / size),
+      current_page: page,
       total_records: totalRecords
     };
   }

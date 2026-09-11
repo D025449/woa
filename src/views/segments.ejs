@@ -13,7 +13,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
     <link rel="stylesheet" href="/css/ui-system.css?v=atlas-blue-4">
-    <link rel="stylesheet" href="/css/segments.css?v=atlas-blue-4">
+    <link rel="stylesheet" href="/css/segments.css?v=atlas-blue-5">
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -298,8 +298,41 @@
                                 </div>
                                 <div class="segments-panel-body segments-panel-body--best-efforts">
                                     <div id="segment-best-efforts-cards" class="segments-best-efforts-cards"></div>
-                                    <div id="segment-best-efforts-load-more" class="segments-best-efforts-load-more d-none">
-                                        <button class="btn btn-outline-secondary btn-sm" type="button"><%= t("dashboardNewPage.loadMore") %></button>
+                                    <div id="segment-best-efforts-pagination" class="segment-best-efforts-pagination d-none">
+                                        <label class="segment-best-efforts-pagination__size" for="segment-best-efforts-page-size">
+                                            <span><%= t("dashboardNewPage.itemsPerPage") %></span>
+                                            <select
+                                                id="segment-best-efforts-page-size"
+                                                class="form-select form-select-sm"
+                                                aria-label="<%= t('dashboardNewPage.itemsPerPage') %>">
+                                                <option value="10">10</option>
+                                                <option value="25" selected>25</option>
+                                                <option value="50">50</option>
+                                            </select>
+                                        </label>
+                                        <div class="segment-best-efforts-pagination__navigation" role="group" aria-label="<%= t('segmentsPage.bestEffortsTitle') %>">
+                                            <button
+                                                id="segment-best-efforts-page-previous"
+                                                class="btn btn-outline-primary segment-best-efforts-pagination__button"
+                                                type="button"
+                                                aria-label="<%= t('dashboardNewPage.previousPage') %>"
+                                                title="<%= t('dashboardNewPage.previousPage') %>">
+                                                <svg viewBox="0 0 20 20" aria-hidden="true">
+                                                    <path d="M12.5 4.5 7 10l5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                                                </svg>
+                                            </button>
+                                            <span id="segment-best-efforts-page-status" class="segment-best-efforts-pagination__status" aria-live="polite"></span>
+                                            <button
+                                                id="segment-best-efforts-page-next"
+                                                class="btn btn-outline-primary segment-best-efforts-pagination__button"
+                                                type="button"
+                                                aria-label="<%= t('dashboardNewPage.nextPage') %>"
+                                                title="<%= t('dashboardNewPage.nextPage') %>">
+                                                <svg viewBox="0 0 20 20" aria-hidden="true">
+                                                    <path d="m7.5 4.5 5.5 5.5-5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                                                </svg>
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
