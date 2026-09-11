@@ -437,97 +437,41 @@ export async function createApp(options = {}) {
   }
 
   async function processSegmentBestEffortsJob(uid, segmentIds) {
-    if (segmentIds.length > 1) {
-      const startedAt = Date.now();
-      const updateProcessingStatusStartedAt = Date.now();
-      await SegmentDBService.updateBestEffortsStatus(uid, segmentIds, "processing", null);
-      const updateProcessingStatusMs = Date.now() - updateProcessingStatusStartedAt;
-
-      try {
-        const scanWorkoutsStartedAt = Date.now();
-        /** @type {{ matches: any[], profile: any }} */
-        const scanResult = /** @type {any} */ (await SegmentDBService.scanWorkoutsForSegments(
-          uid,
-          segmentIds,
-          { includeProfile: true }
-        ));
-        const scanWorkoutsMs = Date.now() - scanWorkoutsStartedAt;
-
-        const storeBestEffortsStartedAt = Date.now();
-        await SegmentDBService.storeSegmentBestEffortsV2(scanResult.matches);
-        const storeBestEffortsMs = Date.now() - storeBestEffortsStartedAt;
-
-        const updateCompletedStatusStartedAt = Date.now();
-        await SegmentDBService.updateBestEffortsStatus(uid, segmentIds, "completed", null);
-        const updateCompletedStatusMs = Date.now() - updateCompletedStatusStartedAt;
-
-        console.log("[postprocess] new-segment-best-efforts.profile", {
-          uid,
-          segmentIds,
-          mode: "workout-first",
-          totalMs: Date.now() - startedAt,
-          matchCount: scanResult.matches.length,
-          updateProcessingStatusMs,
-          loadSegmentMs: scanResult.profile.loadSegmentDefinitionsMs,
-          scanWorkoutsMs,
-          storeBestEffortsMs,
-          updateCompletedStatusMs,
-          scan: scanResult.profile
-        });
-      } catch (error) {
-        await SegmentDBService.updateBestEffortsStatus(
-          uid,
-          segmentIds,
-          "failed",
-          error.message || "Unknown segment best-effort error"
-        );
-        throw error;
-      }
-      return;
-    }
-
     const startedAt = Date.now();
-    const profile = {
-      updateProcessingStatusMs: 0,
-      loadSegmentMs: 0,
-      scanWorkoutsMs: 0,
-      storeBestEffortsMs: 0,
-      updateCompletedStatusMs: 0
-    };
-
     const updateProcessingStatusStartedAt = Date.now();
     await SegmentDBService.updateBestEffortsStatus(uid, segmentIds, "processing", null);
-    profile.updateProcessingStatusMs = Date.now() - updateProcessingStatusStartedAt;
+    const updateProcessingStatusMs = Date.now() - updateProcessingStatusStartedAt;
 
     try {
-      const loadSegmentStartedAt = Date.now();
-      const segment = await SegmentDBService.getSegmentById(uid, segmentIds[0]);
-      profile.loadSegmentMs = Date.now() - loadSegmentStartedAt;
-
       const scanWorkoutsStartedAt = Date.now();
       /** @type {{ matches: any[], profile: any }} */
-      const scanResult = /** @type {any} */ (segment
-        ? await SegmentDBService.scanWorkoutsForSegment(uid, segment, { includeProfile: true })
-        : { matches: [], profile: {} });
-      profile.scanWorkoutsMs = Date.now() - scanWorkoutsStartedAt;
-      const matchingEfforts = scanResult.matches;
-      const scanProfile = scanResult.profile;
+      const scanResult = /** @type {any} */ (await SegmentDBService.scanWorkoutsForSegments(
+        uid,
+        segmentIds,
+        { includeProfile: true }
+      ));
+      const scanWorkoutsMs = Date.now() - scanWorkoutsStartedAt;
 
       const storeBestEffortsStartedAt = Date.now();
-      await SegmentDBService.storeSegmentBestEffortsV2(matchingEfforts);
-      profile.storeBestEffortsMs = Date.now() - storeBestEffortsStartedAt;
+      await SegmentDBService.storeSegmentBestEffortsV2(scanResult.matches);
+      const storeBestEffortsMs = Date.now() - storeBestEffortsStartedAt;
 
       const updateCompletedStatusStartedAt = Date.now();
       await SegmentDBService.updateBestEffortsStatus(uid, segmentIds, "completed", null);
-      profile.updateCompletedStatusMs = Date.now() - updateCompletedStatusStartedAt;
+      const updateCompletedStatusMs = Date.now() - updateCompletedStatusStartedAt;
 
       console.log("[postprocess] new-segment-best-efforts.profile", {
         uid,
         segmentIds,
+        mode: "workout-first",
         totalMs: Date.now() - startedAt,
-        matchCount: matchingEfforts.length,
-        ...profile,
-        scan: scanProfile
+        matchCount: scanResult.matches.length,
+        updateProcessingStatusMs,
+        loadSegmentMs: scanResult.profile.loadSegmentDefinitionsMs,
+        scanWorkoutsMs,
+        storeBestEffortsMs,
+        updateCompletedStatusMs,
+        scan: scanResult.profile
       });
     } catch (error) {
       await SegmentDBService.updateBestEffortsStatus(
@@ -539,6 +483,7 @@ export async function createApp(options = {}) {
       throw error;
     }
   }
+
 
   async function processWorkoutSimilarityClassificationJob(job) {
     const uid = job.data?.uid;

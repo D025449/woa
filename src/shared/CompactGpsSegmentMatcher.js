@@ -247,3 +247,17 @@ export function matchCompactGpsSegmentBestEfforts(compactTrack, preparedSegments
   }
   return { candidateCount: preparedSegments.length, matches };
 }
+
+// The upload track is already reduced to the same E5 coordinates stored in GPS2.
+// Preserve its original slots: missing GPS samples must remain track breaks.
+export function toCompactGpsTrack(gpsTrack) {
+  const points = (Array.isArray(gpsTrack?.segments) ? gpsTrack.segments : []).flat();
+  return {
+    sampleRateGps: Math.max(1, Number(gpsTrack?.sampleRateSeconds) || 1),
+    latitudesE5: Int32Array.from(points, (point) => Math.round(Number(point.lat) * 100000)),
+    longitudesE5: Int32Array.from(points, (point) => Math.round(Number(point.lng) * 100000)),
+    slotIndices: Uint32Array.from(points, (point, index) => (
+      Number.isFinite(Number(point.slotIndex)) ? Number(point.slotIndex) : index
+    ))
+  };
+}

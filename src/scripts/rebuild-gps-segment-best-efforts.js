@@ -2,10 +2,10 @@ import "../config/env.js";
 
 import { pathToFileURL } from "node:url";
 
-import SegmentDBService from "../services/segmentDBService.js";
-import pool from "../services/database.js";
 import {
   GPS_SEGMENT_BEST_EFFORTS_REBUILD_KEY,
+  configureGpsSegmentRebuildDatabase,
+  assertGpsSegmentRebuildDatabaseUnchanged,
   addGpsSegmentBestEffortsBatchSummary,
   assertGpsSegmentBestEffortsWriteTarget,
   createGpsSegmentBestEffortsRebuildSummary,
@@ -217,7 +217,18 @@ export async function runGpsSegmentBestEffortsRebuild(args = process.argv.slice(
     return;
   }
 
-  const client = await pool.connect();
+  // Resolve before importing services: database.js captures DB_NAME when its pool is constructed.
+  const runtimeDatabase = configureGpsSegmentRebuildDatabase();
+  assertGpsSegmentBestEffortsWriteTarget(options, runtimeDatabase.databaseName);
+  const { default: pool } = await import("../services/database.js");
+  const { default: SegmentDBService } = await import("../services/segmentDBService.js");
+  let client;
+  try {
+    client = await pool.connect();
+  } catch (error) {
+    await pool.end();
+    throw error;
+  }
   let lockAcquired = false;
   let applyRunInitialized = false;
   const totalStartedAt = performance.now();
@@ -226,6 +237,9 @@ export async function runGpsSegmentBestEffortsRebuild(args = process.argv.slice(
   try {
     const databaseResult = await client.query("SELECT current_database() AS name");
     const currentDatabase = String(databaseResult.rows[0]?.name || "");
+    if (currentDatabase !== runtimeDatabase.databaseName) {
+      throw new Error(`Connected to ${currentDatabase}, expected active database ${runtimeDatabase.databaseName}`);
+    }
     assertGpsSegmentBestEffortsWriteTarget(options, currentDatabase);
     await acquireRunLock(client);
     lockAcquired = true;
@@ -241,8 +255,9 @@ export async function runGpsSegmentBestEffortsRebuild(args = process.argv.slice(
 
     console.log("[gps-segment-best-efforts] start", {
       migration: GPS_SEGMENT_BEST_EFFORTS_REBUILD_KEY,
-      mode: options.apply ? "APPLY" : "DRY-RUN",
+      mode: options.apply ? "APPLY" : options.verify ? "VERIFY" : "DRY-RUN",
       database: currentDatabase,
+      pointerFile: runtimeDatabase.pointerFile,
       batchSize: options.batchSize,
       limit: options.limit ?? "none",
       resumeAfter: { uid: lastUid, workoutId: lastWorkoutId }
@@ -251,6 +266,7 @@ export async function runGpsSegmentBestEffortsRebuild(args = process.argv.slice(
     let remaining = options.limit;
     let reachedEnd = false;
     while (remaining === null || remaining > 0) {
+      assertGpsSegmentRebuildDatabaseUnchanged(process.env, currentDatabase);
       const scanBatchSize = remaining === null
         ? options.batchSize
         : Math.min(options.batchSize, remaining);
@@ -275,6 +291,7 @@ export async function runGpsSegmentBestEffortsRebuild(args = process.argv.slice(
           client,
           beforeCommit: options.apply
             ? async (replacementSummary, transactionClient) => {
+                assertGpsSegmentRebuildDatabaseUnchanged(process.env, currentDatabase);
                 await persistCheckpoint(transactionClient, uid, nextWorkoutId, {
                   processedWorkouts: replacementSummary.workoutCount,
                   oldRows: replacementSummary.oldRowCount,
@@ -328,7 +345,7 @@ export async function runGpsSegmentBestEffortsRebuild(args = process.argv.slice(
     }
 
     console.log("[gps-segment-best-efforts] summary", {
-      mode: options.apply ? "APPLY" : "DRY-RUN",
+      mode: options.apply ? "APPLY" : options.verify ? "VERIFY" : "DRY-RUN",
       complete: reachedEnd,
       lastUid,
       lastWorkoutId,
@@ -340,6 +357,10 @@ export async function runGpsSegmentBestEffortsRebuild(args = process.argv.slice(
       changedRows: totalSummary.changedRows,
       elapsedMs: Math.round(performance.now() - totalStartedAt)
     });
+    if (options.verify && (totalSummary.addedMatchKeys || totalSummary.removedMatchKeys || totalSummary.changedRows)) {
+      throw new Error("Verification failed: stored best efforts differ from the E5 recomputation (see summary)");
+    }
+    if (options.verify) console.log("[gps-segment-best-efforts] verification passed: all eligible stored results match");
   } catch (error) {
     if (options.apply && applyRunInitialized) {
       try {

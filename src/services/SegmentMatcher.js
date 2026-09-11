@@ -1,7 +1,8 @@
 import {
-    GPS_SEGMENT_ENDPOINT_MAX_DISTANCE_METERS,
-    validatesGpsSegmentRoute
-} from "../shared/GpsSegmentRouteValidator.js";
+    toCompactGpsTrack,
+    matchCompactGpsSegmentBestEfforts,
+    prepareCompactGpsSegmentDefinitions
+} from "../shared/CompactGpsSegmentMatcher.js";
 
 export default class SegmentMatcher {
     static getPointProgress(point, fallbackIndex = 0) {
@@ -95,237 +96,19 @@ export default class SegmentMatcher {
         return min;
     }
 
-    static pointToPolylineDistanceAcrossSegments(point, segments) {
-        let min = Infinity;
-
-        for (const segment of segments) {
-            const distance = this.pointToPolylineDistance(point, segment);
-            if (distance < min) min = distance;
-        }
-
-        return min;
-    }
-
-    // -----------------------------
-    // Find nearest indices
-    // -----------------------------
-    static findNearbyIndices(workout, point, maxDist) {
-        const indices = [];
-
-        for (let i = 0; i < workout.length; i++) {
-            if (this.distance(workout[i], point) < maxDist) {
-                indices.push(i);
-            }
-        }
-
-        return indices;
-    }
-
-
-    // new:
-    static findProjectionCandidates(wid, sid, pos, point, segments, maxDist, startProgress = 0, maxHitCount = 100) {
-        const results = [];
-
-        for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
-            const polyline = segments[segmentIndex];
-            // One pass can contain several in-radius edges. Keep its closest
-            // projection so the boundary time is interpolated instead of
-            // snapping to the first five-second GPS sample in the radius.
-            let closestInEncounter = null;
-
-            const finishEncounter = () => {
-                if (!closestInEncounter) return false;
-                results.push(closestInEncounter);
-                closestInEncounter = null;
-                return results.length >= maxHitCount;
-            };
-
-            for (let i = 0; i < polyline.length - 1; i++) {
-                const a = polyline[i];
-                const b = polyline[i + 1];
-                const aProgress = this.getPointProgress(a, i);
-                const bProgress = this.getPointProgress(b, i + 1);
-
-                if (bProgress < startProgress) continue;
-
-                const dx = b.lng - a.lng;
-                const dy = b.lat - a.lat;
-
-                if (dx === 0 && dy === 0) continue;
-
-                const rawInterpolation =
-                    ((point.lng - a.lng) * dx + (point.lat - a.lat) * dy) /
-                    (dx * dx + dy * dy);
-
-                // The nearest point can be a polyline vertex when both adjacent
-                // unbounded projections fall outside their line segments.
-                const t = Math.max(0, Math.min(1, rawInterpolation));
-
-                const proj = {
-                    lng: a.lng + t * dx,
-                    lat: a.lat + t * dy
-                };
-
-                const dist = this.distance(point, proj);
-                if (dist < maxDist) {
-                    const candidate = {
-                        segmentIndex,
-                        index: i,
-                        t,
-                        dist,
-                        progress: aProgress + ((bProgress - aProgress) * t)
-                    };
-                    if (!closestInEncounter || candidate.dist < closestInEncounter.dist) {
-                        closestInEncounter = candidate;
-                    }
-                } else if (finishEncounter()) {
-                    return results;
-                }
-            }
-
-            if (finishEncounter()) return results;
-        }
-        return results;
-    }
-
-    // new
-    static projectPointOnSegment(p, a, b) {
-        const dx = b.lng - a.lng;
-        const dy = b.lat - a.lat;
-
-        if (dx === 0 && dy === 0) {
-            return { t: 0, point: a };
-        }
-
-        const t =
-            ((p.lng - a.lng) * dx + (p.lat - a.lat) * dy) /
-            (dx * dx + dy * dy);
-
-        const clamped = Math.max(0, Math.min(1, t));
-
-        return {
-            t: clamped,
-            point: {
-                lng: a.lng + clamped * dx,
-                lat: a.lat + clamped * dy
-            }
-        };
-    }
-    // new 
-    static projectPointOnPolyline(point, workouttrack, startScanIndex = 0) {
-        let best = {
-            dist: Infinity,
-            index: -1,
-            t: 0
-        };
-
-        for (let i = startScanIndex; i < workouttrack.length - 1; i++) {
-
-            const { t, point: proj } =
-                this.projectPointOnSegment(point, workouttrack[i], workouttrack[i + 1]);
-
-            const d = this.distance(point, proj);
-
-            if (d < best.dist) {
-                best = {
-                    dist: d,
-                    index: i,
-                    t
-                };
-            }
-        }
-
-        return best;
-    }
-
-    // -----------------------------
-    // Find nearest indices V2
-    // -----------------------------
-    static findNearbyIndicesV2(workout, point, maxDist) {
-        const indices = [];
-
-        for (let i = 0; i < workout.length; i++) {
-            if (this.distance(workout[i], point) < maxDist) {
-                indices.push(i);
-            }
-        }
-
-        return indices;
-    }
-
-    // -----------------------------
-    // 🔥 VALIDATION (Polyline!)
-    // -----------------------------
-    static validateSegment(workoutSegments, segment, startCandidate, endCandidate, maxDist) {
-        return validatesGpsSegmentRoute(workoutSegments, segment, startCandidate, endCandidate, {
-            maxDistance: maxDist
+    // Compatibility adapter for callers with object tracks. Matching itself is E5-only.
+    static findMatches(workout, segmentObj) {
+        const track = toCompactGpsTrack({
+            segments: this.normalizeWorkoutSegments(workout),
+            sampleRateSeconds: workout.sampleRate ?? 1
         });
-    }
-
-    // -----------------------------
-    // MAIN
-    // -----------------------------
-    static findMatches(workout, segmentObj, options = {}) {
-
-        const downsamplingFactor = workout.sampleRate ?? 1;
-        const workoutSegments = this.normalizeWorkoutSegments(workout);
-        if (!workoutSegments.length) {
-            return [];
-        }
-        
-        const segment = segmentObj.track;
-        const segmentId = segmentObj.id;
-
-        const MAX_DIST = options.maxDist ?? GPS_SEGMENT_ENDPOINT_MAX_DISTANCE_METERS;
-
-        const matches = [];
-        let lastEndCandidate = {
-            progress: -1,
-            t: 0,
-            dist: 0
-        };
-
-        const startPoint = segment[0];
-        const endPoint = segment[segment.length - 1];
-
-        //const startCandidates = this.findNearbyIndices(workout, startPoint, MAX_DIST);
-        const startCandidatesV2 = this.findProjectionCandidates(workout.wid,segmentId, 'start', startPoint, workoutSegments, MAX_DIST, 0, 100);
-
-
-        for (const startCandidate of startCandidatesV2) {
-            if (startCandidate.progress <= lastEndCandidate.progress) continue;
-            const endCandidates = this.findProjectionCandidates(
-                workout.wid,
-                segmentId,
-                'end',
-                endPoint,
-                workoutSegments,
-                MAX_DIST,
-                startCandidate.progress,
-                1
-            );
-            if (endCandidates.length < 1) {
-                continue;
-            }
-            const endCandidate = endCandidates[0];
-            if (this.validateSegment(workoutSegments, segment, startCandidate, endCandidate)) {
-                const startOffset = Math.round(startCandidate.progress * downsamplingFactor);
-                const endOffset = Math.round(endCandidate.progress * downsamplingFactor);
-
-                if (!Number.isFinite(startOffset) || !Number.isFinite(endOffset) || endOffset <= startOffset) {
-                    continue;
-                }
-
-                matches.push({
-                    workout_id: workout.wid,
-                    segment_id: segmentId,
-                    start_offset: startOffset,
-                    end_offset: endOffset,
-                });
-                lastEndCandidate = endCandidate;
-            }
-        }
-
-        return matches;
+        return matchCompactGpsSegmentBestEfforts(
+            track, prepareCompactGpsSegmentDefinitions([segmentObj])
+        ).matches.map((match) => ({
+            workout_id: workout.wid,
+            segment_id: match.segmentId,
+            start_offset: match.startOffset,
+            end_offset: match.endOffset
+        }));
     }
 }

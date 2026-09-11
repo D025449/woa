@@ -8,16 +8,12 @@ import WorkoutSharingService from "./workoutSharingService.js";
 import SegmentTrackBlobService from "./segmentTrackBlobService.js";
 import Workout from "../shared/Workout.js";
 import { parsePostgresBox, toPostgresBox } from "../shared/postgresSpatial.js";
-import { matchGpsSegmentBestEfforts } from "../shared/BrowserGpsSegmentMatcher.js";
 import {
   matchCompactGpsSegmentBestEfforts,
   prepareCompactGpsSegmentDefinitions
 } from "../shared/CompactGpsSegmentMatcher.js";
 
 
-const SEGMENT_BEST_EFFORTS_COMPACT_MATCHER = String(
-  process.env.SEGMENT_BEST_EFFORTS_COMPACT_MATCHER || "1"
-).trim() !== "0";
 const SEGMENT_BEST_EFFORTS_DIRECT_AVERAGES = String(
   process.env.SEGMENT_BEST_EFFORTS_DIRECT_AVERAGES || "1"
 ).trim() !== "0";
@@ -109,9 +105,9 @@ export default class SegmentDBService {
       const file_id = match.workout_id;
       const start_offset = match.start_offset;
       const end_offset = match.end_offset;
-      const avg_power = match.power;
-      const avg_heart_rate = match.hr;
-      const avg_cadence = match.cadence;
+      const avg_power = Math.round(match.power ?? 0);
+      const avg_heart_rate = Math.round(match.hr ?? 0);
+      const avg_cadence = Math.round(match.cadence ?? 0);
       const avg_speed = SegmentDBService.calculateNormalizedSegmentSpeed(
         distanceMap.get(Number(segment_id)),
         duration
@@ -1590,9 +1586,6 @@ export default class SegmentDBService {
     const includeExistingBestEfforts = options?.includeExistingBestEfforts === true;
     const includeSharedWorkouts = options?.includeSharedWorkouts !== false;
     const includeMetrics = options?.includeMetrics !== false;
-    const useCompactMatcher = options?.compactMatcher == null
-      ? SEGMENT_BEST_EFFORTS_COMPACT_MATCHER
-      : options.compactMatcher === true;
     const maxMatches = Number.isInteger(Number(options?.maxMatches))
       ? Math.max(1, Number(options.maxMatches))
       : null;
@@ -1616,7 +1609,7 @@ export default class SegmentDBService {
       rawMatchCount: 0,
       matchCount: 0,
       workoutChunkSize: 100,
-      matcherMode: useCompactMatcher ? "compact-e5" : "object"
+      matcherMode: "compact-e5"
     };
     if (segmentIds.length === 0) {
       return includeProfile ? { matches: [], profile } : [];
@@ -1624,10 +1617,10 @@ export default class SegmentDBService {
 
     const loadSegmentDefinitionsStartedAt = Date.now();
     const segmentDefinitionsById = await this.loadSegmentMatchDefinitionsBulk(segmentIds);
-    const compactSegmentDefinitionsById = useCompactMatcher
-      ? new Map(prepareCompactGpsSegmentDefinitions([...segmentDefinitionsById.values()])
-        .map((segment) => [Number(segment.id), segment]))
-      : null;
+    const compactSegmentDefinitionsById = new Map(
+      prepareCompactGpsSegmentDefinitions([...segmentDefinitionsById.values()])
+        .map((segment) => [Number(segment.id), segment])
+    );
     profile.loadSegmentDefinitionsMs = Date.now() - loadSegmentDefinitionsStartedAt;
 
     const loadCandidateRowsStartedAt = Date.now();
@@ -1659,19 +1652,15 @@ export default class SegmentDBService {
         if (segmentIdsForWorkout.length === 0) continue;
 
         const decodeStartedAt = performance.now();
-        const decodedTrack = useCompactMatcher
-          ? await GpsTrackBlobService.decodeCompressedCompact(row.gps_track_blob, {
-              codec: row.gps_track_blob_codec || "identity",
-              includeSlotIndices: true,
-              profile: gpsDecodeProfile
-            })
-          : await GpsTrackBlobService.decodeRowTrack(row, { includeGeoJson: false });
+        const decodedTrack = await GpsTrackBlobService.decodeCompressedCompact(row.gps_track_blob, {
+          codec: row.gps_track_blob_codec || "identity",
+          includeSlotIndices: true,
+          profile: gpsDecodeProfile
+        });
         profile.decodeWorkoutTracksMs += performance.now() - decodeStartedAt;
 
         const candidateSegments = segmentIdsForWorkout
-          .map((segmentId) => useCompactMatcher
-            ? compactSegmentDefinitionsById.get(Number(segmentId))
-            : segmentDefinitionsById.get(Number(segmentId)))
+          .map((segmentId) => compactSegmentDefinitionsById.get(Number(segmentId)))
           .filter(Boolean);
         if (decodedTrack.pointCount === 0 || candidateSegments.length === 0) continue;
 
@@ -1680,14 +1669,7 @@ export default class SegmentDBService {
           : Number(row.wsamplerate) || 1;
         decodedTrack.sampleRateGps = sampleRate;
         const matchStartedAt = Date.now();
-        const matches = useCompactMatcher
-          ? matchCompactGpsSegmentBestEfforts(decodedTrack, candidateSegments).matches
-          : matchGpsSegmentBestEfforts({
-              track: decodedTrack.points,
-              segments: Array.isArray(decodedTrack.segments) ? decodedTrack.segments : [],
-              bbox: decodedTrack.bbox,
-              sampleRateSeconds: sampleRate
-            }, candidateSegments).matches;
+        const matches = matchCompactGpsSegmentBestEfforts(decodedTrack, candidateSegments).matches;
         profile.matchSegmentsMs += Date.now() - matchStartedAt;
         profile.rawMatchCount += matches.length;
         if (matches.length > 0) {
@@ -1742,86 +1724,7 @@ export default class SegmentDBService {
   }
 
   static async scanWorkoutsForSegment(uid, segment, options = {}) {
-    const includeProfile = options?.includeProfile === true;
-    const profile = {
-      loadCandidateRowsMs: 0,
-      decodeCandidateTracksMs: 0,
-      matchSegmentsMs: 0,
-      loadWorkoutObjectsMs: 0,
-      calculateAveragesMs: 0,
-      candidateCount: 0,
-      matchedWorkoutCount: 0,
-      matchCount: 0
-    };
-
-    if (!segment?.id || !segment?.bbox) {
-      return includeProfile ? { matches: [], profile } : [];
-    }
-
-    const loadCandidateRowsStartedAt = Date.now();
-    const candidateRows = await FileDBService.getMatchingWorkoutCandidatesV2(
-      segment.bbox,
-      segment.id,
-      uid
-    );
-    profile.loadCandidateRowsMs = Date.now() - loadCandidateRowsStartedAt;
-    profile.candidateCount = candidateRows.length;
-
-    const decodeCandidateTracksStartedAt = Date.now();
-    const candidates = await Promise.all(candidateRows.map(async (row) => ({
-      ...row,
-      decodedTrack: await GpsTrackBlobService.decodeRowTrack(row, { includeGeoJson: false })
-    })));
-    profile.decodeCandidateTracksMs = Date.now() - decodeCandidateTracksStartedAt;
-
-    const segLine = segment.track.map(({ lat, lng }) => ({ lat, lng }));
-    const matches = [];
-
-    const matchSegmentsStartedAt = Date.now();
-    candidates.forEach((cand) => {
-      const decodedTrack = cand.decodedTrack;
-      const wotrack = {
-        wid: cand.wid,
-        track: decodedTrack.points,
-        segments: decodedTrack.segments,
-        sampleRate: Number(decodedTrack.sampleRateGps) > 0
-          ? Number(decodedTrack.sampleRateGps)
-          : cand.wsamplerate
-      };
-
-      const found = SegmentMatcher.findMatches(wotrack, {
-        id: segment.id,
-        track: segLine
-      });
-
-      matches.push(...found);
-    });
-    profile.matchSegmentsMs = Date.now() - matchSegmentsStartedAt;
-    profile.matchCount = matches.length;
-
-    const uniqueIds = [...new Set(matches.map((match) => match.workout_id))];
-    profile.matchedWorkoutCount = uniqueIds.length;
-
-    if (uniqueIds.length > 0) {
-      const loadWorkoutObjectsStartedAt = Date.now();
-      const rawWorkoutObjects = await WorkoutDBService.getWorkouts(uniqueIds);
-      const workoutObjects = new Map(
-        [...rawWorkoutObjects.entries()].map(([workoutId, workout]) => [Number(workoutId), workout])
-      );
-      profile.loadWorkoutObjectsMs = Date.now() - loadWorkoutObjectsStartedAt;
-
-      const calculateAveragesStartedAt = Date.now();
-      for (const match of matches) {
-        const workoutObject = workoutObjects.get(Number(match.workout_id));
-        if (!workoutObject) continue;
-
-        const averages = workoutObject.getAverages(match.start_offset, match.end_offset);
-        Object.assign(match, averages);
-      }
-      profile.calculateAveragesMs = Date.now() - calculateAveragesStartedAt;
-    }
-
-    return includeProfile ? { matches, profile } : matches;
+    return this.scanWorkoutsForSegments(uid, segment?.id ? [segment.id] : [], options);
   }
 
   static async getSharedSegmentRescanTargetsForWorkout(workoutId, workoutOwnerId, groupIds = []) {
@@ -1896,7 +1799,7 @@ export default class SegmentDBService {
             candidateCount: 0,
             rawMatchCount: 0,
             gpsPointCount: 0,
-            matcherMode: SEGMENT_BEST_EFFORTS_COMPACT_MATCHER ? "compact-e5" : "legacy"
+            matcherMode: "compact-e5"
           }
         }
       : matches;
@@ -1906,9 +1809,6 @@ export default class SegmentDBService {
     const includeExistingBestEfforts = options?.includeExistingBestEfforts === true;
     const includePreparedBestEfforts = options?.includePreparedBestEfforts === true;
     const persistBestEfforts = options?.persistBestEfforts !== false;
-    const useCompactMatcher = options?.compactMatcher == null
-      ? SEGMENT_BEST_EFFORTS_COMPACT_MATCHER
-      : options.compactMatcher === true;
     const normalizedIds = [...new Set((Array.isArray(workoutIds) ? workoutIds : [])
       .map(Number)
       .filter(Number.isInteger))];
@@ -1930,10 +1830,10 @@ export default class SegmentDBService {
 
     const loadSegmentDefinitionsStartedAt = Date.now();
     const segmentDefinitionsById = await this.loadSegmentMatchDefinitionsBulk(segmentIds);
-    const compactSegmentDefinitionsById = useCompactMatcher
-      ? new Map(prepareCompactGpsSegmentDefinitions([...segmentDefinitionsById.values()])
-        .map((segment) => [Number(segment.id), segment]))
-      : null;
+    const compactSegmentDefinitionsById = new Map(
+      prepareCompactGpsSegmentDefinitions([...segmentDefinitionsById.values()])
+        .map((segment) => [Number(segment.id), segment])
+    );
     const loadSegmentDefinitionsMs = Date.now() - loadSegmentDefinitionsStartedAt;
     const loadSegmentCandidatesMs = loadSegmentCandidateIdsMs + loadSegmentDefinitionsMs;
 
@@ -1957,19 +1857,15 @@ export default class SegmentDBService {
       let matches = [];
       if (row) {
         const decodeTrackStartedAt = Date.now();
-        const decodedTrack = useCompactMatcher
-          ? await GpsTrackBlobService.decodeCompressedCompact(row.gps_track_blob, {
-              codec: row.gps_track_blob_codec
-                || GpsTrackBlobService.inferCompressedCodec(row.gps_track_blob, "brotli"),
-              includeSlotIndices: true
-            })
-          : await GpsTrackBlobService.decodeRowTrack(row, { includeGeoJson: false });
+        const decodedTrack = await GpsTrackBlobService.decodeCompressedCompact(row.gps_track_blob, {
+          codec: row.gps_track_blob_codec
+            || GpsTrackBlobService.inferCompressedCodec(row.gps_track_blob, "brotli"),
+          includeSlotIndices: true
+        });
         profile.loadWorkoutTrackMs += Date.now() - decodeTrackStartedAt;
         const candidateIds = candidatesByWorkoutId.get(workoutId) || [];
         const candidates = candidateIds
-          .map((segmentId) => useCompactMatcher
-            ? compactSegmentDefinitionsById.get(segmentId)
-            : segmentDefinitionsById.get(segmentId))
+          .map((segmentId) => compactSegmentDefinitionsById.get(segmentId))
           .filter(Boolean);
         profile.candidateCount = candidates.length;
         candidateOccurrenceCount += candidates.length;
@@ -1979,27 +1875,16 @@ export default class SegmentDBService {
         profile.gpsPointCount = pointCount;
         if (pointCount > 0 && candidates.length > 0) {
           const matchSegmentsStartedAt = Date.now();
-          if (useCompactMatcher) {
-            decodedTrack.sampleRateGps = Number(decodedTrack.sampleRateGps) > 0
-              ? Number(decodedTrack.sampleRateGps)
-              : Number(row.samplerategps) || 1;
-            matches = matchCompactGpsSegmentBestEfforts(decodedTrack, candidates).matches
-              .map((match) => ({
-                workout_id: workoutId,
-                segment_id: Number(match.segmentId),
-                start_offset: Number(match.startOffset),
-                end_offset: Number(match.endOffset)
-              }));
-          } else {
-            matches = this.matchSegments({
-              id: workoutId,
-              track: decodedTrack.points,
-              trackSegments: Array.isArray(decodedTrack.segments) ? decodedTrack.segments : [],
-              sampleRate: Number(decodedTrack.sampleRateGps) > 0
-                ? Number(decodedTrack.sampleRateGps)
-                : row.samplerategps
-            }, candidates);
-          }
+          decodedTrack.sampleRateGps = Number(decodedTrack.sampleRateGps) > 0
+            ? Number(decodedTrack.sampleRateGps)
+            : Number(row.samplerategps) || 1;
+          matches = matchCompactGpsSegmentBestEfforts(decodedTrack, candidates).matches
+            .map((match) => ({
+              workout_id: workoutId,
+              segment_id: Number(match.segmentId),
+              start_offset: Number(match.startOffset),
+              end_offset: Number(match.endOffset)
+            }));
           profile.matchSegmentsMs += Date.now() - matchSegmentsStartedAt;
           profile.rawMatchCount = matches.length;
           allMatches.push(...matches);
@@ -2059,7 +1944,7 @@ export default class SegmentDBService {
       profile.matchedWorkoutRatio = matchedWorkoutIds.length / batchSize;
       profile.insertedBestEffortsPerWorkout = Number(persistResult.insertedCount || 0) / batchSize;
       profile.preparedBestEffortsPerWorkout = bestEffortRows.length / batchSize;
-      profile.matcherMode = useCompactMatcher ? "compact-e5" : "legacy";
+      profile.matcherMode = "compact-e5";
       const elapsedMs = profile.loadWorkoutTrackMs
         + profile.loadSegmentCandidatesMs
         + profile.matchSegmentsMs
@@ -2148,8 +2033,7 @@ export default class SegmentDBService {
       const results = await this.rescanSegmentBestEffortsForWorkoutsBatch(uid, normalizedIds, {
         includeExistingBestEfforts: true,
         includePreparedBestEfforts: true,
-        persistBestEfforts: false,
-        compactMatcher: true
+        persistBestEfforts: false
       });
       const undecodableWorkoutIds = results
         .filter((result) => Number(result?.profile?.gpsPointCount) <= 0)

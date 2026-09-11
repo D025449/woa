@@ -1,3 +1,5 @@
+import { readRuntimeDatabasePointer, resolveRuntimeDatabaseEnvironment } from "../../ops/postgres-backup/runtime-database.mjs";
+
 export const GPS_SEGMENT_BEST_EFFORTS_REBUILD_KEY = "gps-segment-best-efforts-harmonized-v1";
 export const DEFAULT_GPS_SEGMENT_BEST_EFFORTS_BATCH_SIZE = 100;
 
@@ -12,6 +14,7 @@ function parsePositiveInteger(value, flag) {
 export function parseGpsSegmentBestEffortsRebuildArgs(args = []) {
   const options = {
     apply: false,
+    verify: false,
     batchSize: DEFAULT_GPS_SEGMENT_BEST_EFFORTS_BATCH_SIZE,
     confirmDatabase: null,
     help: false,
@@ -21,7 +24,9 @@ export function parseGpsSegmentBestEffortsRebuildArgs(args = []) {
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (arg === "--apply") {
+    if (arg === "--verify") {
+      options.verify = true;
+    } else if (arg === "--apply") {
       options.apply = true;
     } else if (arg === "--batch-size") {
       options.batchSize = parsePositiveInteger(args[index + 1], arg);
@@ -43,6 +48,10 @@ export function parseGpsSegmentBestEffortsRebuildArgs(args = []) {
     }
   }
 
+  if (options.verify && (options.apply || options.limit !== null)) {
+    throw new Error("--verify requires a full read-only run without --apply or --limit");
+  }
+
   if (options.rerunCompleted && !options.apply) {
     throw new Error("--rerun-completed is only valid together with --apply");
   }
@@ -51,7 +60,7 @@ export function parseGpsSegmentBestEffortsRebuildArgs(args = []) {
 }
 
 export function assertGpsSegmentBestEffortsWriteTarget(options, currentDatabase) {
-  if (!options?.apply) return;
+  if (!options?.apply && !options?.confirmDatabase) return;
   if (!options.confirmDatabase) {
     throw new Error("Write mode requires --confirm-db with the exact target database name");
   }
@@ -110,6 +119,7 @@ export function getGpsSegmentBestEffortsRebuildUsage() {
     "  npm run migrate:gps-segment-best-efforts -- [options]",
     "",
     "Options:",
+    "  --verify                   Read-only full comparison; fail if any stored results differ",
     "  --apply                    Replace rows and persist checkpoints (default is dry-run)",
     "  --confirm-db <name>        Exact current_database() value; required with --apply",
     `  --batch-size <count>       Eligible workouts per scan batch (default ${DEFAULT_GPS_SEGMENT_BEST_EFFORTS_BATCH_SIZE})`,
@@ -117,9 +127,30 @@ export function getGpsSegmentBestEffortsRebuildUsage() {
     "  --rerun-completed          Deliberately reset and repeat an already completed version",
     "  --help                     Show this help",
     "",
+    "Production requires the active database pointer (/etc/cwa24/active-database.env by default).",
+    "The pointer overrides DB_NAME from .env.production; a missing pointer aborts the run.",
+    "",
     "Examples:",
     "  npm run migrate:gps-segment-best-efforts -- --batch-size 100",
     "  npm run migrate:gps-segment-best-efforts -- --apply --confirm-db cwa24_dev",
-    "  NODE_ENV=production npm run migrate:gps-segment-best-efforts -- --apply --confirm-db cwa24_prod"
+    "  NODE_ENV=production npm run migrate:gps-segment-best-efforts -- --apply --confirm-db cwa24_prod_restore_20260805_144216"
   ].join("\n");
+}
+
+
+export function configureGpsSegmentRebuildDatabase(environment = process.env) {
+  const pointer = readRuntimeDatabasePointer(environment);
+  if (environment.NODE_ENV === "production" && !pointer.values.DB_NAME) {
+    throw new Error(`Production rebuild requires an active DB_NAME pointer in ${pointer.file}`);
+  }
+  const resolved = resolveRuntimeDatabaseEnvironment(environment);
+  environment.DB_NAME = resolved.databaseName;
+  return resolved;
+}
+
+export function assertGpsSegmentRebuildDatabaseUnchanged(environment, expectedDatabase) {
+  const resolved = configureGpsSegmentRebuildDatabase({ ...environment });
+  if (resolved.databaseName !== expectedDatabase) {
+    throw new Error(`Active database changed from ${expectedDatabase} to ${resolved.databaseName}; aborting rebuild`);
+  }
 }

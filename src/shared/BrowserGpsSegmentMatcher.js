@@ -1,21 +1,8 @@
 import {
+  toCompactGpsTrack,
   matchCompactGpsSegmentBestEfforts,
   prepareCompactGpsSegmentDefinitions
 } from "./CompactGpsSegmentMatcher.js";
-
-// The upload track is already reduced to the same E5 coordinates stored in GPS2.
-// Preserve its original slots: missing GPS samples must remain track breaks.
-function toCompactTrack(gpsTrack) {
-  const points = (Array.isArray(gpsTrack?.segments) ? gpsTrack.segments : []).flat();
-  return {
-    sampleRateGps: Math.max(1, Number(gpsTrack?.sampleRateSeconds) || 1),
-    latitudesE5: Int32Array.from(points, (point) => Math.round(Number(point.lat) * 100000)),
-    longitudesE5: Int32Array.from(points, (point) => Math.round(Number(point.lng) * 100000)),
-    slotIndices: Uint32Array.from(points, (point, index) => (
-      Number.isFinite(Number(point.slotIndex)) ? Number(point.slotIndex) : index
-    ))
-  };
-}
 
 function boundsOverlap(left, right) {
   return !!left && !!right
@@ -55,7 +42,7 @@ function addAverages(match, compactRecords, distanceMetersValue) {
 export function benchmarkGpsSegmentBestEfforts(gpsTrack, segmentDefinitions = [], compactRecords = null) {
   const candidates = segmentDefinitions.filter((segment) => boundsOverlap(gpsTrack?.bbox, segment?.bounds));
   const result = matchCompactGpsSegmentBestEfforts(
-    toCompactTrack(gpsTrack),
+    toCompactGpsTrack(gpsTrack),
     prepareCompactGpsSegmentDefinitions(candidates)
   );
   const distances = new Map(candidates.map((segment) => [Number(segment.id), segment.distance]));

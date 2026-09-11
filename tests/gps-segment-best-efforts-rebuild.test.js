@@ -129,8 +129,7 @@ test("migration rebuild replaces all prior batch rows in one transaction", async
       options: {
         includeExistingBestEfforts: true,
         includePreparedBestEfforts: true,
-        persistBestEfforts: false,
-        compactMatcher: true
+        persistBestEfforts: false
       }
     });
     assert.deepEqual(
@@ -344,6 +343,7 @@ test("migration rebuild reports metric changes for stable match keys", async () 
 test("CLI arguments default to dry-run and require explicit write confirmation", () => {
   assert.deepEqual(parseGpsSegmentBestEffortsRebuildArgs([]), {
     apply: false,
+    verify: false,
     batchSize: 100,
     confirmDatabase: null,
     help: false,
@@ -409,4 +409,36 @@ test("CLI helpers group owners and accumulate batch accounting", () => {
   });
   assert.match(getGpsSegmentBestEffortsRebuildUsage(), /default is dry-run/u);
   assert.match(getGpsSegmentBestEffortsRebuildUsage(), /--apply --confirm-db cwa24_prod/u);
+});
+
+test("production rebuild uses the active pointer and refuses missing or changed targets", async () => {
+  const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { configureGpsSegmentRebuildDatabase, assertGpsSegmentRebuildDatabaseUnchanged } = await import(
+    "../src/scripts/gps-segment-best-efforts-rebuild-helpers.js"
+  );
+  const directory = await mkdtemp(join(tmpdir(), "woa-rebuild-pointer-"));
+  const file = join(directory, "active-database.env");
+  const environment = { NODE_ENV: "production", DB_NAME: "cwa24_prod", BACKUP_ACTIVE_DATABASE_FILE: file };
+  try {
+    assert.throws(() => configureGpsSegmentRebuildDatabase(environment), /requires an active DB_NAME pointer/);
+    await writeFile(file, "DB_NAME=cwa24_prod_restore_20260805_144216\n");
+    const resolved = configureGpsSegmentRebuildDatabase(environment);
+    assert.equal(resolved.databaseName, "cwa24_prod_restore_20260805_144216");
+    assert.equal(environment.DB_NAME, resolved.databaseName);
+    assert.throws(() => assertGpsSegmentBestEffortsWriteTarget({ apply: true, confirmDatabase: "cwa24_prod" }, resolved.databaseName), /mismatch/);
+    assert.doesNotThrow(() => assertGpsSegmentRebuildDatabaseUnchanged(environment, resolved.databaseName));
+    await writeFile(file, "DB_NAME=cwa24_prod_restore_20260911_120000\n");
+    assert.throws(() => assertGpsSegmentRebuildDatabaseUnchanged(environment, resolved.databaseName), /Active database changed/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("verification is a full read-only run and explicit targets are checked even in dry-run", () => {
+  assert.equal(parseGpsSegmentBestEffortsRebuildArgs(["--verify"]).verify, true);
+  assert.throws(() => parseGpsSegmentBestEffortsRebuildArgs(["--verify", "--apply"]), /read-only/);
+  assert.throws(() => parseGpsSegmentBestEffortsRebuildArgs(["--verify", "--limit", "10"]), /full read-only/);
+  assert.throws(() => assertGpsSegmentBestEffortsWriteTarget({ apply: false, confirmDatabase: "wrong" }, "actual"), /mismatch/);
 });
