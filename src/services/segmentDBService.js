@@ -1162,14 +1162,27 @@ export default class SegmentDBService {
     const normalizedPerUser = ["all", "1", "3"].includes(String(perUser).toLowerCase())
       ? String(perUser).toLowerCase()
       : "all";
-    const normalizedPeriod = ["all", "month", "quarter", "year"].includes(String(period).toLowerCase())
+    const normalizedPeriod = ["all", "current_month", "previous_month", "current_quarter", "current_year"].includes(String(period).toLowerCase())
       ? String(period).toLowerCase()
       : "all";
     const perUserLimit = normalizedPerUser === "all" ? null : Number(normalizedPerUser);
     const periodPredicate = {
-      month: "v.start_time >= CURRENT_TIMESTAMP - INTERVAL '1 month'",
-      quarter: "v.start_time >= CURRENT_TIMESTAMP - INTERVAL '3 months'",
-      year: "v.start_time >= CURRENT_TIMESTAMP - INTERVAL '1 year'"
+      current_month: `
+        v.start_time >= DATE_TRUNC('month', CURRENT_TIMESTAMP)
+        AND v.start_time < DATE_TRUNC('month', CURRENT_TIMESTAMP) + INTERVAL '1 month'
+      `,
+      previous_month: `
+        v.start_time >= DATE_TRUNC('month', CURRENT_TIMESTAMP) - INTERVAL '1 month'
+        AND v.start_time < DATE_TRUNC('month', CURRENT_TIMESTAMP)
+      `,
+      current_quarter: `
+        v.start_time >= DATE_TRUNC('quarter', CURRENT_TIMESTAMP)
+        AND v.start_time < DATE_TRUNC('quarter', CURRENT_TIMESTAMP) + INTERVAL '3 months'
+      `,
+      current_year: `
+        v.start_time >= DATE_TRUNC('year', CURRENT_TIMESTAMP)
+        AND v.start_time < DATE_TRUNC('year', CURRENT_TIMESTAMP) + INTERVAL '1 year'
+      `
     }[normalizedPeriod];
 
     let accessPredicate = `v.uid = $1`;
@@ -1206,7 +1219,7 @@ export default class SegmentDBService {
 
     let baseWhere = `WHERE (${accessPredicate})`;
     if (periodPredicate) {
-      baseWhere += ` AND ${periodPredicate}`;
+      baseWhere += ` AND (${periodPredicate})`;
     }
     let sqlParams = [uid, ...params];
     if (whereSQL) {

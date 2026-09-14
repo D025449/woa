@@ -818,7 +818,7 @@ router.get("/bestefforts/:id/data", authMiddleware, async (req, res, next) => {
     const scope = req.query.scope || req.body?.scope || "mine";
     const perUser = req.query.perUser || req.body?.perUser || "all";
     const requestedPeriod = String(req.query.period || req.body?.period || "all").toLowerCase();
-    const period = ["all", "month", "quarter", "year"].includes(requestedPeriod)
+    const period = ["all", "current_month", "previous_month", "current_quarter", "current_year"].includes(requestedPeriod)
       ? requestedPeriod
       : "all";
 

@@ -32,11 +32,13 @@ test("segment best-effort page size is restricted to 10, 25, and 50", () => {
   assert.equal(normalizeSegmentBestEffortsPageSize(undefined), 25);
 });
 
-test("segment best-effort period is restricted to rolling supported ranges", () => {
+test("segment best-effort period is restricted to supported calendar ranges", () => {
   assert.equal(normalizeSegmentBestEffortsPeriod("all"), "all");
-  assert.equal(normalizeSegmentBestEffortsPeriod("MONTH"), "month");
-  assert.equal(normalizeSegmentBestEffortsPeriod("quarter"), "quarter");
-  assert.equal(normalizeSegmentBestEffortsPeriod("year"), "year");
+  assert.equal(normalizeSegmentBestEffortsPeriod("CURRENT_MONTH"), "current_month");
+  assert.equal(normalizeSegmentBestEffortsPeriod("previous_month"), "previous_month");
+  assert.equal(normalizeSegmentBestEffortsPeriod("current_quarter"), "current_quarter");
+  assert.equal(normalizeSegmentBestEffortsPeriod("current_year"), "current_year");
+  assert.equal(normalizeSegmentBestEffortsPeriod("month"), "all");
   assert.equal(normalizeSegmentBestEffortsPeriod("week"), "all");
 });
 
@@ -63,11 +65,11 @@ test("segment page requests use stable duration ordering", () => {
   const view = createHeadlessView();
   view.page = 3;
   view.pageSize = 50;
-  view.period = "quarter";
+  view.period = "current_quarter";
   const url = view.buildRequestUrl(42);
   assert.match(url, /page=3/u);
   assert.match(url, /size=50/u);
-  assert.match(url, /period=quarter/u);
+  assert.match(url, /period=current_quarter/u);
   assert.match(url, /sort%5B0%5D%5Bfield%5D=duration/u);
   assert.match(url, /sort%5B1%5D%5Bfield%5D=wid/u);
   assert.match(url, /sort%5B2%5D%5Bfield%5D=start_offset/u);
@@ -90,7 +92,7 @@ test("best-effort endpoint always uses persisted rows with bounded page sizes", 
   const route = source.slice(routeStart, routeEnd);
 
   assert.match(route, /\[10, 25, 50\]\.includes\(requestedSize\)/u);
-  assert.match(route, /\["all", "month", "quarter", "year"\]\.includes\(requestedPeriod\)/u);
+  assert.match(route, /\["all", "current_month", "previous_month", "current_quarter", "current_year"\]\.includes\(requestedPeriod\)/u);
   assert.match(route, /SegmentDBService\.getBestEffortsBySegment/u);
   assert.doesNotMatch(route, /materializeOnDemandSegmentBestEfforts/u);
 });
@@ -103,8 +105,9 @@ test("persisted paging exposes stable ranks and the leader on every page", async
 
   assert.match(method, /ORDER BY base\.duration ASC, base\.wid ASC, base\.start_offset ASC, base\.end_offset ASC/u);
   assert.match(method, /MIN\(base\.duration\) OVER \(PARTITION BY base\.sid\) AS leader_duration/u);
-  assert.match(method, /v\.start_time >= CURRENT_TIMESTAMP - INTERVAL '1 month'/u);
-  assert.match(method, /v\.start_time >= CURRENT_TIMESTAMP - INTERVAL '3 months'/u);
-  assert.match(method, /v\.start_time >= CURRENT_TIMESTAMP - INTERVAL '1 year'/u);
+  assert.match(method, /v\.start_time >= DATE_TRUNC\('month', CURRENT_TIMESTAMP\)/u);
+  assert.match(method, /v\.start_time >= DATE_TRUNC\('month', CURRENT_TIMESTAMP\) - INTERVAL '1 month'/u);
+  assert.match(method, /v\.start_time >= DATE_TRUNC\('quarter', CURRENT_TIMESTAMP\)/u);
+  assert.match(method, /v\.start_time >= DATE_TRUNC\('year', CURRENT_TIMESTAMP\)/u);
   assert.match(method, /current_page: page/u);
 });

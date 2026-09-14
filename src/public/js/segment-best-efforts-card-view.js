@@ -9,7 +9,9 @@ export function normalizeSegmentBestEffortsPageSize(value) {
 
 export function normalizeSegmentBestEffortsPeriod(value) {
   const period = String(value || "all").toLowerCase();
-  return ["all", "month", "quarter", "year"].includes(period) ? period : "all";
+  return ["all", "current_month", "previous_month", "current_quarter", "current_year"].includes(period)
+    ? period
+    : "all";
 }
 
 export default class SegmentBestEffortsCardView {
