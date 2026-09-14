@@ -3,7 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import SegmentBestEffortsCardView, {
-  normalizeSegmentBestEffortsPageSize
+  normalizeSegmentBestEffortsPageSize,
+  normalizeSegmentBestEffortsPeriod
 } from "../src/public/js/segment-best-efforts-card-view.js";
 
 const segmentViewUrl = new URL("../src/views/segments.ejs", import.meta.url);
@@ -31,6 +32,14 @@ test("segment best-effort page size is restricted to 10, 25, and 50", () => {
   assert.equal(normalizeSegmentBestEffortsPageSize(undefined), 25);
 });
 
+test("segment best-effort period is restricted to rolling supported ranges", () => {
+  assert.equal(normalizeSegmentBestEffortsPeriod("all"), "all");
+  assert.equal(normalizeSegmentBestEffortsPeriod("MONTH"), "month");
+  assert.equal(normalizeSegmentBestEffortsPeriod("quarter"), "quarter");
+  assert.equal(normalizeSegmentBestEffortsPeriod("year"), "year");
+  assert.equal(normalizeSegmentBestEffortsPeriod("week"), "all");
+});
+
 test("segment best efforts navigate by replacing the current page", async () => {
   const view = createHeadlessView();
   const requests = [];
@@ -54,9 +63,11 @@ test("segment page requests use stable duration ordering", () => {
   const view = createHeadlessView();
   view.page = 3;
   view.pageSize = 50;
+  view.period = "quarter";
   const url = view.buildRequestUrl(42);
   assert.match(url, /page=3/u);
   assert.match(url, /size=50/u);
+  assert.match(url, /period=quarter/u);
   assert.match(url, /sort%5B0%5D%5Bfield%5D=duration/u);
   assert.match(url, /sort%5B1%5D%5Bfield%5D=wid/u);
   assert.match(url, /sort%5B2%5D%5Bfield%5D=start_offset/u);
@@ -68,6 +79,7 @@ test("segment view renders page navigation and size controls", async () => {
   assert.match(source, /id="segment-best-efforts-page-size"/u);
   assert.match(source, /id="segment-best-efforts-page-previous"/u);
   assert.match(source, /id="segment-best-efforts-page-next"/u);
+  assert.match(source, /id="segment-best-efforts-period"/u);
   assert.doesNotMatch(source, /id="segment-best-efforts-load-more"/u);
 });
 
@@ -78,6 +90,7 @@ test("best-effort endpoint always uses persisted rows with bounded page sizes", 
   const route = source.slice(routeStart, routeEnd);
 
   assert.match(route, /\[10, 25, 50\]\.includes\(requestedSize\)/u);
+  assert.match(route, /\["all", "month", "quarter", "year"\]\.includes\(requestedPeriod\)/u);
   assert.match(route, /SegmentDBService\.getBestEffortsBySegment/u);
   assert.doesNotMatch(route, /materializeOnDemandSegmentBestEfforts/u);
 });
@@ -90,5 +103,8 @@ test("persisted paging exposes stable ranks and the leader on every page", async
 
   assert.match(method, /ORDER BY base\.duration ASC, base\.wid ASC, base\.start_offset ASC, base\.end_offset ASC/u);
   assert.match(method, /MIN\(base\.duration\) OVER \(PARTITION BY base\.sid\) AS leader_duration/u);
+  assert.match(method, /v\.start_time >= CURRENT_TIMESTAMP - INTERVAL '1 month'/u);
+  assert.match(method, /v\.start_time >= CURRENT_TIMESTAMP - INTERVAL '3 months'/u);
+  assert.match(method, /v\.start_time >= CURRENT_TIMESTAMP - INTERVAL '1 year'/u);
   assert.match(method, /current_page: page/u);
 });

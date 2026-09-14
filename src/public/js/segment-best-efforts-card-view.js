@@ -7,6 +7,11 @@ export function normalizeSegmentBestEffortsPageSize(value) {
   return [10, 25, 50].includes(pageSize) ? pageSize : 25;
 }
 
+export function normalizeSegmentBestEffortsPeriod(value) {
+  const period = String(value || "all").toLowerCase();
+  return ["all", "month", "quarter", "year"].includes(period) ? period : "all";
+}
+
 export default class SegmentBestEffortsCardView {
   constructor(containerSelector, handlers = {}) {
     this.t = createTranslator("segmentsPage");
@@ -17,6 +22,7 @@ export default class SegmentBestEffortsCardView {
     this.nextPageButton = document.getElementById("segment-best-efforts-page-next");
     this.pageStatusElement = document.getElementById("segment-best-efforts-page-status");
     this.pageSizeSelect = document.getElementById("segment-best-efforts-page-size");
+    this.periodSelect = document.getElementById("segment-best-efforts-period");
     this.handlers = handlers;
     this.currentSegment = null;
     this.scopeValue = handlers.initialScope ?? "mine";
@@ -26,6 +32,7 @@ export default class SegmentBestEffortsCardView {
     this.pollDeadline = 0;
     this.page = 1;
     this.pageSize = normalizeSegmentBestEffortsPageSize(handlers.pageSize);
+    this.period = normalizeSegmentBestEffortsPeriod(handlers.period);
     this.lastPage = 1;
     this.loading = false;
     this.pendingRequestId = 0;
@@ -50,6 +57,14 @@ export default class SegmentBestEffortsCardView {
     this.previousPageButton?.addEventListener("click", () => this.goToPage(this.page - 1));
     this.nextPageButton?.addEventListener("click", () => this.goToPage(this.page + 1));
     if (this.pageSizeSelect) this.pageSizeSelect.value = String(this.pageSize);
+    if (this.periodSelect) this.periodSelect.value = this.period;
+    this.periodSelect?.addEventListener("change", async () => {
+      const period = normalizeSegmentBestEffortsPeriod(this.periodSelect.value);
+      if (period === this.period) return;
+      this.period = period;
+      this.page = 1;
+      if (this.currentSegment) await this.loadSegmentBestEfforts(this.currentSegment);
+    });
     this.pageSizeSelect?.addEventListener("change", async () => {
       const pageSize = normalizeSegmentBestEffortsPageSize(this.pageSizeSelect.value);
       if (pageSize === this.pageSize) return;
@@ -167,6 +182,7 @@ export default class SegmentBestEffortsCardView {
     const params = new URLSearchParams();
     params.set("scope", this.scopeValue || "mine");
     params.set("perUser", this.perUserValue || "all");
+    params.set("period", this.period);
     params.set("page", String(this.page));
     params.set("size", String(this.pageSize));
     params.set("sort[0][field]", "duration");
@@ -187,6 +203,7 @@ export default class SegmentBestEffortsCardView {
     if (this.previousPageButton) this.previousPageButton.disabled = this.loading || this.page <= 1;
     if (this.nextPageButton) this.nextPageButton.disabled = this.loading || this.page >= this.lastPage;
     if (this.pageSizeSelect) this.pageSizeSelect.disabled = this.loading;
+    if (this.periodSelect) this.periodSelect.disabled = this.loading;
     if (this.pageStatusElement) {
       this.pageStatusElement.textContent = this.pageT("paginationStatus", {
         page: this.page,

@@ -1159,6 +1159,21 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-scope-toggl
     justify-content: flex-end;
 }
 
+.segments-best-efforts-period {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--ui-text-muted);
+    font-size: 0.76rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.segments-best-efforts-period .form-select {
+    width: auto;
+    min-width: 8.5rem;
+}
+
 .segments-best-efforts-menu {
     position: relative;
 }

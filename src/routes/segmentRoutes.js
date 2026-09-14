@@ -817,6 +817,10 @@ router.get("/bestefforts/:id/data", authMiddleware, async (req, res, next) => {
     const filters = req.query.filter || [];
     const scope = req.query.scope || req.body?.scope || "mine";
     const perUser = req.query.perUser || req.body?.perUser || "all";
+    const requestedPeriod = String(req.query.period || req.body?.period || "all").toLowerCase();
+    const period = ["all", "month", "quarter", "year"].includes(requestedPeriod)
+      ? requestedPeriod
+      : "all";
 
     const [result, statusRow] = await Promise.all([
       SegmentDBService.getBestEffortsBySegment(
@@ -827,7 +831,8 @@ router.get("/bestefforts/:id/data", authMiddleware, async (req, res, next) => {
         sort,
         filters,
         scope,
-        perUser
+        perUser,
+        period
       ),
       SegmentDBService.getBestEffortsStatus(uid, segmentid)
     ]);

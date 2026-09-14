@@ -254,6 +254,18 @@
                                 <div class="segments-panel-header">
                                     <h3 class="segments-panel-title"><%= t("segmentsPage.bestEffortsTitle") %></h3>
                                     <div class="segments-best-efforts-header-controls">
+                                        <label class="segments-best-efforts-period" for="segment-best-efforts-period">
+                                            <span><%= t("segmentsPage.bestEffortsPeriodLabel") %></span>
+                                            <select
+                                                id="segment-best-efforts-period"
+                                                class="form-select form-select-sm"
+                                                aria-label="<%= t('segmentsPage.bestEffortsPeriodLabel') %>">
+                                                <option value="all" selected><%= t("segmentsPage.bestEffortsPeriodAll") %></option>
+                                                <option value="month"><%= t("segmentsPage.bestEffortsPeriodMonth") %></option>
+                                                <option value="quarter"><%= t("segmentsPage.bestEffortsPeriodQuarter") %></option>
+                                                <option value="year"><%= t("segmentsPage.bestEffortsPeriodYear") %></option>
+                                            </select>
+                                        </label>
                                         <details class="segments-best-efforts-menu">
                                             <summary class="segments-best-efforts-menu__trigger" aria-label="<%= t('segmentsPage.bestEffortsMenuAria') %>">
                                                 <span aria-hidden="true">•••</span>

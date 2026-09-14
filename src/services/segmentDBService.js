@@ -1132,7 +1132,17 @@ export default class SegmentDBService {
     return finish(rows);
   }
 
-  static async getBestEffortsBySegment(uid, segid, page, size, sort, filter, scope = "mine", perUser = "all") {
+  static async getBestEffortsBySegment(
+    uid,
+    segid,
+    page,
+    size,
+    sort,
+    filter,
+    scope = "mine",
+    perUser = "all",
+    period = "all"
+  ) {
 
     const offset = (page - 1) * size;
 
@@ -1152,7 +1162,15 @@ export default class SegmentDBService {
     const normalizedPerUser = ["all", "1", "3"].includes(String(perUser).toLowerCase())
       ? String(perUser).toLowerCase()
       : "all";
+    const normalizedPeriod = ["all", "month", "quarter", "year"].includes(String(period).toLowerCase())
+      ? String(period).toLowerCase()
+      : "all";
     const perUserLimit = normalizedPerUser === "all" ? null : Number(normalizedPerUser);
+    const periodPredicate = {
+      month: "v.start_time >= CURRENT_TIMESTAMP - INTERVAL '1 month'",
+      quarter: "v.start_time >= CURRENT_TIMESTAMP - INTERVAL '3 months'",
+      year: "v.start_time >= CURRENT_TIMESTAMP - INTERVAL '1 year'"
+    }[normalizedPeriod];
 
     let accessPredicate = `v.uid = $1`;
 
@@ -1187,6 +1205,9 @@ export default class SegmentDBService {
     // -----------------------------------
 
     let baseWhere = `WHERE (${accessPredicate})`;
+    if (periodPredicate) {
+      baseWhere += ` AND ${periodPredicate}`;
+    }
     let sqlParams = [uid, ...params];
     if (whereSQL) {
       const adjustedWhere = whereSQL.replace(/\$(\d+)/g, (_, index) => `$${Number(index) + 1}`);
