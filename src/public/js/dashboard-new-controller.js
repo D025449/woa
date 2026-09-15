@@ -451,6 +451,9 @@ export default class Controller {
       onBulkDelete: async (workouts) => {
         await this.deleteSelectedWorkouts(workouts);
       },
+      onBulkExportFit: async (workouts) => {
+        await this.exportSelectedWorkoutsAsFit(workouts);
+      },
       onBulkPublish: async (workouts, payload) => {
         await this.publishSelectedWorkouts(workouts, payload);
       },
@@ -968,11 +971,40 @@ export default class Controller {
   }
 
   async exportAllWorkoutsAsFit() {
-    if (!this.exportAllFitButton || this.exportAllFitButton.disabled) {
+    await this.exportWorkoutsAsFit({
+      sourceUrl: "/workouts/export/all/source.zip",
+      button: this.exportAllFitButton,
+      archiveNamePrefix: "woa-workouts-fit"
+    });
+  }
+
+  async exportSelectedWorkoutsAsFit(workouts) {
+    const workoutIds = (Array.isArray(workouts) ? workouts : [])
+      .map((workout) => Number(workout?.id))
+      .filter((id) => Number.isSafeInteger(id) && id > 0);
+    if (workoutIds.length === 0) return;
+
+    await this.exportWorkoutsAsFit({
+      sourceUrl: "/workouts/export/selected/source.zip",
+      requestOptions: {
+        method: "POST",
+        headers: {
+          Accept: "application/zip",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ workoutIds })
+      },
+      button: this.libraryView?.bulkExportFitButton,
+      archiveNamePrefix: "woa-workouts-selected-fit"
+    });
+  }
+
+  async exportWorkoutsAsFit({ sourceUrl, requestOptions = {}, button, archiveNamePrefix }) {
+    if (!button || button.disabled || this.fitExportInProgress) {
       return;
     }
 
-    const button = this.exportAllFitButton;
+    this.fitExportInProgress = true;
     button.disabled = true;
     this.heroStatusElement.hidden = false;
     this.heroStatusElement.textContent = this.t("exportFitPreparing");
@@ -981,8 +1013,9 @@ export default class Controller {
     try {
       const totalStartedAt = performance.now();
       const downloadStartedAt = performance.now();
-      const response = await fetch("/workouts/export/all/source.zip", {
-        headers: { Accept: "application/zip" }
+      const response = await fetch(sourceUrl, {
+        ...requestOptions,
+        headers: { Accept: "application/zip", ...(requestOptions.headers || {}) }
       });
       if (!response.ok) {
         throw new Error(this.t("exportFitFailedStatus", { status: response.status }));
@@ -1025,7 +1058,7 @@ export default class Controller {
       const downloadUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = downloadUrl;
-      link.download = `woa-workouts-fit-${new Date().toISOString().slice(0, 10)}.zip`;
+      link.download = `${archiveNamePrefix}-${new Date().toISOString().slice(0, 10)}.zip`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -1047,7 +1080,12 @@ export default class Controller {
       this.showToast(error?.message || this.t("exportFitFailed"));
     } finally {
       worker?.terminate();
-      button.disabled = false;
+      this.fitExportInProgress = false;
+      if (button === this.libraryView?.bulkExportFitButton) {
+        this.libraryView.updateBulkUi();
+      } else {
+        button.disabled = false;
+      }
     }
   }
 

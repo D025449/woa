@@ -52,6 +52,97 @@ function legacyFitDeviceMetadata(metadata) {
   return hasFitDeviceMetadata(metadata) ? metadata : null;
 }
 
+const MAX_SELECTED_FIT_EXPORT_WORKOUTS = 1000;
+
+function normalizeSelectedFitExportWorkoutIds(value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    const error = new Error("Select at least one workout to export");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (value.length > MAX_SELECTED_FIT_EXPORT_WORKOUTS) {
+    const error = new Error(`A maximum of ${MAX_SELECTED_FIT_EXPORT_WORKOUTS} workouts can be exported at once`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const workoutIds = [...new Set(value.map((id) => Number(id)))];
+  if (workoutIds.some((id) => !Number.isSafeInteger(id) || id <= 0)) {
+    const error = new Error("Invalid workout selection");
+    error.statusCode = 400;
+    throw error;
+  }
+  return workoutIds;
+}
+
+function buildFitExportSourceArchive(rows, manualSegmentRows) {
+  /** @type {import("fflate").Zippable} */
+  const entries = {};
+  const segmentsByWorkoutId = new Map();
+  for (const segment of manualSegmentRows) {
+    const workoutId = String(segment.wid);
+    if (!segmentsByWorkoutId.has(workoutId)) segmentsByWorkoutId.set(workoutId, []);
+    segmentsByWorkoutId.get(workoutId).push(segment);
+  }
+
+  for (const row of rows) {
+    entries[`W-${row.id}.wopn`] = WorkoutOpenV2.buildPayload({
+      meta: {
+        workoutId: Number(row.id),
+        startTime: row.start_time || null,
+        totalTimerTime: row.total_timer_time == null ? null : Number(row.total_timer_time),
+        totalDistance: row.total_distance == null ? null : Number(row.total_distance),
+        avgPower: row.avg_power == null ? null : Number(row.avg_power),
+        normalizedPower: row.avg_normalized_power == null ? null : Number(row.avg_normalized_power),
+        totalCalories: row.total_calories == null ? null : Number(row.total_calories),
+        workoutType: row.workout_type || null,
+        streamCodec: String(row.stream_codec || "gzip"),
+        gpsTrackCodec: String(row.gps_track_blob_codec || "identity"),
+        validGps: !!row.validgps,
+        sampleRateGps: Number(row.samplerategps || 0) || null,
+        gpsSource: row.gps_source || null,
+        fitDeviceMetadata: legacyFitDeviceMetadata(row.fit_device_metadata)
+      },
+      workoutStream: row.stream || new Uint8Array(0),
+      gpsTrackBlob: row.gps_track_blob || new Uint8Array(0),
+      segments: segmentsByWorkoutId.get(String(row.id)) || []
+    });
+  }
+  return zipSync(entries, { level: 0 });
+}
+
+async function sendFitExportSourceArchive(req, res, workoutIds = null) {
+  const startedAt = performance.now();
+  const [rows, manualSegmentRows] = await Promise.all([
+    WorkoutDBService.getOwnedFitExportPayloadRows(req.user.id, workoutIds),
+    WorkoutDBService.getOwnedManualSegmentsForFitExport(req.user.id, workoutIds)
+  ]);
+  const loadRowsMs = performance.now() - startedAt;
+  if (workoutIds && rows.length !== workoutIds.length) {
+    const error = new Error("One or more selected workouts cannot be exported");
+    error.statusCode = 403;
+    throw error;
+  }
+
+  const buildStartedAt = performance.now();
+  const archive = buildFitExportSourceArchive(rows, manualSegmentRows);
+  const buildAndZipMs = performance.now() - buildStartedAt;
+  console.info("[fit-export] bulk-source.profile", {
+    uid: String(req.user.id),
+    workoutCount: rows.length,
+    selected: !!workoutIds,
+    archiveBytes: archive.byteLength,
+    loadRowsMs: Number(loadRowsMs.toFixed(2)),
+    buildAndZipMs: Number(buildAndZipMs.toFixed(2)),
+    totalMs: Number((performance.now() - startedAt).toFixed(2))
+  });
+
+  res.setHeader("Content-Type", "application/zip");
+  res.setHeader("Content-Disposition", 'attachment; filename="woa-workout-export-source.zip"');
+  res.setHeader("Cache-Control", "no-store");
+  return res.send(Buffer.from(archive.buffer, archive.byteOffset, archive.byteLength));
+}
+
 async function getVisibleWorkoutStream(row, isOwner) {
   const storedStream = row?.stream || Buffer.alloc(0);
   if (isOwner || storedStream.length === 0) return storedStream;
@@ -213,68 +304,23 @@ async function assignManualGpsTrack({
 
 router.get("/export/all/source.zip", authMiddleware, async (req, res) => {
   try {
-    const startedAt = performance.now();
-    const [rows, manualSegmentRows] = await Promise.all([
-      WorkoutDBService.getOwnedFitExportPayloadRows(req.user.id),
-      WorkoutDBService.getOwnedManualSegmentsForFitExport(req.user.id)
-    ]);
-    const loadRowsMs = performance.now() - startedAt;
-    /** @type {import("fflate").Zippable} */
-    const entries = {};
-    const segmentsByWorkoutId = new Map();
-    for (const segment of manualSegmentRows) {
-      const workoutId = String(segment.wid);
-      if (!segmentsByWorkoutId.has(workoutId)) segmentsByWorkoutId.set(workoutId, []);
-      segmentsByWorkoutId.get(workoutId).push(segment);
-    }
-
-    for (const row of rows) {
-      entries[`W-${row.id}.wopn`] = WorkoutOpenV2.buildPayload({
-        meta: {
-          workoutId: Number(row.id),
-          startTime: row.start_time || null,
-          totalTimerTime: row.total_timer_time == null ? null : Number(row.total_timer_time),
-          totalDistance: row.total_distance == null ? null : Number(row.total_distance),
-          avgPower: row.avg_power == null ? null : Number(row.avg_power),
-          normalizedPower: row.avg_normalized_power == null ? null : Number(row.avg_normalized_power),
-          totalCalories: row.total_calories == null ? null : Number(row.total_calories),
-          workoutType: row.workout_type || null,
-          streamCodec: String(row.stream_codec || "gzip"),
-          gpsTrackCodec: String(row.gps_track_blob_codec || "identity"),
-          validGps: !!row.validgps,
-          sampleRateGps: Number(row.samplerategps || 0) || null,
-          gpsSource: row.gps_source || null,
-          fitDeviceMetadata: legacyFitDeviceMetadata(row.fit_device_metadata)
-        },
-        workoutStream: row.stream || new Uint8Array(0),
-        gpsTrackBlob: row.gps_track_blob || new Uint8Array(0),
-        segments: segmentsByWorkoutId.get(String(row.id)) || []
-      });
-    }
-
-    const buildPayloadsMs = performance.now() - startedAt - loadRowsMs;
-    const archiveStartedAt = performance.now();
-    const archive = zipSync(entries, { level: 0 });
-    const zipMs = performance.now() - archiveStartedAt;
-
-    console.info("[fit-export] bulk-source.profile", {
-      uid: String(req.user.id),
-      workoutCount: rows.length,
-      archiveBytes: archive.byteLength,
-      loadRowsMs: Number(loadRowsMs.toFixed(2)),
-      buildPayloadsMs: Number(buildPayloadsMs.toFixed(2)),
-      zipMs: Number(zipMs.toFixed(2)),
-      totalMs: Number((performance.now() - startedAt).toFixed(2))
-    });
-
-    res.setHeader("Content-Type", "application/zip");
-    res.setHeader("Content-Disposition", 'attachment; filename="woa-workout-export-source.zip"');
-    res.setHeader("Cache-Control", "no-store");
-    return res.send(Buffer.from(archive.buffer, archive.byteOffset, archive.byteLength));
+    return await sendFitExportSourceArchive(req, res);
   } catch (err) {
     console.error("GET /workouts/export/all/source.zip failed:", err);
     return res.status(500).json({
       error: err.message || "Failed to prepare workout export"
+    });
+  }
+});
+
+router.post("/export/selected/source.zip", authMiddleware, async (req, res) => {
+  try {
+    const workoutIds = normalizeSelectedFitExportWorkoutIds(req.body?.workoutIds);
+    return await sendFitExportSourceArchive(req, res, workoutIds);
+  } catch (err) {
+    console.error("POST /workouts/export/selected/source.zip failed:", err);
+    return res.status(err.statusCode || 500).json({
+      error: err.message || "Failed to prepare selected workout export"
     });
   }
 });

@@ -792,6 +792,7 @@
     "bulkClearSelection": "Auswahl leeren",
     "bulkActions": "Auswahlaktionen",
     "bulkPublish": "Ausgewählte Workouts veröffentlichen",
+    "bulkExportFit": "Ausgewählte als FIT exportieren",
     "bulkNoneSelected": "Keine Workouts ausgewählt",
     "bulkSelectedCount": "{count} ausgewählt",
     "bulkDeletePrompt": "{count} ausgewählte Workouts löschen?",

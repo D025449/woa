@@ -1033,7 +1033,8 @@ export default class WorkoutDBService {
     };
   }
 
-  static async getOwnedFitExportPayloadRows(uid) {
+  static async getOwnedFitExportPayloadRows(uid, workoutIds = null) {
+    const selectedIds = Array.isArray(workoutIds) ? workoutIds : null;
     const result = await pool.query(
       `SELECT
         id,
@@ -1058,8 +1059,9 @@ export default class WorkoutDBService {
         fit_device_metadata
        FROM workouts
        WHERE uid = $1
+         ${selectedIds ? "AND id = ANY($2::bigint[])" : ""}
        ORDER BY start_time ASC NULLS LAST, id ASC`,
-      [uid]
+      selectedIds ? [uid, selectedIds] : [uid]
     );
 
     return result.rows;
@@ -1084,7 +1086,8 @@ export default class WorkoutDBService {
     return result.rows[0];
   }
 
-  static async getOwnedManualSegmentsForFitExport(uid) {
+  static async getOwnedManualSegmentsForFitExport(uid, workoutIds = null) {
+    const selectedIds = Array.isArray(workoutIds) ? workoutIds : null;
     const result = await pool.query(
       `SELECT
         wid,
@@ -1094,8 +1097,9 @@ export default class WorkoutDBService {
        FROM workout_segments
        WHERE uid = $1
          AND segmenttype = 'manual'
+         ${selectedIds ? "AND wid = ANY($2::bigint[])" : ""}
        ORDER BY wid ASC, start_offset ASC, end_offset ASC`,
-      [uid]
+      selectedIds ? [uid, selectedIds] : [uid]
     );
 
     return result.rows;

@@ -662,6 +662,7 @@
     "bulkClearSelection": "Limpar seleção",
     "bulkActions": "Ações de seleção",
     "bulkPublish": "Publicar treinos selecionados",
+    "bulkExportFit": "Exportar selecionados como FIT",
     "bulkNoneSelected": "Nenhum treino selecionado",
     "bulkSelectedCount": "{count} selecionados",
     "bulkDeletePrompt": "Eliminar {count} treinos selecionados?",

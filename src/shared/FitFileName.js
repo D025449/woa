@@ -29,7 +29,7 @@ export function formatFitExportFileName(
   } = {}
 ) {
   const date = new Date(startTimeValue);
-  if (Number.isNaN(date.getTime())) {
+  if (startTimeValue == null || startTimeValue === "" || Number.isNaN(date.getTime())) {
     return fallbackName;
   }
 
@@ -54,4 +54,24 @@ export function formatFitExportFileName(
   ].join("-");
 
   return `${timestamp}${suffix}.fit`;
+}
+
+export function formatFitExportArchivePath(
+  startTimeValue,
+  fileName,
+  { timeZone = "UTC" } = {}
+) {
+  const safeFileName = String(fileName || "workout.fit").replaceAll("/", "_");
+  const date = new Date(startTimeValue);
+  if (startTimeValue == null || startTimeValue === "" || Number.isNaN(date.getTime())) {
+    return `_unknown/_unknown/${safeFileName}`;
+  }
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: normalizeTimeZone(timeZone),
+    year: "numeric",
+    month: "2-digit"
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}/${values.month}/${safeFileName}`;
 }

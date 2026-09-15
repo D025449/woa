@@ -149,6 +149,7 @@ export default class WorkoutLibraryView {
     this.bulkSelectAllVisibleButton = document.getElementById(handlers.bulkSelectAllVisibleButtonId || "workout-library-select-all-visible");
     this.bulkClearSelectionButton = document.getElementById(handlers.bulkClearSelectionButtonId || "workout-library-clear-selection");
     this.bulkPublishToggleButton = document.getElementById(handlers.bulkPublishToggleButtonId || "workout-library-bulk-publish-toggle");
+    this.bulkExportFitButton = document.getElementById(handlers.bulkExportFitButtonId || "workout-library-bulk-export-fit");
     this.bulkShareInline = document.getElementById(handlers.bulkShareInlineId || "workout-library-bulk-share-inline");
     this.bulkShareModeSelect = document.getElementById(handlers.bulkShareModeSelectId || "workout-library-bulk-share-mode");
     this.bulkShareGroupsContainer = document.getElementById(handlers.bulkShareGroupsContainerId || "workout-library-bulk-share-groups");
@@ -506,6 +507,10 @@ export default class WorkoutLibraryView {
 
     this.bulkDeleteButton?.addEventListener("click", async () => {
       await this.handlers.onBulkDelete?.(this.getSelectedOwnedWorkouts());
+    });
+
+    this.bulkExportFitButton?.addEventListener("click", async () => {
+      await this.handlers.onBulkExportFit?.(this.getSelectedOwnedWorkouts());
     });
 
     this.bulkPublishToggleButton?.addEventListener("click", () => {
@@ -2646,6 +2651,9 @@ export default class WorkoutLibraryView {
     }
     if (this.bulkPublishToggleButton) {
       this.bulkPublishToggleButton.disabled = selectedCount === 0;
+    }
+    if (this.bulkExportFitButton) {
+      this.bulkExportFitButton.disabled = selectedCount === 0;
     }
     if (this.bulkClearSelectionButton) {
       this.bulkClearSelectionButton.disabled = selectedCount === 0;

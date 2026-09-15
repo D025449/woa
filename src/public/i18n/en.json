@@ -792,6 +792,7 @@
     "bulkClearSelection": "Clear selected",
     "bulkActions": "Selection actions",
     "bulkPublish": "Publish selected workouts",
+    "bulkExportFit": "Export selected as FIT",
     "bulkNoneSelected": "No workouts selected",
     "bulkSelectedCount": "{count} selected",
     "bulkDeletePrompt": "Delete {count} selected workouts?",

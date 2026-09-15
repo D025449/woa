@@ -2,7 +2,11 @@ import Workout from "/shared/Workout.js";
 import GpsTrackBlobCodec from "/shared/GpsTrackBlobCodec.js";
 import WorkoutOpenV2 from "/shared/WorkoutOpenV2.js";
 import FitExportService from "/shared/FitExportService.js";
-import { formatFitExportFileName, getBrowserTimeZone } from "/shared/FitFileName.js";
+import {
+  formatFitExportArchivePath,
+  formatFitExportFileName,
+  getBrowserTimeZone
+} from "/shared/FitFileName.js";
 
 self.addEventListener("message", async (event) => {
   const { jobId, payloadBytes } = event.data || {};
@@ -37,14 +41,16 @@ self.addEventListener("message", async (event) => {
       segments: Array.isArray(payload.segments) ? payload.segments : []
     });
 
+    const timeZone = getBrowserTimeZone();
+    const fileName = formatFitExportFileName(meta.startTime, {
+      timeZone,
+      fallbackName: `W-${workoutId}.fit`,
+      suffix: `-W-${workoutId}`
+    });
     self.postMessage({
       type: "result",
       jobId,
-      fileName: formatFitExportFileName(meta.startTime, {
-        timeZone: getBrowserTimeZone(),
-        fallbackName: `W-${workoutId}.fit`,
-        suffix: `-W-${workoutId}`
-      }),
+      fileName: formatFitExportArchivePath(meta.startTime, fileName, { timeZone }),
       fitBytes
     }, [fitBytes.buffer]);
   } catch (error) {
