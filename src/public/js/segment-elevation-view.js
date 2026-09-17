@@ -124,9 +124,16 @@ export default class SegmentElevationView {
 
   render() {
     if (!this.chart || !this.currentSegment) return;
-    const altitudeValues = this.profileData
+    const profileAltitudeValues = this.profileData
       .map((point) => point[1])
       .filter((altitude) => Number.isFinite(altitude));
+    const comparisonAltitudeValues = this.comparisons.flatMap((comparison) => (
+      comparison.points
+        ?.map((point) => point.altitude)
+        .filter((altitude) => Number.isFinite(altitude)) || []
+    ));
+    const altitudeValues = [...profileAltitudeValues, ...comparisonAltitudeValues];
+    const hasProfileElevation = profileAltitudeValues.length > 0;
     const hasElevation = altitudeValues.length > 0;
     const hasComparisons = this.comparisons.some((comparison) => comparison.points?.length);
     const hasHeartRate = this.comparisons.some((comparison) =>
@@ -146,11 +153,11 @@ export default class SegmentElevationView {
 
     this.panel?.classList.remove("d-none");
     this.emptyState?.classList.add("d-none");
-    this.renderStats(altitudeValues);
+    this.renderStats(profileAltitudeValues);
     this.renderStatus();
 
     const series = [];
-    if (hasElevation) {
+    if (hasProfileElevation) {
       series.push({
         name: this.t("elevationLabel"),
         type: "line",
@@ -181,6 +188,22 @@ export default class SegmentElevationView {
         data: comparison.points.map((point) => [point.distanceKm, point.power, point.elapsedSeconds])
       });
 
+      if (comparison.points.some((point) => Number.isFinite(point.altitude))) {
+        series.push({
+          name: this.comparisonLabel(comparison),
+          type: "line",
+          xAxisIndex: 0,
+          yAxisIndex: 1,
+          showSymbol: false,
+          connectNulls: false,
+          sampling: "lttb",
+          lineStyle: { width: 1.5, type: "dotted", color, opacity: 0.9 },
+          itemStyle: { color },
+          emphasis: { lineStyle: { width: 2.3, type: "dotted", opacity: 1 } },
+          data: comparison.points.map((point) => [point.distanceKm, point.altitude, point.elapsedSeconds])
+        });
+      }
+
       if (showHeartRatePane && comparison.points.some((point) => Number.isFinite(point.heartRate))) {
         series.push({
           name: this.comparisonLabel(comparison),
@@ -198,9 +221,9 @@ export default class SegmentElevationView {
       }
     });
 
-    const profileMin = hasElevation ? Math.min(...altitudeValues) : null;
-    const profileMax = hasElevation ? Math.max(...altitudeValues) : null;
-    const padding = hasElevation ? Math.max(3, (profileMax - profileMin) * 0.08) : 0;
+    const elevationMin = hasElevation ? Math.min(...altitudeValues) : null;
+    const elevationMax = hasElevation ? Math.max(...altitudeValues) : null;
+    const padding = hasElevation ? Math.max(3, (elevationMax - elevationMin) * 0.08) : 0;
     const segmentDistanceKm = Math.max(
       Number(this.currentSegment?.distance || 0) / 1000,
       ...series.flatMap((entry) => entry.data.map((point) => Number(point[0]) || 0))
@@ -266,8 +289,8 @@ export default class SegmentElevationView {
           show: hasElevation,
           name: this.t("comparisonElevationAxis"),
           position: "right",
-          min: hasElevation ? Math.floor(profileMin - padding) : null,
-          max: hasElevation ? Math.ceil(profileMax + padding) : null,
+          min: hasElevation ? Math.floor(elevationMin - padding) : null,
+          max: hasElevation ? Math.ceil(elevationMax + padding) : null,
           splitLine: { show: false },
           axisLine: { show: false },
           axisTick: { show: false },
@@ -319,6 +342,7 @@ export default class SegmentElevationView {
       if (this.showHeartRate && Number.isFinite(point.heartRate)) {
         values.push(`${Math.round(point.heartRate)} bpm`);
       }
+      if (Number.isFinite(point.altitude)) values.push(`${Math.round(point.altitude)} m`);
       if (!values.length) return;
       const color = COMPARISON_COLORS[index];
       const marker = `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${color};margin-right:5px"></span>`;

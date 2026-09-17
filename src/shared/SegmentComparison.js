@@ -61,9 +61,17 @@ export function buildSegmentComparisonProfile(
       distanceKm: alignedDistance / 1000,
       elapsedSeconds: index - startOffset,
       power: finiteMetric(workoutObject.getPowerAt?.(index)),
-      heartRate: finiteMetric(workoutObject.getHrAt?.(index))
+      heartRate: finiteMetric(workoutObject.getHrAt?.(index)),
+      altitude: finiteMetric(workoutObject.getAltitudeAt?.(index))
     };
   });
+
+  const hasRecordedAltitude = points.some((point) => (
+    Number.isFinite(point.altitude) && Math.abs(point.altitude) >= 0.1
+  ));
+  if (!hasRecordedAltitude) {
+    for (const point of points) point.altitude = null;
+  }
 
   return {
     workoutId: Number(effort?.wid ?? workout?.id),
