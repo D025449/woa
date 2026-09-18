@@ -1,8 +1,9 @@
 import pool from "./database.js";
 import WorkoutDBService from "./workoutDBService.js";
+import SegmentTrackBlobService from "./segmentTrackBlobService.js";
 import { buildSegmentComparisonProfile } from "../shared/SegmentComparison.js";
 
-export const WORKOUT_ALTITUDE_ALGORITHM_VERSION = 1;
+export const WORKOUT_ALTITUDE_ALGORITHM_VERSION = 2;
 export const DEFAULT_WORKOUT_ALTITUDE_CANDIDATE_LIMIT = 50;
 export const DEFAULT_WORKOUT_ALTITUDE_MIN_CLUSTER_SIZE = 5;
 export const DEFAULT_WORKOUT_ALTITUDE_MIN_CLUSTER_FRACTION = 0.6;
@@ -12,6 +13,43 @@ function finiteNumber(value) {
   if (value == null) return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function haversineMeters(left, right) {
+  const leftLat = finiteNumber(left?.lat);
+  const leftLng = finiteNumber(left?.lng);
+  const rightLat = finiteNumber(right?.lat);
+  const rightLng = finiteNumber(right?.lng);
+  if (leftLat == null || leftLng == null || rightLat == null || rightLng == null) return null;
+
+  const toRadians = (value) => value * Math.PI / 180;
+  const latitudeDelta = toRadians(rightLat - leftLat);
+  const longitudeDelta = toRadians(rightLng - leftLng);
+  const leftLatitude = toRadians(leftLat);
+  const rightLatitude = toRadians(rightLat);
+  const sinLatitude = Math.sin(latitudeDelta / 2);
+  const sinLongitude = Math.sin(longitudeDelta / 2);
+  const value = sinLatitude * sinLatitude
+    + Math.cos(leftLatitude) * Math.cos(rightLatitude) * sinLongitude * sinLongitude;
+  return 2 * 6_371_000 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
+}
+
+export function buildSegmentTrackSampleDistances(points, distanceMeters) {
+  const track = Array.isArray(points) ? points : [];
+  const targetDistance = finiteNumber(distanceMeters);
+  if (track.length < 2 || targetDistance == null || targetDistance <= 0) return null;
+
+  const cumulative = [0];
+  for (let index = 1; index < track.length; index += 1) {
+    const step = haversineMeters(track[index - 1], track[index]);
+    if (step == null) return null;
+    cumulative.push(cumulative.at(-1) + step);
+  }
+
+  const measuredDistance = cumulative.at(-1);
+  if (!(measuredDistance > 0)) return null;
+  const scale = targetDistance / measuredDistance;
+  return cumulative.map((distance) => distance * scale);
 }
 
 function median(values) {
@@ -44,7 +82,12 @@ function interpolateProfilePoint(points, distanceMeters) {
   return left.altitude + (right.altitude - left.altitude) * progress;
 }
 
-export function normalizeWorkoutAltitudeProfile(comparison, pointCount, distanceMeters) {
+export function normalizeWorkoutAltitudeProfile(
+  comparison,
+  pointCount,
+  distanceMeters,
+  sampleDistancesMeters = null
+) {
   const normalizedPointCount = Math.max(2, Math.floor(Number(pointCount) || 0));
   const normalizedDistance = Number(distanceMeters);
   if (!Number.isFinite(normalizedDistance) || normalizedDistance <= 0) return null;
@@ -61,8 +104,23 @@ export function normalizeWorkoutAltitudeProfile(comparison, pointCount, distance
   if (points[0].distanceMeters > normalizedDistance * 0.02) return null;
   if (points.at(-1).distanceMeters < normalizedDistance * 0.98) return null;
 
-  const values = Array.from({ length: normalizedPointCount }, (_, index) => {
-    const distance = normalizedDistance * index / (normalizedPointCount - 1);
+  const requestedDistances = Array.isArray(sampleDistancesMeters)
+    && sampleDistancesMeters.length === normalizedPointCount
+    && sampleDistancesMeters.every((distance) => Number.isFinite(Number(distance)))
+    ? sampleDistancesMeters.map(Number)
+    : null;
+  const useRequestedDistances = requestedDistances
+    && requestedDistances.every((distance, index) => index === 0 || distance >= requestedDistances[index - 1])
+    && requestedDistances[0] >= 0
+    && requestedDistances.at(-1) > requestedDistances[0];
+  const targetDistances = useRequestedDistances
+    ? requestedDistances
+    : Array.from(
+        { length: normalizedPointCount },
+        (_, index) => normalizedDistance * index / (normalizedPointCount - 1)
+      );
+
+  const values = targetDistances.map((distance) => {
     return interpolateProfilePoint(points, distance);
   });
   return values.every(Number.isFinite) ? values : null;
@@ -265,12 +323,21 @@ export default class SegmentElevationProfileService {
         workout_start_altitude,
         workout_end_altitude,
         workout_ascent,
-        workout_altitude_status
+        workout_altitude_status,
+        track_blob,
+        track_blob_codec
       FROM gps_segments
       WHERE id = ANY($1::bigint[])
       ORDER BY id
     `, [segmentIds]);
-    return new Map(result.rows.map((row) => [Number(row.id), row]));
+    const rows = await Promise.all(result.rows.map(async (row) => {
+      const decoded = await SegmentTrackBlobService.decodeRow(row);
+      return {
+        ...row,
+        sample_distances_meters: buildSegmentTrackSampleDistances(decoded.points, row.distance)
+      };
+    }));
+    return new Map(rows.map((row) => [Number(row.id), row]));
   }
 
   static async loadCandidatesForSegments(segmentIds, limit = this.candidateLimit) {
@@ -430,7 +497,12 @@ export default class SegmentElevationProfileService {
               distanceMeters,
               { maxPoints: Math.max(128, pointCount) }
             );
-            const altitudes = normalizeWorkoutAltitudeProfile(comparison, pointCount, distanceMeters);
+            const altitudes = normalizeWorkoutAltitudeProfile(
+              comparison,
+              pointCount,
+              distanceMeters,
+              segment.sample_distances_meters
+            );
             if (altitudes) {
               candidates.push({ workoutId, startTime: row.start_time, altitudes });
             }

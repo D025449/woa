@@ -116,3 +116,35 @@ test("segment comparison chart renders workout altitude on the shared elevation 
   assert.equal(chartOptions.yAxis[1].max, 123);
   assert.match(view.formatTooltip([{ data: [0, 250, 0] }]), /250 W · 90 m/u);
 });
+
+test("legacy stored workout elevation uses its original uniform distance positions", () => {
+  const view = Object.create(SegmentElevationView.prototype);
+  const profile = view.buildProfileData({
+    distance: 1000,
+    elevationProfile: { source: "workout", algorithmVersion: 1 },
+    track: [
+      { lat: 49, lng: 8, ele: 200 },
+      { lat: 49.001, lng: 8, ele: 250 },
+      { lat: 49.004, lng: 8, ele: 300 }
+    ]
+  });
+
+  assert.deepEqual(profile.map((point) => point[0]), [0, 0.5, 1]);
+});
+
+test("current stored workout elevation follows the segment track geometry", () => {
+  const view = Object.create(SegmentElevationView.prototype);
+  const profile = view.buildProfileData({
+    distance: 1000,
+    elevationProfile: { source: "workout", algorithmVersion: 2 },
+    track: [
+      { lat: 49, lng: 8, ele: 200 },
+      { lat: 49.001, lng: 8, ele: 250 },
+      { lat: 49.004, lng: 8, ele: 300 }
+    ]
+  });
+
+  assert.equal(profile[0][0], 0);
+  assert.ok(Math.abs(profile[1][0] - 0.25) < 0.001);
+  assert.equal(profile[2][0], 1);
+});

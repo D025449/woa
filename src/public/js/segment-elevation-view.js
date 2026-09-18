@@ -2,6 +2,7 @@ import { createTranslator } from "./i18n.js";
 
 const COMPARISON_COLORS = ["#2563eb", "#d946ef", "#f59e0b"];
 const HEART_RATE_PREFERENCE_KEY = "segmentComparisonShowHeartRate";
+const TRACK_ALIGNED_WORKOUT_ALTITUDE_VERSION = 2;
 
 export default class SegmentElevationView {
   constructor(containerId, panelId, statsId, handlers = {}) {
@@ -400,15 +401,29 @@ export default class SegmentElevationView {
   buildProfileData(segment) {
     const track = Array.isArray(segment.track) ? segment.track : [];
     if (track.length === 0) return [];
+    const officialDistance = Number(segment.distance);
+    const usesLegacyUniformWorkoutDistances = segment?.elevationProfile?.source === "workout"
+      && Number(segment?.elevationProfile?.algorithmVersion || 0) < TRACK_ALIGNED_WORKOUT_ALTITUDE_VERSION
+      && Number.isFinite(officialDistance)
+      && officialDistance > 0
+      && track.length > 1;
     let distanceMeters = 0;
     const result = [];
     for (let index = 0; index < track.length; index += 1) {
       const point = track[index];
       const altitude = Number(point?.ele);
-      if (index > 0) distanceMeters += this.haversine(track[index - 1], point);
-      result.push([distanceMeters / 1000, Number.isFinite(altitude) ? altitude : null, index]);
+      if (usesLegacyUniformWorkoutDistances) {
+        distanceMeters = officialDistance * index / (track.length - 1);
+      } else if (index > 0) {
+        distanceMeters += this.haversine(track[index - 1], point);
+      }
+      result.push([
+        distanceMeters / 1000,
+        Number.isFinite(altitude) ? altitude : null,
+        index
+      ]);
     }
-    const officialDistance = Number(segment.distance);
+    if (usesLegacyUniformWorkoutDistances) return result;
     if (!Number.isFinite(officialDistance) || officialDistance <= 0 || distanceMeters <= 0) {
       return result;
     }

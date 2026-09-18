@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   default as SegmentElevationProfileService,
+  buildSegmentTrackSampleDistances,
   normalizeWorkoutAltitudeProfile,
   profileRmse,
   selectDominantWorkoutAltitudeCluster
@@ -26,6 +27,31 @@ test("normalizes a workout altitude profile to the segment point count", () => {
   }, 5, 1000);
 
   assert.deepEqual(altitudes, [200, 225, 250, 275, 300]);
+});
+
+test("normalizes workout altitude at the actual segment track distances", () => {
+  const altitudes = normalizeWorkoutAltitudeProfile({
+    points: [
+      { distanceKm: 0, altitude: 200 },
+      { distanceKm: 0.5, altitude: 250 },
+      { distanceKm: 1, altitude: 300 }
+    ]
+  }, 5, 1000, [0, 100, 400, 700, 1000]);
+
+  assert.deepEqual(altitudes, [200, 210, 240, 270, 300]);
+});
+
+test("builds segment sample distances from its non-uniform track geometry", () => {
+  const distances = buildSegmentTrackSampleDistances([
+    { lat: 49, lng: 8 },
+    { lat: 49.001, lng: 8 },
+    { lat: 49.004, lng: 8 }
+  ], 800);
+
+  assert.ok(distances);
+  assert.equal(distances[0], 0);
+  assert.ok(Math.abs(distances[1] - 200) < 0.01);
+  assert.ok(Math.abs(distances[2] - 800) < 0.01);
 });
 
 test("selects the measured dominant cluster and rejects a parallel-shifted outlier", () => {
