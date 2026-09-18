@@ -879,7 +879,7 @@ router.post("/:id/elevation-profile/rebuild", authMiddleware, requireActiveAccou
 
 router.get("/:id", authMiddleware, async (req, res, next) => {
   try {
-    res.setHeader("Cache-Control", "private, max-age=60, must-revalidate");
+    res.setHeader("Cache-Control", "private, no-store");
     const segmentId = req.params.id;
     const uid = req.user?.id;
 

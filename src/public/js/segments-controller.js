@@ -646,6 +646,7 @@ export default class Controller {
       }
 
       Object.assign(this.selectedSegment, segment);
+      this.elevationView.updateSegment(this.selectedSegment);
       this.selectedSegmentSharing = segment.sharing || null;
       if (this.selectedSegmentSharing) {
         this.applySelectedSegmentSharing(this.selectedSegmentSharing);
