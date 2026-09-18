@@ -26,9 +26,11 @@ import {
   persistBrowserGpsBestEfforts
 } from "../services/browserGpsBestEffortsImportService.js";
 import {
+  enqueueSegmentElevationProfiles,
   enqueueWorkoutSegmentBestEffortsBulk,
   enqueueWorkoutSegmentPersistenceBulk
 } from "../services/segment-best-efforts-service.js";
+import SegmentElevationProfileService from "../services/segmentElevationProfileService.js";
 import {
   checkpointWoaBundleUpload,
   claimWoaBundleUpload,
@@ -51,6 +53,20 @@ const BROWSER_POSTPROCESS_DB_BATCH_WORKOUTS = Math.max(
   Number(process.env.BROWSER_POSTPROCESS_DB_BATCH_WORKOUTS) || 100
 );
 const WOA_BUNDLE_RECOVERY_ENABLED = String(process.env.WOA_BUNDLE_RECOVERY_ENABLED || "0").trim() === "1";
+
+async function scheduleAffectedSegmentElevationProfiles(segmentIds) {
+  try {
+    const staleSegmentIds = await SegmentElevationProfileService.markSegmentsStale(segmentIds);
+    if (staleSegmentIds.length > 0) {
+      await enqueueSegmentElevationProfiles({ segmentIds: staleSegmentIds });
+    }
+  } catch (error) {
+    console.error("[postprocess] segment-elevation-profiles.enqueue.failed", {
+      segmentCount: Array.isArray(segmentIds) ? segmentIds.length : 0,
+      error: error?.message || String(error)
+    });
+  }
+}
 
 class WoaBundleHttpError extends Error {
   constructor(message, statusCode) {
@@ -636,6 +652,7 @@ async function processDecodedWoaBundle({ bundle, artifacts, safeMode }) {
       decoded: artifacts.decodedGpsBestEfforts.value,
       pool
     });
+    await scheduleAffectedSegmentElevationProfiles(persistedGpsBestEfforts.affectedSegmentIds);
     gpsBestEffortsResult = {
       format: "GBE1",
       compressedBytes: bundle.gpsBestEffortsBytes,
@@ -1123,6 +1140,7 @@ router.post(
       }
       const decodeMs = performance.now() - decodeStartedAt;
       const persisted = await persistBrowserGpsBestEfforts({ uid: req.user.id, decoded, pool });
+      await scheduleAffectedSegmentElevationProfiles(persisted.affectedSegmentIds);
       const result = {
         format: "GBE1",
         compressedBytes: compressedByteLength,

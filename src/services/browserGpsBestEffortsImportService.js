@@ -53,7 +53,14 @@ export async function persistBrowserGpsBestEfforts({ uid, decoded, pool }) {
   if (!uid || !pool?.connect) throw new Error("Browser GPS best-efforts persistence is not configured");
   const normalized = normalizeBrowserGpsBestEffortsPayload(decoded);
   if (normalized.workouts.length === 0) {
-    return { workoutCount: 0, matchCount: 0, deletedMatchCount: 0, insertedMatchCount: 0, statementCount: 0 };
+    return {
+      workoutCount: 0,
+      matchCount: 0,
+      deletedMatchCount: 0,
+      insertedMatchCount: 0,
+      affectedSegmentIds: [],
+      statementCount: 0
+    };
   }
 
   const profile = { resolveWorkoutsMs: 0, validateSegmentsMs: 0, deleteMatchesMs: 0, insertMatchesMs: 0, transactionMs: 0 };
@@ -102,6 +109,7 @@ export async function persistBrowserGpsBestEfforts({ uid, decoded, pool }) {
       WHERE effort.sid = segment.id
         AND segment.uid = $1
         AND effort.wid = ANY($2::bigint[])
+      RETURNING effort.sid
     `, [uid, workoutIds]);
     profile.deleteMatchesMs = performance.now() - stepStartedAt;
 
@@ -139,11 +147,18 @@ export async function persistBrowserGpsBestEfforts({ uid, decoded, pool }) {
 
     await client.query("COMMIT");
     profile.transactionMs = performance.now() - transactionStartedAt;
+    const affectedSegmentIds = [...new Set([
+      ...segmentIds,
+      ...(Array.isArray(deleteResult.rows) ? deleteResult.rows : [])
+        .map((row) => Number(row.sid))
+        .filter(Number.isInteger)
+    ])];
     return {
       workoutCount: eligibleWorkouts.length,
       matchCount: rows.length,
       deletedMatchCount: Number(deleteResult.rowCount || 0),
       insertedMatchCount,
+      affectedSegmentIds,
       statementCount: rows.length ? 4 : 3,
       profile
     };

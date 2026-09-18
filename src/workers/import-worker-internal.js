@@ -7,6 +7,7 @@ import { detectWorkoutLocalSegmentsFromWorkout } from "../shared/WorkoutLocalPos
 
 import { FileDBService } from "../services/fileDBService.js";
 import SegmentDBService from "../services/segmentDBService.js";
+import SegmentElevationProfileService from "../services/segmentElevationProfileService.js";
 import WorkoutThumbnailService from "../services/workoutThumbnailService.js";
 import WorkoutDBService from "../services/workoutDBService.js";
 import WorkoutSimilarityService from "../services/workoutSimilarityService.js";
@@ -15,8 +16,10 @@ import {
 } from "../services/workout-similarity-job-service.js";
 import {
   SEGMENT_BEST_EFFORTS_BATCH_SIZE,
+  SEGMENT_ELEVATION_PROFILE_JOB,
   SEGMENT_PERSIST_BATCH_SIZE,
-  SEGMENT_SCAN_BATCH_SIZE
+  SEGMENT_SCAN_BATCH_SIZE,
+  enqueueSegmentElevationProfiles
 } from "../services/segment-best-efforts-service.js";
 
 import { redisConnection } from "../queue/connection.js";
@@ -436,6 +439,18 @@ export async function createApp(options = {}) {
     await fs.promises.rm(payloadPath, { force: true }).catch(() => {});
   }
 
+  async function scheduleSegmentElevationProfiles(segmentIds) {
+    try {
+      const staleSegmentIds = await SegmentElevationProfileService.markSegmentsStale(segmentIds);
+      await enqueueSegmentElevationProfiles({ segmentIds: staleSegmentIds });
+    } catch (error) {
+      console.error("[postprocess] segment-elevation-profiles.enqueue.failed", {
+        segmentCount: Array.isArray(segmentIds) ? segmentIds.length : 0,
+        error: error?.message || String(error)
+      });
+    }
+  }
+
   async function processSegmentBestEffortsJob(uid, segmentIds) {
     const startedAt = Date.now();
     const updateProcessingStatusStartedAt = Date.now();
@@ -455,6 +470,11 @@ export async function createApp(options = {}) {
       const storeBestEffortsStartedAt = Date.now();
       await SegmentDBService.storeSegmentBestEffortsV2(scanResult.matches);
       const storeBestEffortsMs = Date.now() - storeBestEffortsStartedAt;
+
+      const matchedSegmentIds = [...new Set(
+        scanResult.matches.map((match) => Number(match.segment_id)).filter(Number.isInteger)
+      )];
+      await scheduleSegmentElevationProfiles(matchedSegmentIds);
 
       const updateCompletedStatusStartedAt = Date.now();
       await SegmentDBService.updateBestEffortsStatus(uid, segmentIds, "completed", null);
@@ -482,6 +502,27 @@ export async function createApp(options = {}) {
       );
       throw error;
     }
+  }
+
+  async function processSegmentElevationProfilesJob(job) {
+    const segmentIds = [...new Set((Array.isArray(job.data?.segmentIds) ? job.data.segmentIds : [])
+      .map(Number)
+      .filter((segmentId) => Number.isInteger(segmentId) && segmentId > 0))];
+    if (segmentIds.length === 0) {
+      return { progressPercent: 100, segmentCount: 0 };
+    }
+
+    const startedAt = Date.now();
+    await job.updateProgress({ progressPercent: 0, segmentCount: segmentIds.length });
+    const results = await SegmentElevationProfileService.rebuildPendingSegments(segmentIds);
+    await job.updateProgress({ progressPercent: 100, segmentCount: results.length });
+    console.log("[postprocess] segment-elevation-profiles.profile", {
+      requestedSegmentCount: segmentIds.length,
+      rebuiltSegmentCount: results.length,
+      confirmedSegmentCount: results.filter((row) => row.workout_altitude_status === "confirmed").length,
+      totalMs: Date.now() - startedAt
+    });
+    return { progressPercent: 100, segmentCount: results.length };
   }
 
 
@@ -673,6 +714,10 @@ export async function createApp(options = {}) {
         : [];
       const segmentBestEffortsProfile = segmentBestEffortsResult.profile;
       const matchCount = matches.length;
+      const matchedSegmentIds = [...new Set(
+        matches.map((match) => Number(match.segment_id)).filter(Number.isInteger)
+      )];
+      await scheduleSegmentElevationProfiles(matchedSegmentIds);
       const elapsedMs = Date.now() - startedAt;
 
       await job.updateProgress({
@@ -753,14 +798,20 @@ export async function createApp(options = {}) {
     try {
       const results = await SegmentDBService.rescanSegmentBestEffortsForWorkoutsBatch(uid, workoutIds);
       let matchCount = 0;
+      const matchedSegmentIds = new Set();
       for (const result of results) {
         const resultMatchCount = Array.isArray(result?.matches) ? result.matches.length : 0;
         const elapsedMs = Number(result?.elapsedMs || 0);
         const metrics = buildSegmentBestEffortsProfileMetrics(result?.profile || {}, resultMatchCount);
         matchCount += resultMatchCount;
+        for (const match of Array.isArray(result?.matches) ? result.matches : []) {
+          const segmentId = Number(match.segment_id);
+          if (Number.isInteger(segmentId)) matchedSegmentIds.add(segmentId);
+        }
         recordPostprocessProfile("segment-best-efforts", elapsedMs, metrics);
         await recordImportPostprocessOutcome(importJobId, "segment-best-efforts", elapsedMs, metrics);
       }
+      await scheduleSegmentElevationProfiles([...matchedSegmentIds]);
       await job.updateProgress({ progressPercent: 100, batchSize: workoutIds.length, matchCount });
       return { progressPercent: 100, batchSize: workoutIds.length, matchCount };
     } catch (error) {
@@ -1186,6 +1237,10 @@ export async function createApp(options = {}) {
 
         if (job.name === "process-workout-segment-best-efforts-batch") {
           return await processWorkoutSegmentBestEffortsBatchJob(job);
+        }
+
+        if (job.name === SEGMENT_ELEVATION_PROFILE_JOB) {
+          return await processSegmentElevationProfilesJob(job);
         }
 
         const { uid, segmentIds } = job.data ?? {};

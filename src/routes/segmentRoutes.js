@@ -11,7 +11,11 @@ import MapSegment from "../shared/MapSegment.js"
 import SegmentDBService from "../services/segmentDBService.js";
 import SegmentFavoriteService from "../services/segmentFavoriteService.js";
 import ElevationService from "../services/ElevationService.js";
-import { enqueueSegmentBestEfforts } from "../services/segment-best-efforts-service.js";
+import {
+  enqueueSegmentBestEfforts,
+  enqueueSegmentElevationProfiles
+} from "../services/segment-best-efforts-service.js";
+import SegmentElevationProfileService from "../services/segmentElevationProfileService.js";
 import CollaborationDBService from "../services/collaborationDBService.js";
 
 import pool from "../services/database.js";
@@ -847,6 +851,29 @@ router.get("/bestefforts/:id/data", authMiddleware, async (req, res, next) => {
   } catch (err) {
     console.log(err);
     next(err);
+  }
+});
+
+router.post("/:id/elevation-profile/rebuild", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
+  try {
+    const segmentId = Number(req.params.id);
+    const uid = req.user?.id;
+    if (!Number.isInteger(segmentId) || segmentId <= 0) {
+      return res.status(400).json({ error: "Invalid segment id" });
+    }
+
+    const ownedSegmentId = await SegmentElevationProfileService.getOwnedSegmentId(uid, segmentId);
+    if (!ownedSegmentId) {
+      return res.status(404).json({ error: "Segment not found" });
+    }
+
+    await SegmentElevationProfileService.markSegmentsStale([ownedSegmentId]);
+    await enqueueSegmentElevationProfiles({ segmentIds: [ownedSegmentId], delayMs: 0 });
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(202).json({ segmentId: ownedSegmentId, status: "queued" });
+  } catch (error) {
+    console.error("POST /segments/:id/elevation-profile/rebuild failed:", error);
+    next(error);
   }
 });
 

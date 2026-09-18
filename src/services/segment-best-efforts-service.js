@@ -18,6 +18,16 @@ export const SEGMENT_SCAN_BATCH_SIZE = Math.max(
   Math.floor(Number(process.env.SEGMENT_SCAN_BATCH_SIZE) || 32)
 );
 
+export const SEGMENT_ELEVATION_PROFILE_JOB = "process-segment-elevation-profiles";
+export const SEGMENT_ELEVATION_PROFILE_BATCH_SIZE = Math.max(
+  1,
+  Math.floor(Number(process.env.SEGMENT_ELEVATION_PROFILE_BATCH_SIZE) || 32)
+);
+export const SEGMENT_ELEVATION_PROFILE_DELAY_MS = Math.max(
+  0,
+  Math.floor(Number(process.env.SEGMENT_ELEVATION_PROFILE_DELAY_MS) || 30_000)
+);
+
 function buildQueueOptions(jobId) {
   return {
     attempts: 2,
@@ -202,6 +212,36 @@ export async function enqueueSegmentBestEfforts({ uid, segmentIds }) {
         type: "exponential",
         delay: 2000
       },
+      removeOnComplete: 100,
+      removeOnFail: 100
+    }
+  })));
+}
+
+export async function enqueueSegmentElevationProfiles({ segmentIds, delayMs = SEGMENT_ELEVATION_PROFILE_DELAY_MS }) {
+  const normalizedSegmentIds = [...new Set(
+    (Array.isArray(segmentIds) ? segmentIds : [])
+      .map(Number)
+      .filter((segmentId) => Number.isInteger(segmentId) && segmentId > 0)
+  )];
+  if (normalizedSegmentIds.length === 0) return [];
+
+  const groups = [];
+  for (let index = 0; index < normalizedSegmentIds.length; index += SEGMENT_ELEVATION_PROFILE_BATCH_SIZE) {
+    groups.push(normalizedSegmentIds.slice(index, index + SEGMENT_ELEVATION_PROFILE_BATCH_SIZE));
+  }
+
+  return segmentBestEffortsQueue.addBulk(groups.map((group) => ({
+    name: SEGMENT_ELEVATION_PROFILE_JOB,
+    data: { segmentIds: group },
+    opts: {
+      attempts: 2,
+      backoff: {
+        type: "exponential",
+        delay: 2000
+      },
+      delay: Math.max(0, Number(delayMs) || 0),
+      priority: 100,
       removeOnComplete: 100,
       removeOnFail: 100
     }

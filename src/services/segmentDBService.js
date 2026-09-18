@@ -18,6 +18,48 @@ const SEGMENT_BEST_EFFORTS_DIRECT_AVERAGES = String(
   process.env.SEGMENT_BEST_EFFORTS_DIRECT_AVERAGES || "1"
 ).trim() !== "0";
 
+function finiteMetric(value) {
+  if (value == null) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+export function resolveActiveSegmentAltitudeProfile(row = {}) {
+  const pointCount = Number(row.points_count);
+  const externalAltitudes = Array.isArray(row.altitudes) ? row.altitudes : [];
+  const workoutAltitudes = Array.isArray(row.workout_altitudes) ? row.workout_altitudes : [];
+  const status = String(row.workout_altitude_status || "unavailable").toLowerCase();
+  const workoutProfileComplete = ["confirmed", "stale"].includes(status)
+    && Number.isInteger(pointCount)
+    && pointCount >= 2
+    && workoutAltitudes.length === pointCount
+    && workoutAltitudes.every((value) => finiteMetric(value) != null)
+    && finiteMetric(row.workout_start_altitude) != null
+    && finiteMetric(row.workout_end_altitude) != null
+    && finiteMetric(row.workout_ascent) != null;
+  const source = workoutProfileComplete ? "workout" : "external";
+
+  return {
+    source,
+    status,
+    altitudes: workoutProfileComplete ? workoutAltitudes : externalAltitudes,
+    startAltitude: workoutProfileComplete
+      ? finiteMetric(row.workout_start_altitude)
+      : finiteMetric(row.start_altitude),
+    endAltitude: workoutProfileComplete
+      ? finiteMetric(row.workout_end_altitude)
+      : finiteMetric(row.end_altitude),
+    ascent: workoutProfileComplete
+      ? finiteMetric(row.workout_ascent)
+      : finiteMetric(row.ascent),
+    candidateCount: Math.max(0, Number(row.workout_altitude_candidate_count) || 0),
+    clusterCount: Math.max(0, Number(row.workout_altitude_cluster_count) || 0),
+    dispersionMeters: finiteMetric(row.workout_altitude_dispersion),
+    algorithmVersion: finiteMetric(row.workout_altitude_algorithm_version),
+    updatedAt: row.workout_altitude_updated_at || null
+  };
+}
+
 export default class SegmentDBService {
 
   static async hydrateSegmentTrackRow(row) {
@@ -578,6 +620,16 @@ export default class SegmentDBService {
         s.end_altitude,
         s.ascent,
         s.altitudes,
+        s.workout_altitudes,
+        s.workout_start_altitude,
+        s.workout_end_altitude,
+        s.workout_ascent,
+        s.workout_altitude_status,
+        s.workout_altitude_candidate_count,
+        s.workout_altitude_cluster_count,
+        s.workout_altitude_dispersion,
+        s.workout_altitude_algorithm_version,
+        s.workout_altitude_updated_at,
         s.points_count,
         s.best_efforts_status,
         0::int AS share_group_count,
@@ -614,6 +666,16 @@ export default class SegmentDBService {
         s.end_altitude,
         s.ascent,
         s.altitudes,
+        s.workout_altitudes,
+        s.workout_start_altitude,
+        s.workout_end_altitude,
+        s.workout_ascent,
+        s.workout_altitude_status,
+        s.workout_altitude_candidate_count,
+        s.workout_altitude_cluster_count,
+        s.workout_altitude_dispersion,
+        s.workout_altitude_algorithm_version,
+        s.workout_altitude_updated_at,
         s.points_count,
         s.best_efforts_status,
         0::int AS share_group_count,
@@ -652,6 +714,16 @@ export default class SegmentDBService {
         s.end_altitude,
         s.ascent,
         s.altitudes,
+        s.workout_altitudes,
+        s.workout_start_altitude,
+        s.workout_end_altitude,
+        s.workout_ascent,
+        s.workout_altitude_status,
+        s.workout_altitude_candidate_count,
+        s.workout_altitude_cluster_count,
+        s.workout_altitude_dispersion,
+        s.workout_altitude_algorithm_version,
+        s.workout_altitude_updated_at,
         s.points_count,
         s.best_efforts_status,
         (
@@ -1410,6 +1482,16 @@ export default class SegmentDBService {
     s.end_altitude,
     s.ascent,
     s.altitudes,
+    s.workout_altitudes,
+    s.workout_start_altitude,
+    s.workout_end_altitude,
+    s.workout_ascent,
+    s.workout_altitude_status,
+    s.workout_altitude_candidate_count,
+    s.workout_altitude_cluster_count,
+    s.workout_altitude_dispersion,
+    s.workout_altitude_algorithm_version,
+    s.workout_altitude_updated_at,
     s.points_count,
     s.best_efforts_status,
     (
@@ -2337,6 +2419,16 @@ export default class SegmentDBService {
     end_altitude,
     ascent,
     altitudes,
+    workout_altitudes,
+    workout_start_altitude,
+    workout_end_altitude,
+    workout_ascent,
+    workout_altitude_status,
+    workout_altitude_candidate_count,
+    workout_altitude_cluster_count,
+    workout_altitude_dispersion,
+    workout_altitude_algorithm_version,
+    workout_altitude_updated_at,
     points_count,
     best_efforts_status,
     track_blob,
@@ -2374,10 +2466,11 @@ export default class SegmentDBService {
 
 
   static mapSegment(row, rowstate = 'DB') {
+    const elevationProfile = resolveActiveSegmentAltitudeProfile(row);
     const merged = [];
     for (let i = 0; i < row.points_count; ++i) {
       const cc = row.geom_geojson.coordinates[i];
-      const ele = row.altitudes[i];
+      const ele = elevationProfile.altitudes[i] ?? null;
       merged.push({
         lat: cc[1],
         lng: cc[0],
@@ -2396,9 +2489,18 @@ export default class SegmentDBService {
       ownerEmail: row.owner_email || null,
       distance: row.distance,
       duration: row.duration,
-      ascent: row.ascent,
+      ascent: elevationProfile.ascent,
       points_count: row.points_count,
       bestEffortsStatus: row.best_efforts_status,
+      elevationProfile: {
+        source: elevationProfile.source,
+        status: elevationProfile.status,
+        candidateCount: elevationProfile.candidateCount,
+        clusterCount: elevationProfile.clusterCount,
+        dispersionMeters: elevationProfile.dispersionMeters,
+        algorithmVersion: elevationProfile.algorithmVersion,
+        updatedAt: elevationProfile.updatedAt
+      },
       isFavorite: !!row.is_favorite,
       shareGroupCount: Number(row.share_group_count || 0),
       sharing: shareGroups == null ? null : {
@@ -2411,14 +2513,14 @@ export default class SegmentDBService {
         lat: row.start_lat,
         lng: row.start_lng,
         name: row.start_name,
-        altitude: row.start_altitude
+        altitude: elevationProfile.startAltitude
       },
 
       end: {
         lat: row.end_lat,
         lng: row.end_lng,
         name: row.end_name,
-        altitude: row.end_altitude
+        altitude: elevationProfile.endAltitude
 
       },
       track: merged,
