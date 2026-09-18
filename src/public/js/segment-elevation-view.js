@@ -164,10 +164,11 @@ export default class SegmentElevationView {
         xAxisIndex: 0,
         yAxisIndex: 1,
         showSymbol: false,
-        smooth: true,
-        lineStyle: { width: 1.4, color: "rgba(100, 116, 139, 0.72)" },
+        smooth: false,
+        connectNulls: false,
+        sampling: "lttb",
+        lineStyle: { width: 1.5, color: "rgba(100, 116, 139, 0.72)" },
         itemStyle: { color: "#64748b" },
-        areaStyle: { color: "rgba(148, 163, 184, 0.16)" },
         data: this.profileData
       });
     }

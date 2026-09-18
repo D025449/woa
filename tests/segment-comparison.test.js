@@ -100,9 +100,17 @@ test("segment comparison chart renders workout altitude on the shared elevation 
 
   view.render();
 
+  const segmentAltitudeSeries = chartOptions.series.find((series) => (
+    series.yAxisIndex === 1 && series.lineStyle?.type !== "dotted"
+  ));
   const workoutAltitudeSeries = chartOptions.series.find((series) => (
     series.yAxisIndex === 1 && series.lineStyle?.type === "dotted"
   ));
+  assert.equal(segmentAltitudeSeries.smooth, false);
+  assert.equal(segmentAltitudeSeries.connectNulls, workoutAltitudeSeries.connectNulls);
+  assert.equal(segmentAltitudeSeries.sampling, workoutAltitudeSeries.sampling);
+  assert.equal(segmentAltitudeSeries.lineStyle.width, workoutAltitudeSeries.lineStyle.width);
+  assert.equal(segmentAltitudeSeries.areaStyle, undefined);
   assert.deepEqual(workoutAltitudeSeries.data, [[0, 90, 0], [1, 120, 60]]);
   assert.equal(chartOptions.yAxis[1].min, 87);
   assert.equal(chartOptions.yAxis[1].max, 123);
