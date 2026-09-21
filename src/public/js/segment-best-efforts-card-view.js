@@ -43,13 +43,27 @@ export default class SegmentBestEffortsCardView {
     this.comparisonRows = new Map();
     this.rowsByComparisonKey = new Map();
 
-    this.container?.addEventListener("click", (event) => {
+    this.container?.addEventListener("click", async (event) => {
+      const referenceButton = event.target?.closest?.("[data-segment-elevation-reference]");
+      if (referenceButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        const row = this.rowsByComparisonKey.get(referenceButton.dataset.segmentElevationReference);
+        if (!row || referenceButton.disabled) return;
+        referenceButton.disabled = true;
+        try {
+          await this.handlers.onSetElevationReference?.(row);
+        } finally {
+          referenceButton.disabled = false;
+        }
+        return;
+      }
       if (event.target?.closest?.("a")) return;
       const card = event.target?.closest?.("[data-segment-comparison-key]");
       if (card) this.toggleComparison(card.dataset.segmentComparisonKey);
     });
     this.container?.addEventListener("keydown", (event) => {
-      if (!['Enter', ' '].includes(event.key) || event.target?.closest?.("a")) return;
+      if (!['Enter', ' '].includes(event.key) || event.target?.closest?.("a, button")) return;
       const card = event.target?.closest?.("[data-segment-comparison-key]");
       if (!card) return;
       event.preventDefault();
@@ -229,6 +243,15 @@ export default class SegmentBestEffortsCardView {
     ].filter(Boolean).join(" · ");
 
     const comparisonKey = this.comparisonKey(row);
+    const canSetElevationReference = this.handlers.canSetElevationReference?.(this.currentSegment, row) === true;
+    const isManualElevationReference = this.currentSegment?.elevationProfile?.manual === true
+      && String(this.currentSegment?.elevationProfile?.sourceWorkoutId ?? "") === String(row?.wid ?? "");
+    const elevationReferenceAction = canSetElevationReference
+      ? (isManualElevationReference
+          ? `<span class="segments-best-effort-card__reference-current">${this.t("elevationReferenceCurrent")}</span>`
+          : `<button class="segments-best-effort-card__reference" type="button"
+              data-segment-elevation-reference="${this.escapeHtml(comparisonKey)}">${this.t("elevationReferenceSet")}</button>`)
+      : "";
     return `
       <article class="segments-best-effort-card" role="checkbox" tabindex="0"
         aria-checked="false" aria-label="${this.escapeHtml(this.t("comparisonAddAria", { workout: `W-${row.wid}` }))}"
@@ -244,6 +267,7 @@ export default class SegmentBestEffortsCardView {
               <span class="segments-best-effort-card__compare-dot"></span>
               <span data-comparison-label>${this.t("comparisonAdd")}</span>
             </span>
+            ${elevationReferenceAction}
             <a class="segments-best-effort-card__workout" href="/dashboard-new?workoutId=${encodeURIComponent(row.wid)}">W-${this.escapeHtml(row.wid)}</a>
           </div>
         </div>

@@ -856,7 +856,11 @@
       "segmentArchiveFailed": "No se pudo procesar el archivo de segmentos.",
       "mapStyleChanged": "Estilo de mapa cambiado: {style}.",
       "map3dKeyMissing": "MAPTILER_API_KEY todavía falta en tu entorno de desarrollo.",
-      "map3dNoGps": "La vista 3D necesita un segmento con datos de trazado válidos."
+      "map3dNoGps": "La vista 3D necesita un segmento con datos de trazado válidos.",
+      "elevationReferenceSaved": "{workout} se usa ahora como referencia de altitud.",
+      "elevationReferenceFailed": "No se pudo guardar la referencia de altitud.",
+      "elevationReferenceAutomaticQueued": "Se está recalculando la referencia de altitud automática.",
+      "elevationReferenceAutomaticFailed": "No se pudo activar la referencia de altitud automática."
     },
     "table": {
       "rank": "Rango",
@@ -901,7 +905,10 @@
       "axisHeartCadence": "FC/Cad",
       "axisSpeed": "km/h",
       "axisAltitude": "m"
-    }
+    },
+    "elevationReferenceSet": "Usar como referencia de altitud",
+    "elevationReferenceCurrent": "Referencia de altitud",
+    "elevationReferenceAutomatic": "Usar referencia de altitud automática"
   },
   "analyticsPage": {
     "title": "Analíticas de entrenamientos",

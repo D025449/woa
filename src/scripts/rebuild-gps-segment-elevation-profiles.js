@@ -125,6 +125,7 @@ async function loadEligibleSegmentBatch(
     SELECT segment.id
     FROM gps_segments segment
     WHERE segment.id > $1
+      AND segment.workout_altitude_manual = false
       AND EXISTS (
         SELECT 1
         FROM gps_segment_best_efforts effort
@@ -149,7 +150,8 @@ async function loadInventory(client, algorithmVersion) {
         SELECT 1 FROM gps_segment_best_efforts effort WHERE effort.sid = segment.id
       ))::bigint AS segments_with_efforts,
       COUNT(*) FILTER (WHERE
-        EXISTS (SELECT 1 FROM gps_segment_best_efforts effort WHERE effort.sid = segment.id)
+        segment.workout_altitude_manual = false
+        AND EXISTS (SELECT 1 FROM gps_segment_best_efforts effort WHERE effort.sid = segment.id)
         AND (
           segment.workout_altitude_status <> 'confirmed'
           OR segment.workout_altitude_algorithm_version IS DISTINCT FROM $1

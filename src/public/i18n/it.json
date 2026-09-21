@@ -854,7 +854,11 @@
       "segmentArchiveFailed": "Impossibile elaborare l’archivio dei segmenti.",
       "mapStyleChanged": "Stile mappa cambiato: {style}.",
       "map3dKeyMissing": "MAPTILER_API_KEY manca ancora nel tuo ambiente di sviluppo.",
-      "map3dNoGps": "La vista 3D richiede un segmento con dati traccia validi."
+      "map3dNoGps": "La vista 3D richiede un segmento con dati traccia validi.",
+      "elevationReferenceSaved": "{workout} viene ora usato come riferimento altimetrico.",
+      "elevationReferenceFailed": "Non è stato possibile salvare il riferimento altimetrico.",
+      "elevationReferenceAutomaticQueued": "Il riferimento altimetrico automatico è in fase di ricalcolo.",
+      "elevationReferenceAutomaticFailed": "Non è stato possibile attivare il riferimento altimetrico automatico."
     },
     "table": {
       "rank": "Posizione",
@@ -899,7 +903,10 @@
       "axisHeartCadence": "FC/Cad",
       "axisSpeed": "km/h",
       "axisAltitude": "m"
-    }
+    },
+    "elevationReferenceSet": "Usa come riferimento altimetrico",
+    "elevationReferenceCurrent": "Riferimento altimetrico",
+    "elevationReferenceAutomatic": "Usa il riferimento altimetrico automatico"
   },
   "analyticsPage": {
     "title": "Analisi degli allenamenti",

@@ -117,7 +117,11 @@ export default class Controller {
       formatSegmentHeaderMarkup: (...args) => this.formatSegmentHeaderMarkup(...args),
       onHeaderRendered: () => this.bindSegmentHeaderEvents(),
       onComparisonChange: (rows) => this.loadSegmentComparisons(rows),
-      onComparisonLimit: (limit) => this.showToast(this.t("messages.comparisonLimit", { limit }))
+      onComparisonLimit: (limit) => this.showToast(this.t("messages.comparisonLimit", { limit })),
+      canSetElevationReference: (segment, row) => (
+        this.canEditSelectedSegment(segment) && row?.elevation_reference_eligible === true
+      ),
+      onSetElevationReference: (row) => this.setElevationReference(row)
     });
 
     this.elevationView = new SegmentElevationView(
@@ -158,6 +162,7 @@ export default class Controller {
     this.favoriteToggleButton = document.getElementById("segment-favorite-toggle");
     this.favoriteFilterButton = document.getElementById("segments-favorites-filter");
     this.bestEffortsMyPrButton = document.getElementById("segment-bestefforts-my-pr");
+    this.elevationReferenceAutomaticButton = document.getElementById("segment-elevation-reference-automatic");
     this.updateDeleteButton();
     this.updateShareUi();
     this.updateSegmentMeta();
@@ -224,6 +229,10 @@ export default class Controller {
     this.bestEffortsMyPrButton?.addEventListener("click", async () => {
       await this.activateMyPrFocus();
       this.bestEffortsMenu?.removeAttribute("open");
+    });
+    this.elevationReferenceAutomaticButton?.addEventListener("click", async () => {
+      this.bestEffortsMenu?.removeAttribute("open");
+      await this.useAutomaticElevationReference();
     });
     this.detailActionsMenu?.querySelector("summary")?.addEventListener("click", (event) => {
       if (!this.isShareInlineOpen()) {
@@ -580,6 +589,7 @@ export default class Controller {
     this.updateSegmentMeta();
     this.update3dMapButton();
     this.updateFavoriteUi();
+    this.updateElevationReferenceUi();
     this.renderQuickAccess();
     this.updateBestEffortsScopeUi();
     if (this.selectedSegmentSharing) {
@@ -654,6 +664,7 @@ export default class Controller {
       this.updateShareUi();
       this.updateSegmentMeta();
       this.updateFavoriteUi();
+      this.updateElevationReferenceUi();
       this.refreshSelectedSegmentHeader();
       this.updateBestEffortsScopeUi();
       return this.selectedSegment;
@@ -680,6 +691,7 @@ export default class Controller {
     this.updateSegmentMeta();
     this.update3dMapButton();
     this.updateFavoriteUi();
+    this.updateElevationReferenceUi();
     this.updateBestEffortsScopeUi();
     this.updateDetailNavigation();
     if (window.matchMedia("(max-width: 991.98px)").matches) {
@@ -741,6 +753,82 @@ export default class Controller {
     } catch (error) {
       this.comparisonWorkoutCache.delete(key);
       throw error;
+    }
+  }
+
+  updateElevationReferenceUi() {
+    if (!this.elevationReferenceAutomaticButton) return;
+    const showAutomaticAction = this.canEditSelectedSegment()
+      && this.selectedSegment?.elevationProfile?.manual === true;
+    this.elevationReferenceAutomaticButton.classList.toggle("d-none", !showAutomaticAction);
+    this.elevationReferenceAutomaticButton.disabled = false;
+  }
+
+  async setElevationReference(row) {
+    const segmentId = Number(this.selectedSegment?.id);
+    if (!this.canEditSelectedSegment() || !Number.isInteger(segmentId)) return;
+
+    try {
+      const response = await fetch(`/segments/${segmentId}/elevation-profile/reference`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workoutId: row?.wid,
+          startOffset: row?.start_offset,
+          endOffset: row?.end_offset
+        })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result?.segment) {
+        throw new Error(result?.error || this.t("messages.elevationReferenceFailed"));
+      }
+      if (String(this.selectedSegment?.id) !== String(segmentId)) return;
+
+      Object.assign(this.selectedSegment, result.segment);
+      this.cardView.currentSegment = this.selectedSegment;
+      this.elevationView.updateSegment(this.selectedSegment);
+      this.updateSegmentMeta();
+      this.updateElevationReferenceUi();
+      this.refreshSelectedSegmentHeader();
+      await this.cardView.loadSegmentBestEfforts(this.selectedSegment, { showLoading: false });
+      this.showToast(this.t("messages.elevationReferenceSaved", { workout: `W-${row?.wid}` }));
+    } catch (error) {
+      console.error(error);
+      this.showToast(error?.message || this.t("messages.elevationReferenceFailed"));
+    }
+  }
+
+  async useAutomaticElevationReference() {
+    const segmentId = Number(this.selectedSegment?.id);
+    if (!this.canEditSelectedSegment() || !Number.isInteger(segmentId)) return;
+
+    this.elevationReferenceAutomaticButton.disabled = true;
+    try {
+      const response = await fetch(`/segments/${segmentId}/elevation-profile/rebuild`, {
+        method: "POST",
+        credentials: "include"
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result?.error || this.t("messages.elevationReferenceAutomaticFailed"));
+      }
+      if (String(this.selectedSegment?.id) !== String(segmentId)) return;
+
+      this.selectedSegment.elevationProfile = {
+        ...(this.selectedSegment.elevationProfile || {}),
+        manual: false,
+        status: "stale"
+      };
+      this.cardView.currentSegment = this.selectedSegment;
+      this.updateElevationReferenceUi();
+      await this.cardView.loadSegmentBestEfforts(this.selectedSegment, { showLoading: false });
+      this.showToast(this.t("messages.elevationReferenceAutomaticQueued"));
+    } catch (error) {
+      console.error(error);
+      this.showToast(error?.message || this.t("messages.elevationReferenceAutomaticFailed"));
+    } finally {
+      this.updateElevationReferenceUi();
     }
   }
 

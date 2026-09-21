@@ -1415,6 +1415,33 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-scope-toggl
     text-decoration: underline;
 }
 
+.segments-best-effort-card__reference {
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: var(--ui-info-text);
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.segments-best-effort-card__reference:hover,
+.segments-best-effort-card__reference:focus-visible {
+    text-decoration: underline;
+}
+
+.segments-best-effort-card__reference:disabled {
+    opacity: 0.55;
+}
+
+.segments-best-effort-card__reference-current {
+    color: var(--ui-success-text);
+    font-size: 0.68rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
 .segments-best-effort-card__actions {
     display: grid;
     justify-items: end;

@@ -83,6 +83,29 @@ test("segment view renders page navigation and size controls", async () => {
   assert.match(source, /id="segment-best-efforts-page-next"/u);
   assert.match(source, /id="segment-best-efforts-period"/u);
   assert.doesNotMatch(source, /id="segment-best-efforts-load-more"/u);
+  assert.match(source, /id="segment-elevation-reference-automatic"/u);
+});
+
+test("owned eligible best efforts expose the manual elevation-reference action", () => {
+  const view = createHeadlessView();
+  view.handlers.canSetElevationReference = () => true;
+  view.currentSegment = { id: 42, elevationProfile: { manual: false, sourceWorkoutId: null } };
+  const row = {
+    wid: 90384,
+    start_offset: 10,
+    end_offset: 80,
+    duration: 70,
+    rn: 1,
+    elevation_reference_eligible: true
+  };
+
+  const action = view.renderRow(row);
+  assert.match(action, /data-segment-elevation-reference="90384:10:80"/u);
+
+  view.currentSegment.elevationProfile = { manual: true, sourceWorkoutId: 90384 };
+  const selected = view.renderRow(row);
+  assert.doesNotMatch(selected, /data-segment-elevation-reference=/u);
+  assert.match(selected, /elevationReferenceCurrent/u);
 });
 
 test("best-effort endpoint always uses persisted rows with bounded page sizes", async () => {
@@ -95,6 +118,17 @@ test("best-effort endpoint always uses persisted rows with bounded page sizes", 
   assert.match(route, /\["all", "current_month", "previous_month", "current_quarter", "current_year"\]\.includes\(requestedPeriod\)/u);
   assert.match(route, /SegmentDBService\.getBestEffortsBySegment/u);
   assert.doesNotMatch(route, /materializeOnDemandSegmentBestEfforts/u);
+});
+
+test("manual elevation references use an owner-scoped write endpoint", async () => {
+  const source = await readFile(segmentRoutesUrl, "utf8");
+  const routeStart = source.indexOf('router.put("/:id/elevation-profile/reference"');
+  const routeEnd = source.indexOf("router.get(\"/:id\"", routeStart);
+  const route = source.slice(routeStart, routeEnd);
+
+  assert.match(route, /requireActiveAccountWrite/u);
+  assert.match(route, /SegmentElevationProfileService\.setManualReference/u);
+  assert.match(route, /SegmentDBService\.getSegmentById/u);
 });
 
 test("persisted paging exposes stable ranks and the leader on every page", async () => {

@@ -3,7 +3,7 @@ import {
   assertGpsSegmentRebuildDatabaseUnchanged
 } from "./gps-segment-best-efforts-rebuild-helpers.js";
 
-export const GPS_SEGMENT_ELEVATION_PROFILE_REBUILD_KEY = "gps-segment-elevation-profiles-v2";
+export const GPS_SEGMENT_ELEVATION_PROFILE_REBUILD_KEY = "gps-segment-elevation-profiles-v3";
 export const DEFAULT_GPS_SEGMENT_ELEVATION_PROFILE_BATCH_SIZE = 32;
 
 function parsePositiveInteger(value, flag) {

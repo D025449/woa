@@ -3,10 +3,10 @@ import WorkoutDBService from "./workoutDBService.js";
 import SegmentTrackBlobService from "./segmentTrackBlobService.js";
 import { buildSegmentComparisonProfile } from "../shared/SegmentComparison.js";
 
-export const WORKOUT_ALTITUDE_ALGORITHM_VERSION = 2;
+export const WORKOUT_ALTITUDE_ALGORITHM_VERSION = 3;
 export const DEFAULT_WORKOUT_ALTITUDE_CANDIDATE_LIMIT = 50;
-export const DEFAULT_WORKOUT_ALTITUDE_MIN_CLUSTER_SIZE = 5;
-export const DEFAULT_WORKOUT_ALTITUDE_MIN_CLUSTER_FRACTION = 0.6;
+export const DEFAULT_WORKOUT_ALTITUDE_MIN_CLUSTER_SIZE = 3;
+export const DEFAULT_WORKOUT_ALTITUDE_MIN_CLUSTER_FRACTION = 0.4;
 export const DEFAULT_WORKOUT_ALTITUDE_CLUSTER_RADIUS_METERS = 15;
 
 function finiteNumber(value) {
@@ -254,6 +254,7 @@ export default class SegmentElevationProfileService {
         END,
         updated_at = NOW()
       WHERE id = ANY($1::bigint[])
+        AND workout_altitude_manual = false
       RETURNING id
     `, [ids]);
     return result.rows.map((row) => Number(row.id));
@@ -324,6 +325,7 @@ export default class SegmentElevationProfileService {
         workout_end_altitude,
         workout_ascent,
         workout_altitude_status,
+        workout_altitude_manual,
         track_blob,
         track_blob_codec
       FROM gps_segments
@@ -402,6 +404,7 @@ export default class SegmentElevationProfileService {
         workout_end_altitude = $4,
         workout_ascent = $5,
         workout_altitude_status = $6,
+        workout_altitude_manual = false,
         workout_altitude_source_wid = $7,
         workout_altitude_candidate_count = $8,
         workout_altitude_cluster_count = $9,
@@ -445,10 +448,134 @@ export default class SegmentElevationProfileService {
       UPDATE gps_segments
       SET
         workout_altitude_status = 'confirmed',
+        workout_altitude_algorithm_version = $2,
+        workout_altitude_updated_at = NOW(),
         updated_at = NOW()
       WHERE id = $1
       RETURNING id, uid, workout_altitude_status
-    `, [segmentId]);
+    `, [segmentId, WORKOUT_ALTITUDE_ALGORITHM_VERSION]);
+    return update.rows[0] || null;
+  }
+
+  static async setManualReference(uid, segmentId, match = {}) {
+    const workoutId = Number(match.workoutId);
+    const startOffset = Number(match.startOffset);
+    const endOffset = Number(match.endOffset);
+    if (!Number.isInteger(workoutId) || workoutId <= 0
+      || !Number.isFinite(startOffset) || startOffset < 0
+      || !Number.isFinite(endOffset) || endOffset <= startOffset) {
+      throw Object.assign(new Error("Invalid segment effort reference"), { statusCode: 400 });
+    }
+
+    const effortResult = await pool.query(`
+      SELECT
+        effort.wid,
+        effort.start_offset,
+        effort.end_offset,
+        effort.duration,
+        workout.start_time
+      FROM gps_segment_best_efforts effort
+      INNER JOIN workouts workout
+        ON workout.id = effort.wid
+      INNER JOIN gps_segments segment
+        ON segment.id = effort.sid
+      WHERE effort.sid = $1
+        AND segment.uid = $2
+        AND effort.wid = $3
+        AND effort.start_offset = $4
+        AND effort.end_offset = $5
+        AND workout.validgps = true
+        AND workout.gps_source = 'recorded'
+        AND workout.workout_type <> 'motorsport'
+        AND workout.terrain_profile NOT IN ('altitude_missing', 'altitude_invalid')
+      ORDER BY effort.duration ASC, effort.id ASC
+      LIMIT 1
+    `, [segmentId, uid, workoutId, startOffset, endOffset]);
+    const effort = effortResult.rows[0];
+    if (!effort) {
+      throw Object.assign(new Error("Segment effort reference not found"), { statusCode: 404 });
+    }
+
+    const [segmentsById, rawWorkouts] = await Promise.all([
+      this.loadSegmentsForRebuild([segmentId]),
+      WorkoutDBService.getWorkouts([workoutId])
+    ]);
+    const segment = segmentsById.get(Number(segmentId));
+    const workout = rawWorkouts.get(workoutId) ?? rawWorkouts.get(String(workoutId));
+    if (!segment || !workout) {
+      throw Object.assign(new Error("Segment effort data is unavailable"), { statusCode: 422 });
+    }
+
+    const pointCount = Number(segment.points_count);
+    const distanceMeters = Number(segment.distance);
+    let altitudes = null;
+    try {
+      const comparison = buildSegmentComparisonProfile(
+        workout,
+        effort,
+        distanceMeters,
+        { maxPoints: Math.max(128, pointCount) }
+      );
+      altitudes = normalizeWorkoutAltitudeProfile(
+        comparison,
+        pointCount,
+        distanceMeters,
+        segment.sample_distances_meters
+      );
+    } catch {
+      // Report a stable client error below without exposing decoder details.
+    }
+    if (!altitudes) {
+      throw Object.assign(new Error("Workout has no complete segment elevation profile"), { statusCode: 422 });
+    }
+
+    const summary = summarizeAltitudes(altitudes);
+    const update = await pool.query(`
+      UPDATE gps_segments
+      SET
+        workout_altitudes = $3::jsonb,
+        workout_start_altitude = $4,
+        workout_end_altitude = $5,
+        workout_ascent = $6,
+        workout_altitude_status = 'confirmed',
+        workout_altitude_manual = true,
+        workout_altitude_source_wid = $7,
+        workout_altitude_candidate_count = GREATEST(workout_altitude_candidate_count, 1),
+        workout_altitude_cluster_count = 1,
+        workout_altitude_dispersion = 0,
+        workout_altitude_algorithm_version = $8,
+        workout_altitude_updated_at = NOW(),
+        updated_at = NOW()
+      WHERE id = $1
+        AND uid = $2
+      RETURNING id, uid, workout_altitude_status, workout_altitude_manual, workout_altitude_source_wid
+    `, [
+      segmentId,
+      uid,
+      JSON.stringify(altitudes),
+      summary.startAltitude,
+      summary.endAltitude,
+      summary.ascent,
+      workoutId,
+      WORKOUT_ALTITUDE_ALGORITHM_VERSION
+    ]);
+    return update.rows[0] || null;
+  }
+
+  static async clearManualReference(uid, segmentId) {
+    const update = await pool.query(`
+      UPDATE gps_segments
+      SET
+        workout_altitude_manual = false,
+        workout_altitude_status = CASE
+          WHEN workout_altitudes IS NULL THEN 'candidate'
+          ELSE 'stale'
+        END,
+        updated_at = NOW()
+      WHERE id = $1
+        AND uid = $2
+      RETURNING id, uid, workout_altitude_status, workout_altitude_manual
+    `, [segmentId, uid]);
     return update.rows[0] || null;
   }
 
@@ -588,6 +715,7 @@ export default class SegmentElevationProfileService {
       FROM gps_segments
       WHERE id = ANY($1::bigint[])
         AND workout_altitude_status IN ('candidate', 'stale')
+        AND workout_altitude_manual = false
       ORDER BY id
     `, [ids]);
     return this.rebuildSegments(pending.rows.map((row) => Number(row.id)));

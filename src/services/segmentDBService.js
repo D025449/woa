@@ -42,6 +42,10 @@ export function resolveActiveSegmentAltitudeProfile(row = {}) {
   return {
     source,
     status,
+    manual: row.workout_altitude_manual === true,
+    sourceWorkoutId: Number.isInteger(Number(row.workout_altitude_source_wid))
+      ? Number(row.workout_altitude_source_wid)
+      : null,
     altitudes: workoutProfileComplete ? workoutAltitudes : externalAltitudes,
     startAltitude: workoutProfileComplete
       ? finiteMetric(row.workout_start_altitude)
@@ -625,6 +629,8 @@ export default class SegmentDBService {
         s.workout_end_altitude,
         s.workout_ascent,
         s.workout_altitude_status,
+        s.workout_altitude_manual,
+        s.workout_altitude_source_wid,
         s.workout_altitude_candidate_count,
         s.workout_altitude_cluster_count,
         s.workout_altitude_dispersion,
@@ -671,6 +677,8 @@ export default class SegmentDBService {
         s.workout_end_altitude,
         s.workout_ascent,
         s.workout_altitude_status,
+        s.workout_altitude_manual,
+        s.workout_altitude_source_wid,
         s.workout_altitude_candidate_count,
         s.workout_altitude_cluster_count,
         s.workout_altitude_dispersion,
@@ -719,6 +727,8 @@ export default class SegmentDBService {
         s.workout_end_altitude,
         s.workout_ascent,
         s.workout_altitude_status,
+        s.workout_altitude_manual,
+        s.workout_altitude_source_wid,
         s.workout_altitude_candidate_count,
         s.workout_altitude_cluster_count,
         s.workout_altitude_dispersion,
@@ -1353,10 +1363,18 @@ export default class SegmentDBService {
       ranked.avg_cadence,
       owner.display_name AS owner_display_name,
       owner.email AS owner_email,
+      (
+        reference_workout.validgps = true
+        AND reference_workout.gps_source = 'recorded'
+        AND reference_workout.workout_type <> 'motorsport'
+        AND reference_workout.terrain_profile NOT IN ('altitude_missing', 'altitude_invalid')
+      ) AS elevation_reference_eligible,
       ranked.avg_speed,
       ranked.rn,
       ranked.leader_duration
     FROM ranked
+    INNER JOIN workouts reference_workout
+      ON reference_workout.id = ranked.wid
     LEFT JOIN users owner
       ON owner.id = ranked.uid
     ${userRankWhere}
@@ -1487,6 +1505,8 @@ export default class SegmentDBService {
     s.workout_end_altitude,
     s.workout_ascent,
     s.workout_altitude_status,
+    s.workout_altitude_manual,
+    s.workout_altitude_source_wid,
     s.workout_altitude_candidate_count,
     s.workout_altitude_cluster_count,
     s.workout_altitude_dispersion,
@@ -2424,6 +2444,8 @@ export default class SegmentDBService {
     workout_end_altitude,
     workout_ascent,
     workout_altitude_status,
+    workout_altitude_manual,
+    workout_altitude_source_wid,
     workout_altitude_candidate_count,
     workout_altitude_cluster_count,
     workout_altitude_dispersion,
@@ -2495,6 +2517,8 @@ export default class SegmentDBService {
       elevationProfile: {
         source: elevationProfile.source,
         status: elevationProfile.status,
+        manual: elevationProfile.manual,
+        sourceWorkoutId: elevationProfile.sourceWorkoutId,
         candidateCount: elevationProfile.candidateCount,
         clusterCount: elevationProfile.clusterCount,
         dispersionMeters: elevationProfile.dispersionMeters,

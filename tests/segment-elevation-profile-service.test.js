@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import {
   default as SegmentElevationProfileService,
@@ -16,6 +17,12 @@ import {
   getGpsSegmentElevationProfileRebuildUsage,
   parseGpsSegmentElevationProfileRebuildArgs
 } from "../src/scripts/gps-segment-elevation-profile-rebuild-helpers.js";
+
+const baseSegmentSchemaUrl = new URL("../src/migrations/007_gps_segments.sql", import.meta.url);
+const manualReferenceMigrationUrl = new URL(
+  "../src/migrations/086_gps_segment_manual_altitude_reference.sql",
+  import.meta.url
+);
 
 test("normalizes a workout altitude profile to the segment point count", () => {
   const altitudes = normalizeWorkoutAltitudeProfile({
@@ -92,6 +99,29 @@ test("keeps a small measured cluster in candidate state", () => {
   assert.ok(result.medoid);
 });
 
+test("confirms a three-profile cluster with the default forty-percent rule", () => {
+  const result = selectDominantWorkoutAltitudeCluster([
+    { workoutId: 1, altitudes: [215, 300, 411] },
+    { workoutId: 2, altitudes: [216, 301, 410] },
+    { workoutId: 3, altitudes: [214, 299, 412] },
+    { workoutId: 4, altitudes: [150, 235, 346] },
+    { workoutId: 5, altitudes: [275, 360, 471] }
+  ]);
+
+  assert.equal(result.confirmed, true);
+  assert.equal(result.cluster.length, 3);
+});
+
+test("does not confirm fewer than three matching profiles", () => {
+  const result = selectDominantWorkoutAltitudeCluster([
+    { workoutId: 1, altitudes: [215, 300, 411] },
+    { workoutId: 2, altitudes: [216, 301, 410] }
+  ]);
+
+  assert.equal(result.confirmed, false);
+  assert.equal(result.cluster.length, 2);
+});
+
 test("uses only complete confirmed or stale workout profiles as active elevation", () => {
   const base = {
     points_count: 3,
@@ -106,7 +136,9 @@ test("uses only complete confirmed or stale workout profiles as active elevation
     workout_altitude_candidate_count: 20,
     workout_altitude_cluster_count: 18,
     workout_altitude_dispersion: 1.2,
-    workout_altitude_algorithm_version: 1
+    workout_altitude_algorithm_version: 1,
+    workout_altitude_source_wid: 90384,
+    workout_altitude_manual: true
   };
 
   const candidate = resolveActiveSegmentAltitudeProfile({
@@ -123,6 +155,8 @@ test("uses only complete confirmed or stale workout profiles as active elevation
   assert.equal(confirmed.source, "workout");
   assert.deepEqual(confirmed.altitudes, base.workout_altitudes);
   assert.equal(confirmed.startAltitude, 215);
+  assert.equal(confirmed.manual, true);
+  assert.equal(confirmed.sourceWorkoutId, 90384);
 
   const stale = resolveActiveSegmentAltitudeProfile({
     ...base,
@@ -136,6 +170,28 @@ test("uses only complete confirmed or stale workout profiles as active elevation
     workout_altitudes: [215, 411]
   });
   assert.equal(incomplete.source, "external");
+});
+
+test("upload post-processing leaves manual altitude references untouched", async () => {
+  const queryable = {
+    async query(sql) {
+      assert.match(sql, /workout_altitude_manual = false/u);
+      return { rows: [] };
+    }
+  };
+
+  assert.deepEqual(await SegmentElevationProfileService.markSegmentsStale([23], queryable), []);
+});
+
+test("base schema and additive migration define the manual reference flag", async () => {
+  const [baseSchema, migration] = await Promise.all([
+    readFile(baseSegmentSchemaUrl, "utf8"),
+    readFile(manualReferenceMigrationUrl, "utf8")
+  ]);
+
+  for (const sql of [baseSchema, migration]) {
+    assert.match(sql, /workout_altitude_manual BOOLEAN NOT NULL DEFAULT FALSE/u);
+  }
 });
 
 test("retains only a complete previously confirmed profile during recalculation", () => {

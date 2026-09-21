@@ -1011,7 +1011,11 @@
       "failedDeleteSegment": "Segment konnte nicht gelöscht werden",
       "failedBestEffortsStatus": "Best-Efforts-Status konnte nicht geladen werden",
       "comparisonLimit": "Du kannst maximal {limit} Workouts vergleichen.",
-      "comparisonLoadFailed": "Die Workout-Daten für den Vergleich konnten nicht geladen werden."
+      "comparisonLoadFailed": "Die Workout-Daten für den Vergleich konnten nicht geladen werden.",
+      "elevationReferenceSaved": "{workout} wird als Höhenreferenz verwendet.",
+      "elevationReferenceFailed": "Die Höhenreferenz konnte nicht gespeichert werden.",
+      "elevationReferenceAutomaticQueued": "Die automatische Höhenreferenz wird neu berechnet.",
+      "elevationReferenceAutomaticFailed": "Die automatische Höhenreferenz konnte nicht aktiviert werden."
     },
     "table": {
       "rank": "Rang",
@@ -1058,7 +1062,10 @@
       "axisHeartCadence": "HF/Kad",
       "axisSpeed": "km/h",
       "axisAltitude": "m"
-    }
+    },
+    "elevationReferenceSet": "Als Höhenreferenz verwenden",
+    "elevationReferenceCurrent": "Höhenreferenz",
+    "elevationReferenceAutomatic": "Automatische Höhenreferenz verwenden"
   },
   "analyticsPage": {
     "title": "Workout-Analysen",

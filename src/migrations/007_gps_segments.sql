@@ -31,6 +31,7 @@ CREATE TABLE gps_segments (
   workout_end_altitude DOUBLE PRECISION,
   workout_ascent DOUBLE PRECISION,
   workout_altitude_status TEXT NOT NULL DEFAULT 'unavailable',
+  workout_altitude_manual BOOLEAN NOT NULL DEFAULT FALSE,
   workout_altitude_source_wid BIGINT,
   workout_altitude_candidate_count INTEGER NOT NULL DEFAULT 0,
   workout_altitude_cluster_count INTEGER NOT NULL DEFAULT 0,
@@ -117,6 +118,9 @@ COMMENT ON COLUMN gps_segments.workout_altitudes IS
 
 COMMENT ON COLUMN gps_segments.workout_altitude_status IS
   'Lifecycle state of the workout-derived profile: unavailable, candidate, confirmed, or stale.';
+
+COMMENT ON COLUMN gps_segments.workout_altitude_manual IS
+  'True when the workout-derived elevation profile was explicitly selected by the segment owner.';
 
 COMMENT ON COLUMN gps_segments.workout_altitude_source_wid IS
   'Workout selected as the medoid for the stored workout-derived elevation profile.';

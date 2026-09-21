@@ -1011,7 +1011,11 @@
       "failedDeleteSegment": "Failed to delete segment",
       "failedBestEffortsStatus": "Failed to fetch best-efforts status",
       "comparisonLimit": "You can compare up to {limit} workouts.",
-      "comparisonLoadFailed": "The workout data for this comparison could not be loaded."
+      "comparisonLoadFailed": "The workout data for this comparison could not be loaded.",
+      "elevationReferenceSaved": "{workout} is now used as the elevation reference.",
+      "elevationReferenceFailed": "The elevation reference could not be saved.",
+      "elevationReferenceAutomaticQueued": "The automatic elevation reference is being recalculated.",
+      "elevationReferenceAutomaticFailed": "The automatic elevation reference could not be enabled."
     },
     "table": {
       "rank": "Rank",
@@ -1058,7 +1062,10 @@
       "axisHeartCadence": "HR/Cad",
       "axisSpeed": "km/h",
       "axisAltitude": "m"
-    }
+    },
+    "elevationReferenceSet": "Use as elevation reference",
+    "elevationReferenceCurrent": "Elevation reference",
+    "elevationReferenceAutomatic": "Use automatic elevation reference"
   },
   "analyticsPage": {
     "title": "Workout Analytics",

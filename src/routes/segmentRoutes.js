@@ -862,17 +862,41 @@ router.post("/:id/elevation-profile/rebuild", authMiddleware, requireActiveAccou
       return res.status(400).json({ error: "Invalid segment id" });
     }
 
-    const ownedSegmentId = await SegmentElevationProfileService.getOwnedSegmentId(uid, segmentId);
-    if (!ownedSegmentId) {
+    const reset = await SegmentElevationProfileService.clearManualReference(uid, segmentId);
+    if (!reset) {
       return res.status(404).json({ error: "Segment not found" });
     }
 
-    await SegmentElevationProfileService.markSegmentsStale([ownedSegmentId]);
-    await enqueueSegmentElevationProfiles({ segmentIds: [ownedSegmentId], delayMs: 0 });
+    await enqueueSegmentElevationProfiles({ segmentIds: [segmentId], delayMs: 0 });
     res.setHeader("Cache-Control", "no-store");
-    return res.status(202).json({ segmentId: ownedSegmentId, status: "queued" });
+    return res.status(202).json({ segmentId, status: "queued" });
   } catch (error) {
     console.error("POST /segments/:id/elevation-profile/rebuild failed:", error);
+    next(error);
+  }
+});
+
+router.put("/:id/elevation-profile/reference", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
+  try {
+    const segmentId = Number(req.params.id);
+    const uid = req.user?.id;
+    if (!Number.isInteger(segmentId) || segmentId <= 0) {
+      return res.status(400).json({ error: "Invalid segment id" });
+    }
+
+    await SegmentElevationProfileService.setManualReference(uid, segmentId, {
+      workoutId: req.body?.workoutId,
+      startOffset: req.body?.startOffset,
+      endOffset: req.body?.endOffset
+    });
+    const segment = await SegmentDBService.getSegmentById(uid, segmentId);
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({ segment });
+  } catch (error) {
+    if (Number.isInteger(error?.statusCode)) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
+    console.error("PUT /segments/:id/elevation-profile/reference failed:", error);
     next(error);
   }
 });
