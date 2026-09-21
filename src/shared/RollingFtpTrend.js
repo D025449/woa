@@ -9,37 +9,6 @@ const FTP_DURATION_WEIGHTS = Object.freeze({
 const DEFAULT_WINDOW_DAYS = 84;
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
-function percentileFromSorted(sortedValues, quantile) {
-  if (sortedValues.length === 0) return null;
-  const position = Math.max(0, Math.min(1, quantile)) * (sortedValues.length - 1);
-  const lowerIndex = Math.floor(position);
-  const upperIndex = Math.ceil(position);
-  if (lowerIndex === upperIndex) return sortedValues[lowerIndex];
-  const ratio = position - lowerIndex;
-  return sortedValues[lowerIndex]
-    + ((sortedValues[upperIndex] - sortedValues[lowerIndex]) * ratio);
-}
-
-function lowerBound(sortedValues, value) {
-  let lower = 0;
-  let upper = sortedValues.length;
-  while (lower < upper) {
-    const middle = (lower + upper) >> 1;
-    if (sortedValues[middle] < value) lower = middle + 1;
-    else upper = middle;
-  }
-  return lower;
-}
-
-function insertSorted(sortedValues, value) {
-  sortedValues.splice(lowerBound(sortedValues, value), 0, value);
-}
-
-function removeSorted(sortedValues, value) {
-  const index = lowerBound(sortedValues, value);
-  if (sortedValues[index] === value) sortedValues.splice(index, 1);
-}
-
 function estimateLegacyFtp(cp8, cp15) {
   if (!(cp8 > 0) || !(cp15 > 0)) return null;
   const extrapolation = (Math.log(1200) - Math.log(480)) / (Math.log(900) - Math.log(480));
@@ -187,52 +156,58 @@ export function buildRollingFtpSnapshots(rows, options = {}) {
   const workouts = normalizeEfforts(rows);
   const windowDays = Math.max(1, Number(options.windowDays) || DEFAULT_WINDOW_DAYS);
   const windowMilliseconds = windowDays * MILLISECONDS_PER_DAY;
-  const quantile = Number.isFinite(Number(options.quantile)) ? Number(options.quantile) : 0.95;
-  const activeEfforts = new Map(FTP_EFFORT_DURATIONS.map((duration) => [duration, {
-    efforts: [],
-    firstActiveIndex: 0,
-    sortedPowers: []
-  }]));
+  const estimates = [];
+  let firstActiveEstimateIndex = 0;
+  const strongestEstimateIndices = [];
+  let firstStrongestEstimateIndex = 0;
   const snapshots = [];
 
   for (const workout of workouts) {
-    for (const duration of FTP_EFFORT_DURATIONS) {
-      const active = activeEfforts.get(duration);
-      const power = workout.powers.get(duration);
-      if (power > 0) {
-        active.efforts.push({ timestamp: workout.timestamp, power });
-        insertSorted(active.sortedPowers, power);
-      }
+    const estimate = estimateFtp(workout.powers);
+    if (estimate?.ftp > 0) {
+      const estimateIndex = estimates.length;
+      const candidate = {
+        workoutId: workout.workoutId,
+        timestamp: workout.timestamp,
+        startTime: workout.startTime,
+        cp8: workout.powers.get(480),
+        cp15: workout.powers.get(900),
+        ftp: estimate.ftp,
+        pointCount: estimate.pointCount
+      };
+      estimates.push(candidate);
 
-      const minimumTimestamp = workout.timestamp - windowMilliseconds;
-      while (active.firstActiveIndex < active.efforts.length
-        && active.efforts[active.firstActiveIndex].timestamp < minimumTimestamp) {
-        removeSorted(active.sortedPowers, active.efforts[active.firstActiveIndex].power);
-        active.firstActiveIndex += 1;
+      // Keep a descending queue of FTP estimates. Equal values prefer the newer workout.
+      while (strongestEstimateIndices.length > firstStrongestEstimateIndex) {
+        const lastIndex = strongestEstimateIndices.at(-1);
+        if (estimates[lastIndex].ftp > candidate.ftp) break;
+        strongestEstimateIndices.pop();
       }
+      strongestEstimateIndices.push(estimateIndex);
     }
 
-    const durationPowers = new Map(FTP_EFFORT_DURATIONS.map((duration) => [
-      duration,
-      percentileFromSorted(activeEfforts.get(duration).sortedPowers, quantile)
-    ]));
-    const estimate = estimateFtp(durationPowers);
-    if (!(estimate?.ftp > 0)) continue;
-    const usedDurations = estimate.pointCount > 2
-      ? FTP_EFFORT_DURATIONS.filter((duration) => durationPowers.get(duration) > 0)
-      : [480, 900];
+    const minimumTimestamp = workout.timestamp - windowMilliseconds;
+    while (firstActiveEstimateIndex < estimates.length
+      && estimates[firstActiveEstimateIndex].timestamp < minimumTimestamp) {
+      firstActiveEstimateIndex += 1;
+    }
+    while (firstStrongestEstimateIndex < strongestEstimateIndices.length
+      && strongestEstimateIndices[firstStrongestEstimateIndex] < firstActiveEstimateIndex) {
+      firstStrongestEstimateIndex += 1;
+    }
+
+    const strongestEstimate = estimates[strongestEstimateIndices[firstStrongestEstimateIndex]];
+    if (!strongestEstimate) continue;
 
     snapshots.push({
-      workoutId: workout.workoutId,
-      startTime: workout.startTime,
+      workoutId: strongestEstimate.workoutId,
+      startTime: strongestEstimate.startTime,
       periods: workout.periods,
-      cp8: durationPowers.get(480),
-      cp15: durationPowers.get(900),
-      ftp: estimate.ftp,
-      modelPointCount: estimate.pointCount,
-      confidence: Math.min(...usedDurations.map(
-        (duration) => activeEfforts.get(duration).sortedPowers.length
-      ))
+      cp8: strongestEstimate.cp8,
+      cp15: strongestEstimate.cp15,
+      ftp: strongestEstimate.ftp,
+      modelPointCount: strongestEstimate.pointCount,
+      confidence: estimates.length - firstActiveEstimateIndex
     });
   }
 

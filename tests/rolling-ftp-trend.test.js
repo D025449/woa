@@ -58,6 +58,54 @@ test("builds chronological FTP snapshots from a rolling effort window", () => {
   assert.equal(snapshots[2].confidence, 1);
 });
 
+test("accepts one coherent long breakthrough workout immediately", () => {
+  const rows = [];
+  for (let workoutId = 1; workoutId <= 24; workoutId += 1) {
+    rows.push(...modelEffortRows(workoutId, `2026-08-${String(workoutId).padStart(2, "0")}`, {
+      360: 285,
+      480: 280,
+      720: 270,
+      900: 265,
+      960: 262
+    }));
+  }
+  rows.push(...modelEffortRows(25, "2026-09-19", {
+    360: 324,
+    480: 321,
+    720: 316,
+    900: 313,
+    960: 311
+  }));
+
+  const snapshots = buildRollingFtpSnapshots(rows);
+  const breakthroughOnly = buildRollingFtpSnapshots(modelEffortRows(25, "2026-09-19", {
+    360: 324,
+    480: 321,
+    720: 316,
+    900: 313,
+    960: 311
+  }));
+
+  assert.ok(Math.abs(snapshots.at(-1).ftp - breakthroughOnly[0].ftp) < 0.01);
+  assert.equal(snapshots.at(-1).workoutId, 25);
+  assert.equal(snapshots.at(-1).modelPointCount, 5);
+  assert.equal(snapshots.at(-1).confidence, 25);
+});
+
+test("keeps a strong estimate until its rolling window expires", () => {
+  const rows = [
+    ...modelEffortRows(1, "2026-01-01", { 360: 324, 480: 321, 720: 316, 900: 313, 960: 311 }),
+    ...modelEffortRows(2, "2026-03-20", { 360: 285, 480: 280, 720: 270, 900: 265, 960: 262 }),
+    ...modelEffortRows(3, "2026-04-01", { 360: 285, 480: 280, 720: 270, 900: 265, 960: 262 })
+  ];
+
+  const snapshots = buildRollingFtpSnapshots(rows, { windowDays: 84 });
+
+  assert.equal(snapshots[1].workoutId, 1);
+  assert.equal(snapshots[2].workoutId, 3);
+  assert.ok(snapshots[2].ftp < snapshots[1].ftp);
+});
+
 test("display grouping only aggregates the canonical snapshots", () => {
   const rows = [
     ...effortRows(1, "2026-07-01", 300, 280),
