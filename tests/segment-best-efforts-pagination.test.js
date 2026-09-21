@@ -84,6 +84,7 @@ test("segment view renders page navigation and size controls", async () => {
   assert.match(source, /id="segment-best-efforts-period"/u);
   assert.doesNotMatch(source, /id="segment-best-efforts-load-more"/u);
   assert.match(source, /id="segment-elevation-reference-automatic"/u);
+  assert.match(source, /id="segment-elevation-source"/u);
 });
 
 test("owned eligible best efforts expose the manual elevation-reference action", () => {
@@ -102,10 +103,20 @@ test("owned eligible best efforts expose the manual elevation-reference action",
   const action = view.renderRow(row);
   assert.match(action, /data-segment-elevation-reference="90384:10:80"/u);
 
-  view.currentSegment.elevationProfile = { manual: true, sourceWorkoutId: 90384 };
+  view.currentSegment.elevationProfile = {
+    source: "workout",
+    status: "confirmed",
+    manual: true,
+    sourceWorkoutId: 90384
+  };
   const selected = view.renderRow(row);
   assert.doesNotMatch(selected, /data-segment-elevation-reference=/u);
   assert.match(selected, /elevationReferenceCurrent/u);
+
+  view.currentSegment.elevationProfile.manual = false;
+  const automatic = view.renderRow(row);
+  assert.doesNotMatch(automatic, /data-segment-elevation-reference=/u);
+  assert.match(automatic, /elevationReferenceAutomaticBadge/u);
 });
 
 test("best-effort endpoint always uses persisted rows with bounded page sizes", async () => {

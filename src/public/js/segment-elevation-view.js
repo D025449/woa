@@ -4,12 +4,50 @@ const COMPARISON_COLORS = ["#2563eb", "#d946ef", "#f59e0b"];
 const HEART_RATE_PREFERENCE_KEY = "segmentComparisonShowHeartRate";
 const TRACK_ALIGNED_WORKOUT_ALTITUDE_VERSION = 2;
 
+export function resolveSegmentElevationSource(profile = {}) {
+  const status = String(profile?.status || "unavailable").toLowerCase();
+  const sourceWorkoutId = Number(profile?.sourceWorkoutId);
+  const hasSourceWorkout = profile?.source === "workout"
+    && ["confirmed", "stale"].includes(status)
+    && Number.isInteger(sourceWorkoutId)
+    && sourceWorkoutId > 0;
+
+  if (hasSourceWorkout) {
+    if (status === "stale") {
+      return {
+        key: "elevationSourceRecalculating",
+        values: { workout: `W-${sourceWorkoutId}` },
+        kind: "recalculating"
+      };
+    }
+    return {
+      key: profile?.manual === true ? "elevationSourceManual" : "elevationSourceAutomatic",
+      values: { workout: `W-${sourceWorkoutId}` },
+      kind: profile?.manual === true ? "manual" : "automatic"
+    };
+  }
+
+  const candidateCount = Math.max(0, Number(profile?.candidateCount) || 0);
+  const clusterCount = Math.max(0, Number(profile?.clusterCount) || 0);
+  if (status === "candidate") {
+    return candidateCount > 0
+      ? {
+          key: "elevationSourceExternalCandidateCounts",
+          values: { cluster: clusterCount, candidates: candidateCount },
+          kind: "external"
+        }
+      : { key: "elevationSourceExternalCandidate", values: {}, kind: "external" };
+  }
+  return { key: "elevationSourceExternal", values: {}, kind: "external" };
+}
+
 export default class SegmentElevationView {
   constructor(containerId, panelId, statsId, handlers = {}) {
     this.t = createTranslator("segmentsPage");
     this.container = document.getElementById(containerId);
     this.panel = document.getElementById(panelId);
     this.stats = document.getElementById(statsId);
+    this.source = document.getElementById("segment-elevation-source");
     this.status = document.getElementById("segment-comparison-status");
     this.heartRateToggle = document.getElementById("segment-comparison-heart-rate-toggle");
     this.emptyState = document.getElementById("segment-elevation-empty");
@@ -110,6 +148,7 @@ export default class SegmentElevationView {
     if (!this.chart || !segment) return;
     this.currentSegment = segment;
     this.profileData = this.buildProfileData(segment);
+    this.renderSource();
     this.render();
   }
 
@@ -385,6 +424,13 @@ export default class SegmentElevationView {
     this.stats.textContent = parts.filter(Boolean).join(" · ");
   }
 
+  renderSource() {
+    if (!this.source || !this.currentSegment) return;
+    const description = resolveSegmentElevationSource(this.currentSegment.elevationProfile);
+    this.source.textContent = this.t(description.key, description.values);
+    this.source.dataset.kind = description.kind;
+  }
+
   renderStatus() {
     if (!this.status) return;
     if (this.comparisonLoading) {
@@ -466,6 +512,10 @@ export default class SegmentElevationView {
     this.panel?.classList.add("d-none");
     this.emptyState?.classList.remove("d-none");
     if (this.stats) this.stats.textContent = "";
+    if (this.source) {
+      this.source.textContent = "";
+      delete this.source.dataset.kind;
+    }
     if (this.status) this.status.textContent = this.t("comparisonHint");
     this.heartRateToggle?.classList.add("d-none");
     this.container?.classList.remove("is-heart-rate-visible");

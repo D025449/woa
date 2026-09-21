@@ -1281,6 +1281,23 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-scope-toggl
     color: var(--ui-info-text);
 }
 
+.segments-elevation-source {
+    margin-top: 0.22rem;
+    color: var(--ui-info-text);
+    font-size: 0.76rem;
+    font-weight: 800;
+    line-height: 1.25;
+}
+
+.segments-elevation-source[data-kind="manual"] {
+    color: var(--ui-success-text);
+}
+
+.segments-elevation-source[data-kind="external"],
+.segments-elevation-source[data-kind="recalculating"] {
+    color: var(--ui-text-muted);
+}
+
 .segments-comparison-header-actions {
     display: flex;
     align-items: center;
@@ -1440,6 +1457,14 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-scope-toggl
     font-size: 0.68rem;
     font-weight: 800;
     white-space: nowrap;
+}
+
+.segments-best-effort-card__reference-current[data-kind="automatic"] {
+    color: var(--ui-info-text);
+}
+
+.segments-best-effort-card__reference-current[data-kind="previous"] {
+    color: var(--ui-text-muted);
 }
 
 .segments-best-effort-card__actions {

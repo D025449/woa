@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import SegmentElevationView from "../src/public/js/segment-elevation-view.js";
+import SegmentElevationView, {
+  resolveSegmentElevationSource
+} from "../src/public/js/segment-elevation-view.js";
 import { buildSegmentComparisonProfile } from "../src/shared/SegmentComparison.js";
 
 function workout({ distances, powers, heartRates, altitudes }) {
@@ -115,6 +117,39 @@ test("segment comparison chart renders workout altitude on the shared elevation 
   assert.equal(chartOptions.yAxis[1].min, 87);
   assert.equal(chartOptions.yAxis[1].max, 123);
   assert.match(view.formatTooltip([{ data: [0, 250, 0] }]), /250 W · 90 m/u);
+});
+
+test("describes automatic, manual, and candidate elevation sources", () => {
+  assert.deepEqual(resolveSegmentElevationSource({
+    source: "workout",
+    status: "confirmed",
+    manual: false,
+    sourceWorkoutId: 90384
+  }), {
+    key: "elevationSourceAutomatic",
+    values: { workout: "W-90384" },
+    kind: "automatic"
+  });
+  assert.deepEqual(resolveSegmentElevationSource({
+    source: "workout",
+    status: "confirmed",
+    manual: true,
+    sourceWorkoutId: 95541
+  }), {
+    key: "elevationSourceManual",
+    values: { workout: "W-95541" },
+    kind: "manual"
+  });
+  assert.deepEqual(resolveSegmentElevationSource({
+    source: "external",
+    status: "candidate",
+    candidateCount: 10,
+    clusterCount: 3
+  }), {
+    key: "elevationSourceExternalCandidateCounts",
+    values: { cluster: 3, candidates: 10 },
+    kind: "external"
+  });
 });
 
 test("legacy stored workout elevation uses its original uniform distance positions", () => {

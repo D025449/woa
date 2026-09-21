@@ -821,6 +821,7 @@ export default class Controller {
         status: "stale"
       };
       this.cardView.currentSegment = this.selectedSegment;
+      this.elevationView.updateSegment(this.selectedSegment);
       this.updateElevationReferenceUi();
       await this.cardView.loadSegmentBestEfforts(this.selectedSegment, { showLoading: false });
       this.showToast(this.t("messages.elevationReferenceAutomaticQueued"));

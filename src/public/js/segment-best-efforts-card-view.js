@@ -244,14 +244,25 @@ export default class SegmentBestEffortsCardView {
 
     const comparisonKey = this.comparisonKey(row);
     const canSetElevationReference = this.handlers.canSetElevationReference?.(this.currentSegment, row) === true;
-    const isManualElevationReference = this.currentSegment?.elevationProfile?.manual === true
+    const elevationProfile = this.currentSegment?.elevationProfile || {};
+    const elevationStatus = String(elevationProfile.status || "").toLowerCase();
+    const isActiveElevationReference = elevationProfile.source === "workout"
+      && ["confirmed", "stale"].includes(elevationStatus)
       && String(this.currentSegment?.elevationProfile?.sourceWorkoutId ?? "") === String(row?.wid ?? "");
-    const elevationReferenceAction = canSetElevationReference
-      ? (isManualElevationReference
-          ? `<span class="segments-best-effort-card__reference-current">${this.t("elevationReferenceCurrent")}</span>`
-          : `<button class="segments-best-effort-card__reference" type="button"
-              data-segment-elevation-reference="${this.escapeHtml(comparisonKey)}">${this.t("elevationReferenceSet")}</button>`)
-      : "";
+    const referenceLabel = elevationStatus === "stale"
+      ? this.t("elevationReferencePrevious")
+      : this.t(elevationProfile.manual === true
+          ? "elevationReferenceCurrent"
+          : "elevationReferenceAutomaticBadge");
+    const referenceKind = elevationStatus === "stale"
+      ? "previous"
+      : (elevationProfile.manual === true ? "manual" : "automatic");
+    const elevationReferenceAction = isActiveElevationReference
+      ? `<span class="segments-best-effort-card__reference-current" data-kind="${referenceKind}">${referenceLabel}</span>`
+      : (canSetElevationReference
+          ? `<button class="segments-best-effort-card__reference" type="button"
+              data-segment-elevation-reference="${this.escapeHtml(comparisonKey)}">${this.t("elevationReferenceSet")}</button>`
+          : "");
     return `
       <article class="segments-best-effort-card" role="checkbox" tabindex="0"
         aria-checked="false" aria-label="${this.escapeHtml(this.t("comparisonAddAria", { workout: `W-${row.wid}` }))}"

@@ -905,8 +905,16 @@
       "axisAltitude": "m"
     },
     "elevationReferenceSet": "Usar como referência de altitude",
-    "elevationReferenceCurrent": "Referência de altitude",
-    "elevationReferenceAutomatic": "Usar referência de altitude automática"
+    "elevationReferenceCurrent": "Referência manual",
+    "elevationReferenceAutomatic": "Usar referência de altitude automática",
+    "elevationReferenceAutomaticBadge": "Referência automática",
+    "elevationReferencePrevious": "Referência anterior",
+    "elevationSourceAutomatic": "Automática · {workout}",
+    "elevationSourceManual": "Seleção manual · {workout}",
+    "elevationSourceRecalculating": "Guardado · {workout} · recálculo automático em curso",
+    "elevationSourceExternal": "Perfil de altitude externo",
+    "elevationSourceExternalCandidate": "Perfil de altitude externo · seleção automática pendente",
+    "elevationSourceExternalCandidateCounts": "Perfil de altitude externo · seleção automática pendente · correspondem {cluster} de {candidates} perfis"
   },
   "analyticsPage": {
     "title": "Análises de treino",
