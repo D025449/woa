@@ -4,7 +4,8 @@ import test from "node:test";
 
 import SegmentBestEffortsCardView, {
   normalizeSegmentBestEffortsPageSize,
-  normalizeSegmentBestEffortsPeriod
+  normalizeSegmentBestEffortsPeriod,
+  resolveSegmentBestEffortsScanState
 } from "../src/public/js/segment-best-efforts-card-view.js";
 
 const segmentViewUrl = new URL("../src/views/segments.ejs", import.meta.url);
@@ -40,6 +41,75 @@ test("segment best-effort period is restricted to supported calendar ranges", ()
   assert.equal(normalizeSegmentBestEffortsPeriod("current_year"), "current_year");
   assert.equal(normalizeSegmentBestEffortsPeriod("month"), "all");
   assert.equal(normalizeSegmentBestEffortsPeriod("week"), "all");
+});
+
+test("segment scan states distinguish progress, completion, and failures", () => {
+  assert.deepEqual(resolveSegmentBestEffortsScanState("queued"), {
+    key: "bestEffortsScanQueued",
+    values: {},
+    kind: "scanning"
+  });
+  assert.deepEqual(resolveSegmentBestEffortsScanState("completed", null, 42), {
+    key: "bestEffortsScanCompletedCount",
+    values: { count: 42 },
+    kind: "completed"
+  });
+  assert.deepEqual(resolveSegmentBestEffortsScanState("completed", null, null), {
+    key: "bestEffortsScanCompleted",
+    values: {},
+    kind: "completed"
+  });
+  assert.deepEqual(resolveSegmentBestEffortsScanState("failed", "boom"), {
+    key: "bestEffortsScanFailedDetail",
+    values: { error: "boom" },
+    kind: "failed"
+  });
+});
+
+test("completed segment polling stops before forcing a fresh result load", async () => {
+  const originalWindow = globalThis.window;
+  const originalFetch = globalThis.fetch;
+  let scheduledTick = null;
+  const events = [];
+
+  try {
+    globalThis.window = {
+      setTimeout(callback) {
+        scheduledTick = callback;
+        return 1;
+      },
+      clearTimeout() {}
+    };
+    globalThis.fetch = async (_url, options) => {
+      assert.equal(options?.cache, "no-store");
+      return {
+        ok: true,
+        json: async () => ({ status: "completed", error: null })
+      };
+    };
+
+    const view = createHeadlessView();
+    const originalStop = view.stopBestEffortsPolling.bind(view);
+    view.currentSegment = { id: 42, bestEffortsStatus: "processing" };
+    view.renderScanStatus = (segment) => events.push(`status:${segment.bestEffortsStatus}`);
+    view.stopBestEffortsPolling = () => {
+      events.push("stop");
+      originalStop();
+    };
+    view.loadSegmentBestEfforts = async (_segment, options) => {
+      events.push(`load:${options?.forceRefresh === true}`);
+    };
+
+    view.startBestEffortsPolling(42);
+    events.length = 0;
+    assert.equal(typeof scheduledTick, "function");
+    await scheduledTick();
+
+    assert.deepEqual(events, ["stop", "load:true"]);
+  } finally {
+    globalThis.window = originalWindow;
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("segment best efforts navigate by replacing the current page", async () => {
@@ -82,6 +152,7 @@ test("segment view renders page navigation and size controls", async () => {
   assert.match(source, /id="segment-best-efforts-page-previous"/u);
   assert.match(source, /id="segment-best-efforts-page-next"/u);
   assert.match(source, /id="segment-best-efforts-period"/u);
+  assert.match(source, /id="segment-best-efforts-scan-status"/u);
   assert.doesNotMatch(source, /id="segment-best-efforts-load-more"/u);
   assert.match(source, /id="segment-elevation-reference-automatic"/u);
   assert.match(source, /id="segment-elevation-source"/u);
@@ -128,6 +199,8 @@ test("best-effort endpoint always uses persisted rows with bounded page sizes", 
   assert.match(route, /\[10, 25, 50\]\.includes\(requestedSize\)/u);
   assert.match(route, /\["all", "current_month", "previous_month", "current_quarter", "current_year"\]\.includes\(requestedPeriod\)/u);
   assert.match(route, /SegmentDBService\.getBestEffortsBySegment/u);
+  assert.match(route, /bestEffortsStatus === "completed"/u);
+  assert.match(route, /"private, no-store"/u);
   assert.doesNotMatch(route, /materializeOnDemandSegmentBestEfforts/u);
 });
 

@@ -253,7 +253,10 @@
 
                             <div class="segments-panel segments-panel--best-efforts">
                                 <div class="segments-panel-header">
-                                    <h3 class="segments-panel-title"><%= t("segmentsPage.bestEffortsTitle") %></h3>
+                                    <div>
+                                        <h3 class="segments-panel-title"><%= t("segmentsPage.bestEffortsTitle") %></h3>
+                                        <div id="segment-best-efforts-scan-status" class="segments-best-efforts-scan-status" aria-live="polite" hidden></div>
+                                    </div>
                                     <div class="segments-best-efforts-header-controls">
                                         <label class="segments-best-efforts-period" for="segment-best-efforts-period">
                                             <span><%= t("segmentsPage.bestEffortsPeriodLabel") %></span>

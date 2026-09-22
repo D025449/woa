@@ -1257,6 +1257,55 @@ body.segments-page.has-fixed-app-topbar .segments-hero .segments-map-scope-toggl
     vertical-align: middle;
 }
 
+.segments-best-efforts-scan-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.38rem;
+    margin-top: 0.22rem;
+    color: var(--ui-text-muted);
+    font-size: 0.74rem;
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.segments-best-efforts-scan-status[hidden] {
+    display: none;
+}
+
+.segments-best-efforts-scan-status::before {
+    content: "";
+    width: 0.55rem;
+    height: 0.55rem;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    background: currentColor;
+}
+
+.segments-best-efforts-scan-status[data-kind="scanning"] {
+    color: var(--ui-info-text);
+}
+
+.segments-best-efforts-scan-status[data-kind="scanning"]::before {
+    border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+    border-top-color: currentColor;
+    background: transparent;
+    animation: segments-scan-status-spin 0.8s linear infinite;
+}
+
+.segments-best-efforts-scan-status[data-kind="completed"] {
+    color: var(--ui-success-text);
+}
+
+.segments-best-efforts-scan-status[data-kind="failed"] {
+    color: var(--ui-danger-text-dark);
+}
+
+@keyframes segments-scan-status-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 .segments-best-efforts-menu__label {
     font-size: 0.74rem;
     font-weight: 700;

@@ -14,6 +14,35 @@ export function normalizeSegmentBestEffortsPeriod(value) {
     : "all";
 }
 
+export function resolveSegmentBestEffortsScanState(status, error = null, matchCount = null) {
+  const normalizedStatus = String(status || "").toLowerCase();
+  const hasMatchCount = matchCount !== null
+    && matchCount !== undefined
+    && Number.isFinite(Number(matchCount));
+  const normalizedCount = Number(matchCount);
+  if (normalizedStatus === "queued") {
+    return { key: "bestEffortsScanQueued", values: {}, kind: "scanning" };
+  }
+  if (normalizedStatus === "processing") {
+    return { key: "bestEffortsScanProcessing", values: {}, kind: "scanning" };
+  }
+  if (normalizedStatus === "completed") {
+    return hasMatchCount
+      ? {
+          key: "bestEffortsScanCompletedCount",
+          values: { count: normalizedCount },
+          kind: "completed"
+        }
+      : { key: "bestEffortsScanCompleted", values: {}, kind: "completed" };
+  }
+  if (normalizedStatus === "failed") {
+    return error
+      ? { key: "bestEffortsScanFailedDetail", values: { error }, kind: "failed" }
+      : { key: "bestEffortsScanFailed", values: {}, kind: "failed" };
+  }
+  return null;
+}
+
 export default class SegmentBestEffortsCardView {
   constructor(containerSelector, handlers = {}) {
     this.t = createTranslator("segmentsPage");
@@ -25,6 +54,7 @@ export default class SegmentBestEffortsCardView {
     this.pageStatusElement = document.getElementById("segment-best-efforts-page-status");
     this.pageSizeSelect = document.getElementById("segment-best-efforts-page-size");
     this.periodSelect = document.getElementById("segment-best-efforts-period");
+    this.scanStatusElement = document.getElementById("segment-best-efforts-scan-status");
     this.handlers = handlers;
     this.currentSegment = null;
     this.scopeValue = handlers.initialScope ?? "mine";
@@ -40,6 +70,7 @@ export default class SegmentBestEffortsCardView {
     this.pendingRequestId = 0;
     this.fastestDuration = null;
     this.lastMatchCount = null;
+    this.lastScanError = null;
     this.comparisonRows = new Map();
     this.rowsByComparisonKey = new Map();
 
@@ -116,11 +147,13 @@ export default class SegmentBestEffortsCardView {
     this.lastPage = 1;
     this.fastestDuration = null;
     this.lastMatchCount = null;
+    this.lastScanError = null;
     this.updateHeader(segment);
+    this.renderScanStatus(segment);
     await this.loadSegmentBestEfforts(segment);
   }
 
-  async loadSegmentBestEfforts(segment, { showLoading = true } = {}) {
+  async loadSegmentBestEfforts(segment, { showLoading = true, forceRefresh = false } = {}) {
     if (!this.container || !segment?.id) {
       return;
     }
@@ -133,7 +166,10 @@ export default class SegmentBestEffortsCardView {
     }
 
     try {
-      const response = await fetch(this.buildRequestUrl(segment.id));
+      const response = await fetch(
+        this.buildRequestUrl(segment.id),
+        forceRefresh ? { cache: "no-store" } : undefined
+      );
       if (!response.ok) {
         throw new Error(this.t("messages.failedBestEffortsStatus"));
       }
@@ -144,6 +180,8 @@ export default class SegmentBestEffortsCardView {
       if (result?.best_efforts_status) {
         segment.bestEffortsStatus = result.best_efforts_status;
       }
+      segment.bestEffortsError = result?.best_efforts_error || null;
+      this.lastScanError = segment.bestEffortsError;
       this.fastestDuration = rows.length ? Number(rows[0]?.leader_duration ?? rows[0]?.duration) : null;
       this.lastPage = Math.max(1, Number(result?.last_page) || 1);
       this.page = Math.min(this.lastPage, Math.max(1, Number(result?.current_page) || this.page));
@@ -151,6 +189,7 @@ export default class SegmentBestEffortsCardView {
         ? Number(result.total_records)
         : null;
       this.updateHeader(segment, result?.total_records);
+      this.renderScanStatus(segment);
       this.renderRows(rows);
 
       if (this.shouldPollBestEfforts(segment, rows.length)) {
@@ -179,10 +218,12 @@ export default class SegmentBestEffortsCardView {
     this.rowsByComparisonKey.clear();
 
     if (!rows.length) {
+      const status = String(this.currentSegment?.bestEffortsStatus || "").toLowerCase();
+      const scanPending = status === "queued" || status === "processing";
       this.container.innerHTML = `
         <div class="segments-best-efforts-empty">
-          <div class="segments-best-efforts-empty__title">${this.t("bestEffortsEmptyTitle")}</div>
-          <div class="segments-best-efforts-empty__copy">${this.t("bestEffortsEmpty")}</div>
+          <div class="segments-best-efforts-empty__title">${this.t(scanPending ? "bestEffortsScanProcessing" : "bestEffortsEmptyTitle")}</div>
+          <div class="segments-best-efforts-empty__copy">${this.t(scanPending ? "bestEffortsScanPendingCopy" : "bestEffortsEmpty")}</div>
         </div>
       `;
       return;
@@ -312,10 +353,16 @@ export default class SegmentBestEffortsCardView {
     this.lastPage = 1;
     this.fastestDuration = null;
     this.lastMatchCount = null;
+    this.lastScanError = null;
     this.clearComparisons();
     this.rowsByComparisonKey.clear();
     if (this.container) {
       this.container.innerHTML = "";
+    }
+    if (this.scanStatusElement) {
+      this.scanStatusElement.textContent = "";
+      this.scanStatusElement.hidden = true;
+      delete this.scanStatusElement.dataset.kind;
     }
     this.updatePagination();
   }
@@ -377,6 +424,22 @@ export default class SegmentBestEffortsCardView {
       || (!status && Number(rowCount) === 0);
   }
 
+  renderScanStatus(segment = this.currentSegment) {
+    if (!this.scanStatusElement) return;
+    const state = resolveSegmentBestEffortsScanState(
+      segment?.bestEffortsStatus,
+      segment?.bestEffortsError || this.lastScanError,
+      this.lastMatchCount
+    );
+    this.scanStatusElement.hidden = !state;
+    this.scanStatusElement.textContent = state ? this.t(state.key, state.values) : "";
+    if (state) {
+      this.scanStatusElement.dataset.kind = state.kind;
+    } else {
+      delete this.scanStatusElement.dataset.kind;
+    }
+  }
+
   startBestEffortsPolling(segmentId) {
     this.stopBestEffortsPolling();
     this.pollAttempt = 0;
@@ -400,23 +463,33 @@ export default class SegmentBestEffortsCardView {
       this.pollAttempt += 1;
 
       try {
-        const res = await fetch(`/segments/${segmentId}/best-efforts-status`);
+        const res = await fetch(`/segments/${segmentId}/best-efforts-status`, {
+          cache: "no-store"
+        });
         if (!res.ok) {
           throw new Error(this.t("messages.failedBestEffortsStatus"));
         }
 
         const data = await res.json();
         this.currentSegment.bestEffortsStatus = data.status;
+        this.currentSegment.bestEffortsError = data.error || null;
+        this.lastScanError = this.currentSegment.bestEffortsError;
 
         if (data.status === "completed" || data.status === "failed") {
+          this.stopBestEffortsPolling();
+          if (data.status === "failed") {
+            this.renderScanStatus(this.currentSegment);
+            return;
+          }
           this.page = 1;
           await this.loadSegmentBestEfforts(this.currentSegment, {
-            showLoading: false
+            showLoading: false,
+            forceRefresh: true
           });
-          this.stopBestEffortsPolling();
           return;
         }
 
+        this.renderScanStatus(this.currentSegment);
         scheduleNext();
       } catch (err) {
         console.error(err);

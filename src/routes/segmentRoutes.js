@@ -809,7 +809,6 @@ router.get("/workout-gps-seg-best-effort/:id/data", authMiddleware, async (req, 
 
 router.get("/bestefforts/:id/data", authMiddleware, async (req, res, next) => {
   try {
-    res.setHeader("Cache-Control", "private, max-age=10, must-revalidate");
     const segmentid = req.params.id;
     const uid = req.user?.id;
 
@@ -842,9 +841,16 @@ router.get("/bestefforts/:id/data", authMiddleware, async (req, res, next) => {
     ]);
 
 
+    const bestEffortsStatus = statusRow?.best_efforts_status ?? null;
+    res.setHeader(
+      "Cache-Control",
+      bestEffortsStatus === "completed"
+        ? "private, max-age=10, must-revalidate"
+        : "private, no-store"
+    );
     res.json({
       ...result,
-      best_efforts_status: statusRow?.best_efforts_status ?? null,
+      best_efforts_status: bestEffortsStatus,
       best_efforts_error: statusRow?.best_efforts_error ?? null
     });
 
@@ -927,6 +933,7 @@ router.get("/:id", authMiddleware, async (req, res, next) => {
 
 router.get("/:id/best-efforts-status", authMiddleware, async (req, res, next) => {
   try {
+    res.setHeader("Cache-Control", "private, no-store");
     const segmentId = req.params.id;
     const uid = req.user?.id;
 
