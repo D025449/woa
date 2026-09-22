@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import SegmentElevationView, {
+  resolveElevationAxisBounds,
   resolveSegmentElevationSource
 } from "../src/public/js/segment-elevation-view.js";
 import { buildSegmentComparisonProfile } from "../src/shared/SegmentComparison.js";
@@ -114,9 +115,23 @@ test("segment comparison chart renders workout altitude on the shared elevation 
   assert.equal(segmentAltitudeSeries.lineStyle.width, workoutAltitudeSeries.lineStyle.width);
   assert.equal(segmentAltitudeSeries.areaStyle, undefined);
   assert.deepEqual(workoutAltitudeSeries.data, [[0, 90, 0], [1, 120, 60]]);
-  assert.equal(chartOptions.yAxis[1].min, 87);
-  assert.equal(chartOptions.yAxis[1].max, 123);
+  assert.equal(chartOptions.yAxis[1].min, 60);
+  assert.equal(chartOptions.yAxis[1].max, 160);
   assert.match(view.formatTooltip([{ data: [0, 250, 0] }]), /250 W · 90 m/u);
+});
+
+test("flat segment elevation uses a centered 100-meter minimum axis span", () => {
+  assert.deepEqual(resolveElevationAxisBounds([105, 106, 107]), {
+    min: 60,
+    max: 160
+  });
+});
+
+test("larger elevation ranges keep their natural padded axis bounds", () => {
+  assert.deepEqual(resolveElevationAxisBounds([200, 400]), {
+    min: 184,
+    max: 416
+  });
 });
 
 test("describes automatic, manual, and candidate elevation sources", () => {

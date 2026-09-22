@@ -3,6 +3,34 @@ import { createTranslator } from "./i18n.js";
 const COMPARISON_COLORS = ["#2563eb", "#d946ef", "#f59e0b"];
 const HEART_RATE_PREFERENCE_KEY = "segmentComparisonShowHeartRate";
 const TRACK_ALIGNED_WORKOUT_ALTITUDE_VERSION = 2;
+const MIN_ELEVATION_AXIS_SPAN_METERS = 100;
+const ELEVATION_AXIS_CENTER_STEP_METERS = 10;
+
+export function resolveElevationAxisBounds(altitudeValues = []) {
+  const values = (Array.isArray(altitudeValues) ? altitudeValues : [])
+    .map(Number)
+    .filter(Number.isFinite);
+  if (values.length === 0) return { min: null, max: null };
+
+  const elevationMin = Math.min(...values);
+  const elevationMax = Math.max(...values);
+  const elevationRange = elevationMax - elevationMin;
+  const padding = Math.max(3, elevationRange * 0.08);
+  const naturalMin = Math.floor(elevationMin - padding);
+  const naturalMax = Math.ceil(elevationMax + padding);
+  if (naturalMax - naturalMin >= MIN_ELEVATION_AXIS_SPAN_METERS) {
+    return { min: naturalMin, max: naturalMax };
+  }
+
+  const center = (elevationMin + elevationMax) / 2;
+  const roundedCenter = Math.round(center / ELEVATION_AXIS_CENTER_STEP_METERS)
+    * ELEVATION_AXIS_CENTER_STEP_METERS;
+  const halfSpan = MIN_ELEVATION_AXIS_SPAN_METERS / 2;
+  return {
+    min: roundedCenter - halfSpan,
+    max: roundedCenter + halfSpan
+  };
+}
 
 export function resolveSegmentElevationSource(profile = {}) {
   const status = String(profile?.status || "unavailable").toLowerCase();
@@ -262,9 +290,7 @@ export default class SegmentElevationView {
       }
     });
 
-    const elevationMin = hasElevation ? Math.min(...altitudeValues) : null;
-    const elevationMax = hasElevation ? Math.max(...altitudeValues) : null;
-    const padding = hasElevation ? Math.max(3, (elevationMax - elevationMin) * 0.08) : 0;
+    const elevationBounds = resolveElevationAxisBounds(altitudeValues);
     const segmentDistanceKm = Math.max(
       Number(this.currentSegment?.distance || 0) / 1000,
       ...series.flatMap((entry) => entry.data.map((point) => Number(point[0]) || 0))
@@ -330,8 +356,8 @@ export default class SegmentElevationView {
           show: hasElevation,
           name: this.t("comparisonElevationAxis"),
           position: "right",
-          min: hasElevation ? Math.floor(elevationMin - padding) : null,
-          max: hasElevation ? Math.ceil(elevationMax + padding) : null,
+          min: elevationBounds.min,
+          max: elevationBounds.max,
           splitLine: { show: false },
           axisLine: { show: false },
           axisTick: { show: false },
