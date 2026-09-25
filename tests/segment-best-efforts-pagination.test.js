@@ -43,6 +43,55 @@ test("segment best-effort period is restricted to supported calendar ranges", ()
   assert.equal(normalizeSegmentBestEffortsPeriod("week"), "all");
 });
 
+test("segment best-effort controls report persistable preference changes", async () => {
+  const originalDocument = globalThis.document;
+  const listeners = new Map();
+  const periodSelect = {
+    value: "all",
+    addEventListener(type, listener) {
+      listeners.set(`period:${type}`, listener);
+    }
+  };
+  const pageSizeSelect = {
+    value: "25",
+    addEventListener(type, listener) {
+      listeners.set(`size:${type}`, listener);
+    }
+  };
+  const changes = [];
+
+  globalThis.document = {
+    querySelector: () => null,
+    getElementById(id) {
+      if (id === "segment-best-efforts-period") return periodSelect;
+      if (id === "segment-best-efforts-page-size") return pageSizeSelect;
+      return null;
+    }
+  };
+
+  try {
+    const view = new SegmentBestEffortsCardView("#segment-best-efforts-cards", {
+      period: "previous_month",
+      pageSize: 10,
+      onPreferenceChange: (state) => changes.push(state)
+    });
+    assert.equal(periodSelect.value, "previous_month");
+    assert.equal(pageSizeSelect.value, "10");
+
+    periodSelect.value = "current_year";
+    await listeners.get("period:change")();
+    pageSizeSelect.value = "50";
+    await listeners.get("size:change")();
+
+    assert.deepEqual(changes, [
+      { period: "current_year", pageSize: 10 },
+      { period: "current_year", pageSize: 50 }
+    ]);
+  } finally {
+    globalThis.document = originalDocument;
+  }
+});
+
 test("segment scan states distinguish progress, completion, and failures", () => {
   assert.deepEqual(resolveSegmentBestEffortsScanState("queued"), {
     key: "bestEffortsScanQueued",

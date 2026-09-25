@@ -2,6 +2,7 @@ import pool from "./database.js";
 
 const WORKOUT_LIBRARY_VIEW_KEY = "workout-library";
 const ANALYTICS_VIEW_KEY = "analytics";
+const SEGMENTS_VIEW_KEY = "segments";
 const WORKOUT_LIBRARY_SORTS = new Set([
   "newest",
   "oldest",
@@ -66,6 +67,16 @@ const ANALYTICS_POWER_SERIES_KEYS = [
   "eftp"
 ];
 const ANALYTICS_TIME_RANGE_MODES = new Set(["all", "custom"]);
+const SEGMENT_SCOPES = new Set(["mine", "shared", "all"]);
+const SEGMENT_BEST_EFFORTS_PER_USER = new Set(["all", "1", "3"]);
+const SEGMENT_BEST_EFFORTS_PERIODS = new Set([
+  "all",
+  "current_month",
+  "previous_month",
+  "current_quarter",
+  "current_year"
+]);
+const SEGMENT_BEST_EFFORTS_PAGE_SIZES = new Set([10, 25, 50]);
 
 function normalizeEnum(value, allowed, fallback) {
   const normalized = String(value ?? "").trim();
@@ -236,6 +247,32 @@ export function normalizeAnalyticsState(state = {}) {
   };
 }
 
+export function normalizeSegmentsState(state = {}) {
+  /** @type {Record<string, any>} */
+  const source = state && typeof state === "object" && !Array.isArray(state)
+    ? state
+    : {};
+  const requestedPageSize = Number(source.bestEffortsPageSize);
+
+  return {
+    segmentScope: normalizeEnum(source.segmentScope, SEGMENT_SCOPES, "mine"),
+    bestEffortsScope: normalizeEnum(source.bestEffortsScope, SEGMENT_SCOPES, "mine"),
+    bestEffortsPerUser: normalizeEnum(
+      source.bestEffortsPerUser,
+      SEGMENT_BEST_EFFORTS_PER_USER,
+      "all"
+    ),
+    bestEffortsPeriod: normalizeEnum(
+      source.bestEffortsPeriod,
+      SEGMENT_BEST_EFFORTS_PERIODS,
+      "all"
+    ),
+    bestEffortsPageSize: SEGMENT_BEST_EFFORTS_PAGE_SIZES.has(requestedPageSize)
+      ? requestedPageSize
+      : 25
+  };
+}
+
 function normalizeViewState(viewKey, state) {
   if (viewKey === WORKOUT_LIBRARY_VIEW_KEY) {
     return normalizeWorkoutLibraryState(state);
@@ -243,6 +280,10 @@ function normalizeViewState(viewKey, state) {
 
   if (viewKey === ANALYTICS_VIEW_KEY) {
     return normalizeAnalyticsState(state);
+  }
+
+  if (viewKey === SEGMENTS_VIEW_KEY) {
+    return normalizeSegmentsState(state);
   }
 
   const error = new Error("Unsupported view preference key");
@@ -253,6 +294,7 @@ function normalizeViewState(viewKey, state) {
 export default class ViewPreferenceService {
   static WORKOUT_LIBRARY_VIEW_KEY = WORKOUT_LIBRARY_VIEW_KEY;
   static ANALYTICS_VIEW_KEY = ANALYTICS_VIEW_KEY;
+  static SEGMENTS_VIEW_KEY = SEGMENTS_VIEW_KEY;
 
   static async get(uid, viewKey, db = pool) {
     normalizeViewState(viewKey, {});

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import ViewPreferenceService, {
   normalizeAnalyticsState,
+  normalizeSegmentsState,
   normalizeWorkoutLibraryState
 } from "../src/services/viewPreferenceService.js";
 import {
@@ -248,6 +249,39 @@ test("accepts shared load groupings and rejects unsupported power groupings", ()
   assert.equal(state.powerCurve.seriesVisibility.cp960, false);
 });
 
+test("normalizes persisted segment filters and paging preferences", () => {
+  assert.deepEqual(normalizeSegmentsState({
+    segmentScope: "shared",
+    bestEffortsScope: "all",
+    bestEffortsPerUser: "3",
+    bestEffortsPeriod: "current_quarter",
+    bestEffortsPageSize: 50,
+    selectedSegmentId: 42
+  }), {
+    segmentScope: "shared",
+    bestEffortsScope: "all",
+    bestEffortsPerUser: "3",
+    bestEffortsPeriod: "current_quarter",
+    bestEffortsPageSize: 50
+  });
+});
+
+test("rejects unsupported persisted segment preferences safely", () => {
+  assert.deepEqual(normalizeSegmentsState({
+    segmentScope: "public",
+    bestEffortsScope: "friends",
+    bestEffortsPerUser: "10",
+    bestEffortsPeriod: "last_90_days",
+    bestEffortsPageSize: 100
+  }), {
+    segmentScope: "mine",
+    bestEffortsScope: "mine",
+    bestEffortsPerUser: "all",
+    bestEffortsPeriod: "all",
+    bestEffortsPageSize: 25
+  });
+});
+
 test("merges one analytics chart update without overwriting the other chart", () => {
   const initial = createDefaultAnalyticsPreferences();
   const withLoadChange = mergeAnalyticsPreferences(initial, "loadModel", {
@@ -305,4 +339,29 @@ test("rejects unknown view keys without touching the database", async () => {
     ViewPreferenceService.get(7, "unknown-view", db),
     /Unsupported view preference key/
   );
+});
+
+test("accepts the segments view key", async () => {
+  const db = {
+    async query(_sql, params) {
+      return {
+        rows: [{
+          viewKey: params[1],
+          state: JSON.parse(params[2]),
+          version: 1,
+          updatedAt: new Date("2026-09-25T10:00:00Z")
+        }]
+      };
+    }
+  };
+
+  const result = await ViewPreferenceService.upsert(7, "segments", {
+    segmentScope: "all",
+    bestEffortsPeriod: "current_year",
+    bestEffortsPageSize: 10
+  }, db);
+
+  assert.equal(result.state.segmentScope, "all");
+  assert.equal(result.state.bestEffortsPeriod, "current_year");
+  assert.equal(result.state.bestEffortsPageSize, 10);
 });

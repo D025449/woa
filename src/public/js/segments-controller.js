@@ -6,8 +6,12 @@ import FlyoverView from "./flyover-view.js";
 import MapSegment from "../../shared/MapSegment.js";
 import { buildSegmentComparisonProfile } from "../../shared/SegmentComparison.js";
 import UIStateManager from "./UIStateManager.js"
+import ViewPreferenceService from "./view-preference-service.js";
 import confirmModal from "./confirm-modal.js";
 import { createTranslator } from "./i18n.js";
+
+const SEGMENTS_VIEW_KEY = "segments";
+const VIEW_PREFERENCE_SAVE_DELAY_MS = 500;
 
 export default class Controller {
 
@@ -22,6 +26,8 @@ export default class Controller {
     this.segmentScope = this.uiState.get("segmentScope", "mine");
     this.bestEffortsScope = this.uiState.get("segmentBestEffortsScope", "mine");
     this.bestEffortsPerUser = this.uiState.get("segmentBestEffortsPerUser", "all");
+    this.bestEffortsPeriod = this.uiState.get("segmentBestEffortsPeriod", "all");
+    this.bestEffortsPageSize = this.uiState.get("segmentBestEffortsPageSize", 25);
     this.favoriteOnly = !!this.uiState.get("segmentFavoriteOnly", false);
     this.recentSegmentIds = this.readStoredList("segmentsRecentIds");
     this.favoriteSegmentIds = [];
@@ -67,14 +73,86 @@ export default class Controller {
       : null;
     this.comparisonWorkoutCache = new Map();
     this.comparisonLoadRevision = 0;
-    this.initViews();
+    this.viewPreferencesAvailable = false;
+    this.pendingSegmentPreferenceState = null;
+    this.viewPreferenceSaveTimer = null;
+    this.viewPreferenceSaveChain = Promise.resolve();
     this.didRestoreMapViewState = false;
-    this.registerEvents();
+    void this.boot();
   }
 
   // -----------------------------
   // INIT
   // -----------------------------
+  async boot() {
+    await this.restoreSegmentPreferences();
+    this.initViews();
+    this.registerEvents();
+  }
+
+  async restoreSegmentPreferences() {
+    try {
+      const storedState = await ViewPreferenceService.load(SEGMENTS_VIEW_KEY);
+      this.viewPreferencesAvailable = true;
+      if (!storedState) return;
+
+      this.segmentScope = storedState.segmentScope;
+      this.bestEffortsScope = storedState.bestEffortsScope;
+      this.bestEffortsPerUser = storedState.bestEffortsPerUser;
+      this.bestEffortsPeriod = storedState.bestEffortsPeriod;
+      this.bestEffortsPageSize = storedState.bestEffortsPageSize;
+      this.uiState.set("segmentScope", this.segmentScope);
+      this.uiState.set("segmentBestEffortsScope", this.bestEffortsScope);
+      this.uiState.set("segmentBestEffortsPerUser", this.bestEffortsPerUser);
+      this.uiState.set("segmentBestEffortsPeriod", this.bestEffortsPeriod);
+      this.uiState.set("segmentBestEffortsPageSize", this.bestEffortsPageSize);
+    } catch (error) {
+      this.viewPreferencesAvailable = false;
+      console.warn("Segment preferences remain local for this session:", error);
+    }
+  }
+
+  buildSegmentPreferenceState() {
+    return {
+      segmentScope: this.segmentScope,
+      bestEffortsScope: this.bestEffortsScope,
+      bestEffortsPerUser: this.bestEffortsPerUser,
+      bestEffortsPeriod: this.bestEffortsPeriod,
+      bestEffortsPageSize: this.bestEffortsPageSize
+    };
+  }
+
+  scheduleSegmentPreferenceSave() {
+    if (!this.viewPreferencesAvailable) return;
+    this.pendingSegmentPreferenceState = this.buildSegmentPreferenceState();
+    clearTimeout(this.viewPreferenceSaveTimer);
+    this.viewPreferenceSaveTimer = setTimeout(() => {
+      this.persistSegmentPreferences();
+    }, VIEW_PREFERENCE_SAVE_DELAY_MS);
+  }
+
+  persistSegmentPreferences({ keepalive = false } = {}) {
+    const state = this.pendingSegmentPreferenceState;
+    if (!state || !this.viewPreferencesAvailable) return;
+
+    this.pendingSegmentPreferenceState = null;
+    clearTimeout(this.viewPreferenceSaveTimer);
+    this.viewPreferenceSaveTimer = null;
+
+    if (keepalive) {
+      void ViewPreferenceService.save(SEGMENTS_VIEW_KEY, state, { keepalive })
+        .catch((error) => console.warn("Segment preferences could not be saved:", error));
+      return;
+    }
+
+    this.viewPreferenceSaveChain = this.viewPreferenceSaveChain
+      .catch(() => {})
+      .then(() => ViewPreferenceService.save(SEGMENTS_VIEW_KEY, state))
+      .catch((error) => {
+        console.warn("Segment preferences could not be saved:", error);
+      });
+  }
+
   initViews() {
 
 
@@ -114,6 +192,15 @@ export default class Controller {
       currentUserId: this.currentUserId,
       initialScope: this.bestEffortsScope,
       initialPerUser: this.bestEffortsPerUser,
+      period: this.bestEffortsPeriod,
+      pageSize: this.bestEffortsPageSize,
+      onPreferenceChange: ({ period, pageSize }) => {
+        this.bestEffortsPeriod = period;
+        this.bestEffortsPageSize = pageSize;
+        this.uiState.set("segmentBestEffortsPeriod", period);
+        this.uiState.set("segmentBestEffortsPageSize", pageSize);
+        this.scheduleSegmentPreferenceSave();
+      },
       formatSegmentHeaderMarkup: (...args) => this.formatSegmentHeaderMarkup(...args),
       onHeaderRendered: () => this.bindSegmentHeaderEvents(),
       onComparisonChange: (rows) => this.loadSegmentComparisons(rows),
@@ -177,6 +264,9 @@ export default class Controller {
   // -----------------------------
   registerEvents() {
     window.addEventListener("resize", () => this.onResize());
+    window.addEventListener("pagehide", () => {
+      this.persistSegmentPreferences({ keepalive: true });
+    });
     this.initLayoutObservers();
     this.registerSplitterEvents();
     this.registerDetailSheetEvents();
@@ -506,6 +596,7 @@ export default class Controller {
 
     this.segmentScope = normalizedScope;
     this.uiState.set("segmentScope", normalizedScope);
+    this.scheduleSegmentPreferenceSave();
     this.syncScopeButtons();
     this.clearSelectedSegment();
     this.restoredSegmentId = null;
@@ -1335,6 +1426,7 @@ export default class Controller {
 
     this.bestEffortsScope = nextScope;
     this.uiState.set("segmentBestEffortsScope", nextScope);
+    this.scheduleSegmentPreferenceSave();
     this.cardView.setScope(nextScope);
     this.syncBestEffortsScopeButtons();
     await this.loadSelectedSegmentBestEfforts();
@@ -1348,6 +1440,7 @@ export default class Controller {
 
     this.bestEffortsPerUser = nextMode;
     this.uiState.set("segmentBestEffortsPerUser", nextMode);
+    this.scheduleSegmentPreferenceSave();
     this.cardView.setPerUserFilter(nextMode);
     this.syncBestEffortsPerUserButtons();
     await this.loadSelectedSegmentBestEfforts();
@@ -1358,6 +1451,7 @@ export default class Controller {
     this.bestEffortsPerUser = "1";
     this.uiState.set("segmentBestEffortsScope", "mine");
     this.uiState.set("segmentBestEffortsPerUser", "1");
+    this.scheduleSegmentPreferenceSave();
     this.cardView.setScope("mine");
     this.cardView.setPerUserFilter("1");
     this.syncBestEffortsScopeButtons();

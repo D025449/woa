@@ -110,6 +110,7 @@ export default class SegmentBestEffortsCardView {
       if (period === this.period) return;
       this.period = period;
       this.page = 1;
+      this.notifyPreferenceChange();
       if (this.currentSegment) await this.loadSegmentBestEfforts(this.currentSegment);
     });
     this.pageSizeSelect?.addEventListener("change", async () => {
@@ -117,7 +118,15 @@ export default class SegmentBestEffortsCardView {
       if (pageSize === this.pageSize) return;
       this.pageSize = pageSize;
       this.page = 1;
+      this.notifyPreferenceChange();
       if (this.currentSegment) await this.loadSegmentBestEfforts(this.currentSegment);
+    });
+  }
+
+  notifyPreferenceChange() {
+    this.handlers.onPreferenceChange?.({
+      period: this.period,
+      pageSize: this.pageSize
     });
   }
 
