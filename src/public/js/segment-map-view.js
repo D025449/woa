@@ -1,5 +1,6 @@
 import MapSegment from "../../shared/MapSegment.js"
 import { createTranslator, getCurrentLocale } from "./i18n.js";
+import { smoothSegmentTrackForRendering } from "./segment-track-rendering.js";
 
 export default class MapView {
 
@@ -30,6 +31,7 @@ export default class MapView {
     this.hoverMarker = null;
     this.currentTrackPoints = [];
     this.segmentLayers = new Map();
+    this.renderTrackCache = new WeakMap();
     this.selectedSegmentId = null;
 
     this.lookupPoints = [];
@@ -294,7 +296,12 @@ export default class MapView {
     // -------------------
     // Track zeichnen
     // -------------------
-    const latlngs = segment.track.map(p => [p.lat, p.lng]);
+    let renderTrack = this.renderTrackCache.get(segment.track);
+    if (!renderTrack) {
+      renderTrack = smoothSegmentTrackForRendering(segment.track);
+      this.renderTrackCache.set(segment.track, renderTrack);
+    }
+    const latlngs = renderTrack.map(p => [p.lat, p.lng]);
 
     const polyline = L.polyline(latlngs, {
       color: isSelected ? "#1d4ed8" : "#475569",
