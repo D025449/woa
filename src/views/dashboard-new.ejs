@@ -712,6 +712,10 @@
                                                 <div class="dashboard-actions-menu__group-label"><%= t("dashboardNewPage.axisModeLabel") %></div>
                                                 <div id="dashboard-axis-toggle-slot" class="dashboard-actions-menu__toggle-slot"></div>
                                             </div>
+                                            <div class="dashboard-actions-menu__group">
+                                                <div class="dashboard-actions-menu__group-label"><%= t("dashboardNewPage.chartLayoutLabel") %></div>
+                                                <div id="dashboard-chart-layout-toggle-slot" class="dashboard-actions-menu__toggle-slot"></div>
+                                            </div>
                                         </div>
                                     </details>
                                 </div>
@@ -749,7 +753,9 @@
                                         <% } %>
                                     </div>
                                 </div>
-                                <div id="workout-chart"></div>
+                                <div class="workout-chart-scroll">
+                                    <div id="workout-chart"></div>
+                                </div>
                             </div>
                             </article>
 

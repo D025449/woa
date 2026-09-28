@@ -239,6 +239,8 @@ test("chart derives stable rounded axes from unsmoothed workout metrics", () => 
     ])),
     {
       power: { min: 0, max: 550 },
+      heartRate: { min: 0, max: 200 },
+      cadence: { min: 0, max: 120 },
       heartCadence: { min: 0, max: 200 },
       speed: { min: 0, max: 80 },
       altitude: { min: 380, max: 890 }

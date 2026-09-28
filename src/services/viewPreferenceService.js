@@ -21,6 +21,7 @@ const TERRAIN_PROFILES = new Set(["all", "flat", "rolling", "mountainous", "alti
 const INTENSITY_PROFILES = new Set(["all", "recovery", "endurance", "tempo", "threshold", "vo2max", "anaerobic", "unknown"]);
 const GPS_FILTERS = new Set(["all", "valid", "invalid"]);
 const CHART_X_AXIS_MODES = new Set(["time", "distance"]);
+const CHART_LAYOUT_MODES = new Set(["overlay", "bands"]);
 const CHART_SMOOTHING_LEVELS = new Set([
   "automatic",
   "off",
@@ -116,6 +117,10 @@ export function normalizeWorkoutLibraryState(state = {}) {
 
   if (CHART_X_AXIS_MODES.has(source.xAxisMode)) {
     normalized.xAxisMode = source.xAxisMode;
+  }
+
+  if (CHART_LAYOUT_MODES.has(source.chartLayoutMode)) {
+    normalized.chartLayoutMode = source.chartLayoutMode;
   }
 
   if (CHART_SMOOTHING_LEVELS.has(source.smoothingLevel)) {
@@ -223,7 +228,7 @@ export function normalizeAnalyticsState(state = {}) {
   const grouping = normalizeEnum(source.grouping, ANALYTICS_SHARED_GROUPINGS, "month");
   const selectedPeriod = normalizeAnalyticsSelectedPeriod(source.selectedPeriod);
 
-  return {
+  const normalized = {
     timeRange: normalizeAnalyticsTimeRange(source.timeRange),
     grouping,
     selectedPeriod,
@@ -245,6 +250,12 @@ export function normalizeAnalyticsState(state = {}) {
       )
     }
   };
+
+  if (CHART_LAYOUT_MODES.has(source.workoutChartLayoutMode)) {
+    normalized.workoutChartLayoutMode = source.workoutChartLayoutMode;
+  }
+
+  return normalized;
 }
 
 export function normalizeSegmentsState(state = {}) {

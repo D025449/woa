@@ -1,5 +1,6 @@
 export function createDefaultAnalyticsPreferences() {
   return {
+    workoutChartLayoutMode: "overlay",
     timeRange: { mode: "all" },
     grouping: "month",
     selectedPeriod: null,

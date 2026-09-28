@@ -23,6 +23,7 @@ test("normalizes workout library preferences to supported values", () => {
     intensityProfile: "vo2max",
     gpsFilter: "valid",
     xAxisMode: "distance",
+    chartLayoutMode: "bands",
     smoothingLevel: "automatic",
     bridgePowerCadenceZeros: true,
     seriesVisibility: {
@@ -54,6 +55,7 @@ test("normalizes workout library preferences to supported values", () => {
       leftRightBalance: false
     },
     xAxisMode: "distance",
+    chartLayoutMode: "bands",
     smoothingLevel: "automatic",
     bridgePowerCadenceZeros: true
   });
@@ -70,6 +72,7 @@ test("rejects unsupported workout library preference values safely", () => {
     intensityProfile: "sprinty",
     gpsFilter: "sometimes",
     xAxisMode: "laps",
+    chartLayoutMode: "columns",
     smoothingLevel: "maximum",
     bridgePowerCadenceZeros: "true"
   }), {
@@ -134,12 +137,14 @@ test("keeps legacy preferences without segment visibility backward compatible", 
   assert.equal("segmentVisibility" in state, false);
   assert.equal("seriesVisibility" in state, false);
   assert.equal("xAxisMode" in state, false);
+  assert.equal("chartLayoutMode" in state, false);
   assert.equal("smoothingLevel" in state, false);
   assert.equal("bridgePowerCadenceZeros" in state, false);
 });
 
 test("normalizes analytics chart grouping and legend visibility independently", () => {
   const state = normalizeAnalyticsState({
+    workoutChartLayoutMode: "bands",
     grouping: "quarter",
     selectedPeriod: { grouping: "quarter", start: "2026-04-01" },
     selectedWorkout: { id: 85047, startOffset: 120, endOffset: 360 },
@@ -159,6 +164,7 @@ test("normalizes analytics chart grouping and legend visibility independently", 
     start: "2026-01-15",
     end: "2026-08-17"
   });
+  assert.equal(state.workoutChartLayoutMode, "bands");
   assert.equal(state.grouping, "quarter");
   assert.deepEqual(state.selectedPeriod, { grouping: "quarter", start: "2026-04-01" });
   assert.deepEqual(state.selectedWorkout, { id: 85047, startOffset: 120, endOffset: 360 });
@@ -173,6 +179,12 @@ test("normalizes analytics chart grouping and legend visibility independently", 
   assert.equal(state.powerCurve.seriesVisibility.cp12, undefined);
   assert.equal(state.powerCurve.seriesVisibility.eftp, true);
   assert.equal("injected" in state.powerCurve.seriesVisibility, false);
+});
+
+test("does not invent a persisted chart layout for legacy analytics preferences", () => {
+  const state = normalizeAnalyticsState({ grouping: "month" });
+
+  assert.equal("workoutChartLayoutMode" in state, false);
 });
 
 test("keeps only complete or slider-defined analytics time ranges", () => {

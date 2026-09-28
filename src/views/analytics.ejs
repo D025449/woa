@@ -148,15 +148,20 @@
                                 <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.workoutContextEyebrow") %></span>
                                 <h2 class="analytics-section-title ui-title"><%= t("analyticsPage.workoutContextTitle") %></h2>
                             </div>
-                            <div id="analytics-workout-meta" class="analytics-workout-meta" hidden aria-live="polite">
-                                <strong id="analytics-workout-id"></strong>
-                                <span aria-hidden="true">·</span>
-                                <time id="analytics-workout-date"></time>
+                            <div class="analytics-workout-chart-actions">
+                                <div id="dashboard-chart-layout-toggle-slot"></div>
+                                <div id="analytics-workout-meta" class="analytics-workout-meta" hidden aria-live="polite">
+                                    <strong id="analytics-workout-id"></strong>
+                                    <span aria-hidden="true">·</span>
+                                    <time id="analytics-workout-date"></time>
+                                </div>
                             </div>
                         </div>
 
                         <div class="analytics-body">
-                            <div id="workout-chart"></div>
+                            <div class="workout-chart-scroll">
+                                <div id="workout-chart"></div>
+                            </div>
                         </div>
                     </article>
 

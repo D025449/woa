@@ -668,6 +668,30 @@ button.analytics-period-card:focus-visible,
     min-height: 0;
 }
 
+#workout-chart {
+    overflow: hidden;
+}
+
+.analytics-workout-chart-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+}
+
+.analytics-focus-panel .workout-chart-scroll {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.analytics-focus-panel #workout-chart.workout-chart--bands {
+    height: 100% !important;
+    min-height: var(--workout-chart-band-height);
+}
+
 .analytics-focus-grid--no-map #workout-chart {
     height: 100% !important;
 }

@@ -25,6 +25,10 @@ import {
   resolveCalendarAnalysisPeriod
 } from "./analytics-period.js";
 import { POWER_DISTRIBUTION_ZONES } from "../../shared/PowerDistribution.js";
+import {
+  readWorkoutChartLayoutMode,
+  writeWorkoutChartLayoutMode
+} from "./workout-chart-layout-preference.js";
 
 const ANALYTICS_VIEW_KEY = "analytics";
 const VIEW_PREFERENCE_SAVE_DELAY_MS = 500;
@@ -65,6 +69,10 @@ export default class Controller {
     this.locale = getCurrentLocale();
     this.t = createTranslator("analyticsPage");
     this.analyticsPreferences = createDefaultAnalyticsPreferences();
+    const localChartLayoutMode = readWorkoutChartLayoutMode();
+    if (localChartLayoutMode) {
+      this.analyticsPreferences.workoutChartLayoutMode = localChartLayoutMode;
+    }
     this.viewPreferencesAvailable = false;
     this.pendingPreferenceState = null;
     this.preferenceSaveTimer = null;
@@ -107,11 +115,25 @@ export default class Controller {
     this.mapView = new MapView("workout-map");
 
     this.chartView = new ChartView("workout-chart", {
+      initialState: {
+        chartLayoutMode: this.analyticsPreferences.workoutChartLayoutMode
+      },
       onChartHoverIndex: (idx) => {
         this.mapView.moveMarkerToIndex(idx);
       },
       onZoomSegment: (start, end) => {
         this.chartView.zoomToSegment(start, end);
+      },
+      onPreferencesChange: (state) => {
+        if (state.chartLayoutMode === this.analyticsPreferences.workoutChartLayoutMode) {
+          return;
+        }
+        this.analyticsPreferences = {
+          ...this.analyticsPreferences,
+          workoutChartLayoutMode: state.chartLayoutMode
+        };
+        writeWorkoutChartLayoutMode(state.chartLayoutMode);
+        this.scheduleAnalyticsPreferenceSave();
       }
     });
 
@@ -159,6 +181,10 @@ export default class Controller {
             }
           }
         };
+        this.chartView.applyPreferences({
+          chartLayoutMode: this.analyticsPreferences.workoutChartLayoutMode
+        });
+        writeWorkoutChartLayoutMode(this.analyticsPreferences.workoutChartLayoutMode);
       }
     } catch (err) {
       console.warn("Analytics preferences remain at their defaults for this session:", err);

@@ -15,6 +15,10 @@ import {
 import confirmModal from "./confirm-modal.js";
 import { intensityProfilesFromTags } from "../../shared/WorkoutIntensityTags.js";
 import { parseManualActivityFile } from "./manual-activity-exchange-client.js";
+import {
+  readWorkoutChartLayoutMode,
+  writeWorkoutChartLayoutMode
+} from "./workout-chart-layout-preference.js";
 
 const WORKOUT_LIBRARY_VIEW_KEY = "workout-library";
 const VIEW_PREFERENCE_SAVE_DELAY_MS = 500;
@@ -46,6 +50,7 @@ export default class Controller {
     });
     this.chartViewState = this.uiState.get("chartViewState", {
       xAxisMode: "time",
+      chartLayoutMode: "overlay",
       smoothingLevel: "automatic",
       bridgePowerCadenceZeros: false,
       seriesVisibility: {
@@ -63,6 +68,13 @@ export default class Controller {
         gps: true
       }
     });
+    const localChartLayoutMode = readWorkoutChartLayoutMode();
+    if (localChartLayoutMode) {
+      this.chartViewState = {
+        ...this.chartViewState,
+        chartLayoutMode: localChartLayoutMode
+      };
+    }
     this.libraryScrollTop = this.uiState.get("workoutLibraryScrollTop", 0);
     this.mapViewState = this.uiState.get("dashboardMapViewState", {
       baseLayerMode: "standard"
@@ -375,6 +387,7 @@ export default class Controller {
 
       onPreferencesChange: (state) => {
         this.chartViewState = state;
+        writeWorkoutChartLayoutMode(state.chartLayoutMode);
         this.uiState.set("chartViewState", state);
         this.mapView.setSegmentVisibility(state.segmentVisibility);
         const workout = this.chartView.currentWorkout;
@@ -499,6 +512,9 @@ export default class Controller {
   // -----------------------------
   registerEvents() {
     window.addEventListener("resize", () => this.onResize());
+    window.addEventListener("pagehide", () => {
+      this.persistWorkoutLibraryPreferences({ keepalive: true });
+    });
     this.mobileLibraryToggle?.addEventListener("click", () => this.toggleMobileLibrary());
     this.mobileLibraryCloseButton?.addEventListener("click", () => this.closeMobileLibrary());
     this.mobileLibraryBackdrop?.addEventListener("click", () => this.closeMobileLibrary());
@@ -1231,6 +1247,7 @@ export default class Controller {
 
       const {
         xAxisMode,
+        chartLayoutMode,
         smoothingLevel,
         bridgePowerCadenceZeros,
         seriesVisibility,
@@ -1246,6 +1263,7 @@ export default class Controller {
 
       if (
         xAxisMode
+        || chartLayoutMode
         || smoothingLevel
         || typeof bridgePowerCadenceZeros === "boolean"
         || seriesVisibility
@@ -1254,6 +1272,7 @@ export default class Controller {
         this.chartViewState = {
           ...this.chartViewState,
           ...(xAxisMode ? { xAxisMode } : {}),
+          ...(chartLayoutMode ? { chartLayoutMode } : {}),
           ...(smoothingLevel ? { smoothingLevel } : {}),
           ...(typeof bridgePowerCadenceZeros === "boolean"
             ? { bridgePowerCadenceZeros }
@@ -1270,6 +1289,7 @@ export default class Controller {
           }
         };
         this.uiState.set("chartViewState", this.chartViewState);
+        writeWorkoutChartLayoutMode(this.chartViewState.chartLayoutMode);
         this.chartView.applyPreferences(this.chartViewState);
         this.mapView.setSegmentVisibility(this.chartViewState.segmentVisibility);
       }
@@ -1287,6 +1307,7 @@ export default class Controller {
     this.pendingWorkoutLibraryPreferenceState = {
       ...state,
       xAxisMode: this.chartViewState.xAxisMode,
+      chartLayoutMode: this.chartViewState.chartLayoutMode,
       smoothingLevel: this.chartViewState.smoothingLevel,
       bridgePowerCadenceZeros: this.chartViewState.bridgePowerCadenceZeros,
       seriesVisibility: {

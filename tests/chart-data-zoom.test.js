@@ -30,6 +30,14 @@ test("chart zoom can retain inside zoom while hiding its slider", () => {
   assert.equal(slider.show, false);
 });
 
+test("one chart zoom controls every workout band", () => {
+  const axes = [0, 1, 2, 3, 4];
+  const [inside, slider] = buildChartDataZoom({ xAxisIndex: axes });
+
+  assert.deepEqual(inside.xAxisIndex, axes);
+  assert.deepEqual(slider.xAxisIndex, axes);
+});
+
 test("chart zoom range survives a dataset resolution change", () => {
   const range = readChartZoomRange({
     getOption: () => ({ dataZoom: [{ start: 23.5, end: 61.25 }] })

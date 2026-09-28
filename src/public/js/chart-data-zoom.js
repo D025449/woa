@@ -1,16 +1,21 @@
-export function buildChartDataZoom({ inside = {}, slider = {}, filterMode = "none" } = {}) {
+export function buildChartDataZoom({
+  inside = {},
+  slider = {},
+  filterMode = "none",
+  xAxisIndex = 0
+} = {}) {
   return [
     {
       id: "chart-inside-zoom",
       type: "inside",
-      xAxisIndex: 0,
+      xAxisIndex,
       filterMode,
       ...inside
     },
     {
       id: "chart-slider-zoom",
       type: "slider",
-      xAxisIndex: 0,
+      xAxisIndex,
       filterMode,
       realtime: false,
       brushSelect: true,

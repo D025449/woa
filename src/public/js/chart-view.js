@@ -24,6 +24,22 @@ const SEGMENT_HEADER_GAP_PX = 2;
 const SEGMENT_HEADER_PADDING_TOP_PX = 4;
 const SEGMENT_HEADER_BASE_GRID_TOP_PX = 40;
 const SEGMENT_HEADER_MAX_LANES = 10;
+const CHART_LAYOUT_OVERLAY = "overlay";
+const CHART_LAYOUT_BANDS = "bands";
+const BAND_CHART_HEIGHT_PX = 80;
+const BAND_CHART_MIN_HEIGHT_PX = 10;
+const BAND_CHART_GAP_PX = 14;
+const BAND_CHART_BOTTOM_PX = 72;
+const BAND_CHART_LEFT_PX = 72;
+const BAND_CHART_RIGHT_PX = 24;
+const WORKOUT_SERIES_KEYS = [
+  "power",
+  "heartRate",
+  "cadence",
+  "speed",
+  "altitude",
+  "leftRightBalance"
+];
 
 function isPersistedManualSegment(segment) {
   const segmentId = Number(segment?.id);
@@ -257,6 +273,8 @@ function roundAxisMaximum(value, quantum) {
 export function calculateStableYAxisBounds(workoutObject) {
   const bounds = {
     power: { min: 0, max: null },
+    heartRate: { min: 0, max: null },
+    cadence: { min: 0, max: null },
     heartCadence: { min: 0, max: null },
     speed: { min: 0, max: null },
     altitude: { min: null, max: null }
@@ -268,6 +286,8 @@ export function calculateStableYAxisBounds(workoutObject) {
   }
 
   let maxPower = 0;
+  let maxHeartRate = 0;
+  let maxCadence = 0;
   let maxHeartCadence = 0;
   let maxSpeed = 0;
   let minAltitude = Infinity;
@@ -287,8 +307,14 @@ export function calculateStableYAxisBounds(workoutObject) {
     if (Number.isFinite(heartRate) && heartRate > maxHeartCadence) {
       maxHeartCadence = heartRate;
     }
+    if (Number.isFinite(heartRate) && heartRate > maxHeartRate) {
+      maxHeartRate = heartRate;
+    }
     if (Number.isFinite(cadence) && cadence > maxHeartCadence) {
       maxHeartCadence = cadence;
+    }
+    if (Number.isFinite(cadence) && cadence > maxCadence) {
+      maxCadence = cadence;
     }
     if (Number.isFinite(speed) && speed > maxSpeed) {
       maxSpeed = speed;
@@ -301,6 +327,8 @@ export function calculateStableYAxisBounds(workoutObject) {
   }
 
   bounds.power.max = roundAxisMaximum(maxPower, 25);
+  bounds.heartRate.max = roundAxisMaximum(maxHeartRate, 10);
+  bounds.cadence.max = roundAxisMaximum(maxCadence, 10);
   bounds.heartCadence.max = roundAxisMaximum(maxHeartCadence, 10);
   bounds.speed.max = roundAxisMaximum(maxSpeed, 5);
 
@@ -335,9 +363,11 @@ export default class ChartView {
     this.selectionStart = null;
     this.currentWorkout = null;
     this.xAxisMode = "time";
+    this.chartLayoutMode = CHART_LAYOUT_OVERLAY;
     this.smoothingLevel = "automatic";
     this.bridgePowerCadenceZeros = false;
     this.distanceAxisToggle = null;
+    this.chartLayoutToggle = null;
     this.smoothingSlot = document.getElementById("dashboard-smoothing-slot");
     this.seriesToggleSlot = document.getElementById("dashboard-series-toggle-slot");
     this.segmentToggleSlot = document.getElementById("dashboard-segment-toggle-slot");
@@ -384,6 +414,9 @@ export default class ChartView {
     this.yAxisBoundsCache = new WeakMap();
     this.currentAdaptiveResolution = null;
     this.adaptiveResolutionTimer = null;
+    this.currentXAxisRange = { min: 0, max: 1 };
+    this.layoutResizeFrame = null;
+    this.layoutResizeObserver = null;
     this.mode = "";
     this.baseMarkAreas = [];
     this.previewMarkArea = null;
@@ -407,6 +440,7 @@ export default class ChartView {
     this.initChart();
     this.registerInteractions();
     this.registerPointerInteractions();
+    this.registerLayoutResizeObserver();
   }
 
   // -----------------------------
@@ -425,6 +459,7 @@ export default class ChartView {
     });
     this.showAllButton?.addEventListener("click", () => this.showAll());
     this.initAxisModeToggle();
+    this.initChartLayoutToggle();
     this.initSegmentToggleControls();
     this.initSeriesToggleControls();
     this.initSmoothingControls();
@@ -439,6 +474,10 @@ export default class ChartView {
 
     if (state.xAxisMode === "time" || state.xAxisMode === "distance") {
       this.xAxisMode = state.xAxisMode;
+    }
+
+    if (state.chartLayoutMode === CHART_LAYOUT_BANDS || state.chartLayoutMode === CHART_LAYOUT_OVERLAY) {
+      this.chartLayoutMode = state.chartLayoutMode;
     }
 
     if (typeof state.smoothingLevel === "string" && state.smoothingLevel.trim()) {
@@ -469,6 +508,7 @@ export default class ChartView {
     this.syncSeriesToggleState();
     this.syncSegmentToggleState();
     this.syncSmoothingState();
+    this.syncChartLayoutToggle();
 
     if (this.currentWorkout) {
       this.updateWorkout(this.currentWorkout);
@@ -478,6 +518,7 @@ export default class ChartView {
   emitPreferenceChange() {
     this.handlers.onPreferencesChange?.({
       xAxisMode: this.xAxisMode,
+      chartLayoutMode: this.chartLayoutMode,
       smoothingLevel: this.smoothingLevel,
       bridgePowerCadenceZeros: this.bridgePowerCadenceZeros,
       seriesVisibility: { ...this.seriesVisibility },
@@ -548,6 +589,24 @@ export default class ChartView {
     });
   }
 
+  registerLayoutResizeObserver() {
+    const viewport = this.container?.parentElement;
+    if (!viewport || typeof ResizeObserver !== "function") {
+      return;
+    }
+
+    let previousHeight = viewport.clientHeight;
+    this.layoutResizeObserver = new ResizeObserver(() => {
+      const nextHeight = viewport.clientHeight;
+      if (nextHeight === previousHeight) {
+        return;
+      }
+      previousHeight = nextHeight;
+      this.resize();
+    });
+    this.layoutResizeObserver.observe(viewport);
+  }
+
   initAxisModeToggle() {
     const slot = document.getElementById("dashboard-axis-toggle-slot");
     const toolbar = slot
@@ -592,8 +651,259 @@ export default class ChartView {
     });
   }
 
+  initChartLayoutToggle() {
+    const slot = document.getElementById("dashboard-chart-layout-toggle-slot");
+    if (!slot) {
+      return;
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "btn-group btn-group-sm";
+    wrapper.setAttribute("role", "group");
+    wrapper.setAttribute("aria-label", this.t("chartLayoutAria"));
+
+    const overlayButton = document.createElement("button");
+    overlayButton.type = "button";
+    overlayButton.className = "btn btn-outline-dark";
+    overlayButton.textContent = this.t("chartLayoutOverlay");
+    overlayButton.dataset.chartLayoutMode = CHART_LAYOUT_OVERLAY;
+
+    const bandsButton = document.createElement("button");
+    bandsButton.type = "button";
+    bandsButton.className = "btn btn-outline-dark";
+    bandsButton.textContent = this.t("chartLayoutBands");
+    bandsButton.dataset.chartLayoutMode = CHART_LAYOUT_BANDS;
+
+    wrapper.append(overlayButton, bandsButton);
+    slot.replaceChildren(wrapper);
+    this.chartLayoutToggle = { wrapper, overlayButton, bandsButton };
+    this.syncChartLayoutToggle();
+
+    wrapper.addEventListener("click", (event) => {
+      const target = event.target?.closest?.("button[data-chart-layout-mode]");
+      if (!target) {
+        return;
+      }
+      this.setChartLayoutMode(target.dataset.chartLayoutMode);
+    });
+  }
+
+  setChartLayoutMode(mode) {
+    const normalized = mode === CHART_LAYOUT_BANDS
+      ? CHART_LAYOUT_BANDS
+      : CHART_LAYOUT_OVERLAY;
+    if (normalized === this.chartLayoutMode) {
+      return;
+    }
+
+    this.chartLayoutMode = normalized;
+    this.syncChartLayoutToggle();
+    this.emitPreferenceChange();
+    if (this.currentWorkout) {
+      this.updateWorkout(this.currentWorkout);
+    } else {
+      this.syncChartContainerHeight();
+      this.chart.resize();
+    }
+  }
+
+  syncChartLayoutToggle() {
+    if (!this.chartLayoutToggle) {
+      return;
+    }
+
+    const { overlayButton, bandsButton } = this.chartLayoutToggle;
+    const isBands = this.chartLayoutMode === CHART_LAYOUT_BANDS;
+    overlayButton.classList.toggle("btn-dark", !isBands);
+    overlayButton.classList.toggle("btn-outline-dark", isBands);
+    overlayButton.setAttribute("aria-pressed", isBands ? "false" : "true");
+    bandsButton.classList.toggle("btn-dark", isBands);
+    bandsButton.classList.toggle("btn-outline-dark", !isBands);
+    bandsButton.setAttribute("aria-pressed", isBands ? "true" : "false");
+  }
+
+  getBandSeriesKeys() {
+    const visible = WORKOUT_SERIES_KEYS.filter((key) => (
+      this.seriesAvailability[key] !== false
+      && this.seriesVisibility[key] !== false
+    ));
+    if (visible.length > 0) {
+      return visible;
+    }
+
+    return [WORKOUT_SERIES_KEYS.find((key) => this.seriesAvailability[key] !== false) || "power"];
+  }
+
+  getAvailableBandSeriesKeys() {
+    const available = WORKOUT_SERIES_KEYS.filter(
+      (key) => this.seriesAvailability[key] !== false
+    );
+    return available.length > 0 ? available : ["power"];
+  }
+
+  getBandLayoutMetrics() {
+    const bandKeys = this.getBandSeriesKeys();
+    const maximumBandCount = this.getAvailableBandSeriesKeys().length;
+    const fallbackBandAreaHeight = maximumBandCount * BAND_CHART_HEIGHT_PX
+      + Math.max(0, maximumBandCount - 1) * BAND_CHART_GAP_PX;
+    const gapHeight = Math.max(0, bandKeys.length - 1) * BAND_CHART_GAP_PX;
+    const viewportHeight = Number(this.container?.parentElement?.clientHeight);
+    const viewportBandAreaHeight = Number.isFinite(viewportHeight) && viewportHeight > 0
+      ? viewportHeight - this.getSegmentHeaderGridTop() - BAND_CHART_BOTTOM_PX
+      : null;
+    const minimumBandAreaHeight = bandKeys.length * BAND_CHART_MIN_HEIGHT_PX + gapHeight;
+    const availableBandHeight = viewportBandAreaHeight === null
+      ? fallbackBandAreaHeight
+      : Math.max(minimumBandAreaHeight, viewportBandAreaHeight);
+    const bandHeight = Math.max(
+      BAND_CHART_MIN_HEIGHT_PX,
+      (availableBandHeight - gapHeight) / bandKeys.length
+    );
+
+    return {
+      bandKeys,
+      bandHeight,
+      availableBandHeight,
+      minimumBandAreaHeight
+    };
+  }
+
+  getRenderedSeriesKeys() {
+    if (this.chartLayoutMode === CHART_LAYOUT_BANDS) {
+      return this.getBandSeriesKeys().filter((key) => this.seriesVisibility[key] !== false);
+    }
+    const available = WORKOUT_SERIES_KEYS.filter((key) => this.seriesAvailability[key] !== false);
+    const visible = available.filter((key) => this.seriesVisibility[key] !== false);
+    return visible.length > 0 ? visible : available;
+  }
+
+  getDataZoomXAxisIndexes() {
+    if (this.chartLayoutMode !== CHART_LAYOUT_BANDS) {
+      return 0;
+    }
+    return this.getBandSeriesKeys().map((_, index) => index);
+  }
+
+  syncChartContainerHeight() {
+    if (this.chartLayoutMode !== CHART_LAYOUT_BANDS) {
+      const changed = this.container.classList.contains("workout-chart--bands");
+      this.container.classList.remove("workout-chart--bands");
+      this.container.style.removeProperty("--workout-chart-band-height");
+      return changed;
+    }
+
+    const { minimumBandAreaHeight } = this.getBandLayoutMetrics();
+    const minimumHeight = this.getSegmentHeaderGridTop()
+      + minimumBandAreaHeight
+      + BAND_CHART_BOTTOM_PX;
+    const nextHeight = `${minimumHeight}px`;
+    const changed = !this.container.classList.contains("workout-chart--bands")
+      || this.container.style.getPropertyValue("--workout-chart-band-height") !== nextHeight;
+    this.container.classList.add("workout-chart--bands");
+    this.container.style.setProperty("--workout-chart-band-height", nextHeight);
+    return changed;
+  }
+
+  buildBandYAxisOptions(workoutObject, labels = this.getChartLabels()) {
+    const bounds = workoutObject
+      ? this.getStableYAxisBounds(workoutObject)
+      : calculateStableYAxisBounds(null);
+    const colors = this.getSeriesPalette();
+    const definitions = {
+      power: { name: labels.axisPower, bounds: bounds.power },
+      heartRate: { name: labels.heartRate, bounds: bounds.heartRate },
+      cadence: { name: labels.cadence, bounds: bounds.cadence },
+      speed: { name: labels.axisSpeed, bounds: bounds.speed },
+      altitude: { name: labels.axisAltitude, bounds: bounds.altitude },
+      leftRightBalance: {
+        name: labels.axisLeftRightBalance,
+        bounds: { min: 0, max: 100 },
+        interval: 25,
+        formatter: "{value}%"
+      }
+    };
+
+    return this.getBandSeriesKeys().map((key, index) => {
+      const definition = definitions[key];
+      return {
+        type: "value",
+        gridIndex: index,
+        name: definition.name,
+        nameLocation: "middle",
+        nameGap: 48,
+        nameTextStyle: { color: colors[key], fontSize: 11, fontWeight: 700 },
+        min: definition.bounds.min,
+        max: definition.bounds.max,
+        ...(definition.interval ? { interval: definition.interval } : {}),
+        axisLine: { show: true, lineStyle: { color: colors[key], opacity: 0.65 } },
+        axisTick: { show: false },
+        axisLabel: {
+          color: "#64748b",
+          fontSize: 10,
+          ...(definition.formatter ? { formatter: definition.formatter } : {})
+        },
+        splitLine: { show: true, lineStyle: { color: "rgba(148, 163, 184, 0.18)" } },
+        splitNumber: 2
+      };
+    });
+  }
+
+  buildChartLayoutOptions(workoutObject, labels, xRange) {
+    const range = xRange || { min: 0, max: 1 };
+    const axisLabelFormatter = (value) => this.formatXAxisLabel(value);
+    if (this.chartLayoutMode !== CHART_LAYOUT_BANDS) {
+      return {
+        grid: { top: this.getSegmentHeaderGridTop() },
+        xAxis: {
+          type: "value",
+          scale: true,
+          minInterval: 1,
+          min: range.min,
+          max: range.max,
+          axisLabel: { formatter: axisLabelFormatter }
+        },
+        yAxis: workoutObject
+          ? this.buildStableYAxisOptions(workoutObject, labels)
+          : this.buildStableYAxisOptions(null, labels)
+      };
+    }
+
+    const { bandKeys, bandHeight } = this.getBandLayoutMetrics();
+    const gridTop = this.getSegmentHeaderGridTop();
+    return {
+      grid: bandKeys.map((_, index) => ({
+        left: BAND_CHART_LEFT_PX,
+        right: BAND_CHART_RIGHT_PX,
+        top: gridTop + index * (bandHeight + BAND_CHART_GAP_PX),
+        height: bandHeight
+      })),
+      xAxis: bandKeys.map((_, index) => {
+        const isLast = index === bandKeys.length - 1;
+        return {
+          type: "value",
+          gridIndex: index,
+          scale: true,
+          minInterval: 1,
+          min: range.min,
+          max: range.max,
+          axisLine: { show: isLast },
+          axisTick: { show: isLast },
+          axisLabel: {
+            show: isLast,
+            formatter: axisLabelFormatter
+          },
+          splitLine: { show: false },
+          axisPointer: { show: true, snap: true }
+        };
+      }),
+      yAxis: this.buildBandYAxisOptions(workoutObject, labels)
+    };
+  }
+
   initChart() {
     const labels = this.getChartLabels();
+    const layout = this.buildChartLayoutOptions(null, labels, { min: 0, max: 1 });
+    this.syncChartContainerHeight();
     this.chart.setOption({
       tooltip: {
         trigger: "axis",
@@ -603,36 +913,14 @@ export default class ChartView {
         formatter: (params) => this.formatTooltip(params)
       },
       animation: false,
+      axisPointer: {
+        link: [{ xAxisIndex: "all" }]
+      },
       legend: {
         show: false,
         selected: this.getLegendSelection(labels)
       },
-      grid: { top: SEGMENT_HEADER_BASE_GRID_TOP_PX },
-      xAxis: {
-        type: "value",
-        scale: true,
-        minInterval: 1,
-        axisLabel: { formatter: Utils.formatSeconds }
-      },
-      yAxis: [
-        { type: "value", name: labels.axisPower, position: "left" },
-        { type: "value", name: labels.axisHeartCadence, position: "right" },
-        { type: "value", name: labels.axisSpeed, position: "left", offset: 40 },
-        { type: "value", name: labels.axisAltitude, position: "right", offset: 50 },
-        {
-          type: "value",
-          name: labels.axisLeftRightBalance,
-          position: "right",
-          offset: 96,
-          min: 0,
-          max: 100,
-          interval: 25,
-          show: false,
-          axisLine: { show: true, lineStyle: { color: "#d946ef" } },
-          axisLabel: { color: "#a21caf", formatter: "{value}%" },
-          splitLine: { show: false }
-        }
-      ],
+      ...layout,
       dataset: {
         dimensions: [
           "x", "Power", "Heartrate", "Cadence",
@@ -643,6 +931,7 @@ export default class ChartView {
         source: []
       },
       dataZoom: buildChartDataZoom({
+        xAxisIndex: this.getDataZoomXAxisIndexes(),
         inside: {
           disabled: false,
           zoomOnMouseWheel: true,
@@ -693,22 +982,34 @@ export default class ChartView {
     const source = result.data;
     const sd = obj.getStartTime();
     const xRange = this.getXAxisRange(result.rowCount, workout);
+    this.currentXAxisRange = xRange;
     const xField = this.getXAxisField();
     const labels = this.getChartLabels();
+    const zoomRange = readChartZoomRange(this.chart);
+    const layout = this.buildChartLayoutOptions(obj, labels, xRange);
+    this.syncChartContainerHeight();
+    this.chart.resize();
 
     this.chart.setOption({
-      xAxis: {
-        min: xRange.min,
-        max: xRange.max,
-        axisLabel: { formatter: (value) => this.formatXAxisLabel(value) }
-      },
-      yAxis: this.buildStableYAxisOptions(obj, labels),
+      ...layout,
       legend: {
         selected: this.getLegendSelection(labels)
       },
       dataset: { source }, //workout.series },
+      dataZoom: buildChartDataZoom({
+        xAxisIndex: this.getDataZoomXAxisIndexes(),
+        inside: {
+          disabled: false,
+          zoomOnMouseWheel: true,
+          moveOnMouseWheel: false,
+          moveOnMouseMove: true,
+          preventDefaultMouseMove: true,
+          ...zoomRange
+        },
+        slider: zoomRange
+      }),
       series: this.buildSeriesDefinitions(labels, xField)
-    }, { replaceMerge: ["series"] });
+    }, { replaceMerge: ["grid", "xAxis", "yAxis", "dataZoom", "series"] });
     this.renderSegmentToggles();
     this.renderSeriesToggles(labels);
     this.renderSmoothingControls();
@@ -737,23 +1038,35 @@ export default class ChartView {
     const result = this.getChartDataset(obj);
     const source = result.data;
     const xRange = this.getXAxisRange(result.rowCount, workout);
+    this.currentXAxisRange = xRange;
     const sd = obj.getStartTime();
     const xField = this.getXAxisField();
     const labels = this.getChartLabels();
+    const zoomRange = readChartZoomRange(this.chart);
+    const layout = this.buildChartLayoutOptions(obj, labels, xRange);
+    this.syncChartContainerHeight();
+    this.chart.resize();
 
     this.chart.setOption({
-      xAxis: {
-        min: xRange.min,
-        max: xRange.max,
-        axisLabel: { formatter: (value) => this.formatXAxisLabel(value) }
-      },
-      yAxis: this.buildStableYAxisOptions(obj, labels),
+      ...layout,
       legend: {
         selected: this.getLegendSelection(labels)
       },
       dataset: { source }, //workout.series },
+      dataZoom: buildChartDataZoom({
+        xAxisIndex: this.getDataZoomXAxisIndexes(),
+        inside: {
+          disabled: false,
+          zoomOnMouseWheel: true,
+          moveOnMouseWheel: false,
+          moveOnMouseMove: true,
+          preventDefaultMouseMove: true,
+          ...zoomRange
+        },
+        slider: zoomRange
+      }),
       series: this.buildSeriesDefinitions(labels, xField)
-    }, { replaceMerge: ["series"] });
+    }, { replaceMerge: ["grid", "xAxis", "yAxis", "dataZoom", "series"] });
     this.renderSegmentToggles();
     this.renderSeriesToggles(labels);
     this.renderSmoothingControls();
@@ -1021,7 +1334,11 @@ export default class ChartView {
       }
 
       this.seriesVisibility[seriesKey] = !this.seriesVisibility[seriesKey];
-      this.applySeriesSelection();
+      if (this.chartLayoutMode === CHART_LAYOUT_BANDS && this.currentWorkout) {
+        this.updateWorkout(this.currentWorkout);
+      } else {
+        this.applySeriesSelection();
+      }
       this.syncSeriesToggleState();
       this.emitPreferenceChange();
     });
@@ -1456,11 +1773,25 @@ export default class ChartView {
       ...(this.previewMarkArea ? [this.previewMarkArea] : [])
     ];
 
+    if (this.syncChartContainerHeight()) {
+      this.chart.resize();
+    }
+    const renderedSeriesKeys = this.getRenderedSeriesKeys();
+    const markAreaSeriesKeys = this.chartLayoutMode === CHART_LAYOUT_BANDS
+      ? renderedSeriesKeys
+      : renderedSeriesKeys.slice(0, 1);
+    const grid = this.buildChartLayoutOptions(
+      this.currentWorkout?.workoutObject,
+      this.getChartLabels(),
+      { min: 0, max: 1 }
+    ).grid;
+
     this.chart.setOption({
-      grid: { top: this.getSegmentHeaderGridTop() },
-      series: [{
+      grid,
+      series: markAreaSeriesKeys.map((key) => ({
+        id: `workout-series-${key}`,
         markArea: { silent: true, data }
-      }],
+      })),
       graphic: this.buildChartGraphics()
     }, { replaceMerge: ["graphic"] });
   }
@@ -1638,7 +1969,7 @@ export default class ChartView {
       dataZoom: [{
         id: "chart-inside-zoom",
         type: "inside",
-        xAxisIndex: 0,
+        xAxisIndex: this.getDataZoomXAxisIndexes(),
         filterMode: "none",
         disabled: false,
         zoomOnMouseWheel: true,
@@ -2035,13 +2366,22 @@ export default class ChartView {
     };
   }
 
-  buildStableYAxisOptions(workoutObject, labels = this.getChartLabels()) {
-    const colors = this.getSeriesPalette();
+  getStableYAxisBounds(workoutObject) {
+    if (!workoutObject || typeof workoutObject !== "object") {
+      return calculateStableYAxisBounds(null);
+    }
+
     let bounds = this.yAxisBoundsCache.get(workoutObject);
     if (!bounds) {
       bounds = calculateStableYAxisBounds(workoutObject);
       this.yAxisBoundsCache.set(workoutObject, bounds);
     }
+    return bounds;
+  }
+
+  buildStableYAxisOptions(workoutObject, labels = this.getChartLabels()) {
+    const colors = this.getSeriesPalette();
+    const bounds = this.getStableYAxisBounds(workoutObject);
 
     return [
       {
@@ -2093,7 +2433,7 @@ export default class ChartView {
   buildSeriesDefinitions(labels, xField = "x") {
     const colors = this.getSeriesPalette();
 
-    return [
+    const definitions = [
       {
         seriesKey: "power",
         name: labels.power,
@@ -2166,9 +2506,51 @@ export default class ChartView {
         itemStyle: { color: colors.leftRightBalance },
         encode: { x: xField, y: "LeftRightBalance" }
       }
-    ]
+    ];
+    const bandKeys = this.getBandSeriesKeys();
+
+    return definitions
       .filter((series) => this.seriesAvailability[series.seriesKey] !== false)
-      .map(({ seriesKey, ...series }) => series);
+      .filter((series) => (
+        this.chartLayoutMode !== CHART_LAYOUT_BANDS
+        || this.seriesVisibility[series.seriesKey] !== false
+      ))
+      .map(({ seriesKey, ...series }) => {
+        if (this.chartLayoutMode !== CHART_LAYOUT_BANDS) {
+          const isAltitude = seriesKey === "altitude";
+          return {
+            ...series,
+            id: `workout-series-${seriesKey}`,
+            xAxisIndex: 0,
+            z: isAltitude ? 1 : (series.z ?? 3),
+            lineStyle: {
+              ...series.lineStyle,
+              opacity: isAltitude ? 0.45 : 1
+            },
+            areaStyle: isAltitude
+              ? series.areaStyle
+              : { color: "transparent", opacity: 0 }
+          };
+        }
+
+        const bandIndex = Math.max(0, bandKeys.indexOf(seriesKey));
+        return {
+          ...series,
+          id: `workout-series-${seriesKey}`,
+          xAxisIndex: bandIndex,
+          yAxisIndex: bandIndex,
+          lineStyle: {
+            ...series.lineStyle,
+            width: 0,
+            opacity: 0
+          },
+          areaStyle: {
+            color: colors[seriesKey],
+            opacity: seriesKey === "altitude" ? 0.3 : 0.26,
+            origin: "start"
+          }
+        };
+      });
   }
 
   getLegendSelection(labels = this.getChartLabels()) {
@@ -2474,7 +2856,29 @@ export default class ChartView {
   }
 
   resize() {
-    this.chart.resize();
+    if (this.layoutResizeFrame !== null) {
+      return;
+    }
+    this.layoutResizeFrame = requestAnimationFrame(() => {
+      this.layoutResizeFrame = null;
+      this.performResize();
+    });
+  }
+
+  performResize() {
+    if (this.chartLayoutMode === CHART_LAYOUT_BANDS) {
+      const workoutObject = this.currentWorkout?.workoutObject || null;
+      const layout = this.buildChartLayoutOptions(
+        workoutObject,
+        this.getChartLabels(),
+        this.currentXAxisRange
+      );
+      this.syncChartContainerHeight();
+      this.chart.resize();
+      this.chart.setOption(layout, { replaceMerge: ["grid", "xAxis", "yAxis"] });
+    } else {
+      this.chart.resize();
+    }
     this.scheduleAdaptiveResolutionUpdate();
     window.requestAnimationFrame(() => this.syncChartGraphics());
   }
