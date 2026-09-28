@@ -24,7 +24,13 @@ export default class Controller {
     this.t = createTranslator("dashboardNewPage");
     this.libraryT = createTranslator("dashboardNewPage.library");
     this.locale = getCurrentLocale();
-    this.uiState = new UIStateManager("dashboardNewController");
+    this.uiState = new UIStateManager("dashboardNewController", {
+      persistentKeys: [
+        "dashboardLibraryWidthPx",
+        "dashboardDetailSectionHeights",
+        "dashboardMapViewState"
+      ]
+    });
     this.currentWorkoutId = this.readInitialWorkoutId() || this.uiState.get("selectedWorkoutId");
     this.libraryState = this.uiState.get("workoutLibraryState", {
       search: "",

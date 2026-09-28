@@ -17,7 +17,14 @@ export default class Controller {
 
   constructor() {
     this.t = createTranslator("segmentsPage");
-    this.uiState = new UIStateManager("segmentController");
+    this.uiState = new UIStateManager("segmentController", {
+      persistentKeys: [
+        "segmentDetailSheetState",
+        "segmentsMapWidthPx",
+        "segmentsMapViewState",
+        "workout-map"
+      ]
+    });
     this.selectedSegment = null;
     this.selectedSegmentSharing = null;
     this.mapSegments = [];
