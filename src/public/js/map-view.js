@@ -6,6 +6,7 @@ import {
   isSegmentVisible
 } from "./segment-visibility.js";
 import Utils from "../../shared/Utils.js";
+import { getCPSeriesColor } from "../../shared/CriticalPowerAppearance.js";
 
 const SEGMENT_FOCUS_COLOR = "#2563eb";
 const SEGMENT_HOVER_COLOR = "#0ea5e9";
@@ -332,7 +333,10 @@ export default class MapView {
   }
 
   buildSegmentTooltipContent(segment) {
-    const heading = Utils.getSegmentDisplayHeading(segment);
+    const isCriticalPower = getSegmentVisibilityKey(segment) === "criticalPower";
+    const heading = isCriticalPower
+      ? Utils.getSegmentShortLabel(segment) || Utils.getSegmentDisplayHeading(segment)
+      : Utils.getSegmentDisplayHeading(segment);
     const duration = segment?.duration != null && Number.isFinite(Number(segment.duration))
       ? Utils.formatDuration(Number(segment.duration))
       : "";
@@ -526,11 +530,12 @@ export default class MapView {
       return null;
     }
 
-    const id = Utils.getSegmentDisplayId(entry.segment);
-    if (id == null) {
+    const shortLabel = Utils.getSegmentShortLabel(entry.segment);
+    if (shortLabel == null) {
       return null;
     }
 
+    const isCriticalPower = getSegmentVisibilityKey(entry.segment) === "criticalPower";
     const displayTitle = Utils.getSegmentDisplayTitle(entry.segment);
     const hasExplicitName = String(entry.segment?.segmentname || "").trim() !== "";
     const hasGpsRouteName = entry.segment?.isGPSSegment && (
@@ -538,16 +543,23 @@ export default class MapView {
       || String(entry.segment?.end_name ?? entry.segment?.endName ?? "").trim() !== ""
     );
     const name = hasExplicitName || hasGpsRouteName ? displayTitle : "";
-    const fullText = name ? `S-${id} · ${name}` : `S-${id}`;
-    const estimatedFullWidth = Math.min(190, Math.max(40, fullText.length * 6.6 + 18));
+    const fullText = name ? `${shortLabel} · ${name}` : shortLabel;
+    const markerColor = isCriticalPower && bestMeasurement.length >= 72
+      ? getCPSeriesColor(Number(entry.segment.duration))
+      : null;
+    const markerWidth = markerColor ? 10 : 0;
+    const estimatedFullWidth = Math.min(190, Math.max(40, fullText.length * 6.6 + 18 + markerWidth));
     const showFullText = name && bestMeasurement.length >= Math.max(150, estimatedFullWidth + 24);
-    const text = showFullText ? fullText : `S-${id}`;
-    const width = showFullText ? estimatedFullWidth : Math.max(38, String(id).length * 7 + 22);
+    const text = showFullText ? fullText : shortLabel;
+    const width = showFullText
+      ? estimatedFullWidth
+      : Math.max(38, shortLabel.length * 6.6 + 18 + markerWidth);
 
     return {
       ...bestMeasurement,
       entry,
       text,
+      markerColor,
       width,
       height: 24
     };
@@ -596,7 +608,7 @@ export default class MapView {
         pane: "segmentPane",
         icon: L.divIcon({
           className: "workout-map-segment-label-anchor",
-          html: `<span class="workout-map-segment-label" style="--segment-color:${candidate.entry.color}">${this.escapeHtml(candidate.text)}</span>`,
+          html: `<span class="workout-map-segment-label" style="--segment-color:${candidate.entry.color}">${candidate.markerColor ? `<span aria-hidden="true" style="display:inline-block;flex:0 0 auto;width:7px;height:7px;margin-right:4px;border:1px solid #ffffff;border-radius:50%;background:${candidate.markerColor}"></span>` : ""}${this.escapeHtml(candidate.text)}</span>`,
           iconAnchor: [candidate.width / 2, candidate.height / 2],
           iconSize: [candidate.width, candidate.height]
         })
