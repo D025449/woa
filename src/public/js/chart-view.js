@@ -1,6 +1,7 @@
 import { buildMarkAreas, buildMarkAreasCP } from "./chart-helpers.js";
 import SegmentService from "../../shared/SegmentService.js";
 import Utils from "../../shared/Utils.js";
+import { getCPSeriesColor } from "../../shared/CriticalPowerAppearance.js";
 import { createTranslator } from "./i18n.js";
 import {
   DEFAULT_SEGMENT_VISIBILITY,
@@ -1858,7 +1859,8 @@ export default class ChartView {
       const y = SEGMENT_HEADER_PADDING_TOP_PX
         + lane * (SEGMENT_HEADER_HEIGHT_PX + SEGMENT_HEADER_GAP_PX);
       const color = getSegmentColor(segment);
-      const displayId = Utils.getSegmentDisplayId(segment);
+      const label = Utils.getSegmentShortLabel(segment);
+      const isCriticalPower = segment.segmenttype === "crit" && !segment.isGPSSegment;
       const isHighlighted = this.hoveredSegment === segment || this.focusedSegment === segment;
       const opacity = isHighlighted ? 0.86 : 0.62;
 
@@ -1884,17 +1886,27 @@ export default class ChartView {
             onmouseout: (event) => this.handleSegmentHeaderMouseOut(segment, event),
             onclick: (event) => this.handleSegmentHeaderClick(segment, event)
           },
-          ...(displayId != null && width >= 42 ? [{
+          ...(isCriticalPower && width >= 12 ? [{
+            type: "circle",
+            silent: true,
+            shape: { cx: left + 6, cy: y + SEGMENT_HEADER_HEIGHT_PX / 2, r: 3 },
+            style: {
+              fill: getCPSeriesColor(Number(segment.duration)),
+              stroke: "#ffffff",
+              lineWidth: 1
+            }
+          }] : []),
+          ...(label != null && width >= 42 ? [{
             type: "text",
             silent: true,
             style: {
-              text: `S-${displayId}`,
-              x: left + 5,
+              text: label,
+              x: left + (isCriticalPower ? 12 : 5),
               y: y + SEGMENT_HEADER_HEIGHT_PX / 2,
-              width: Math.max(0, width - 10),
+              width: Math.max(0, width - (isCriticalPower ? 17 : 10)),
               overflow: "truncate",
               fill: "#ffffff",
-              font: "700 8px sans-serif",
+              font: isCriticalPower ? "800 8px sans-serif" : "700 8px sans-serif",
               verticalAlign: "middle"
             }
           }] : [])
@@ -2045,7 +2057,7 @@ export default class ChartView {
       return null;
     }
 
-    const displayId = Utils.getSegmentDisplayId(segment);
+    const label = Utils.getSegmentShortLabel(segment);
     const color = getSegmentColor(segment);
     return [
       {
@@ -2059,9 +2071,9 @@ export default class ChartView {
           opacity: mode === "hover" ? 0.62 : 0.8
         },
         label: {
-          show: displayId != null,
+          show: label != null,
           position: "insideTop",
-          formatter: displayId == null ? "" : `S-${displayId}`,
+          formatter: label || "",
           color,
           backgroundColor: "rgba(255, 255, 255, 0.94)",
           borderColor: color,

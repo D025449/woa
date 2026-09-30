@@ -23,13 +23,14 @@ test("analytics hides only the legacy FTP panel", async () => {
 test("critical-power chart includes the new durations and rolling eFTP", async () => {
   const chartSource = await readFile(new URL("src/public/js/cp-chart-view.js", projectRoot), "utf8");
   const routeSource = await readFile(new URL("src/routes/fileRoutes.js", projectRoot), "utf8");
+  const appearanceSource = await readFile(new URL("src/shared/CriticalPowerAppearance.js", projectRoot), "utf8");
 
   assert.match(routeSource, /240, 360, 480, 720, 900, 960, 1800/u);
   assert.match(routeSource, /getRollingFTPValues/u);
   assert.match(chartSource, /name: 'FTP'/u);
   assert.match(chartSource, /formatCPDuration/u);
-  assert.match(chartSource, /`CP\$\{durationSeconds\}S`/u);
-  assert.match(chartSource, /`CP\$\{durationSeconds \/ 60\}`/u);
+  assert.match(appearanceSource, /`CP\$\{durationSeconds\}S`/u);
+  assert.match(appearanceSource, /`CP\$\{durationSeconds \/ 60\}`/u);
   assert.doesNotMatch(chartSource, /`CP \$\{durationSeconds\} s`/u);
   assert.match(chartSource, /showSymbol: false/u);
   assert.match(chartSource, /sampling: 'lttb'/u);
@@ -46,7 +47,8 @@ test("critical-power colors follow one semantic short-to-long intensity scale", 
     "#6D28D9", "#9333EA", "#C026D3", "#DB2777", "#E11D48", "#EA580C",
     "#F59E0B", "#84A11D", "#16A34A", "#0D9488", "#0284C7", "#334155"
   ];
-  for (const color of expectedColors) assert.match(chartSource, new RegExp(color, "u"));
+  const appearanceSource = await readFile(new URL("src/shared/CriticalPowerAppearance.js", projectRoot), "utf8");
+  for (const color of expectedColors) assert.match(chartSource + appearanceSource, new RegExp(color, "u"));
   assert.match(chartSource, /lineStyle: \{ color, width: 2 \}/u);
   assert.match(chartSource, /itemStyle: \{ color \}/u);
   assert.match(chartSource, /color: getCPSeriesColor\(Number\(key\.slice\(2\)\)\)/u);

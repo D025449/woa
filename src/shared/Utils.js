@@ -1,4 +1,16 @@
+import { formatCPDuration } from "./CriticalPowerAppearance.js";
+
 export default class Utils {
+
+    static getSegmentShortLabel(seg) {
+        const duration = Number(seg?.duration);
+        if (seg?.segmenttype === "crit" && !seg.isGPSSegment
+            && Number.isFinite(duration) && duration > 0) {
+            return formatCPDuration(duration);
+        }
+        const id = Utils.getSegmentDisplayId(seg);
+        return id == null ? null : `S-${id}`;
+    }
 
     static getSegmentDisplayTitle(seg) {
         const explicitName = seg.segmentname?.trim();

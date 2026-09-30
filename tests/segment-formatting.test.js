@@ -3,6 +3,19 @@ import assert from "node:assert/strict";
 
 import Utils from "../src/shared/Utils.js";
 
+test("CP short labels use minutes and an explicit seconds suffix below one minute", () => {
+  for (const [duration, expected] of [[5, "CP5S"], [15, "CP15S"], [60, "CP1"],
+    [120, "CP2"], [240, "CP4"], [480, "CP8"], [900, "CP15"], [1800, "CP30"]]) {
+    assert.equal(Utils.getSegmentShortLabel({ id: 42, segmenttype: "crit", duration }), expected);
+  }
+  assert.equal(Utils.getSegmentShortLabel({ segmenttype: "crit", duration: "60" }), "CP1");
+  for (const duration of [null, undefined, 0, -1, "invalid"]) {
+    assert.equal(Utils.getSegmentShortLabel({ id: 42, segmenttype: "crit", duration }), "S-42");
+  }
+  assert.equal(Utils.getSegmentShortLabel({ id: 42, segmenttype: "manual", duration: 60 }), "S-42");
+  assert.equal(Utils.getSegmentShortLabel({ id: 42, sid: 91, isGPSSegment: true, duration: 60 }), "S-91");
+});
+
 test("segment labels include the workout-local segment id", () => {
   const label = Utils.formatSegmentLabel({
     id: 42,
