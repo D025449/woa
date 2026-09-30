@@ -1,9 +1,10 @@
 import MapView from "./map-view.js";
-import CPChartView from "./cp-chart-view.js?v=atlas-blue-31";
+import CPChartView from "./cp-chart-view.js?v=atlas-blue-32";
 import FTPChartView from "./ftp-chart-view.js";
 import CTLChartView from "./ctl-chart-view.js?v=atlas-blue-32";
 import ChartView from "./chart-view.js";
 import WorkoutService from "./workout-service.js";
+import { filterAnalyticsWorkoutSegments } from "./analytics-workout-segments.js";
 import ViewPreferenceService from "./view-preference-service.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
 import {
@@ -85,6 +86,7 @@ export default class Controller {
     this.hoveredPeriodTimestamp = null;
     this.renderedPeriod = null;
     this.selectedWorkoutId = null;
+    this.detailWorkout = null;
     this.periodRequestId = 0;
     this.periodWorkouts = [];
     this.periodPage = 0;
@@ -526,7 +528,7 @@ export default class Controller {
       return true;
     }
     if (!this.cpChartView?.setSeriesVisibility(series, visible)) return false;
-    this.analyticsPreferences = mergeAnalyticsPreferences(this.analyticsPreferences, "powerCurve", {
+    this.updateAnalyticsPreferences("powerCurve", {
       seriesVisibility: { [series]: visible }
     });
     return true;
@@ -1178,16 +1180,15 @@ export default class Controller {
   async openWorkoutDetail(workoutId, cpRow = null, seriesName = "") {
     const workout = await WorkoutService.loadWorkoutByRow(workoutId);
     if (!workout) return false;
+    this.detailWorkout = workout;
     this.selectedWorkoutId = workoutId;
     this.detailPlaceholderElement.hidden = true;
     this.detailElement.hidden = false;
     this.focusGridElement.classList.toggle("analytics-focus-grid--no-map", !workout.validGps);
+    this.renderWorkoutDetailSegments({ renderTrack: true });
     if (cpRow?.startOffset != null && cpRow?.endOffset != null) {
-      this.chartView.updateWorkoutCP(workout, cpRow);
-    } else {
-      this.chartView.updateWorkout(workout);
+      this.chartView.zoomToCriticalPowerEffort(cpRow);
     }
-    this.mapView.renderTrack(workout);
     this.renderWorkoutMeta(workout);
     this.markSelectedWorkoutCard(workoutId);
     this.rememberSelectedWorkout(workoutId, cpRow);
@@ -1197,6 +1198,24 @@ export default class Controller {
       this.mapView.resize();
     });
     return true;
+  }
+
+  renderWorkoutDetailSegments({ renderTrack = false } = {}) {
+    if (!this.detailWorkout) return;
+    const workout = filterAnalyticsWorkoutSegments(
+      this.detailWorkout,
+      this.cpChartView?.getVisibleCriticalPowerDurations() || []
+    );
+    this.chartView.hideSegmentHoverTooltip();
+    this.chartView.clearSegmentHover();
+    this.chartView.clearSegmentFocus();
+    this.chartView.updateWorkout(workout);
+    if (renderTrack) {
+      this.mapView.renderTrack(workout);
+    } else {
+      this.mapView.currentWorkout = workout;
+      this.mapView.renderSegmentOverlays(workout);
+    }
   }
 
   markSelectedWorkoutCard(workoutId) {
@@ -1236,6 +1255,7 @@ export default class Controller {
   }
 
   hidePeriodInspector() {
+    this.detailWorkout = null;
     this.cancelPeriodWorkoutPreview();
     this.ctlChartView?.setSelectedPeriod?.(null);
     this.cpChartView?.setSelectedPeriod?.(null);
@@ -1275,6 +1295,14 @@ export default class Controller {
       chartKey,
       patch
     );
+    if (chartKey === "powerCurve" && patch.seriesVisibility) {
+      this.renderWorkoutDetailSegments();
+      if (this.hoveredPeriod) {
+        this.renderPeriodSnapshot(this.hoveredPeriod, { preview: true });
+      } else {
+        this.renderPeriodHeaderDetails();
+      }
+    }
     this.scheduleAnalyticsPreferenceSave();
   }
 

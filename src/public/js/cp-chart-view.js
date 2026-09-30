@@ -394,6 +394,12 @@ export default class CPChartView {
     return null;
   }
 
+  getVisibleCriticalPowerDurations() {
+    return [...this.legendNameToKey.values()]
+      .filter((key) => /^cp\d+$/.test(key) && this.seriesVisibility[key] !== false)
+      .map((key) => Number(key.slice(2)));
+  }
+
   getVisiblePeriodMetrics(period) {
     const summary = this.getPeriodSummary(period);
     if (!summary) return [];
