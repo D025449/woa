@@ -146,7 +146,9 @@ export function detectMicroIntervalBlocks({ recordCount, powerAtIndex, metrics,
   const blocks = [];
   let series = [];
   const flush = (limit = end) => {
-    if (series.length >= minimumRepetitions) {
+    // The first one or two repetitions may need raw-data recovery when scanning
+    // a selection that starts directly with work. Require the full count below.
+    if (series.length >= Math.max(3, minimumRepetitions - 2)) {
       const durations = series.map((run) => run.end - run.start);
       const gaps = series.slice(1).map((run, index) => run.start - series[index].end);
       const work = durationMedian(durations), recovery = durationMedian(gaps);
@@ -175,10 +177,14 @@ export function detectMicroIntervalBlocks({ recordCount, powerAtIndex, metrics,
         gaps.unshift(series[0].start - candidateEnd); durations.unshift(work);
         series.unshift({ start: candidateStart, end: candidateEnd, missingBefore: false });
       }
-      const stable = durations.every((duration) => Math.abs(duration - work) <= Math.max(6, work * 0.20))
+      const stable = series.length >= minimumRepetitions && durations.every((duration, index) => series[index].extendedFinal && index === series.length - 1
+        ? duration >= work && duration <= work * 1.60
+        : Math.abs(duration - work) <= Math.max(6, work * 0.20))
         && gaps.every((gap) => Math.abs(gap - recovery) <= Math.max(5, recovery * 0.25));
       if (stable && recovery >= 5 && recovery <= 60 && recovery / work <= 2) {
-        const trailing = Math.min(Math.max(0, period - (series.at(-1).end - series.at(-1).start)), limit - series.at(-1).end);
+        const trailingSeconds = series.at(-1).extendedFinal
+          ? recovery : Math.max(0, period - (series.at(-1).end - series.at(-1).start));
+        const trailing = Math.min(trailingSeconds, limit - series.at(-1).end);
         const lastEndOffset = series.at(-1).end;
         let trailingValid = trailing > 0;
         for (let index = lastEndOffset; trailingValid && index < lastEndOffset + trailing; index++) {
@@ -201,13 +207,19 @@ export function detectMicroIntervalBlocks({ recordCount, powerAtIndex, metrics,
   };
   for (const run of runs) {
     const duration = run.end - run.start;
+    // A longer finishing effort is allowed only at the end of an otherwise
+    // regular series, never as a relaxed duration rule for the entire block.
+    if (series.at(-1)?.extendedFinal) flush(run.start);
     if (duration < 10 || duration > 90 || run.missingBefore) { flush(run.start); if (duration < 10 || duration > 90) continue; }
     if (series.length) {
       const previous = series.at(-1), gap = run.start - previous.end;
       const previousDuration = previous.end - previous.start;
       const priorGap = series.length > 1 ? previous.start - series.at(-2).end : gap;
-      if (gap < 5 || gap > 60 || Math.abs(duration - previousDuration) > Math.max(8, previousDuration * 0.25)
+      const longerFinal = series.length >= Math.max(3, minimumRepetitions - 2)
+        && duration > previousDuration && duration <= previousDuration * 1.60;
+      if (gap < 5 || gap > 60 || (Math.abs(duration - previousDuration) > Math.max(8, previousDuration * 0.25) && !longerFinal)
         || Math.abs(gap - priorGap) > Math.max(6, priorGap * 0.30)) flush(run.start);
+      else if (longerFinal && Math.abs(duration - previousDuration) > Math.max(8, previousDuration * 0.25)) run.extendedFinal = true;
     }
     series.push(run);
   }

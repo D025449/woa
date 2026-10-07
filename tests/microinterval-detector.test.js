@@ -36,6 +36,26 @@ test('recognizes shorter patterns without losing the leading repetitions', () =>
   }
 });
 
+test('recognizes five 30/30 repetitions when the final work phase is prolonged to 45 seconds', () => {
+  const powers = [...repeat(170, 180), ...series(4, 30, 30, 420),
+    ...repeat(420, 45), ...repeat(80, 180), ...series(5, 60, 60, 350), ...repeat(170, 180)];
+  for (const range of [{}, { start: 180, end: 180 + 4 * 60 + 45 + 30 }]) {
+    const blocks = scan(powers, range);
+    assert.equal(blocks.length, range.start ? 1 : 2);
+    assert.equal(summarizeMicroIntervalBlock(blocks[0]).repetitions, 5);
+    assert.equal(blocks[0].pattern_work_duration_seconds, 30);
+    assert.equal(blocks[0].pattern_recovery_duration_seconds, 30);
+    assert.equal(blocks[0].phases.filter((phase) => phase.phase_kind === 'work').at(-1).duration, 45);
+    assert.equal(blocks[0].phases.at(-1).duration, 30);
+  }
+});
+
+test('still rejects a doubled final effort and irregular work durations', () => {
+  assert.deepEqual(scan([...repeat(170, 180), ...series(4, 30, 30), ...repeat(380, 60), ...repeat(80, 180)]), []);
+  const irregular = [30, 45, 30, 45, 30].flatMap((duration) => [...repeat(380, duration), ...repeat(80, 30)]);
+  assert.deepEqual(scan([...repeat(170, 180), ...irregular, ...repeat(170, 180)]), []);
+});
+
 test('import classification reuses fine-grained microinterval blocks', () => {
   const powers = [...repeat(170, 180), ...series(10), ...repeat(170, 180)];
   const features = extractWorkoutIntensityFeatures({ recordCount: powers.length, powerAtIndex: (index) => powers[index] });
