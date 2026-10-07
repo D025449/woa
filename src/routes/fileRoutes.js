@@ -619,40 +619,7 @@ router.post("/workouts/:id/segments", authMiddleware, requireActiveAccountWrite,
       });
     }
 
-    // ✅ Validierung
-    for (const seg of segments) {
-      if (
-        seg.start_offset === undefined ||
-        seg.end_offset === undefined ||
-        seg.start_offset < 0 ||
-        seg.end_offset < seg.start_offset
-      ) {
-        return res.status(400).json({
-          error: "Invalid segment in payload",
-          segment: seg
-        });
-      }
-    }
-
-    const result_del = await FileDBService.deleteSegmentsBulk(
-      uid,
-      workoutId,
-      segments
-    );
-
-    const inserted = await FileDBService.insertSegmentsBulk(
-      uid,
-      workoutId,
-      segments
-    );
-
-    const updated = await FileDBService.updateSegmentsBulk(
-      uid,
-      workoutId,
-      segments
-    );
-
-    const result = [...inserted, ...updated];
+    const result = await FileDBService.saveSegmentsBulk(uid, workoutId, segments);
 
     res.status(201).json({
       ok: true,
@@ -661,6 +628,7 @@ router.post("/workouts/:id/segments", authMiddleware, requireActiveAccountWrite,
     });
 
   } catch (err) {
+    if ([400, 404, 409].includes(err.status)) return res.status(err.status).json({ error: err.message });
     console.error("POST /files/workouts/:id/segments failed:", err);
     next(err);
   }
@@ -722,7 +690,11 @@ router.patch(
       const segment = {
         start_offset: startOffset,
         end_offset: endOffset,
-        duration: endOffset - startOffset,
+        duration: payload.structure_kind === 'microintervals' ? endOffset - startOffset + 1 : endOffset - startOffset,
+        ...(payload.structure_kind !== undefined ? { structure_kind: payload.structure_kind } : {}),
+        ...(payload.phases !== undefined ? { phases: payload.phases } : {}),
+        ...(payload.pattern_work_duration_seconds !== undefined ? { pattern_work_duration_seconds: payload.pattern_work_duration_seconds } : {}),
+        ...(payload.pattern_recovery_duration_seconds !== undefined ? { pattern_recovery_duration_seconds: payload.pattern_recovery_duration_seconds } : {}),
         avg_power: normalizeMetric(payload.avg_power),
         avg_heart_rate: normalizeMetric(payload.avg_heart_rate),
         avg_cadence: normalizeMetric(payload.avg_cadence),
@@ -742,6 +714,7 @@ router.patch(
 
       return res.json({ ok: true, segment: updated });
     } catch (err) {
+      if ([400, 404, 409].includes(err.status)) return res.status(err.status).json({ error: err.message });
       console.error("PATCH /files/workouts/:id/segments/:segmentId failed:", err);
       return next(err);
     }

@@ -1,3 +1,4 @@
+import { attachWorkoutSegmentPhases } from './workoutSegmentStructureService.js';
 import pool from "./database.js";
 import Workout from "../shared/Workout.js";
 import S3Service from "./s3Service.js";
@@ -1090,18 +1091,21 @@ export default class WorkoutDBService {
     const selectedIds = Array.isArray(workoutIds) ? workoutIds : null;
     const result = await pool.query(
       `SELECT
+        id,
         wid,
+        structure_kind,
         start_offset,
         end_offset,
         segmenttype
        FROM workout_segments
        WHERE uid = $1
-         AND segmenttype = 'manual'
+         AND (segmenttype = 'manual' OR structure_kind = 'microintervals')
          ${selectedIds ? "AND wid = ANY($2::bigint[])" : ""}
        ORDER BY wid ASC, start_offset ASC, end_offset ASC`,
       selectedIds ? [uid, selectedIds] : [uid]
     );
 
+    await attachWorkoutSegmentPhases(pool, result.rows);
     return result.rows;
   }
 

@@ -1,3 +1,5 @@
+import { attachWorkoutSegmentPhases, insertWorkoutMicrointervalBlocks } from './workoutSegmentStructureService.js';
+import { normalizeWorkoutSegmentStructure } from '../shared/WorkoutSegmentStructure.js';
 import { strToU8, zipSync } from "fflate";
 import unzipper from "unzipper";
 import { createHash } from "node:crypto";
@@ -33,7 +35,8 @@ export const ADMIN_WORKOUT_COLUMNS = [
 
 export const ADMIN_WORKOUT_SEGMENT_COLUMNS = [
   "segmenttype", "segmentname", "start_offset", "end_offset", "duration", "avg_power",
-  "avg_heart_rate", "avg_cadence", "avg_speed", "altimeters", "position", "created_at"
+  "avg_heart_rate", "avg_cadence", "avg_speed", "altimeters", "position", "created_at",
+  "structure_kind", "pattern_work_duration_seconds", "pattern_recovery_duration_seconds"
 ];
 
 function normalizeEmail(value) {
@@ -74,9 +77,10 @@ export function serializeAdminWorkout(row, ownerKey, segments, favoriteOwnerKeys
       ? Buffer.from(row[column]).toString("base64")
       : serializeValue(row[column]);
   }
-  metadata.segments = segments.map((segment) => Object.fromEntries(
-    ADMIN_WORKOUT_SEGMENT_COLUMNS.map((column) => [column, serializeValue(segment[column])])
-  ));
+  metadata.segments = segments.map((segment) => ({
+    ...Object.fromEntries(ADMIN_WORKOUT_SEGMENT_COLUMNS.map((column) => [column, serializeValue(segment[column])])),
+    ...(segment.structure_kind === 'microintervals' ? { phases: normalizeWorkoutSegmentStructure(segment).phases } : {})
+  }));
   metadata.favoriteOwnerKeys = favoriteOwnerKeys;
   return metadata;
 }
@@ -222,7 +226,8 @@ export async function decodeAdminWorkoutBackup(buffer) {
     const streamEntry = byPath.get(`${base}.stream`);
     if (!streamEntry) throw new Error(`${entry.path} has no workout stream.`);
     const gpsEntry = byPath.get(`${base}.gps`);
-    const segments = Array.isArray(metadata.segments) ? metadata.segments : [];
+    const segments = (Array.isArray(metadata.segments) ? metadata.segments : []).map((segment) =>
+      segment.structure_kind === 'microintervals' ? normalizeWorkoutSegmentStructure(segment) : segment);
     const favoriteOwnerKeys = Array.isArray(metadata.favoriteOwnerKeys) ? metadata.favoriteOwnerKeys : [];
     if (favoriteOwnerKeys.some((key) => !ownerByKey.has(String(key)))) {
       throw new Error(`${entry.path} contains an unknown favorite owner.`);
@@ -486,12 +491,13 @@ async function insertWorkout(queryable, workout, uid) {
 }
 
 async function insertSegments(queryable, workoutId, uid, segments) {
-  for (const segment of segments) {
+  await insertWorkoutMicrointervalBlocks(queryable, uid, [{ workoutId, segments }]);
+  for (const segment of segments.filter((item) => item.structure_kind !== 'microintervals')) {
     await queryable.query(`
       INSERT INTO workout_segments (${["wid", "uid", ...ADMIN_WORKOUT_SEGMENT_COLUMNS].join(", ")})
       VALUES (${Array.from({ length: ADMIN_WORKOUT_SEGMENT_COLUMNS.length + 2 }, (_, i) => `$${i + 1}`).join(", ")})
       ON CONFLICT (wid, segmenttype, start_offset, duration) DO NOTHING
-    `, [workoutId, uid, ...ADMIN_WORKOUT_SEGMENT_COLUMNS.map((column) => segment[column] ?? null)]);
+    `, [workoutId, uid, ...ADMIN_WORKOUT_SEGMENT_COLUMNS.map((column) => segment[column] ?? (column === 'structure_kind' ? 'simple' : null))]);
   }
 }
 
@@ -510,6 +516,7 @@ export default class AdminWorkoutBackupService {
         "SELECT * FROM workout_segments WHERE wid = ANY($1::bigint[]) ORDER BY wid, position NULLS LAST, id",
         [workoutIds]
       )).rows : [];
+      await attachWorkoutSegmentPhases(client, segments);
       const favorites = workoutIds.length ? (await client.query(
         `SELECT f.uid, f.workout_id, u.auth_sub AS owner_auth_sub, u.email AS owner_email
          FROM workout_favorites f

@@ -1,4 +1,4 @@
-import { buildMarkAreas, buildMarkAreasCP } from "./chart-helpers.js";
+import { buildMarkAreas, buildMarkAreasCP, buildMicroIntervalPhaseAreas } from "./chart-helpers.js";
 import SegmentService from "../../shared/SegmentService.js";
 import Utils from "../../shared/Utils.js";
 import { getCPSeriesColor } from "../../shared/CriticalPowerAppearance.js";
@@ -46,6 +46,7 @@ function isPersistedManualSegment(segment) {
   const segmentId = Number(segment?.id);
   return !segment?.isGPSSegment
     && String(segment?.segmenttype || "").toLowerCase() === "manual"
+    && segment?.structure_kind !== 'microintervals'
     && segment?.rowstate !== "DEL"
     && Number.isInteger(segmentId)
     && segmentId > 0;
@@ -1753,6 +1754,8 @@ export default class ChartView {
     if (this.mode === "gps-create") {
       const gpsSegment = await SegmentService.createAddNewGpsSegment(this.currentWorkout, startEnd);
       this.handlers.onGpsSegmentCreated?.(gpsSegment);
+    } else if (this.handlers.onSegmentSelection) {
+      this.handlers.onSegmentSelection({ startIndex: Math.min(startEnd.startIndex, startEnd.endIndex), endIndex: Math.max(startEnd.startIndex, startEnd.endIndex) });
     } else {
       await SegmentService.createAddNewSegment(this.currentWorkout, startEnd);
       this.handlers.onUpdateWorkout?.(this.currentWorkout);
@@ -1769,8 +1772,14 @@ export default class ChartView {
       this.hoveredSegment ? "hover" : "focus"
     );
     const data = [
-      ...this.baseMarkAreas,
+      ...(this.previewMicroIntervalBlock || highlightedSegment?.structure_kind === 'microintervals'
+        ? this.baseMarkAreas.filter((area) => String(area[0].segmentId) === String(highlightedSegment?.id))
+        : this.baseMarkAreas),
       ...(highlightedMarkArea ? [highlightedMarkArea] : []),
+      ...buildMicroIntervalPhaseAreas(this.previewMicroIntervalBlock || highlightedSegment).map((area) => [
+        { ...area[0], xAxis: this.xIndexToValue(area[0].xAxis) },
+        { ...area[1], xAxis: this.xIndexToValue(Math.min(area[1].xAxis, (this.currentWorkout?.workoutObject?.length || 1) - 1)) }
+      ]),
       ...(this.previewMarkArea ? [this.previewMarkArea] : [])
     ];
 
@@ -2704,6 +2713,7 @@ export default class ChartView {
 
   getSegmentToggleDefinitions() {
     return [
+      { key: 'microintervals', label: this.t('segmentTypeMicrointervals'), color: SEGMENT_COLORS.microintervals.solid },
       { key: "criticalPower", label: this.t("segmentTypeCriticalPower"), color: SEGMENT_COLORS.criticalPower.solid },
       { key: "auto", label: this.t("segmentTypeAuto"), color: SEGMENT_COLORS.auto.solid },
       { key: "manual", label: this.t("segmentTypeManual"), color: SEGMENT_COLORS.manual.solid },

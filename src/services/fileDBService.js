@@ -8,6 +8,7 @@ import { buildRollingFtpSnapshots, groupRollingFtpSnapshots } from "../shared/Ro
 import { encodePowerHistogram } from "../shared/PowerHistogramCodec.js";
 import { aggregatePowerDistribution } from "../shared/PowerDistribution.js";
 import { invalidateAnalyticsOverviewCache } from "./analyticsOverviewCache.js";
+import { attachWorkoutSegmentPhases, insertWorkoutMicrointervalBlocks, saveWorkoutSegmentChanges } from "./workoutSegmentStructureService.js";
 
 const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
@@ -1403,6 +1404,10 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     return result.rows;
   }
 
+  static async saveSegmentsBulk(uid, workoutId, segments, options = {}) {
+    return saveWorkoutSegmentChanges(pool, uid, workoutId, segments, options);
+  }
+
   static async updateSegmentsBulk(uid, workoutId, segments) {
     const normalizeSegmentId = (value) => {
       if (Number.isInteger(value)) {
@@ -1571,13 +1576,16 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
   }
 
   static async insertSegmentsForWorkoutsBulk(uid, workoutSegments, queryable = pool) {
+    const micro = await insertWorkoutMicrointervalBlocks(queryable, uid, workoutSegments);
+    workoutSegments = workoutSegments.map((item) => ({ ...item,
+      segments: item.segments.filter((segment) => segment.structure_kind !== 'microintervals') }));
     const { values, segmentCount } = FileDBService.buildSegmentsForWorkoutsBulkArrays(
       uid,
       workoutSegments
     );
 
     if (segmentCount === 0) {
-      return { insertedCount: 0, statementCount: 0 };
+      return micro;
     }
 
     const result = await queryable.query(`
@@ -1639,11 +1647,12 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
         position,
         segmentname
       )
+      ON CONFLICT (wid, segmenttype, start_offset, duration) DO NOTHING
     `, values);
 
     return {
-      insertedCount: Number(result.rowCount || 0),
-      statementCount: 1
+      insertedCount: Number(result.rowCount || 0) + micro.insertedCount,
+      statementCount: 1 + micro.statementCount
     };
   }
 
@@ -1842,6 +1851,12 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
   }
 
   static async updateManualSegment(uid, workoutId, segmentId, segment) {
+    if (segment.structure_kind !== undefined || segment.phases !== undefined) {
+      const rows = await FileDBService.saveSegmentsBulk(uid, workoutId, [
+        { ...segment, id: segmentId, rowstate: 'UPD', segmenttype: 'manual' }
+      ], { manualOnly: true });
+      return rows[0] || null;
+    }
     const result = await pool.query(`
       UPDATE workout_segments
       SET
@@ -1857,6 +1872,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
         AND wid = $2
         AND uid = $3
         AND segmenttype = 'manual'
+        AND structure_kind = 'simple'
       RETURNING *
     `, [
       segmentId,
@@ -1871,6 +1887,20 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       segment.avg_speed,
       segment.altimeters
     ]);
+
+    if (result.rows.length === 0) {
+      const existing = await pool.query(`
+        SELECT id FROM workout_segments
+        WHERE id = $1 AND wid = $2 AND uid = $3
+          AND segmenttype = 'manual' AND structure_kind = 'microintervals'
+      `, [segmentId, workoutId, uid]);
+      if (existing.rows.length) {
+        const rows = await FileDBService.saveSegmentsBulk(uid, workoutId, [
+          { ...segment, id: segmentId, rowstate: 'UPD', segmenttype: 'manual' }
+        ], { manualOnly: true });
+        return rows[0] || null;
+      }
+    }
 
     return result.rows[0] || null;
   }
@@ -1954,6 +1984,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
 
     const result = await pool.query(query, values);
 
+    await attachWorkoutSegmentPhases(pool, result.rows);
     return {
       status: statusRow
         ? {

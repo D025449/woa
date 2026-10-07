@@ -1,3 +1,6 @@
+import { MicroIntervalEditor } from './microinterval-editor.js';
+import { MicroIntervalWorkerClient, microIntervalScanChanges, saveMicroIntervalChanges } from './microinterval-client.js';
+import { microIntervalPatternLabel, summarizeMicroIntervalBlock } from '../../shared/MicroIntervalDetector.js';
 import MapView from "./map-view.js";
 import ChartView from "./chart-view.js";
 import FlyoverView from "./flyover-view.js";
@@ -206,6 +209,17 @@ export default class Controller {
       : null;
     this.shareableGroups = [];
     this.initViews();
+    this.microWorker = new MicroIntervalWorkerClient();
+    this.microEditor = new MicroIntervalEditor(this.microWorker, this.chartView, (workout) => {
+      if (String(this.currentWorkoutId) === String(workout.id)) {
+        this.chartView.updateWorkout(workout); this.renderWorkoutSegments(workout); this.mapView.renderTrack(workout);
+      }
+    });
+    document.getElementById('draw-segment-toggle')?.addEventListener('click', () => { this.microCreationRequested = false; });
+    document.getElementById('draw-microinterval-toggle')?.addEventListener('click', () => {
+      this.microCreationRequested = true; this.chartView.setMode('create');
+    });
+    document.getElementById('scan-microintervals')?.addEventListener('click', () => this.scanMicroIntervals());
     this.didRestoreMapViewState = false;
     this.registerEvents();
     this.boot();
@@ -325,6 +339,7 @@ export default class Controller {
         // bewusst unverändert gelassen
       },
 
+      onSegmentSelection: (range) => this.microEditor.open(this.chartView.currentWorkout, range, null, this.microCreationRequested ? 'microintervals' : 'simple'),
       onUpdateWorkout: (workout) => {
         this.chartView.updateWorkout(workout);
         this.mapView.renderTrack(workout);
@@ -2077,6 +2092,7 @@ export default class Controller {
 
   getWorkoutSegmentTypeLabel(segment) {
     const labels = {
+      microintervals: 'microintervalTitle',
       criticalPower: "workoutSegmentTypeCriticalPower",
       auto: "workoutSegmentTypeAuto",
       manual: "workoutSegmentTypeManual",
@@ -2086,6 +2102,7 @@ export default class Controller {
   }
 
   getWorkoutSegmentTitle(segment) {
+    if (segment.structure_kind === 'microintervals') return `${segment.segmentname?.trim() || this.t('microintervalTitle')} · ${microIntervalPatternLabel(segment)}`;
     const explicitName = String(segment?.segmentname ?? "").trim();
     if (explicitName) {
       return explicitName;
@@ -2178,7 +2195,7 @@ export default class Controller {
     const isOwner = workout?.access?.isOwner !== false && workout?.is_owned !== false;
     return isOwner
       && !segment?.isGPSSegment
-      && getSegmentVisibilityKey(segment) === "manual"
+      && (getSegmentVisibilityKey(segment) === "manual" || (segment.structure_kind === 'microintervals' && segment.segmenttype === 'manual'))
       && Number.isInteger(segmentId)
       && segmentId > 0;
   }
@@ -2240,6 +2257,32 @@ export default class Controller {
     return true;
   }
 
+  async scanMicroIntervals() {
+    const workout = this.chartView.currentWorkout;
+    const button = document.getElementById('scan-microintervals');
+    if (!workout?.workoutObject || this.microScanPending) return;
+    if (workout.access?.isOwner === false || workout.is_owned === false) {
+      this.showToast(this.t('microintervalOwnerOnly')); return;
+    }
+    this.microScanPending = true;
+    if (button) button.disabled = true;
+    try {
+      const result = await this.microWorker.scan(workout.workoutObject);
+      const changes = microIntervalScanChanges(workout, result.blocks);
+      if (changes.length) await saveMicroIntervalChanges(workout, changes);
+      if (String(this.currentWorkoutId) === String(workout.id)) {
+        this.chartView.updateWorkout(workout);
+        this.renderWorkoutSegments(workout);
+      }
+      this.showToast(this.t('microintervalScanResult', { count: result.blocks.length }));
+    } catch (error) {
+      this.showToast(error.message);
+    } finally {
+      this.microScanPending = false;
+      if (button) button.disabled = false;
+    }
+  }
+
   renderWorkoutSegments(workout) {
     if (!this.workoutSegmentsListElement || !this.workoutSegmentsCopyElement) {
       return;
@@ -2291,6 +2334,11 @@ export default class Controller {
         ...(averageCadence ? [["CD", averageCadence]] : []),
         ...(averageSpeed ? [["SP", averageSpeed]] : [])
       ];
+      const micro = segment.structure_kind === 'microintervals' ? summarizeMicroIntervalBlock(segment) : null;
+      if (micro) stats.push([this.t('microintervalWorkTimeShort'), Utils.formatDuration(micro.workSeconds), this.t('microintervalWorkTime')],
+        [this.t('microintervalWorkPowerShort'), micro.workPower == null ? '–' : `${micro.workPower} W`, this.t('microintervalWorkPower')]);
+      const cardTitle = micro ? (segment.segmentname?.trim() || this.t('microintervalTitle')) : title;
+      const cardMeta = micro ? microIntervalPatternLabel(segment) : (title !== typeLabel ? typeLabel : '');
       const canDelete = this.canDeleteWorkoutSegment(workout, segment);
       const deleteAction = this.t("workoutSegmentDeleteAction");
 
@@ -2308,20 +2356,24 @@ export default class Controller {
             <span class="dashboard-workout-segment__accent" aria-hidden="true"></span>
             <span class="dashboard-workout-segment__content">
               <span class="dashboard-workout-segment__header">
-                <span class="dashboard-workout-segment__title">${this.escapeHtml(title)}</span>
+                <span class="dashboard-workout-segment__title" title="${this.escapeHtml(title)}">${this.escapeHtml(cardTitle)}</span>
                 <span class="dashboard-workout-segment__id">${this.escapeHtml(identifier)}</span>
               </span>
-              ${title !== typeLabel ? `<span class="dashboard-workout-segment__meta">${this.escapeHtml(typeLabel)}</span>` : ""}
+              ${cardMeta ? `<span class="dashboard-workout-segment__meta">${this.escapeHtml(cardMeta)}</span>` : ""}
               <span class="dashboard-workout-segment__stats">
-                ${stats.map(([label, value]) => `
-                  <span class="dashboard-workout-segment__stat">
-                    <strong>${this.escapeHtml(label)}</strong>
+                ${stats.map(([label, value, description]) => `
+                  <span class="dashboard-workout-segment__stat"${description ? ` title="${this.escapeHtml(description)}"` : ''}>
+                    <strong${description ? ` aria-label="${this.escapeHtml(description)}"` : ''}>${this.escapeHtml(label)}</strong>
                     <span>${this.escapeHtml(value)}</span>
                   </span>
                 `).join("")}
               </span>
             </span>
           </button>
+          ${(canDelete || (micro && workout.access?.isOwner !== false && workout.is_owned !== false)) ? `<button type="button" class="microinterval-edit" data-microinterval-edit="${this.escapeHtml(segmentKey)}">${this.escapeHtml(this.t('microintervalEdit'))}</button>` : ''}
+          ${micro ? `<details class="microinterval-details"><summary>${this.escapeHtml(this.t('microintervalRepetitions'))}</summary>
+            <table class="table table-sm mb-0"><thead><tr><th>#</th><th>${this.escapeHtml(this.t('microintervalPhase'))}</th><th>${this.escapeHtml(this.libraryT('durationShort'))}</th><th>W</th></tr></thead>
+              <tbody>${segment.phases.map((phase) => `<tr><td>${phase.repetition_index}</td><td>${this.escapeHtml(this.t(phase.phase_kind === 'work' ? 'microintervalWork' : 'microintervalRecovery'))}</td><td>${Utils.formatDuration(phase.duration)}</td><td>${phase.avg_power == null ? '–' : Math.round(phase.avg_power)}</td></tr>`).join('')}</tbody></table></details>` : ''}
           ${canDelete ? `
             <button
               type="button"
@@ -2381,6 +2433,13 @@ export default class Controller {
         }
         this.renderWorkoutSegments(workout);
       });
+    });
+
+    this.workoutSegmentsListElement.querySelectorAll('[data-microinterval-edit]').forEach((button) => {
+      button.onclick = () => {
+        const segment = segments.find((candidate) => this.getWorkoutSegmentKey(candidate) === button.dataset.microintervalEdit);
+        if (segment) this.microEditor.open(workout, { startIndex: segment.start_offset, endIndex: segment.end_offset }, segment, segment.structure_kind ?? 'simple');
+      };
     });
 
     this.workoutSegmentsListElement.querySelectorAll("[data-workout-segment-delete]").forEach((button) => {

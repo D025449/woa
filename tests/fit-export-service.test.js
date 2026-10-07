@@ -12,6 +12,7 @@ import {
 } from "../src/public/js/fit-import-compact-browser.js";
 import { detectFitLapSegmentsCompact } from "../src/shared/WorkoutLocalPostprocess.js";
 import { withCalculatedPedalMetrics } from "../src/public/js/woa-format-compact.js";
+import { buildMicroIntervalBlock } from '../src/shared/MicroIntervalDetector.js';
 
 function getRecordFieldNumbers(fitBytes) {
   const view = new DataView(fitBytes.buffer, fitBytes.byteOffset, fitBytes.byteLength);
@@ -73,6 +74,16 @@ function buildWorkoutFixture() {
     getAltitudeAt: (index) => 500 + (index * 2)
   };
 }
+
+test('FIT export preserves microinterval work/recovery phases as timed laps', () => {
+  const workout = { ...buildWorkoutFixture(), length: 180 };
+  const block = buildMicroIntervalBlock({ start: 20, workSeconds: 40, recoverySeconds: 20, repetitions: 2, segmenttype: 'auto' }, () => ({ avg_power: 300 }));
+  const bytes = BrowserFitExportService.buildFitFromWorkout(workout, { segments: [block], includeGps: false });
+  const parsed = parseFitBufferCompactBrowser(bytes);
+  assert.deepEqual(parsed.laps.slice(0, 4).map((lap) => lap.total_timer_time), [40, 20, 40, 20]);
+  assert.deepEqual(parsed.laps.slice(0, 4).map((lap) => lap.intensity), [0, 4, 0, 4]);
+  assert.deepEqual(parsed.laps.slice(0, 4).map((lap) => lap.lap_trigger), [8, 8, 8, 8]);
+});
 
 function buildEnhancedRecordFitFixture() {
   const dataLength = 15 + (2 * 13);

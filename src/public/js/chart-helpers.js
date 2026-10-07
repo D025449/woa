@@ -107,6 +107,15 @@ export function buildMarkAreasSegment(segment) {
   return areas;
 }
 
+export function buildMicroIntervalPhaseAreas(segment) {
+  if (segment?.structure_kind !== 'microintervals') return [];
+  return (segment.phases || []).map((phase) => [{
+    xAxis: phase.start_offset, segmentId: segment.id,
+    itemStyle: { color: getSegmentColor(segment), opacity: phase.phase_kind === 'work' ? 0.28 : 0.04 },
+    label: { show: false }
+  }, { xAxis: phase.end_offset + 1 }]);
+}
+
 export function buildMarkAreasCP(interval) {
   const areas = new Array(1);
 

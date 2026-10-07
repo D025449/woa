@@ -16,6 +16,7 @@ test("maps every workout segment representation to its UI visibility key", () =>
   assert.equal(getSegmentVisibilityKey({ segmenttype: "manual" }), "manual");
   assert.equal(getSegmentVisibilityKey({ segmenttype: "gps" }), "gps");
   assert.equal(getSegmentVisibilityKey({ isGPSSegment: true, segmenttype: "manual" }), "gps");
+  assert.equal(getSegmentVisibilityKey({ segmenttype: 'auto', structure_kind: 'microintervals' }), 'microintervals');
 });
 
 test("provides distinct and consistent colors for every segment type", () => {
@@ -24,7 +25,8 @@ test("provides distinct and consistent colors for every segment type", () => {
   assert.equal(getSegmentColor({ segmenttype: "manual" }), SEGMENT_COLORS.manual.solid);
   assert.equal(getSegmentColor({ isGPSSegment: true }), SEGMENT_COLORS.gps.solid);
   assert.equal(SEGMENT_COLORS.gps.solid, "#22a957");
-  assert.equal(new Set(Object.values(SEGMENT_COLORS).map(({ solid }) => solid)).size, 4);
+  assert.equal(getSegmentColor({ structure_kind: 'microintervals' }), SEGMENT_COLORS.microintervals.solid);
+  assert.equal(new Set(Object.values(SEGMENT_COLORS).map(({ solid }) => solid)).size, 5);
 });
 
 test("uses the same visibility decision for chart and map segments", () => {

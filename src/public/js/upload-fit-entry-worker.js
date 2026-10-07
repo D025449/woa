@@ -191,13 +191,15 @@ self.addEventListener("message", async (event) => {
       const criticalSegments = isMotorsport
         ? []
         : detectWorkoutLocalSegmentsCompact(adjustedParsed.compactRecords);
+      intensityFeatures.microIntervalBlocks = criticalSegments.filter((segment) => segment.structure_kind === 'microintervals');
       const lapResult = isMotorsport
         ? { segments: [], stats: {} }
         : detectFitLapSegmentsCompact(adjustedParsed.compactRecords, adjustedParsed.laps);
       browserPostprocess = {
         startTimeSec: Number(adjustedParsed.compactRecords?.baseTimestampSec || 0),
         recordCount: Number(adjustedParsed.compactRecords?.recordCount || 0),
-        segments: [...criticalSegments, ...lapResult.segments],
+        segments: [...criticalSegments, ...lapResult.segments.filter((lap) => !intensityFeatures.microIntervalBlocks.some((block) =>
+          lap.start >= block.start_offset - 2 && lap.end <= block.end_offset + 2 && lap.duration <= 90))],
         lapStats: lapResult.stats,
         detectMs: nowMs() - postprocessStartedAt
       };

@@ -1,3 +1,4 @@
+import { detectMicroIntervalBlocks } from './MicroIntervalDetector.js';
 const UINT8_NAN = 0xff;
 const UINT16_NAN = 0xffff;
 const UINT32_NAN = 0xffffffff;
@@ -127,7 +128,24 @@ export function detectWorkoutLocalSegmentsCompact(compact) {
     speedKmhAtIndex: (index) => speedMpsAt(compact, index, useDistance) * 3.6,
     altitudeMetersAtIndex: (index) => altitudeMetersAt(compact, index)
   });
-  return bestEfforts.map((segment) => ({ ...segment, type: 2 }));
+  const metrics = (start, end) => {
+    const sums = { avg_power: 0, avg_heart_rate: 0, avg_cadence: 0, avg_speed: 0 };
+    for (let index = start; index < end; index++) {
+      sums.avg_power += powerAt(compact, index);
+      sums.avg_heart_rate += heartRateAt(compact, index);
+      sums.avg_cadence += cadenceAt(compact, index);
+      sums.avg_speed += speedMpsAt(compact, index, useDistance) * 3.6;
+    }
+    for (const key of Object.keys(sums)) sums[key] = Math.round(sums[key] / (end - start) * 100) / 100;
+    return { ...sums, altimeters: (altitudeMetersAt(compact, end - 1) - altitudeMetersAt(compact, start)) * 1000 };
+  };
+  const micro = detectMicroIntervalBlocks({ recordCount,
+    powerAtIndex: (index) => Number(compact.powersW[index]), metrics });
+  return [...bestEfforts.map((segment) => ({ ...segment, type: 2 })), ...micro.map((block) => ({
+    ...block, type: 1, start: block.start_offset, end: block.end_offset,
+    avgPower: Math.round(block.avg_power), avgHeartRate: Math.round(block.avg_heart_rate),
+    avgCadence: Math.round(block.avg_cadence), avgSpeed: block.avg_speed
+  }))];
 }
 
 function incrementNamedCount(target, value, names) {
@@ -327,10 +345,20 @@ export function encodeWorkoutLocalPostprocessTransport(workouts = []) {
   const headerBytes = 24;
   const workoutBytes = normalized.length * 14;
   const segmentBytes = segmentCount * 23;
-  const bytes = new Uint8Array(headerBytes + workoutBytes + segmentBytes);
+  const structures = [];
+  let flatIndex = 0;
+  for (const workout of normalized) for (const segment of workout.segments || []) {
+    if (segment.structure_kind === 'microintervals') structures.push({ index: flatIndex,
+      pattern_work_duration_seconds: segment.pattern_work_duration_seconds,
+      pattern_recovery_duration_seconds: segment.pattern_recovery_duration_seconds, phases: segment.phases });
+    flatIndex++;
+  }
+  const extension = structures.length ? textEncoder.encode(JSON.stringify(structures)) : null;
+  const baseBytes = headerBytes + workoutBytes + segmentBytes;
+  const bytes = new Uint8Array(baseBytes + (extension ? 4 + extension.length : 0));
   const view = new DataView(bytes.buffer);
   bytes.set(textEncoder.encode("WPP1"), 0);
-  view.setUint16(4, 2, true);
+  view.setUint16(4, extension ? 3 : 2, true);
   view.setUint16(6, 0, true);
   view.setUint32(8, normalized.length, true);
   view.setUint32(12, segmentCount, true);
@@ -375,6 +403,10 @@ export function encodeWorkoutLocalPostprocessTransport(workouts = []) {
       segmentIndex += 1;
     }
   }
+  if (extension) {
+    view.setUint32(baseBytes, extension.length, true);
+    bytes.set(extension, baseBytes + 4);
+  }
   return bytes;
 }
 
@@ -395,14 +427,14 @@ export function inspectWorkoutLocalPostprocessTransport(input) {
 export function decodeWorkoutLocalPostprocessTransport(input) {
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
   const header = inspectWorkoutLocalPostprocessTransport(bytes);
-  if (header.version !== 2) throw new Error(`Unsupported WPP1 version: ${header.version}`);
+  if (header.version !== 2 && header.version !== 3) throw new Error(`Unsupported WPP1 version: ${header.version}`);
 
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const workoutStart = view.getUint32(16, true);
   const segmentStart = view.getUint32(20, true);
   const expectedSegmentStart = workoutStart + header.workoutCount * 14;
   const expectedBytes = expectedSegmentStart + header.segmentCount * 23;
-  if (workoutStart !== 24 || segmentStart !== expectedSegmentStart || expectedBytes !== bytes.byteLength) {
+  if (workoutStart !== 24 || segmentStart !== expectedSegmentStart || (header.version === 2 ? expectedBytes !== bytes.byteLength : expectedBytes + 4 > bytes.byteLength)) {
     throw new Error("Corrupt WPP1 layout");
   }
 
@@ -429,6 +461,21 @@ export function decodeWorkoutLocalPostprocessTransport(input) {
       avgSpeed: view.getUint16(speedOffset + index * 2, true) / 100,
       altimeters: view.getInt32(altimetersOffset + index * 4, true)
     };
+  }
+
+  if (header.version === 3) {
+    const extensionLength = view.getUint32(expectedBytes, true);
+    if (expectedBytes + 4 + extensionLength !== bytes.byteLength) throw new Error("Corrupt WPP1 structure extension");
+    const structures = JSON.parse(new TextDecoder().decode(bytes.subarray(expectedBytes + 4)));
+    if (!Array.isArray(structures) || structures.length > segments.length) throw new Error("Invalid WPP1 structures");
+    const seen = new Set();
+    for (const structure of structures) {
+      if (!Number.isInteger(structure.index) || structure.index < 0 || structure.index >= segments.length || seen.has(structure.index)) throw new Error("Invalid WPP1 structure index");
+      seen.add(structure.index);
+      Object.assign(segments[structure.index], { structure_kind: 'microintervals',
+        pattern_work_duration_seconds: structure.pattern_work_duration_seconds,
+        pattern_recovery_duration_seconds: structure.pattern_recovery_duration_seconds, phases: structure.phases });
+    }
   }
 
   const workouts = new Array(header.workoutCount);

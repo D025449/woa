@@ -6,7 +6,7 @@ import {
 } from "./PowerHistogramCodec.js";
 
 export const INTENSITY_FEATURE_VERSION = 1;
-export const INTENSITY_CLASSIFIER_VERSION = 3;
+export const INTENSITY_CLASSIFIER_VERSION = 4;
 export const INTENSITY_EFFORT_DURATIONS = Object.freeze([30, 60, 120, 240, 480, 900, 1200]);
 
 const POWER_BUCKET_SECONDS = 15;
@@ -339,6 +339,19 @@ function summarizeMicroIntervalSeries(blocks, model) {
 }
 
 function detectMicroIntervalSeries(features, ftp, model) {
+  if (Array.isArray(features.microIntervalBlocks)) {
+    return features.microIntervalBlocks.flatMap((block) => {
+      const work = block.phases.filter((phase) => phase.phase_kind === 'work');
+      const totalWorkSeconds = work.reduce((sum, phase) => sum + phase.duration, 0);
+      const averagePower = work.reduce((sum, phase) => sum + phase.avg_power * phase.duration, 0) / totalWorkSeconds;
+      const expected = expectedPowerForDuration(model, totalWorkSeconds / work.length);
+      if (!expected || averagePower < ftp * 1.12 || averagePower / expected < 0.62 || totalWorkSeconds < 120) return [];
+      return [{ start: block.start_offset, end: block.end_offset, repetitionCount: work.length,
+        totalWorkSeconds, averagePower, blocks: work.map((phase) => ({
+          start: phase.start_offset, end: phase.end_offset, duration: phase.duration, avgPower: phase.avg_power
+        })) }];
+    });
+  }
   const workBlocks = detectBlocks(features, ftp * 1.12, 15, 90, { bridgeGaps: false });
   return summarizeMicroIntervalSeries(workBlocks, model);
 }

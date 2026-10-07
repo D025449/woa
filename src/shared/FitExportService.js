@@ -525,11 +525,14 @@ function summarizeRecords(records) {
 function normalizeManualLapSegments(segments, recordCount) {
   const maximumOffset = Math.max(0, recordCount - 1);
   return (Array.isArray(segments) ? segments : [])
-    .filter((segment) => String(segment?.segmenttype || "").toLowerCase() === "manual")
+    .filter((segment) => String(segment?.segmenttype || "").toLowerCase() === "manual" || segment?.structure_kind === 'microintervals')
+    .flatMap((segment) => segment.structure_kind === 'microintervals'
+      ? (segment.phases || []).map((phase) => ({ ...phase, end_offset: phase.end_offset + 1, isMicroPhase: true }))
+      : [segment])
     .map((segment) => {
       const start = clamp(Math.round(Number(segment?.start_offset)), 0, maximumOffset);
       const end = clamp(Math.round(Number(segment?.end_offset)), 0, maximumOffset);
-      return { start: Math.min(start, end), end: Math.max(start, end) };
+      return { start: Math.min(start, end), end: Math.max(start, end), phaseKind: segment.phase_kind, isMicroPhase: segment.isMicroPhase };
     })
     .filter((segment) => Number.isFinite(segment.start) && Number.isFinite(segment.end) && segment.end > segment.start)
     .sort((left, right) => left.start - right.start || left.end - right.end);
@@ -1021,8 +1024,8 @@ export default class FitExportService {
         22: clamp(Math.round(segmentSummary.totalDescentM), 0, 0xffff),
         11: null,
         33: null,
-        23: 0, // active
-        24: 0, // manual
+        23: segment.phaseKind === 'recovery' ? 4 : 0,
+        24: segment.isMicroPhase ? 8 : 0, // equipment phase or manual lap
         25: sport,
         39: subSport,
         253: fitTimestampFromMs(records[segment.end].timestampMs)

@@ -1,3 +1,4 @@
+import { attachWorkoutSegmentPhases } from './workoutSegmentStructureService.js';
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
@@ -365,6 +366,7 @@ async function exportWorkoutFiles({ mode, tempDirectory, s3, config, root, progr
         "SELECT * FROM workout_segments WHERE wid = ANY($1::bigint[]) ORDER BY wid, position NULLS LAST, id",
         [ids]
       )).rows;
+      await attachWorkoutSegmentPhases(client, segments);
       const favorites = (await client.query(`
         SELECT f.uid, f.workout_id
         FROM workout_favorites f
