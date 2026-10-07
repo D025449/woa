@@ -50,10 +50,26 @@ test('recognizes five 30/30 repetitions when the final work phase is prolonged t
   }
 });
 
-test('still rejects a doubled final effort and irregular work durations', () => {
-  assert.deepEqual(scan([...repeat(170, 180), ...series(4, 30, 30), ...repeat(380, 60), ...repeat(80, 180)]), []);
+test('recognizes a doubled final effort with measured timing deviations and leading phase recovery', () => {
+  const powers = [...repeat(170, 180), ...series(4, 30, 30), ...repeat(420, 61), ...repeat(80, 180)];
+  for (const range of [{}, { start: 180, end: 511 }]) {
+    const [block] = scan(powers, range);
+    assert.ok(block);
+    assert.equal(summarizeMicroIntervalBlock(block).repetitions, 5);
+    assert.equal(block.start_offset, 180);
+    assert.equal(block.pattern_work_duration_seconds, 30);
+    assert.equal(block.pattern_recovery_duration_seconds, 30);
+    assert.equal(block.phases.filter((phase) => phase.phase_kind === 'work').at(-1).duration, 61);
+    assert.equal(block.phases.at(-1).duration, 30);
+  }
+});
+
+test('still rejects excessive final extensions and irregular work durations', () => {
+  assert.deepEqual(scan([...repeat(170, 180), ...series(4, 30, 30), ...repeat(380, 70), ...repeat(80, 180)]), []);
   const irregular = [30, 45, 30, 45, 30].flatMap((duration) => [...repeat(380, duration), ...repeat(80, 30)]);
   assert.deepEqual(scan([...repeat(170, 180), ...irregular, ...repeat(170, 180)]), []);
+  const repeatedLong = [30, 30, 30, 60, 60].flatMap((duration) => [...repeat(380, duration), ...repeat(80, 30)]);
+  assert.deepEqual(scan([...repeat(170, 180), ...repeatedLong, ...repeat(170, 180)]), []);
 });
 
 test('import classification reuses fine-grained microinterval blocks', () => {

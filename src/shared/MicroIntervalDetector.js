@@ -3,6 +3,8 @@ import { normalizeWorkoutSegmentStructure } from './WorkoutSegmentStructure.js';
 const WINDOW = 120;
 const BIN_WIDTH = 8;
 const BIN_COUNT = 256;
+// Allow a doubled finishing effort plus small timing deviations in measured edges.
+const FINAL_WORK_DURATION_FACTOR = 2.10;
 
 function histogramQuantile(histogram, count, fraction) {
   const target = Math.max(1, Math.ceil(count * fraction));
@@ -178,7 +180,7 @@ export function detectMicroIntervalBlocks({ recordCount, powerAtIndex, metrics,
         series.unshift({ start: candidateStart, end: candidateEnd, missingBefore: false });
       }
       const stable = series.length >= minimumRepetitions && durations.every((duration, index) => series[index].extendedFinal && index === series.length - 1
-        ? duration >= work && duration <= work * 1.60
+        ? duration >= work && duration <= work * FINAL_WORK_DURATION_FACTOR
         : Math.abs(duration - work) <= Math.max(6, work * 0.20))
         && gaps.every((gap) => Math.abs(gap - recovery) <= Math.max(5, recovery * 0.25));
       if (stable && recovery >= 5 && recovery <= 60 && recovery / work <= 2) {
@@ -216,7 +218,7 @@ export function detectMicroIntervalBlocks({ recordCount, powerAtIndex, metrics,
       const previousDuration = previous.end - previous.start;
       const priorGap = series.length > 1 ? previous.start - series.at(-2).end : gap;
       const longerFinal = series.length >= Math.max(3, minimumRepetitions - 2)
-        && duration > previousDuration && duration <= previousDuration * 1.60;
+        && duration > previousDuration && duration <= previousDuration * FINAL_WORK_DURATION_FACTOR;
       if (gap < 5 || gap > 60 || (Math.abs(duration - previousDuration) > Math.max(8, previousDuration * 0.25) && !longerFinal)
         || Math.abs(gap - priorGap) > Math.max(6, priorGap * 0.30)) flush(run.start);
       else if (longerFinal && Math.abs(duration - previousDuration) > Math.max(8, previousDuration * 0.25)) run.extendedFinal = true;

@@ -75,6 +75,14 @@ opening or rendering it never starts a scan. The worker caches one cloned workou
 buffer until the workout changes. Scan complexity is linear in sample count,
 using a fixed-size 120-second rolling histogram and short run grouping.
 
+Detection requires at least five repetitions with consistent work and recovery
+durations. Only the final work phase may extend to 2.1 times the regular work
+duration (approximately double, allowing small measured timing deviations),
+subject to the existing 90-second work-phase limit. A prolonged finishing effort
+ends the block; its actual duration is retained and its final recovery follows
+the established recovery duration. Earlier work phases and all internal recovery
+phases must still satisfy the regular pattern tolerances.
+
 Microintervals have a separate visibility toggle so hiding ordinary automatic
 lap segments does not hide structured blocks. Selecting a block shows its phases
 on the time or distance axis. The card has phase details and duration-weighted
