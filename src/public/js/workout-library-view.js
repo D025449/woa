@@ -93,6 +93,53 @@ export function buildManualPowerThumbnailSvg(activity = {}) {
     </svg>`;
 }
 
+export function buildManualActivityTypeThumbnailSvg(activity = {}) {
+  const activityType = String(activity?.activity_type || "").trim().toLowerCase();
+
+  if (activityType === "mobility") {
+    return `
+      <svg class="workout-library-card__manual-activity-thumbnail workout-library-card__manual-activity-thumbnail--mobility" viewBox="0 0 256 160" aria-hidden="true" data-thumbnail-kind="mobility">
+        <rect x="12" y="12" width="232" height="136" rx="16" fill="#e7f8f1"/>
+        <path d="M28 127 C72 119 103 132 143 124 C178 117 205 120 228 113" fill="none" stroke="#9bd8c4" stroke-width="2" stroke-linecap="round" opacity="0.72"/>
+        <path d="M55 48 C78 27 111 23 139 35" fill="none" stroke="#65bda2" stroke-width="3" stroke-linecap="round" opacity="0.48"/>
+        <path d="M181 38 C204 53 216 75 215 98" fill="none" stroke="#65bda2" stroke-width="3" stroke-linecap="round" opacity="0.48"/>
+        <circle cx="103" cy="46" r="10" fill="#ffffff" stroke="#147d68" stroke-width="4"/>
+        <path d="M108 58 C111 73 122 82 140 89 C152 94 164 99 177 109" fill="none" stroke="#147d68" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M117 68 C137 55 158 53 179 62" fill="none" stroke="#21a583" stroke-width="7" stroke-linecap="round"/>
+        <path d="M123 77 C103 85 87 97 74 113" fill="none" stroke="#21a583" stroke-width="7" stroke-linecap="round"/>
+        <path d="M141 90 C134 106 128 121 125 137 M141 91 C158 101 174 111 190 124" fill="none" stroke="#147d68" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="180" cy="62" r="5" fill="#21a583"/>
+        <circle cx="74" cy="113" r="5" fill="#21a583"/>
+      </svg>`;
+  }
+
+  if (activityType !== "strength_training") return "";
+
+  const supportedFocuses = new Set(["upper_body", "lower_body", "full_body"]);
+  const strengthFocus = supportedFocuses.has(activity?.strength_focus)
+    ? activity.strength_focus
+    : "unspecified";
+  const isNeutral = strengthFocus === "unspecified";
+  const upperActive = strengthFocus === "upper_body" || strengthFocus === "full_body";
+  const lowerActive = strengthFocus === "lower_body" || strengthFocus === "full_body";
+  const upperStroke = upperActive ? "#d84b43" : isNeutral ? "#b7662d" : "#c8b8b2";
+  const lowerStroke = lowerActive ? "#d84b43" : isNeutral ? "#b7662d" : "#c8b8b2";
+
+  return `
+    <svg class="workout-library-card__manual-activity-thumbnail workout-library-card__manual-activity-thumbnail--strength" viewBox="0 0 256 160" aria-hidden="true" data-thumbnail-kind="strength" data-strength-focus="${strengthFocus}">
+      <rect x="12" y="12" width="232" height="136" rx="16" fill="#fff0eb"/>
+      <path d="M32 128 H224 M48 36 H80 M176 36 H208" fill="none" stroke="#e9c6b9" stroke-width="2" stroke-linecap="round" opacity="0.75"/>
+      <path d="M61 52 V78 M52 58 V72 M195 52 V78 M204 58 V72 M61 65 H195" fill="none" stroke="#9a4d2f" stroke-width="6" stroke-linecap="round"/>
+      <circle cx="128" cy="44" r="10" fill="#ffffff" stroke="#87432e" stroke-width="4"/>
+      <path d="M128 57 V99" fill="none" stroke="${upperStroke}" stroke-width="9" stroke-linecap="round"/>
+      <path d="M127 67 L96 83 M129 67 L160 83" fill="none" stroke="${upperStroke}" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M128 98 L106 132 M128 98 L150 132" fill="none" stroke="${lowerStroke}" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="96" cy="83" r="5" fill="${upperStroke}"/>
+      <circle cx="160" cy="83" r="5" fill="${upperStroke}"/>
+      <path d="M97 135 H112 M144 135 H159" fill="none" stroke="${lowerStroke}" stroke-width="6" stroke-linecap="round"/>
+    </svg>`;
+}
+
 export default class WorkoutLibraryView {
 
   constructor(containerSelector, handlers = {}) {
@@ -2203,9 +2250,9 @@ export default class WorkoutLibraryView {
     const workoutType = activity.activity_type === "cycling"
       ? this.getWorkoutTypeLabel(activity.workout_type)
       : null;
-    const powerThumbnail = activity.activity_type === "cycling"
+    const activityThumbnail = activity.activity_type === "cycling"
       ? buildManualPowerThumbnailSvg(activity)
-      : "";
+      : buildManualActivityTypeThumbnailSvg(activity);
     const statsMarkup = `
       ${Number.isFinite(rpe) && rpe > 0 ? `<span class="workout-library-stat"><span class="workout-library-stat__label">RPE</span><span class="workout-library-stat__value">${this.formatInt(rpe)}/10</span></span>` : ""}
       ${Number.isFinite(averagePower) && averagePower > 0 ? `<span class="workout-library-stat"><span class="workout-library-stat__label">PW</span><span class="workout-library-stat__value">${this.formatInt(averagePower)} W</span></span>` : ""}
@@ -2266,10 +2313,10 @@ export default class WorkoutLibraryView {
             </details>
           </div>
         </div>
-        <div class="workout-library-card__body workout-library-card__body--manual${powerThumbnail ? " has-thumbnail" : ""}">
-          ${powerThumbnail ? `
+        <div class="workout-library-card__body workout-library-card__body--manual${activityThumbnail ? " has-thumbnail" : ""}">
+          ${activityThumbnail ? `
             <div class="workout-library-card__body-main">
-              <div class="workout-library-card__thumb-shell has-image">${powerThumbnail}</div>
+              <div class="workout-library-card__thumb-shell has-image">${activityThumbnail}</div>
               <div class="workout-library-card__body-copy">
                 <div class="workout-library-card__body-copy-group">${statsMarkup}</div>
               </div>

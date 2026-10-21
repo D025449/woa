@@ -3,7 +3,10 @@ import fs from "node:fs";
 import test from "node:test";
 
 import { FileDBService } from "../src/services/fileDBService.js";
-import { buildManualPowerThumbnailSvg } from "../src/public/js/workout-library-view.js";
+import {
+  buildManualActivityTypeThumbnailSvg,
+  buildManualPowerThumbnailSvg
+} from "../src/public/js/workout-library-view.js";
 import TrainingFeedDBService from "../src/services/trainingFeedDBService.js";
 
 const source = fs.readFileSync(
@@ -226,4 +229,40 @@ test("manual cycling cards render a flat profile without intervals", () => {
 
   assert.match(svg, /M 18 28\.89 L 238\.00 28\.89/u);
   assert.doesNotMatch(svg, /NaN|Infinity/u);
+});
+
+test("manual mobility cards render one shared movement thumbnail", () => {
+  const svg = buildManualActivityTypeThumbnailSvg({ activity_type: "mobility" });
+  const svgWithIrrelevantFocus = buildManualActivityTypeThumbnailSvg({
+    activity_type: "mobility",
+    strength_focus: "upper_body"
+  });
+
+  assert.match(svg, /manual-activity-thumbnail--mobility/u);
+  assert.match(svg, /data-thumbnail-kind="mobility"/u);
+  assert.equal(svgWithIrrelevantFocus, svg);
+  assert.doesNotMatch(svg, /data-strength-focus|NaN|Infinity/u);
+});
+
+test("manual strength cards render focus-specific thumbnails", () => {
+  const variants = ["upper_body", "lower_body", "full_body", null].map((strengthFocus) => (
+    buildManualActivityTypeThumbnailSvg({
+      activity_type: "strength_training",
+      strength_focus: strengthFocus
+    })
+  ));
+
+  assert.match(variants[0], /data-strength-focus="upper_body"/u);
+  assert.match(variants[1], /data-strength-focus="lower_body"/u);
+  assert.match(variants[2], /data-strength-focus="full_body"/u);
+  assert.match(variants[3], /data-strength-focus="unspecified"/u);
+  assert.equal(new Set(variants).size, variants.length);
+  variants.forEach((svg) => {
+    assert.match(svg, /manual-activity-thumbnail--strength/u);
+    assert.doesNotMatch(svg, /NaN|Infinity/u);
+  });
+});
+
+test("manual type thumbnails ignore unsupported activity types", () => {
+  assert.equal(buildManualActivityTypeThumbnailSvg({ activity_type: "other" }), "");
 });

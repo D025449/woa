@@ -2347,7 +2347,8 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   display: grid;
 }
 
-.workout-library-card__manual-power-thumbnail {
+.workout-library-card__manual-power-thumbnail,
+.workout-library-card__manual-activity-thumbnail {
   display: block;
   width: 100%;
   height: 100%;
