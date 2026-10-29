@@ -37,4 +37,4 @@ complete. The `--confirm-db` value must exactly match PostgreSQL's `current_data
 
 ## Live Preview
 
-To view aa live preview of this application, click [here](https://desolate-coast-53201.herokuapp.com/)
+To view a live preview of this application, click [here](https://desolate-coast-53201.herokuapp.com/)
