@@ -207,7 +207,20 @@
     "sectionDeletionTitle": "Eliminar conta",
     "sectionDeletionCopy": "Inicia um pedido de eliminação com um período de graça de 28 dias antes de a conta ser removida definitivamente.",
     "requestDeletion": "Solicitar eliminação da conta",
-    "cancelDeletion": "Cancelar eliminação"
+    "cancelDeletion": "Cancelar eliminação",
+    "weightHistory": {
+      "title": "Body weight history",
+      "copy": "Each entry applies from its date until the next entry. If no entry applies, the profile weight is used.",
+      "date": "Valid from",
+      "save": "Save entry",
+      "cancel": "Cancel editing",
+      "edit": "Edit",
+      "delete": "Delete",
+      "confirmDelete": "Delete this weight entry?",
+      "empty": "No weight entries yet.",
+      "saved": "Weight entry saved.",
+      "error": "Could not load or save weight history."
+    }
   },
   "uploadPage": {
     "title": "Upload FIT",

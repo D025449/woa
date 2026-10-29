@@ -245,6 +245,7 @@ class ProfileUI {
   }
 
   renderDeletionState() {
+    window.dispatchEvent(new CustomEvent("profile-account-state", { detail: this.profileData?.accountStatus || "active" }));
     if (!this.deletionStatusEl || !this.requestDeletionButton || !this.cancelDeletionButton) {
       return;
     }

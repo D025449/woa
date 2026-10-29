@@ -38,3 +38,28 @@ complete. The `--confirm-db` value must exactly match PostgreSQL's `current_data
 ## Live Preview
 
 To view a live preview of this application, click [here](https://desolate-coast-53201.herokuapp.com/)
+
+### Body weight history
+
+After migration `088_user_weight_history.sql`, the profile page supports dated body
+weight entries, editing and deletion. The profile weight remains an independent
+fallback; saving it does not create history entries or recalculate workouts.
+
+All endpoints require authentication and operate on the current user's data:
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/api/profile/weight-history` | Entries ordered by date, newest first |
+| POST | `/api/profile/weight-history` | Create `{ "validFrom": "2026-10-29", "weightKg": 75.5 }` |
+| PUT | `/api/profile/weight-history/:id` | Replace an entry's date and weight using the same body |
+| DELETE | `/api/profile/weight-history/:id` | Delete an entry (204) |
+| GET | `/api/profile/weight?date=2026-10-29` | Resolve weight for a required calendar date |
+
+Responses use `{ "data": ... }`. History entries contain `id` (string),
+`validFrom` and `weightKg`. Resolution returns `date`, `weightKg`, `validFrom`,
+and `source` (`history`, `profile`, or null). It selects the latest entry whose
+date is on or before the requested date, then falls back to the profile weight;
+without either, weight and source are null. Dates have no timezone or time of day.
+Weights must be greater than 0 and at most 500 kg with at most two decimal places.
+Duplicate dates return 409; invalid input returns 400; missing entries return 404.
+Accounts pending deletion cannot modify history.

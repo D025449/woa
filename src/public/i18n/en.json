@@ -209,7 +209,20 @@
     "sectionDeletionTitle": "Account deletion",
     "sectionDeletionCopy": "Start a deletion request with a 28-day grace period before the account is permanently removed.",
     "requestDeletion": "Request account deletion",
-    "cancelDeletion": "Cancel deletion"
+    "cancelDeletion": "Cancel deletion",
+    "weightHistory": {
+      "title": "Body weight history",
+      "copy": "Each entry applies from its date until the next entry. If no entry applies, the profile weight is used.",
+      "date": "Valid from",
+      "save": "Save entry",
+      "cancel": "Cancel editing",
+      "edit": "Edit",
+      "delete": "Delete",
+      "confirmDelete": "Delete this weight entry?",
+      "empty": "No weight entries yet.",
+      "saved": "Weight entry saved.",
+      "error": "Could not load or save weight history."
+    }
   },
   "uploadPage": {
     "title": "FIT Upload",

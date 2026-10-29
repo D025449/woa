@@ -1,3 +1,4 @@
+import UserWeightHistoryService from "../services/userWeightHistoryService.js";
 import express from "express";
 
 import authMiddleware from "../middleware/authMiddleware.js";
@@ -7,6 +8,33 @@ import ProfileDBService from "../services/profileDBService.js";
 import { normalizeSupportedLocale } from "../i18n/index.js";
 
 const router = express.Router();
+
+router.get("/weight-history", authMiddleware, async (req, res, next) => {
+  try { res.json({ data: await UserWeightHistoryService.list(req.user.id) }); }
+  catch (error) { next(error); }
+});
+
+router.get("/weight", authMiddleware, async (req, res, next) => {
+  try { res.json({ data: await UserWeightHistoryService.resolve(req.user.id, req.query.date) }); }
+  catch (error) { next(error); }
+});
+
+router.post("/weight-history", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
+  try { res.status(201).json({ data: await UserWeightHistoryService.save(req.user.id, req.body) }); }
+  catch (error) { next(error); }
+});
+
+router.put("/weight-history/:id", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
+  try { res.json({ data: await UserWeightHistoryService.save(req.user.id, req.body, req.params.id) }); }
+  catch (error) { next(error); }
+});
+
+router.delete("/weight-history/:id", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
+  try {
+    await UserWeightHistoryService.remove(req.user.id, req.params.id);
+    res.status(204).end();
+  } catch (error) { next(error); }
+});
 
 router.get("/", authMiddleware, async (req, res, next) => {
   try {

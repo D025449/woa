@@ -209,7 +209,20 @@
     "sectionDeletionTitle": "Konto loeschen",
     "sectionDeletionCopy": "Starte eine Loeschanfrage mit 28 Tagen Karenzzeit, bevor das Konto endgueltig entfernt wird.",
     "requestDeletion": "Kontoloeschung anfordern",
-    "cancelDeletion": "Loeschung abbrechen"
+    "cancelDeletion": "Loeschung abbrechen",
+    "weightHistory": {
+      "title": "Körpergewichtsverlauf",
+      "copy": "Jeder Eintrag gilt ab seinem Datum bis zum nächsten Eintrag. Liegt kein gültiger Eintrag vor, wird das Profilgewicht verwendet.",
+      "date": "Gültig ab",
+      "save": "Eintrag speichern",
+      "cancel": "Bearbeiten abbrechen",
+      "edit": "Bearbeiten",
+      "delete": "Löschen",
+      "confirmDelete": "Diesen Gewichtseintrag löschen?",
+      "empty": "Noch keine Gewichtseinträge.",
+      "saved": "Gewichtseintrag gespeichert.",
+      "error": "Der Gewichtsverlauf konnte nicht geladen oder gespeichert werden."
+    }
   },
   "uploadPage": {
     "title": "FIT-Upload",

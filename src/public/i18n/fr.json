@@ -207,7 +207,20 @@
     "sectionDeletionTitle": "Supprimer le compte",
     "sectionDeletionCopy": "Lancez une demande de suppression avec un délai de grâce de 28 jours avant la suppression définitive du compte.",
     "requestDeletion": "Demander la suppression du compte",
-    "cancelDeletion": "Annuler la suppression"
+    "cancelDeletion": "Annuler la suppression",
+    "weightHistory": {
+      "title": "Body weight history",
+      "copy": "Each entry applies from its date until the next entry. If no entry applies, the profile weight is used.",
+      "date": "Valid from",
+      "save": "Save entry",
+      "cancel": "Cancel editing",
+      "edit": "Edit",
+      "delete": "Delete",
+      "confirmDelete": "Delete this weight entry?",
+      "empty": "No weight entries yet.",
+      "saved": "Weight entry saved.",
+      "error": "Could not load or save weight history."
+    }
   },
   "uploadPage": {
     "title": "Import FIT",
