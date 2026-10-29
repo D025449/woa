@@ -1,3 +1,4 @@
+import { powerWeightDate, powerWeightFields } from "../shared/PowerWeight.js";
 import pool from "./database.js";
 
 function invalid(message, statusCode = 400) {
@@ -57,6 +58,40 @@ export default class UserWeightHistoryService {
     const row = rows[0];
     return { date, weightKg: row.weight_kg == null ? null : Number(row.weight_kg),
       validFrom: row.valid_from ?? null, source: row.source };
+  }
+
+  static async enrichPowerRows(userId, cpRows, ftpRows) {
+    const dates = [...new Set([
+      ...cpRows.map(row => powerWeightDate(row.start_time)),
+      ...ftpRows.map(row => powerWeightDate(row.startTime))
+    ].filter(Boolean))];
+    if (!dates.length) return;
+    const { rows } = await pool.query(`
+      SELECT d.date::text, COALESCE(h.weight_kg, p.weight_kg) AS weight_kg,
+        CASE WHEN h.weight_kg IS NOT NULL THEN 'history'
+             WHEN p.weight_kg IS NOT NULL THEN 'profile' ELSE NULL END AS source
+      FROM unnest($2::date[]) AS d(date)
+      LEFT JOIN user_profiles p ON p.user_id = $1
+      LEFT JOIN LATERAL (
+        SELECT weight_kg FROM user_weight_history
+        WHERE user_id = $1 AND valid_from <= d.date
+        ORDER BY valid_from DESC LIMIT 1
+      ) h ON TRUE
+    `, [userId, dates]);
+    const byDate = new Map(rows.map(row => [row.date, row]));
+    for (const [records, dateKey, powerKey] of [
+      [cpRows, "start_time", "best_effort_avg_power"],
+      [ftpRows, "startTime", "ftp"]
+    ]) {
+      for (const row of records) {
+        const date = powerWeightDate(row[dateKey]);
+        const weight = byDate.get(date);
+        Object.assign(row, powerWeightFields(
+          row[powerKey] == null ? null : Math.round(Number(row[powerKey])),
+          weight?.weight_kg, weight?.source, date
+        ));
+      }
+    }
   }
 
   static async save(userId, payload, id = null) {

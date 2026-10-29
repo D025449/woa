@@ -1054,7 +1054,12 @@
       "axisHeartCadence": "FC/Cad",
       "axisSpeed": "km/h",
       "axisAltitude": "m"
-    }
+    },
+    "powerWeightValue": "Peso: {weight} kg",
+    "powerWeightDate": "Data di riferimento: {date}",
+    "powerWeightHistory": "Fonte: storico del peso",
+    "powerWeightProfile": "Fonte: peso del profilo",
+    "powerWeightMissing": "Peso corporeo non disponibile."
   },
   "groups": {
     "hero": {

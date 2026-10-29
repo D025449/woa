@@ -8,7 +8,7 @@
     <title><%= t("profile.title") %></title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/css/ui-system.css?v=atlas-blue-4">
-    <link rel="stylesheet" href="/css/profile.css?v=atlas-blue-4">
+    <link rel="stylesheet" href="/css/profile.css?v=weight-history-1">
 </head>
 
 <body class="profile-page">
@@ -102,9 +102,13 @@
             </section>
 
             <section class="profile-surface ui-surface">
-                <h2 class="profile-section-title ui-title"><%= t("profile.weightHistory.title") %></h2>
-                <p class="profile-section-copy ui-copy"><%= t("profile.weightHistory.copy") %></p>
-                <form id="weight-history-form" class="row g-3 mb-3">
+                <div class="profile-section-header ui-section-header">
+                    <div>
+                        <h2 id="weight-history-title" class="profile-section-title ui-title"><%= t("profile.weightHistory.title") %></h2>
+                        <p class="profile-section-copy ui-copy"><%= t("profile.weightHistory.copy") %></p>
+                    </div>
+                </div>
+                <form id="weight-history-form" class="profile-form row g-3 m-0">
                     <div class="col-md-4">
                         <label for="weight-history-date" class="form-label"><%= t("profile.weightHistory.date") %></label>
                         <input id="weight-history-date" name="validFrom" type="date" min="0001-01-01" max="9999-12-31" required class="form-control">
@@ -118,8 +122,12 @@
                         <button type="button" id="weight-history-cancel" class="btn btn-outline-secondary" hidden><%= t("profile.weightHistory.cancel") %></button>
                     </div>
                 </form>
-                <p id="weight-history-status" role="status" aria-live="polite"></p>
-                <div id="weight-history-list"></div>
+                <div class="profile-weight-body">
+                    <p id="weight-history-status" role="status" aria-live="polite"></p>
+                    <div class="profile-weight-scroll" role="region" aria-labelledby="weight-history-title" tabindex="0">
+                        <ul id="weight-history-list" class="profile-weight-list"></ul>
+                    </div>
+                </div>
             </section>
 
             <section class="profile-surface ui-surface">
@@ -268,7 +276,7 @@
         document.body.style.removeProperty("padding-right");
         document.querySelectorAll(".modal-backdrop").forEach((node) => node.remove());
     </script>
-    <script id="weight-history-messages" type="application/json"><%- JSON.stringify({edit: t("profile.weightHistory.edit"),delete: t("profile.weightHistory.delete"),confirmDelete: t("profile.weightHistory.confirmDelete"),empty: t("profile.weightHistory.empty"),saved: t("profile.weightHistory.saved"),error: t("profile.weightHistory.error")}).replace(/</g, "\\u003c") %></script>
+    <script id="weight-history-messages" type="application/json"><%- JSON.stringify({locale: typeof locale !== "undefined" ? locale : "en", validFrom: t("profile.weightHistory.date"), cancel: t("profile.ui.cancelAction"), edit: t("profile.weightHistory.edit"),delete: t("profile.weightHistory.delete"),confirmDelete: t("profile.weightHistory.confirmDelete"),empty: t("profile.weightHistory.empty"),saved: t("profile.weightHistory.saved"),error: t("profile.weightHistory.error")}).replace(/</g, "\\u003c") %></script>
     <script src="/js/weight-history-ui.js" type="module"></script>
     <script src="/js/profile-ui.js" type="module"></script>
 </body>

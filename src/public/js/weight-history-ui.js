@@ -1,3 +1,5 @@
+import confirmModal from "./confirm-modal.js";
+
 const form = document.getElementById("weight-history-form");
 if (form) {
   const messages = JSON.parse(document.getElementById("weight-history-messages").textContent);
@@ -10,8 +12,15 @@ if (form) {
   let busy = false;
   let readOnly = true;
 
+  function markEditing() {
+    list.querySelectorAll("[data-weight-id]").forEach(row => {
+      row.classList.toggle("is-editing", row.dataset.weightId === editingId);
+    });
+  }
+
   function reset() {
     editingId = null;
+    markEditing();
     form.reset();
     const now = new Date();
     dateInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -38,17 +47,38 @@ if (form) {
   async function load() {
     const entries = await request();
     list.replaceChildren();
-    if (!entries.length) list.textContent = messages.empty;
+    if (!entries.length) {
+      const empty = document.createElement("li");
+      empty.className = "profile-weight-empty";
+      empty.textContent = messages.empty;
+      list.append(empty);
+    }
+    const locale = messages.locale || navigator.language;
+    const numbers = new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const dates = new Intl.DateTimeFormat(locale, { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
     for (const entry of entries) {
-      const row = document.createElement("div");
-      row.className = "d-flex gap-2 align-items-center flex-wrap mb-2";
-      const text = document.createElement("span");
-      text.textContent = `${entry.validFrom} · ${entry.weightKg} kg`;
-      row.append(text);
+      const row = document.createElement("li");
+      row.className = "profile-weight-entry";
+      row.dataset.weightId = entry.id;
+      const identity = document.createElement("div");
+      identity.className = "profile-weight-entry__identity";
+      const weight = document.createElement("strong");
+      weight.className = "profile-weight-entry__weight";
+      weight.textContent = `${numbers.format(entry.weightKg)} kg`;
+      const validity = document.createElement("div");
+      validity.className = "profile-weight-entry__date";
+      const date = document.createElement("time");
+      date.dateTime = entry.validFrom;
+      date.textContent = dates.format(new Date(`${entry.validFrom}T00:00:00Z`));
+      validity.append(`${messages.validFrom} `, date);
+      identity.append(weight, validity);
+      const actions = document.createElement("div");
+      actions.className = "profile-weight-entry__actions";
+      row.append(identity, actions);
       for (const action of ["edit", "delete"]) {
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "btn btn-sm btn-outline-secondary";
+        button.className = `btn btn-sm profile-weight-entry__action${action === "delete" ? " is-delete" : ""}`;
         button.textContent = messages[action];
         button.addEventListener("click", async () => {
           if (busy || readOnly) return;
@@ -57,11 +87,19 @@ if (form) {
             dateInput.value = entry.validFrom;
             weightInput.value = entry.weightKg;
             cancel.hidden = false;
+            markEditing();
             dateInput.focus();
             return;
           }
-          if (!window.confirm(messages.confirmDelete)) return;
           lock(true);
+          const accepted = await confirmModal({
+            title: messages.delete,
+            message: messages.confirmDelete,
+            acceptLabel: messages.delete,
+            cancelLabel: messages.cancel,
+            acceptClass: "btn-danger"
+          });
+          if (!accepted || readOnly) { lock(false); return; }
           status.textContent = "";
           try {
             await request(`/${entry.id}`, { method: "DELETE" });
@@ -70,10 +108,11 @@ if (form) {
           } catch (error) { status.textContent = error.message; }
           finally { lock(false); }
         });
-        row.append(button);
+        actions.append(button);
       }
       list.append(row);
     }
+    markEditing();
   }
 
   cancel.addEventListener("click", reset);

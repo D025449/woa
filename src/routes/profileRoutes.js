@@ -1,3 +1,4 @@
+import { invalidateAnalyticsOverviewCache } from "../services/analyticsOverviewCache.js";
 import UserWeightHistoryService from "../services/userWeightHistoryService.js";
 import express from "express";
 
@@ -20,18 +21,27 @@ router.get("/weight", authMiddleware, async (req, res, next) => {
 });
 
 router.post("/weight-history", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
-  try { res.status(201).json({ data: await UserWeightHistoryService.save(req.user.id, req.body) }); }
+  try {
+    const data = await UserWeightHistoryService.save(req.user.id, req.body);
+    invalidateAnalyticsOverviewCache(req.user.id);
+    res.status(201).json({ data });
+  }
   catch (error) { next(error); }
 });
 
 router.put("/weight-history/:id", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
-  try { res.json({ data: await UserWeightHistoryService.save(req.user.id, req.body, req.params.id) }); }
+  try {
+    const data = await UserWeightHistoryService.save(req.user.id, req.body, req.params.id);
+    invalidateAnalyticsOverviewCache(req.user.id);
+    res.json({ data });
+  }
   catch (error) { next(error); }
 });
 
 router.delete("/weight-history/:id", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     await UserWeightHistoryService.remove(req.user.id, req.params.id);
+    invalidateAnalyticsOverviewCache(req.user.id);
     res.status(204).end();
   } catch (error) { next(error); }
 });
@@ -48,6 +58,7 @@ router.get("/", authMiddleware, async (req, res, next) => {
 router.put("/", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
     const data = await ProfileDBService.updateProfile(req.user.id, req.body || {});
+    invalidateAnalyticsOverviewCache(req.user.id);
 
     // Keep in-memory request/session user display_name in sync for current session UX.
     if (req.user) {

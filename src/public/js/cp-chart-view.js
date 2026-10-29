@@ -10,7 +10,7 @@ import {
   resolveAnalysisPeriod
 } from "./analytics-period.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
-import { loadAnalyticsOverview } from "./analytics-overview-client.js?v=atlas-blue-19";
+import { loadAnalyticsOverview } from "./analytics-overview-client.js?v=power-weight-1";
 
 import { formatCPDuration, getCPSeriesColor } from "../../shared/CriticalPowerAppearance.js";
 

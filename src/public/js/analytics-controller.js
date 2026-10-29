@@ -1,7 +1,7 @@
 import MapView from "./map-view.js";
-import CPChartView from "./cp-chart-view.js?v=atlas-blue-32";
+import CPChartView from "./cp-chart-view.js?v=power-weight-1";
 import FTPChartView from "./ftp-chart-view.js";
-import CTLChartView from "./ctl-chart-view.js?v=atlas-blue-32";
+import CTLChartView from "./ctl-chart-view.js?v=power-weight-1";
 import ChartView from "./chart-view.js";
 import WorkoutService from "./workout-service.js";
 import { filterAnalyticsWorkoutSegments } from "./analytics-workout-segments.js";
@@ -1046,7 +1046,9 @@ export default class Controller {
       && Number.isFinite(endOffset)
       && endOffset > startOffset;
     if (!hasWorkoutTarget) {
-      return this.createPeriodMetric(label, value, "analytics-period-power__metric");
+      const metric = this.createPeriodMetric(label, value, "analytics-period-power__metric");
+      this.appendPowerWeight(metric, target);
+      return metric;
     }
 
     const metric = document.createElement("button");
@@ -1065,6 +1067,7 @@ export default class Controller {
     const metricLabel = document.createElement("span");
     metricLabel.textContent = label;
     metric.append(metricValue, metricLabel);
+    this.appendPowerWeight(metric, target);
     metric.addEventListener("click", async () => {
       metric.disabled = true;
       try {
@@ -1074,6 +1077,30 @@ export default class Controller {
       }
     });
     return metric;
+  }
+
+  appendPowerWeight(metric, target) {
+    const relative = document.createElement("small");
+    relative.className = "analytics-period-power__relative";
+    const number = new Intl.NumberFormat(this.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    relative.textContent = target?.wattsPerKg != null && Number.isFinite(Number(target.wattsPerKg))
+      ? `${number.format(target.wattsPerKg)} W/kg` : "– W/kg";
+    metric.insertBefore(relative, metric.children[1]);
+    const details = [];
+    if (target?.weightKg != null) {
+      details.push(this.t("powerWeightValue", { weight: number.format(target.weightKg) }));
+      if (target.weightDate) {
+        const date = new Intl.DateTimeFormat(this.locale, { dateStyle: "medium", timeZone: "UTC" })
+          .format(new Date(`${target.weightDate}T00:00:00Z`));
+        details.push(this.t("powerWeightDate", { date }));
+      }
+      details.push(this.t(target.weightSource === "history" ? "powerWeightHistory" : "powerWeightProfile"));
+    } else {
+      details.push(this.t("powerWeightMissing"));
+    }
+    metric.title = [metric.title, ...details].filter(Boolean).join("\n");
+    metric.setAttribute("aria-label", [metric.getAttribute("aria-label") || metric.textContent,
+      relative.textContent, ...details].join(", "));
   }
 
   clearPeriodHeaderDetails() {

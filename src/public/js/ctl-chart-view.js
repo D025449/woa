@@ -10,7 +10,7 @@ import {
 } from "./analytics-period.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
 import { POWER_DISTRIBUTION_ZONES } from "../../shared/PowerDistribution.js";
-import { loadAnalyticsOverview } from "./analytics-overview-client.js?v=atlas-blue-19";
+import { loadAnalyticsOverview } from "./analytics-overview-client.js?v=power-weight-1";
 
 const LOAD_GRID_TOP = 66;
 const DEFAULT_CHART_HEIGHT = 480;

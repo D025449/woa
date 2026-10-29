@@ -1,3 +1,4 @@
+import UserWeightHistoryService from "../services/userWeightHistoryService.js";
 import express from "express";
 import { strToU8, zipSync } from "fflate";
 import { promisify } from "node:util";
@@ -69,7 +70,11 @@ function buildCpBestEffortsPayload(rows, rollingFtpRows, grouping, durations) {
       fileId: row.best_effort_file_id,
       startOffset: row.start_offset,
       endOffset: row.end_offset,
-      startTime: row.start_time
+      startTime: row.start_time,
+      weightKg: row.weightKg,
+      weightSource: row.weightSource,
+      weightDate: row.weightDate,
+      wattsPerKg: row.wattsPerKg
     };
   }
 
@@ -80,7 +85,11 @@ function buildCpBestEffortsPayload(rows, rollingFtpRows, grouping, durations) {
       power: Math.round(row.ftp),
       confidence: row.confidence,
       modelPointCount: row.modelPointCount,
-      startTime: row.startTime
+      startTime: row.startTime,
+      weightKg: row.weightKg,
+      weightSource: row.weightSource,
+      weightDate: row.weightDate,
+      wattsPerKg: row.wattsPerKg
     };
   }
 
@@ -440,6 +449,8 @@ router.get("/analytics-overview", authMiddleware, async (req, res, next) => {
       timed("ftp", () => FileDBService.getRollingFTPValues(uid, grouping))
     ]);
 
+    await timed("weight", () => UserWeightHistoryService.enrichPowerRows(uid, cpRows, rollingFtpRows));
+
     const encodeStartedAt = performance.now();
     const encoded = encodeAnalyticsOverview({
       grouping,
@@ -580,6 +591,7 @@ router.get("/cp-best-efforts", authMiddleware, async (req, res, next) => {
       FileDBService.getRollingFTPValues(uid, rollingGrouping)
     ]);
 
+    await UserWeightHistoryService.enrichPowerRows(uid, rows, rollingFtpRows);
     res.json(buildCpBestEffortsPayload(rows, rollingFtpRows, grouping, durationArray));
 
   } catch (err) {

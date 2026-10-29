@@ -1,12 +1,13 @@
+import { powerWeightFields } from "./PowerWeight.js";
 import { POWER_DISTRIBUTION_ZONES } from "./PowerDistribution.js";
 
 const MAGIC = Object.freeze([0x41, 0x4f, 0x56, 0x31]); // AOV1
-const VERSION = 4;
+const VERSION = 5;
 const HEADER_BYTES = 24;
 const LOAD_ROW_BYTES = 24;
 const DISTRIBUTION_ROW_BYTES = 39;
-const CP_ROW_BYTES = 29;
-const FTP_ROW_BYTES = 13;
+const CP_ROW_BYTES = 32;
+const FTP_ROW_BYTES = 16;
 const UINT32_NULL = 0xffffffff;
 const UINT16_NULL = 0xffff;
 const UINT8_NULL = 0xff;
@@ -106,6 +107,19 @@ function quantizeZonePercentages(row) {
   return quantized;
 }
 
+function writeWeight(view, offset, row) {
+  const weight = Number(row.weightKg);
+  view.setUint16(offset, row.weightKg != null && weight > 0 && weight <= 500 ? Math.round(weight * 100) : UINT16_NULL, true);
+  view.setUint8(offset + 2, row.weightSource === "history" ? 1 : row.weightSource === "profile" ? 2 : 0);
+}
+
+function readWeight(view, offset, metric) {
+  const weight = readUint16(view, offset);
+  const source = view.getUint8(offset + 2);
+  return powerWeightFields(metric.power, weight == null ? null : weight / 100,
+    source === 1 ? "history" : source === 2 ? "profile" : null, metric.startTime);
+}
+
 export function encodeAnalyticsOverview({
   grouping,
   durations,
@@ -197,6 +211,7 @@ export function encodeAnalyticsOverview({
     view.setUint32(offset + 17, unsignedNumber(row.start_offset), true);
     view.setUint32(offset + 21, unsignedNumber(row.end_offset), true);
     view.setUint32(offset + 25, fitTimestampSeconds(row.start_time), true);
+    writeWeight(view, offset + 29, row);
     offset += CP_ROW_BYTES;
   }
 
@@ -207,7 +222,8 @@ export function encodeAnalyticsOverview({
     view.setUint16(offset + 2, unsignedNumber(row.confidence, UINT16_NULL), true);
     view.setUint8(offset + 4, unsignedNumber(row.modelPointCount, UINT8_NULL));
     view.setUint32(offset + 5, fitTimestampSeconds(row.startTime), true);
-    offset += 9;
+    writeWeight(view, offset + 9, row);
+    offset += 12;
   }
 
   return bytes;
@@ -223,7 +239,10 @@ export function decodeAnalyticsOverview(input) {
   }
 
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (view.getUint8(4) !== VERSION) {
+  const version = view.getUint8(4);
+  const cpRowBytes = version === 4 ? 29 : CP_ROW_BYTES;
+  const ftpRowBytes = version === 4 ? 13 : FTP_ROW_BYTES;
+  if (version !== 4 && version !== VERSION) {
     throw new TypeError(`Unsupported analytics overview version: ${view.getUint8(4)}`);
   }
   const groupingConfig = GROUPING_BY_CODE.get(view.getUint8(5));
@@ -238,8 +257,8 @@ export function decodeAnalyticsOverview(input) {
     + (durationCount * 2)
     + (loadCount * LOAD_ROW_BYTES)
     + (distributionCount * DISTRIBUTION_ROW_BYTES)
-    + (cpCount * CP_ROW_BYTES)
-    + (ftpCount * FTP_ROW_BYTES);
+    + (cpCount * cpRowBytes)
+    + (ftpCount * ftpRowBytes);
   if (bytes.byteLength !== expectedBytes) {
     throw new RangeError(`Invalid analytics overview length: ${bytes.byteLength}, expected ${expectedBytes}`);
   }
@@ -317,7 +336,9 @@ export function decodeAnalyticsOverview(input) {
       endOffset: endOffset === UINT32_NULL ? null : endOffset,
       startTime: isoTimestampFromFitSeconds(view.getUint32(offset + 25, true))
     };
-    offset += CP_ROW_BYTES;
+    const metric = powerCurveData[period][`CP${duration}`];
+    Object.assign(metric, version === 4 ? powerWeightFields(metric.power, null, null, metric.startTime) : readWeight(view, offset + 29, metric));
+    offset += cpRowBytes;
   }
 
   for (let index = 0; index < ftpCount; index += 1) {
@@ -331,7 +352,9 @@ export function decodeAnalyticsOverview(input) {
       modelPointCount: modelPointCount === UINT8_NULL ? null : modelPointCount,
       startTime: isoTimestampFromFitSeconds(view.getUint32(offset + 9, true))
     };
-    offset += FTP_ROW_BYTES;
+    const metric = powerCurveData[period].eFTP;
+    Object.assign(metric, version === 4 ? powerWeightFields(metric.power, null, null, metric.startTime) : readWeight(view, offset + 13, metric));
+    offset += ftpRowBytes;
   }
 
   return {

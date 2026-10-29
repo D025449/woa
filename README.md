@@ -63,3 +63,12 @@ without either, weight and source are null. Dates have no timezone or time of da
 Weights must be greater than 0 and at most 500 kg with at most two decimal places.
 Duplicate dates return 409; invalid input returns 400; missing entries return 404.
 Accounts pending deletion cannot modify history.
+
+Analytics CP/FTP period metrics additionally show W/kg, using the UTC calendar
+date of each CP source workout or underlying FTP estimate (`startTime`). Each
+metric resolves its own historical weight, with the profile weight as fallback.
+Missing weight produces an empty relative value. The hint exposes weight,
+reference date and source; chart axes remain in watts. JSON CP metrics include
+`weightKg`, `weightSource`, `weightDate`, and `wattsPerKg`. Relative power uses
+the displayed rounded watts. The binary overview uses codec version 5 (three
+additional bytes per CP/FTP record); the decoder also accepts version 4.

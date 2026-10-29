@@ -1213,7 +1213,12 @@
       "axisHeartCadence": "HR/Cad",
       "axisSpeed": "km/h",
       "axisAltitude": "m"
-    }
+    },
+    "powerWeightValue": "Weight: {weight} kg",
+    "powerWeightDate": "Reference date: {date}",
+    "powerWeightHistory": "Source: weight history",
+    "powerWeightProfile": "Source: profile weight",
+    "powerWeightMissing": "No body weight available."
   },
   "coachingPage": {
     "title": "Coaching",

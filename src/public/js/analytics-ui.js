@@ -1,4 +1,4 @@
-import Controller from "./analytics-controller.js?v=atlas-blue-45";
+import Controller from "./analytics-controller.js?v=power-weight-1";
 
 document.addEventListener("DOMContentLoaded", () => {
   new Controller();

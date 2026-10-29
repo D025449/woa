@@ -125,3 +125,35 @@ test("analytics overview timestamps reject values before the FIT epoch", () => {
     /outside the FIT epoch range/u
   );
 });
+
+test("analytics overview carries distinct historical and profile weights for CP and FTP", () => {
+  const fixture = buildFixture();
+  Object.assign(fixture.cpRows[0], { weightKg: 75.25, weightSource: "history" });
+  Object.assign(fixture.rollingFtpRows[0], { weightKg: 80, weightSource: "profile" });
+  const decoded = decodeAnalyticsOverview(encodeAnalyticsOverview(fixture));
+  const { CP60: cp, eFTP: ftp } = decoded.powerCurve.data["202607"];
+  assert.equal(cp.weightKg, 75.25);
+  assert.equal(cp.weightSource, "history");
+  assert.equal(cp.weightDate, "2026-07-13");
+  assert.equal(cp.wattsPerKg, 418 / 75.25);
+  assert.equal(ftp.weightKg, 80);
+  assert.equal(ftp.weightSource, "profile");
+  assert.equal(ftp.weightDate, "2026-07-31");
+  assert.equal(ftp.wattsPerKg, 287 / 80);
+});
+
+test("analytics overview missing weight stays null and legacy v4 remains readable", () => {
+  const encoded = encodeAnalyticsOverview(buildFixture());
+  const metric = decodeAnalyticsOverview(encoded).powerCurve.data["202607"].CP60;
+  assert.equal(metric.weightKg, null);
+  assert.equal(metric.wattsPerKg, null);
+  // Fixture has one CP and one FTP record after header/durations/load/distribution.
+  const start = 24 + 6 + 24 + 39;
+  const legacy = new Uint8Array(encoded.length - 6);
+  legacy.set(encoded.subarray(0, start + 29));
+  legacy.set(encoded.subarray(start + 32, start + 32 + 13), start + 29);
+  legacy[4] = 4;
+  const decoded = decodeAnalyticsOverview(legacy);
+  assert.equal(decoded.powerCurve.data["202607"].CP60.power, 418);
+  assert.equal(decoded.powerCurve.data["202607"].eFTP.wattsPerKg, null);
+});

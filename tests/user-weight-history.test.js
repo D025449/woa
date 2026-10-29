@@ -44,3 +44,34 @@ test("history service scopes mutations, handles conflicts and resolves nullable 
     assert.match(calls.at(-1).sql, /ORDER BY valid_from DESC LIMIT 1/);
   }
 });
+
+test("analytics weights batch unique UTC dates and preserve separate CP/FTP reference dates", async t => {
+  const cp = [
+    { start_time: "2026-10-01T23:30:00Z", best_effort_avg_power: 300 },
+    { start_time: "2026-10-01T12:00:00Z", best_effort_avg_power: 450 },
+    { start_time: "2026-10-02T12:00:00Z", best_effort_avg_power: 320 },
+    { start_time: "2026-10-03T12:00:00Z", best_effort_avg_power: 310 }
+  ];
+  const ftp = [{ startTime: "2026-10-02T10:00:00Z", ftp: 280 }];
+  let calls = 0;
+  t.mock.method(pool, "query", async (sql, params) => {
+    calls++;
+    assert.deepEqual(params, [42, ["2026-10-01", "2026-10-02", "2026-10-03"]]);
+    assert.match(sql, /valid_from <= d.date/);
+    assert.match(sql, /WHERE user_id = \$1/);
+    return { rows: [
+      { date: "2026-10-01", weight_kg: "75.00", source: "history" },
+      { date: "2026-10-02", weight_kg: "80.00", source: "profile" },
+      { date: "2026-10-03", weight_kg: null, source: null }
+    ] };
+  });
+  await Service.enrichPowerRows(42, cp, ftp);
+  assert.equal(calls, 1);
+  assert.equal(cp[0].wattsPerKg, 4);
+  assert.equal(cp[1].wattsPerKg, 6);
+  assert.equal(cp[0].weightSource, "history");
+  assert.equal(cp[2].weightSource, "profile");
+  assert.equal(cp[3].wattsPerKg, null);
+  assert.equal(ftp[0].weightDate, "2026-10-02");
+  assert.equal(ftp[0].wattsPerKg, 3.5);
+});
