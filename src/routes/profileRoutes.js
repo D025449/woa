@@ -1,3 +1,4 @@
+import GarminConnectionService from "../services/garminConnectionService.js";
 import { invalidateAnalyticsOverviewCache } from "../services/analyticsOverviewCache.js";
 import UserWeightHistoryService from "../services/userWeightHistoryService.js";
 import express from "express";
@@ -9,6 +10,27 @@ import ProfileDBService from "../services/profileDBService.js";
 import { normalizeSupportedLocale } from "../i18n/index.js";
 
 const router = express.Router();
+
+// authMiddleware may continue anonymously; explicitly require a user here.
+router.use("/garmin", authMiddleware, (req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  if (!req.user?.id) return res.status(401).json({ error: "Unauthorized" });
+  next();
+});
+router.get("/garmin", async (req, res, next) => {
+  try { res.json({ data: await GarminConnectionService.status(req.user.id) }); }
+  catch (error) { next(error); }
+});
+router.put("/garmin", requireActiveAccountWrite, async (req, res, next) => {
+  try { res.json({ data: await GarminConnectionService.save(req.user.id, req.body?.apiKey) }); }
+  catch (error) { next(error); }
+});
+router.delete("/garmin", requireActiveAccountWrite, async (req, res, next) => {
+  try {
+    await GarminConnectionService.remove(req.user.id);
+    res.status(204).end();
+  } catch (error) { next(error); }
+});
 
 router.get("/weight-history", authMiddleware, async (req, res, next) => {
   try { res.json({ data: await UserWeightHistoryService.list(req.user.id) }); }

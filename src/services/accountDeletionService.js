@@ -146,6 +146,7 @@ export default class AccountDeletionService {
       await client.query(`DELETE FROM training_plans WHERE user_id = $1`, [userId]);
       await client.query(`DELETE FROM workouts WHERE uid = $1`, [userId]);
       await client.query(`DELETE FROM gps_segments WHERE uid = $1`, [userId]);
+      await client.query(`DELETE FROM user_garmin_connections WHERE user_id = $1`, [userId]);
       await client.query(`DELETE FROM user_profiles WHERE user_id = $1`, [userId]);
 
       const result = await client.query(

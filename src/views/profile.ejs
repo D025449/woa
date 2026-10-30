@@ -186,6 +186,24 @@
                 </form>
             </section>
 
+            <section class="profile-surface ui-surface" aria-labelledby="garmin-settings-title">
+                <div class="profile-section-header ui-section-header">
+                    <h2 id="garmin-settings-title" class="profile-section-title ui-title"><%= t("profile.garmin.title") %></h2>
+                    <p class="profile-section-copy ui-copy"><%= t("profile.garmin.copy") %></p>
+                </div>
+                <form id="garmin-settings-form" class="profile-form">
+                    <p id="garmin-settings-status" role="status"></p>
+                    <label for="garmin-api-key" class="form-label"><%= t("profile.garmin.label") %></label>
+                    <input id="garmin-api-key" class="form-control" type="password" required maxlength="8192" autocomplete="new-password" spellcheck="false" aria-describedby="garmin-key-help" disabled>
+                    <p id="garmin-key-help" class="text-muted small mt-2"><%= t("profile.garmin.help") %></p>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button type="submit" class="btn btn-dark" disabled><%= t("profile.garmin.save") %></button>
+                        <button id="garmin-key-remove" type="button" class="btn btn-outline-danger" disabled><%= t("profile.garmin.remove") %></button>
+                    </div>
+                    <p id="garmin-settings-feedback" class="small mt-2" role="status"></p>
+                </form>
+            </section>
+
             <section class="profile-surface ui-surface">
                 <div class="profile-section-header ui-section-header">
                     <h2 class="profile-section-title ui-title"><%= t("profile.sectionUpgradeTitle") %></h2>
@@ -278,6 +296,8 @@
     </script>
     <script id="weight-history-messages" type="application/json"><%- JSON.stringify({locale: typeof locale !== "undefined" ? locale : "en", validFrom: t("profile.weightHistory.date"), cancel: t("profile.ui.cancelAction"), edit: t("profile.weightHistory.edit"),delete: t("profile.weightHistory.delete"),confirmDelete: t("profile.weightHistory.confirmDelete"),empty: t("profile.weightHistory.empty"),saved: t("profile.weightHistory.saved"),error: t("profile.weightHistory.error")}).replace(/</g, "\\u003c") %></script>
     <script src="/js/weight-history-ui.js" type="module"></script>
+    <script id="garmin-settings-messages" type="application/json"><%- JSON.stringify(Object.fromEntries(["configured", "empty", "saved", "removed", "error", "unavailable", "remove", "confirmDelete", "cancel"].map(key => [key, t(`profile.garmin.${key}`)]))).replace(/</g, "\\u003c") %></script>
+    <script src="/js/garmin-settings-ui.js" type="module"></script>
     <script src="/js/profile-ui.js" type="module"></script>
 </body>
 

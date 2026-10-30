@@ -220,6 +220,22 @@
       "empty": "No weight entries yet.",
       "saved": "Weight entry saved.",
       "error": "Could not load or save weight history."
+    },
+    "garmin": {
+      "title": "Garmin Connect",
+      "copy": "Store your personal Garmin API key for the upcoming workout import.",
+      "label": "Personal API key",
+      "help": "The key is stored encrypted and is never displayed again. Saving replaces the existing key. Garmin validation will be added with the import.",
+      "save": "Save key",
+      "remove": "Remove key",
+      "configured": "API key stored",
+      "empty": "No API key stored",
+      "saved": "API key saved. It has not yet been verified with Garmin.",
+      "removed": "API key removed.",
+      "error": "Could not load or save Garmin settings. Please try again.",
+      "unavailable": "Secure key storage is not configured on this server.",
+      "confirmDelete": "Remove the stored Garmin API key?",
+      "cancel": "Cancel"
     }
   },
   "uploadPage": {

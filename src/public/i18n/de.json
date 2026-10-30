@@ -222,6 +222,22 @@
       "empty": "Noch keine Gewichtseinträge.",
       "saved": "Gewichtseintrag gespeichert.",
       "error": "Der Gewichtsverlauf konnte nicht geladen oder gespeichert werden."
+    },
+    "garmin": {
+      "title": "Garmin Connect",
+      "copy": "Hinterlege Deinen persönlichen Garmin-API-Schlüssel für den künftigen Workout-Import.",
+      "label": "Persönlicher API-Schlüssel",
+      "help": "Der Schlüssel wird verschlüsselt gespeichert und nicht wieder angezeigt. Speichern ersetzt den bisherigen Schlüssel. Die Prüfung bei Garmin folgt mit dem Import.",
+      "save": "Schlüssel speichern",
+      "remove": "Schlüssel entfernen",
+      "configured": "API-Schlüssel hinterlegt",
+      "empty": "Kein API-Schlüssel hinterlegt",
+      "saved": "API-Schlüssel gespeichert. Er wurde noch nicht bei Garmin geprüft.",
+      "removed": "API-Schlüssel entfernt.",
+      "error": "Garmin-Einstellungen konnten nicht geladen oder gespeichert werden. Bitte erneut versuchen.",
+      "unavailable": "Die sichere Schlüsselspeicherung ist auf dem Server noch nicht eingerichtet.",
+      "confirmDelete": "Den hinterlegten Garmin-API-Schlüssel entfernen?",
+      "cancel": "Abbrechen"
     }
   },
   "uploadPage": {
