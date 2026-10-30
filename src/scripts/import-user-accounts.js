@@ -13,7 +13,7 @@ function fileArgument(argv) {
 try {
   const input = fileArgument(process.argv.slice(2));
   if (!input) {
-    throw new Error("Usage: npm run accounts:import -- --file <backup.json>");
+    throw new Error("Usagee: npm run accounts:import -- --file <backup.json>");
   }
   const file = path.resolve(input);
   const backup = JSON.parse(await fs.readFile(file, "utf8"));
