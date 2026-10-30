@@ -1,3 +1,5 @@
+import { initializeGarminImport } from "./garmin-import-ui.js?v=garmin-diagnostics-1";
+
 const form = document.getElementById("uploadForm");
 const fileInput = document.getElementById("file");
 const filePickerButton = document.getElementById("filePickerButton");
@@ -27,9 +29,24 @@ let prewarmedUploadWorker = null;
 let pendingZipPreparations = new Map();
 let isUploadSubmitting = false;
 let selectedUploadFiles = [];
+let garminBatchBusy = false;
+let finishGarminImport = null;
+let garminImportOutcome = { status: "failed" };
+
+initializeGarminImport({
+    isBusy: () => isUploadSubmitting || garminBatchBusy,
+    setBusy: value => { garminBatchBusy = value; refreshSubmitAvailability(); },
+    importFile: file => new Promise(resolve => {
+        garminImportOutcome = { status: "failed" };
+        finishGarminImport = resolve;
+        handleConvertSubmit({ preventDefault() {} }, [file]).then(() => {
+            if (!isUploadSubmitting && finishGarminImport) setLoading(false);
+        }).catch(() => setLoading(false));
+    })
+});
 
 window.addEventListener("beforeunload", (event) => {
-    if (!isUploadSubmitting) return;
+    if (!isUploadSubmitting && !garminBatchBusy) return;
     event.preventDefault();
     event.returnValue = "";
 });
@@ -269,8 +286,11 @@ function hasPendingZipPreparation() {
 }
 
 function refreshSubmitAvailability() {
+    for (const control of [fileInput, filePickerButton, overwriteExistingWorkoutsCheckbox]) {
+        if (control) control.disabled = isUploadSubmitting || garminBatchBusy;
+    }
     if (submitButton) {
-        submitButton.disabled = isUploadSubmitting || hasPendingZipPreparation();
+        submitButton.disabled = isUploadSubmitting || garminBatchBusy || hasPendingZipPreparation();
     }
 }
 
@@ -375,12 +395,14 @@ function scheduleZipPreparationForSelection() {
 }
 
 function handleFileSelectionChange() {
+    if (garminBatchBusy || isUploadSubmitting) return;
     selectedUploadFiles = Array.from(fileInput?.files || []);
     updateFilePickerLabel();
     scheduleZipPreparationForSelection();
 }
 
 function handleDroppedFiles(files) {
+    if (garminBatchBusy || isUploadSubmitting) return;
     selectedUploadFiles = Array.from(files || []);
     updateFilePickerLabel();
     scheduleZipPreparationForSelection();
@@ -427,6 +449,11 @@ function setResponseMarkup(markup) {
 function setLoading(isLoading) {
     isUploadSubmitting = isLoading;
     refreshSubmitAvailability();
+    if (!isLoading && finishGarminImport) {
+        const finish = finishGarminImport;
+        finishGarminImport = null;
+        finish(garminImportOutcome);
+    }
 }
 
 function renderBackendUploadState(markup) {
@@ -811,6 +838,10 @@ async function uploadGeneratedZipArtifact() {
             );
         }
 
+        garminImportOutcome = {
+            status: Number(payload.importedCount || 0) > 0 ? "imported" : "skipped",
+            importedCount: Number(payload.importedCount || 0)
+        };
         const browserPostprocessPayload = payload.browserPostprocess || null;
         const browserGpsBestEffortsPayload = payload.browserGpsBestEfforts || null;
 
@@ -849,6 +880,7 @@ async function uploadGeneratedZipArtifact() {
             </div>
         `);
     } catch (error) {
+        garminImportOutcome = { status: "failed" };
         setProcessingLabel(tr("uploadPage.woaUploadAndStore", "Upload and store"));
         setPhase(tr("uploadPage.woaPhaseFailed", "Failed"));
         setProcessingProgress(0, tr("uploadPage.woaBackendUploadFailed", "Backend upload failed"));
@@ -1167,11 +1199,12 @@ function uploadGeneratedRawBlob(blob, fileName, uploadUrl, overwriteExisting, on
     });
 }
 
-async function handleConvertSubmit(event) {
+async function handleConvertSubmit(event, sourceFiles = null) {
     event.preventDefault();
+    if (isUploadSubmitting || (garminBatchBusy && !sourceFiles)) return;
     traceMark("upload.submit.begin");
 
-    if (hasPendingZipPreparation()) {
+    if (!sourceFiles && hasPendingZipPreparation()) {
         traceMark("upload.submit.end", { reason: "pending-zip-preparation" });
         traceMeasure("upload.submit", "upload.submit.begin", "upload.submit.end");
         setResponseMarkup(`<div class="alert alert-info mb-0">${escapeHtml(tr("uploadPage.woaPreparingZipInBackground", "Preparing selected ZIP files. Please wait a moment."))}</div>`);
@@ -1180,7 +1213,7 @@ async function handleConvertSubmit(event) {
 
     latestGeneratedZipArtifact = null;
 
-    const files = selectedUploadFiles;
+    const files = sourceFiles || selectedUploadFiles;
     setResponseMarkup("");
 
     if (files.length === 0) {
@@ -1425,6 +1458,7 @@ async function handleConvertSubmit(event) {
             }
 
             if (data.type === "skipped-existing") {
+                garminImportOutcome = { status: (data.skipped?.length > 0) ? "failed" : "skipped" };
                 finished = true;
                 traceMark("upload.submit.end", { reason: "skipped-existing" });
                 traceMeasure("upload.submit", "upload.submit.begin", "upload.submit.end");
@@ -1447,6 +1481,7 @@ async function handleConvertSubmit(event) {
             }
 
             if (data.type === "skipped-too-short") {
+                garminImportOutcome = { status: (data.skipped?.length > 0) ? "failed" : "skipped" };
                 finished = true;
                 traceMark("upload.submit.end", { reason: "skipped-too-short" });
                 traceMeasure("upload.submit", "upload.submit.begin", "upload.submit.end");
@@ -1530,6 +1565,7 @@ async function handleConvertSubmit(event) {
             }
 
             if (data.type === "completed-zip") {
+                garminImportOutcome = { status: (data.skipped?.length > 0) ? "failed" : "skipped" };
                 finished = true;
                 const stats = data.stats || {};
                 const zipBytes = data.bytes instanceof ArrayBuffer ? data.bytes : new ArrayBuffer(0);
@@ -1652,6 +1688,7 @@ async function handleConvertSubmit(event) {
             }
 
             if (data.type === "completed-container") {
+                garminImportOutcome = { status: (data.skipped?.length > 0) ? "failed" : "skipped" };
                 finished = true;
                 const stats = data.stats || {};
                 const containerBytes = data.bytes instanceof ArrayBuffer ? data.bytes : new ArrayBuffer(0);

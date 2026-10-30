@@ -5,7 +5,7 @@
 Im Profil unter „Garmin Connect“ lässt sich der persönliche API-Schlüssel speichern,
 ersetzen und entfernen. Er wird nie zurück an den Browser geliefert. Der Status
 „hinterlegt“ bestätigt die Speicherung, keine erfolgreiche Garmin-Anmeldung.
-In diesem Schritt erfolgt noch kein Zugriff auf Garmin.
+Beim Speichern erfolgt kein Zugriff auf Garmin. Die Verbindung wird beim Abruf der Aktivitäten geprüft.
 
 ### Einrichtung
 
@@ -47,18 +47,73 @@ Antworten tragen `Cache-Control: no-store`. Die generischen Profil- und
 Account-Exportfunktionen enthalten den Garmin-Schlüssel nicht. Nach einem logischen
 Account-Export/Import muss die Verbindung erneut eingerichtet werden.
 
-## Vereinbarte Folgeschritte (noch nicht implementiert)
+## Manueller Workout-Import
 
-1. Backend-Service: persönlichen Schlüssel zum Token-Abruf verwenden; Tokens bis
-   kurz vor Ablauf zwischenspeichern und erneuern.
-2. Auf der bestehenden Importseite „Neueste Workouts von Garmin holen“ ergänzen;
-   Aktivitätsliste serverseitig abrufen, im Browser zur Auswahl anzeigen.
-3. Ausgewählte ZIP-Dateien serverseitig herunterladen und an den Browser reichen.
-4. Dieselbe Frontend-Importfunktion für lokale Dateien und Garmin-ZIPs verwenden:
-   ZIP-/FIT-Verarbeitung im vorhandenen Browser-Worker, anschließend bestehende Speicherung.
-5. Vorhandene Duplikatprüfung zuerst prüfen und wiederverwenden; zunächst keine
-   eigene Verwaltung importierter Garmin-IDs und kein zeitgesteuerter Hintergrundimport.
+Auf der bestehenden Importseite lädt „Neueste Workouts von Garmin holen“ die letzten
+20 Aktivitäten (nach lokaler Startzeit absteigend). Nach Auswahl werden die ZIPs
+nacheinander heruntergeladen und durch dieselbe Browser-Verarbeitung wie lokale
+Dateien importiert. Der vorhandene Duplikatfilter und die Option zum Überschreiben
+gelten auch hier. Keine neue Migration für diesen Schritt erforderlich.
+
+Der Browser muss geöffnet bleiben. Pro Aktivität erscheint „Importiert“,
+„Übersprungen“ oder ein Fehler. Fehlgeschlagene Einträge bleiben für einen erneuten
+Versuch ausgewählt. Übersprungen kann insbesondere Duplikate und zu kurze Workouts
+bedeuten. Bei Archiven mit mehreren FIT-Dateien zeigt der bestehende Importbereich
+weitere Details zur zuletzt verarbeiteten Aktivität.
+
+### Backend
+
+- `garminConnectService.js` liest den Schlüssel ausschließlich für den angemeldeten
+  Benutzer und fordert ein Token an. Prozesslokaler Token-Cache (maximal 1000
+  Einträge), Erneuerung eine Minute vor Ablauf, ein erneuter Versuch nach HTTP 401.
+  Schlüsselersetzung/-entfernung wird vor jeder Anfrage anhand der Datenbank erkannt.
+- Token-Antworten unterstützen `access_token`/`expires_in` sowie
+  `accessToken`/`expiresIn`. Ohne Laufzeitangabe gilt maximal 24 Stunden; ein
+  JWT-Ablaufdatum begrenzt den Cache zusätzlich. Das konkrete Antwortformat ist noch
+  nicht durch einen Live-Abruf verifiziert.
+- GET `/api/garmin/activities` liefert nur ID, Name, lokale Startzeit, Sportart und
+  Dauer. GET `/api/garmin/activities/:id/file` liefert die Original-ZIP.
+- Beide Endpunkte verlangen einen angemeldeten, aktiven Benutzer und setzen
+  `Cache-Control: no-store`. Schlüssel und Tokens gelangen nicht zum Browser.
+- Anfragen nur an die feste Garmin-Basisadresse, keine Weiterleitungen;
+  Zeitlimit 60 Sekunden, JSON maximal 2 MB, Tokenantwort maximal 64 KB,
+  ZIP maximal 64 MB einschließlich Prüfung der ZIP-Signatur. Garmin-Fehlertexte
+  werden nicht an den Client weitergereicht.
+- Die bestehende Frontend-Verarbeitung in `upload-new.js` nimmt zusätzliche
+  Quelldateien entgegen und meldet den Abschluss erst nach Verarbeitung/Speicherung.
+  Während des Garmin-Ablaufs ist paralleles lokales Importieren gesperrt.
 
 Offizielle Basisadresse: `https://personal.connectapi.garmin.com`.
 Aktivitäten: GET `/activitylist-service/activities/search/activities`.
 Originaldatei: GET `/download-service/files/activity/{activityId}`.
+Token: POST `/personalapitoken-service/personal-api/personal-api-key/token`,
+Header `Authorization: ApiKey …`; Datenabrufe mit `Authorization: Bearer …`.
+
+## Verifikation und Grenzen
+
+- Tests mit simulierten Garmin-Antworten: Cache/Erneuerung/401-Retry,
+  Schlüsselwechsel/-entfernung, Benutzertrennung, ungültige IDs, Größenlimit,
+  unerwartete Antworten und HTTP-Zugriffsschutz.
+- Frontend-Test mit simuliertem DOM: Auswahl, sequenzielle Verarbeitung,
+  Fortsetzung nach Download-/Importfehlern, erneute Auswahl und Textdarstellung.
+- Noch kein Live-Abruf mit persönlichem Schlüssel und keine visuelle Browserprüfung.
+  Ein vollständiger Garmin-Import einschließlich echter ZIP-/FIT-Verarbeitung
+  muss nach dem Deployment geprüft werden.
+- Keine zusätzliche Garmin-ID-Verwaltung, kein Hintergrundimport ohne Browser,
+  keine Seitennavigation für ältere Garmin-Aktivitäten in dieser Version.
+
+## Fehlerdiagnose
+
+Fehlerantworten enthalten zusätzlich `diagnostic`, beispielsweise
+`{"stage":"token","upstreamStatus":400,"technicalCode":"HTTP_ERROR"}`.
+Die Oberfläche zeigt den lokalisierten Schritt, Garmin-HTTP-Status (falls verfügbar)
+und technischen Code. Im Serverlog stehen dieselben bereinigten Angaben unter
+`[garmin] request failed`. Es werden keine Response-Bodies, ursprünglichen
+Fehlermeldungen, URLs, Zugangsdaten oder Tokens ausgegeben; technische Codes und
+Schritte werden anhand fester Listen gefiltert. Datenbank-/Entschlüsselungsfehler
+werden separat als `DATABASE_ERROR` bzw. `STORAGE_ERROR` eingeordnet.
+
+Token-Anforderungen senden `Accept: */*`. Neben JSON-Objekten werden JSON-Strings
+und einzelne Token als `text/plain` oder `application/jwt` verarbeitet. HTML,
+mehrzeilige Token und ungültige JSON-Antworten werden abgewiesen. Diese Änderung
+adressiert den lokal gemeldeten HTTP-406-Fehler; die Behebung ist noch live zu prüfen.
