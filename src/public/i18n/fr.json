@@ -101,7 +101,6 @@
     }
   },
   "profile": {
-    "wahooNotConfigured": "The Wahoo integration is not set up yet. No connection has been established.",
     "title": "Profil",
     "topbarTitle": "Profil",
     "heroKicker": "Espace du compte",
@@ -239,6 +238,21 @@
       "error": "Could not load or save Garmin settings. Please try again.",
       "unavailable": "Secure key storage is not configured on this server.",
       "confirmDelete": "Remove the stored Garmin API key?",
+      "cancel": "Cancel"
+    },
+    "wahoo": {
+      "copy": "Connect your Wahoo account. Workout import will be available in a later step.",
+      "loading": "Loading connection…",
+      "configured": "Wahoo is connected.",
+      "empty": "Wahoo is not connected.",
+      "connect": "Connect to Wahoo",
+      "remove": "Disconnect",
+      "connected": "Wahoo connected successfully.",
+      "denied": "Wahoo authorization was cancelled.",
+      "error": "Wahoo connection failed. Please try again.",
+      "unavailable": "Wahoo is not configured on this server.",
+      "removed": "Wahoo connection removed from WOA.",
+      "confirmDelete": "Remove the stored Wahoo connection from WOA? You can also revoke access in your Wahoo account.",
       "cancel": "Cancel"
     }
   },

@@ -103,7 +103,6 @@
     }
   },
   "profile": {
-    "wahooNotConfigured": "Die Wahoo-Anbindung ist noch nicht eingerichtet. Es wurde keine Verbindung hergestellt.",
     "title": "Profil",
     "topbarTitle": "Profil",
     "heroKicker": "Konto-Bereich",
@@ -241,6 +240,21 @@
       "error": "Garmin-Einstellungen konnten nicht geladen oder gespeichert werden. Bitte erneut versuchen.",
       "unavailable": "Die sichere Schlüsselspeicherung ist auf dem Server noch nicht eingerichtet.",
       "confirmDelete": "Den hinterlegten Garmin-API-Schlüssel entfernen?",
+      "cancel": "Abbrechen"
+    },
+    "wahoo": {
+      "copy": "Verbinde Dein Wahoo-Konto. Der Workout-Import folgt in einem späteren Schritt.",
+      "loading": "Verbindung wird geladen …",
+      "configured": "Wahoo ist verbunden.",
+      "empty": "Wahoo ist nicht verbunden.",
+      "connect": "Mit Wahoo verbinden",
+      "remove": "Trennen",
+      "connected": "Wahoo wurde erfolgreich verbunden.",
+      "denied": "Die Wahoo-Freigabe wurde abgebrochen.",
+      "error": "Die Wahoo-Verbindung ist fehlgeschlagen. Bitte erneut versuchen.",
+      "unavailable": "Wahoo ist auf diesem Server noch nicht eingerichtet.",
+      "removed": "Die Wahoo-Verbindung wurde aus WOA entfernt.",
+      "confirmDelete": "Die gespeicherte Wahoo-Verbindung aus WOA entfernen? Den Zugriff kannst Du zusätzlich in Deinem Wahoo-Konto widerrufen.",
       "cancel": "Abbrechen"
     }
   },

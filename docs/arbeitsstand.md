@@ -3,6 +3,16 @@
 Stand: 2026-10-31. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Wahoo-OAuth-Verbindung (2026-10-31)
+
+- Nach ausdrücklicher Freigabe den Callback-Platzhalter durch den OAuth-Code-Flow für eine Confidential-App ersetzt: Verbindungsstart, sitzungs-/benutzergebundener State (zehn Minuten), Callback mit State-Verbrauch vor Token-Austausch und feste Profil-Rückmeldungen. Nur Scope `user_read`; Workout-Import bleibt separater Umfang.
+- `wahooRoutes.js`: angemeldete Benutzer, Kontostatus-Schreibsperre, explizite Origin-Prüfung für Start/Trennen, no-store/no-referrer; Status ohne Tokens. Profiloberfläche mit Verbinden/Status/Trennen und bestehendem Bestätigungsdialog; Deutsch/Englisch, übrige vier Sprachen hierfür Englisch.
+- Neuer `wahooConnectionService.js`: Tokens/Ablaufzeit als AES-256-GCM-Hülle mit Benutzerbindung, feste Wahoo-Endpunkte, keine Redirects, 15-Sekunden-/64-KiB-Limits und bereinigte Fehler. Interner `readUser`-Service erneuert nur vor API-Bedarf, mit Datenbank-Zeilensperre und Persistierung rotierter Tokens vor API-Aufruf. Noch kein öffentlicher Datenabruf und kein automatischer 401-Retry.
+- Trennen löscht lokal Tokens und den laufenden OAuth-Versuch dieser Sitzung; kein Remote-Widerruf bei Wahoo. Oberfläche/Dokumentation erklären den zusätzlichen Widerruf im Wahoo-Konto. Endgültige Kontolöschung entfernt die Verbindung; Account-/Profilexporte enthalten keine Tokens.
+- Migration `src/migrations/090_user_wahoo_connections.sql` ausschließlich vorbereitet, **nicht ausgeführt**. Servervariablen `WAHOO_CLIENT_ID`, `WAHOO_CLIENT_SECRET`, `WAHOO_REDIRECT_URI`, `WAHOO_TOKEN_ENCRYPTION_KEY` erforderlich, keine Werte eingerichtet. Einrichtung/API/Grenzen in `docs/WAHOO_CONNECT.md`; offizielle Wahoo-Referenz geprüft.
+- Verifikation: Gesamtsuite 640/640 erfolgreich mit freigegebenen lokalen Testports; anschließend zusätzliche Prüfungen für Refresh-Fehler/fehlende Verbindung und Profil-Rendering in sechs Sprachen ergänzt, abschließend alle 13 Wahoo-Tests erfolgreich. Syntaxprüfung erfolgreich; gesamtes ESLint ohne Fehler (71 bestehende Warnungen). Typprüfung scheitert in unveränderten Dateien: `start-all.js:39` (`write`-Typ) und drei Null-Prüfungen in `MicroIntervalDetector.js:141`.
+- Noch offen: echte Wahoo-Anmeldung/Consent/Callback, reales Tokenformat, Refresh gegen Wahoo/PostgreSQL und visuelle Browserprüfung nach manueller Einrichtung. Kein Deployment durchgeführt. Früherer Platzhalter-Abschnitt unten dokumentiert den abgelösten Stand.
+
 ## npm-Skript-Dokumentation (2026-10-31)
 
 - `npm run start:all` nach ausdrücklicher Freigabe ergänzt: `src/scripts/start-all.js` startet App, Import- und Backup-Worker als eigene Node-Prozesse ohne zusätzliche Abhängigkeit. Logs erhalten Prozesspräfixe; SIGINT/SIGTERM stoppt alle, nach zehn Sekunden SIGKILL. Unerwartetes Prozessende stoppt die anderen mit Fehlerstatus. Einzelbefehle bleiben bestehen; README und Skriptübersicht aktualisiert.

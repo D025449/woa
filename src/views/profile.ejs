@@ -186,9 +186,18 @@
                 </form>
             </section>
 
-            <% if (typeof showWahooNotice !== "undefined" && showWahooNotice) { %>
-                <div id="wahoo-notice" class="alert alert-info" role="status"><%= t("profile.wahooNotConfigured") %></div>
-            <% } %>
+            <section id="wahoo-settings" class="profile-surface ui-surface" aria-labelledby="wahoo-settings-title">
+                <div class="profile-section-header ui-section-header">
+                    <h2 id="wahoo-settings-title" class="profile-section-title ui-title">Wahoo</h2>
+                    <p class="profile-section-copy ui-copy"><%= t("profile.wahoo.copy") %></p>
+                </div>
+                <p id="wahoo-status" role="status"><%= t("profile.wahoo.loading") %></p>
+                <div class="d-flex gap-2 flex-wrap">
+                    <button id="wahoo-connect" type="button" class="btn btn-dark" disabled><%= t("profile.wahoo.connect") %></button>
+                    <button id="wahoo-remove" type="button" class="btn btn-outline-danger" disabled><%= t("profile.wahoo.remove") %></button>
+                </div>
+                <p id="wahoo-feedback" class="small mt-2" role="status"></p>
+            </section>
 
             <section class="profile-surface ui-surface" aria-labelledby="garmin-settings-title">
                 <div class="profile-section-header ui-section-header">
@@ -308,6 +317,8 @@
     <script src="/js/weight-history-ui.js" type="module"></script>
     <script id="garmin-settings-messages" type="application/json"><%- JSON.stringify(Object.fromEntries(["configured", "empty", "saved", "removed", "error", "unavailable", "remove", "confirmDelete", "cancel"].map(key => [key, t(`profile.garmin.${key}`)]))).replace(/</g, "\\u003c") %></script>
     <script src="/js/garmin-settings-ui.js" type="module"></script>
+    <script id="wahoo-settings-messages" type="application/json"><%- JSON.stringify(Object.fromEntries(["configured", "empty", "connected", "denied", "error", "unavailable", "remove", "removed", "confirmDelete", "cancel"].map(key => [key, t(`profile.wahoo.${key}`)]))).replace(/</g, "\\u003c") %></script>
+    <script src="/js/wahoo-settings-ui.js?v=1" type="module"></script>
     <script src="/js/profile-ui.js" type="module"></script>
 </body>
 

@@ -828,8 +828,7 @@ export async function createApp() {
 
         res.render("profile", {
             userInfo: req.user,
-            isAuthenticated: true,
-            showWahooNotice: req.query.wahoo === "not-configured"
+            isAuthenticated: true
         });
 
     });
