@@ -101,6 +101,7 @@
     }
   },
   "profile": {
+    "wahooNotConfigured": "The Wahoo integration is not set up yet. No connection has been established.",
     "title": "Perfil",
     "topbarTitle": "Perfil",
     "heroKicker": "Área da conta",

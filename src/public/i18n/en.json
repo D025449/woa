@@ -103,6 +103,7 @@
     }
   },
   "profile": {
+    "wahooNotConfigured": "The Wahoo integration is not set up yet. No connection has been established.",
     "title": "Profile",
     "topbarTitle": "Profile",
     "heroKicker": "Account Workspace",

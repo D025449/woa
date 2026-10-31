@@ -67,6 +67,13 @@ Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 - Bereits vorhanden laut bisheriger Codelektüre: CTL/ATL/TSB, TSS, FTP, CP-Leistungsprofile, W/kg, Leistungsverteilung sowie Planerfüllung/Soll-Ist im Coaching. Vor Umsetzung erneut abgleichen.
 - In dieser Sitzung ausschließlich diese Vormerkung dokumentiert; keine neuen KPIs implementiert. Prüfung: `git diff --check`.
 
+## Wahoo-Callback-Platzhalter (2026-10-31)
+
+- Nach Freigabe des vorgeschlagenen Platzhalters GET `/auth/wahoo/callback` ergänzt. Feste Weiterleitung zum Profil mit lokalisiertem Hinweis „noch nicht eingerichtet“; Profil-Anmeldung bleibt erforderlich. OAuth-Parameter werden ignoriert und nicht weitergereicht, kein Token-Austausch oder Speichern einer Verbindung.
+- Route setzt no-store/no-referrer. Hinweis in allen Sprachdateien vorhanden (Deutsch/Englisch), Profil-Template angepasst; Registrierungsadresse und Grenzen in `docs/WAHOO_CONNECT.md` dokumentiert.
+- Verifikation: gezielter Callback-Test (feste Weiterleitung, Parameter nicht konsumiert, Header), Syntax von App/Route, ESLint der Route, EJS-Kompilierung, Sprachdateiprüfung und Diff-Prüfung erfolgreich. Kein Deployment und kein Live-Callback ausgeführt.
+- Vollständiger OAuth-Ablauf und Wahoo-Import sind nicht implementiert und nicht Teil dieses Auftrags.
+
 ## Menüleiste bereinigt (2026-10-31)
 
 - Nach Freigabe Upload-Eintrag aus der gemeinsamen Menüleiste (`partials/app-topbar.ejs`) entfernt. „Training hinzufügen“ in der Workouts-Ansicht bleibt der Einstieg für die vier Optionen.

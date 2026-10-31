@@ -103,6 +103,7 @@
     }
   },
   "profile": {
+    "wahooNotConfigured": "Die Wahoo-Anbindung ist noch nicht eingerichtet. Es wurde keine Verbindung hergestellt.",
     "title": "Profil",
     "topbarTitle": "Profil",
     "heroKicker": "Konto-Bereich",

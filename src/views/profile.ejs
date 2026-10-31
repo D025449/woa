@@ -186,6 +186,10 @@
                 </form>
             </section>
 
+            <% if (typeof showWahooNotice !== "undefined" && showWahooNotice) { %>
+                <div id="wahoo-notice" class="alert alert-info" role="status"><%= t("profile.wahooNotConfigured") %></div>
+            <% } %>
+
             <section class="profile-surface ui-surface" aria-labelledby="garmin-settings-title">
                 <div class="profile-section-header ui-section-header">
                     <h2 id="garmin-settings-title" class="profile-section-title ui-title"><%= t("profile.garmin.title") %></h2>
