@@ -16,7 +16,7 @@ class Element {
 }
 
 test("Garmin selection processes archives sequentially, reports per-item failures and preserves retry selection", async t => {
-  const elements = Object.fromEntries(["garmin-load", "garmin-activities", "garmin-import-status", "garmin-import-selected", "garmin-import-messages"].map(id => [id, new Element()]));
+  const elements = Object.fromEntries(["garmin-load", "garmin-load-more", "garmin-activities", "garmin-import-status", "garmin-import-selected", "garmin-import-messages"].map(id => [id, new Element()]));
   const texts = { choose: "choose", running: "running", downloading: "downloading", processing: "processing", imported: "imported", failed: "failed", partial: "partial", done: "done" };
   elements["garmin-import-messages"].textContent = JSON.stringify(texts);
   const previous = globalThis.document;
@@ -54,4 +54,46 @@ test("Garmin selection processes archives sequentially, reports per-item failure
   assert.equal(busy, false);
   assert.equal(elements["garmin-load"].disabled, false);
   assert.equal(list.children[0].children[0].children[1].children[0].textContent, "<script>untrusted</script>");
+});
+
+test("Garmin loads older pages, preserves selections and retries the same offset", async t => {
+  const elements = Object.fromEntries(["garmin-load", "garmin-load-more", "garmin-activities", "garmin-import-status", "garmin-import-selected", "garmin-import-messages"].map(id => [id, new Element()]));
+  elements["garmin-import-messages"].textContent = JSON.stringify({ allLoaded: "all loaded", failed: "failed" });
+  const previous = globalThis.document;
+  globalThis.document = { getElementById: id => elements[id], createElement: () => new Element() };
+  t.after(() => {
+    if (previous === undefined) delete globalThis.document;
+    else globalThis.document = previous;
+  });
+  const requests = [];
+  let fail = true;
+  t.mock.method(globalThis, "fetch", async url => {
+    requests.push(url);
+    assert.equal(elements["garmin-load-more"].disabled, true);
+    if (url.includes("?") && fail) {
+      fail = false;
+      return new Response("{}", { status: 502 });
+    }
+    const ids = url.includes("?") ? [20, 21] : Array.from({ length: 20 }, (_, i) => i + 1);
+    return new Response(JSON.stringify({ data: ids.map(id => ({ id: String(id), name: "Ride", sport: "cycling", duration: 600 })) }));
+  });
+  initializeGarminImport({ isBusy: () => false, setBusy: () => {}, importFile: async () => ({ status: "imported" }) });
+  await elements["garmin-load"].click();
+  const list = elements["garmin-activities"];
+  const selected = list.children[0].children[0].children[0];
+  selected.checked = true;
+  assert.equal(elements["garmin-load-more"].hidden, false);
+  await elements["garmin-load-more"].click();
+  assert.equal(list.children.length, 20);
+  assert.equal(selected.checked, true);
+  assert.equal(elements["garmin-load-more"].disabled, false);
+  await elements["garmin-load-more"].click();
+  assert.deepEqual(requests, ["/api/garmin/activities", "/api/garmin/activities?start=20", "/api/garmin/activities?start=20"]);
+  assert.equal(list.children.length, 21);
+  assert.equal(selected.checked, true);
+  assert.equal(elements["garmin-load-more"].hidden, true);
+  assert.equal(elements["garmin-import-status"].textContent, "all loaded");
+  await elements["garmin-load"].click();
+  assert.equal(list.children.length, 20);
+  assert.equal(elements["garmin-load-more"].hidden, false);
 });

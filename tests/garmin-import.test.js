@@ -222,3 +222,21 @@ test("Garmin rejects HTML, malformed JSON and multiline text instead of treating
     await assert.rejects(Service.activities(107), { code: "garmin_invalid_response" });
   }
 });
+
+test("Garmin pagination forwards offsets and rejects invalid pages", async t => {
+  setup(t, 108);
+  const offsets = [];
+  t.mock.method(globalThis, "fetch", async url => {
+    if (url.includes("personalapitoken-service")) return json({ access_token: "page-token", expires_in: 86400 });
+    const params = new URL(url).searchParams;
+    offsets.push(params.get("start"));
+    assert.equal(params.get("limit"), "20");
+    return json([]);
+  });
+  await Service.activities(108, "20");
+  await Service.activities(108, 40);
+  assert.deepEqual(offsets, ["20", "40"]);
+  for (const offset of [-1, "1.5", "20&limit=999", ["20", "40"], ["20"], {}, Number.MAX_SAFE_INTEGER, ""]) {
+    await assert.rejects(Service.activities(108, offset), { code: "garmin_invalid_page", statusCode: 400 });
+  }
+});

@@ -10,7 +10,7 @@ router.use(authMiddleware, (req, res, next) => {
   next();
 }, requireActiveAccountWrite);
 router.get("/activities", async (req, res, next) => {
-  try { res.json({ data: await GarminConnectService.activities(req.user.id) }); }
+  try { res.json({ data: await GarminConnectService.activities(req.user.id, req.query.start ?? 0) }); }
   catch (error) { next(error); }
 });
 router.get("/activities/:id/file", async (req, res, next) => {

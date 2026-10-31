@@ -5,12 +5,17 @@ export function initializeGarminImport({ isBusy, setBusy, importFile }) {
   const list = document.getElementById("garmin-activities");
   const status = document.getElementById("garmin-import-status");
   const start = document.getElementById("garmin-import-selected");
+  const more = document.getElementById("garmin-load-more");
+  let nextStart = 0;
+  let hasMore = false;
   let rows = [];
   let busy = false;
 
   function lock(value) {
     busy = value;
     load.disabled = value;
+    more.disabled = value || !hasMore;
+    more.hidden = !hasMore;
     start.disabled = value || !rows.some(row => row.checkbox.checked);
     for (const row of rows) row.checkbox.disabled = value;
   }
@@ -33,16 +38,23 @@ export function initializeGarminImport({ isBusy, setBusy, importFile }) {
     return zip ? response.blob() : (await response.json()).data;
   }
 
-  load.addEventListener("click", async () => {
+  async function loadActivities(append) {
     if (busy || isBusy()) return;
     setBusy(true);
     lock(true);
     status.textContent = messages.loading;
     try {
-      const activities = await request("activities");
-      list.replaceChildren();
-      rows = [];
+      const activities = await request(append ? `activities?start=${nextStart}` : "activities");
+      if (!append) {
+        list.replaceChildren();
+        rows = [];
+      }
+      nextStart = (append ? nextStart : 0) + activities.length;
+      hasMore = activities.length === 20;
+      const knownIds = new Set(rows.map(row => row.activity.id));
       for (const activity of activities) {
+        if (knownIds.has(activity.id)) continue;
+        knownIds.add(activity.id);
         const item = document.createElement("li");
         item.className = "list-group-item";
         const label = document.createElement("label");
@@ -67,10 +79,12 @@ export function initializeGarminImport({ isBusy, setBusy, importFile }) {
         list.append(item);
         rows.push({ activity, checkbox, result });
       }
-      status.textContent = activities.length ? messages.choose : messages.empty;
+      status.textContent = rows.length ? (hasMore ? messages.choose : messages.allLoaded) : messages.empty;
     } catch (error) { status.textContent = error.message || messages.failed; }
     finally { setBusy(false); lock(false); }
-  });
+  }
+  load.addEventListener("click", () => loadActivities(false));
+  more.addEventListener("click", () => loadActivities(true));
 
   start.addEventListener("click", async () => {
     if (busy || isBusy()) return;

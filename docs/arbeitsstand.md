@@ -67,6 +67,25 @@ Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 - Bereits vorhanden laut bisheriger Codelektüre: CTL/ATL/TSB, TSS, FTP, CP-Leistungsprofile, W/kg, Leistungsverteilung sowie Planerfüllung/Soll-Ist im Coaching. Vor Umsetzung erneut abgleichen.
 - In dieser Sitzung ausschließlich diese Vormerkung dokumentiert; keine neuen KPIs implementiert. Prüfung: `git diff --check`.
 
+## Deploy-Testkorrektur (2026-10-31)
+
+- Nach Freigabe veraltete Cache-Version im Test `tests/upload-overwrite-propagation.test.js` auf `garmin-pagination-1` aktualisiert; entspricht dem Upload-Template. Keine Änderung am Überschreibverhalten.
+- Betroffene Testdatei mit `node --test tests/upload-overwrite-propagation.test.js` erfolgreich; `git diff --check` erfolgreich. Kein erneutes Deployment und keine Gesamtsuite ausgeführt.
+
+## Garmin-Schlüsselhilfe (2026-10-31)
+
+- Freigegebene schlanke Variante umgesetzt: Hilfelink „ⓘ API-Schlüssel bei Garmin erstellen“ direkt beim Profil-Schlüsselfeld öffnet die offizielle Garmin-Anleitung in einem neuen Tab; kurzer Hinweis zum Erstellen und Einfügen. Kein Modal und keine kopierten Garmin-Prozessschritte.
+- Texte in allen sechs Sprachdateien ergänzt; neuer Tab für Screenreader angekündigt, erklärender Hinweis mit Eingabefeld verknüpft. `docs/GARMIN_CONNECT.md` verweist ebenfalls auf Garmin; Link gelegentlich prüfen.
+- Prüfung: EJS-Kompilierung, JSON-/Sprachschlüsselprüfung und `git diff --check` erfolgreich. Offizielle Zielseite in dieser Unterhaltung zuvor abgerufen und inhaltlich bestätigt. Keine visuelle Browserprüfung, kein Deployment.
+
+## Garmin-Nachladen (2026-10-31)
+
+- Nach ausdrücklicher Freigabe „Weitere 20 laden“ ergänzt: ältere Seiten werden angehängt; Auswahl und Einzelstatus bleiben erhalten. Gleiche Aktivitäts-IDs erscheinen nur einmal. Downloads und Duplikatprüfung bleiben im bestehenden Importweg.
+- GET `/api/garmin/activities?start=20` akzeptiert einen optionalen nichtnegativen ganzzahligen Offset, feste Seitengröße 20; ungültige Werte liefern HTTP 400. Nach kurzer/leerer Seite verschwindet der Button; Fehler erlauben Wiederholung desselben Offsets.
+- Oberfläche, Sprachtexte, Cache-Versionen und `docs/GARMIN_CONNECT.md` aktualisiert. Keine Migration erforderlich oder ausgeführt.
+- Verifikation: 14 Garmin-Tests erfolgreich, einschließlich Nachladen/Auswahlerhalt/Fehlerwiederholung/Deduplizierung/Offsetvalidierung. HTTP-Tests nach Sandbox-EPERM mit erlaubtem lokalen Testserver erfolgreich wiederholt. Syntax der betroffenen JS-Dateien, gezieltes ESLint (nur sechs bestehende Warnungen in upload-new.js), EJS-Kompilierung und Diff-Prüfung erfolgreich.
+- Offen: Live-Test älterer Seiten bei Garmin und visuelle Browserprüfung. Kein Deployment durchgeführt.
+
 ## Garmin Connect (2026-10-30)
 
 ### Bestätigter Umfang und Umsetzung
@@ -75,7 +94,7 @@ Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 - `garminConnectionService.js`: AES-256-GCM, frische IV je Speicherung und Benutzer-ID als AAD. Separater Server-Schlüssel `GARMIN_API_ENCRYPTION_KEY`; lokal eingerichtet, auf Produktion laut Benutzer ebenfalls eingerichtet. Schlüssel niemals dokumentieren und für Restore außerhalb der Datenbank sichern.
 - GET/PUT/DELETE `/api/profile/garmin`: angemeldeter Benutzer, bestehende Kontostatus-Schreibsperre, Statusantwort ohne Schlüssel, kein HTTP-Cache. Beim endgültigen Löschen des Kontos wird die Verbindung entfernt; Profil-/Account-Exports enthalten keine Garmin-Zugangsdaten.
 - Manueller Import auf bestehender Importseite: „Neueste Workouts von Garmin holen“, Auswahl aus neuesten 20 Aktivitäten, sequenzieller ZIP-Download und Einzelstatus. `garminRoutes.js`, `garminConnectService.js`, `garmin-import-ui.js`; ZIP-/FIT-Verarbeitung im bestehenden Browser-Worker und bestehender Speicherweg in `upload-new.js`.
-- Vorhandene Duplikatprüfung und Überschreiboption gelten weiter. Einzelne Fehler stoppen die restliche Auswahl nicht. Keine zusätzliche Garmin-ID-Verwaltung, keine älteren Listenseiten und kein Hintergrundimport ohne Browser. Für den Import keine weitere Migration erforderlich.
+- Vorhandene Duplikatprüfung und Überschreiboption gelten weiter. Einzelne Fehler stoppen die restliche Auswahl nicht. Keine zusätzliche Garmin-ID-Verwaltung, ältere Listenseiten wurden am 2026-10-31 ergänzt (siehe oben); kein Hintergrundimport ohne Browser. Für den Import keine weitere Migration erforderlich.
 - Token-Cache pro Benutzer und gespeicherter Schlüsselversion; Erneuerung vor Ablauf und einmal nach HTTP 401. Schlüssel/Tokens ausschließlich serverseitig. Feste Garmin-Adresse, keine Redirects, Zeit-/Größenlimits und ZIP-Signaturprüfung.
 - Diagnosefeld mit Schritt, Garmin-HTTP-Status und freigegebenem technischen Code, Anzeige im UI und bereinigtes Serverlog. Keine Schlüssel, Tokens, ursprünglichen Fehlermeldungen oder Antwortinhalte ausgeben.
 - Lokaler HTTP-406-Fehler bei Token-Anforderung nach Umstellung auf `Accept: */*` behoben laut Benutzer. Parser unterstützt JSON-Objekte, JSON-Strings und einzelne Token als `text/plain`/`application/jwt`; HTML/ungültige Token werden abgewiesen.

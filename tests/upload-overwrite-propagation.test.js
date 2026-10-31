@@ -13,7 +13,7 @@ test("upload keeps the submitted overwrite choice through conversion and backend
   assert.match(uploadSource, /artifact\.overwriteExisting === true/u);
   assert.match(workerSource, /existingStartTimes: overwriteExisting \? \[\] : existingStartTimes/u);
   assert.match(uploadSource, /upload-new-worker\.js\?v=overwrite-propagation-1/u);
-  assert.match(uploadViewSource, /upload-new\.js\?v=garmin-diagnostics-1/u);
+  assert.match(uploadViewSource, /upload-new\.js\?v=garmin-pagination-1/u);
 });
 
 test("bulk workout inserts reserve parameters for terrain and intensity classification", () => {

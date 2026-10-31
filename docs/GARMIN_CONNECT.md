@@ -7,6 +7,15 @@ ersetzen und entfernen. Er wird nie zurück an den Browser geliefert. Der Status
 „hinterlegt“ bestätigt die Speicherung, keine erfolgreiche Garmin-Anmeldung.
 Beim Speichern erfolgt kein Zugriff auf Garmin. Die Verbindung wird beim Abruf der Aktivitäten geprüft.
 
+### Persönlichen API-Schlüssel erhalten
+
+Der Hilfelink „ⓘ API-Schlüssel bei Garmin erstellen“ beim Schlüsselfeld öffnet die
+[offizielle Garmin-Anleitung](https://developer.garmin.com/gc-developer-program/personal/personal-api/)
+in einem neuen Tab. Dort den persönlichen Schlüssel erstellen und anschließend
+in WOA einfügen und speichern. Die konkreten Garmin-Schritte werden bewusst nicht
+hier kopiert, damit Garmin den aktuellen Ablauf an einer Stelle beschreibt.
+Den Link bei Änderungen am Garmin-Angebot auf Erreichbarkeit und Ziel prüfen.
+
 ### Einrichtung
 
 1. `src/migrations/089_user_garmin_connections.sql` direkt gegen die gewünschte
@@ -50,7 +59,10 @@ Account-Export/Import muss die Verbindung erneut eingerichtet werden.
 ## Manueller Workout-Import
 
 Auf der bestehenden Importseite lädt „Neueste Workouts von Garmin holen“ die letzten
-20 Aktivitäten (nach lokaler Startzeit absteigend). Nach Auswahl werden die ZIPs
+20 Aktivitäten (nach lokaler Startzeit absteigend). „Weitere 20 laden“ hängt ältere
+Aktivitäten an; Auswahl und Importstatus bleiben erhalten. Nach einer kürzeren oder
+leeren Seite verschwindet der Button. Fehler lassen sich ohne Verlust der Liste
+wiederholen. Nach Auswahl werden die ZIPs
 nacheinander heruntergeladen und durch dieselbe Browser-Verarbeitung wie lokale
 Dateien importiert. Der vorhandene Duplikatfilter und die Option zum Überschreiben
 gelten auch hier. Keine neue Migration für diesen Schritt erforderlich.
@@ -71,7 +83,9 @@ weitere Details zur zuletzt verarbeiteten Aktivität.
   `accessToken`/`expiresIn`. Ohne Laufzeitangabe gilt maximal 24 Stunden; ein
   JWT-Ablaufdatum begrenzt den Cache zusätzlich. Das konkrete Antwortformat ist noch
   nicht durch einen Live-Abruf verifiziert.
-- GET `/api/garmin/activities` liefert nur ID, Name, lokale Startzeit, Sportart und
+- GET `/api/garmin/activities?start=0` liefert seitenweise maximal 20 Aktivitäten;
+  `start` ist ein optionaler nichtnegativer ganzzahliger Offset (Standard 0).
+  Ungültige Offsets liefern HTTP 400. Die Antwort enthält nur ID, Name, lokale Startzeit, Sportart und
   Dauer. GET `/api/garmin/activities/:id/file` liefert die Original-ZIP.
 - Beide Endpunkte verlangen einen angemeldeten, aktiven Benutzer und setzen
   `Cache-Control: no-store`. Schlüssel und Tokens gelangen nicht zum Browser.
@@ -101,7 +115,9 @@ Header `Authorization: ApiKey …`; Datenabrufe mit `Authorization: Bearer …`.
   separater Live-Test durch den Agenten. Vollständiger Produktionsimport noch
   nicht bestätigt.
 - Keine zusätzliche Garmin-ID-Verwaltung, kein Hintergrundimport ohne Browser,
-  keine Seitennavigation für ältere Garmin-Aktivitäten in dieser Version.
+  ältere Garmin-Aktivitäten können in 20er-Schritten nachgeladen werden.
+- Das Nachladen ist mit simulierten Antworten geprüft; ein Live-Test älterer
+  Garmin-Seiten und eine visuelle Browserprüfung stehen noch aus.
 
 ## Fehlerdiagnose
 

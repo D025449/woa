@@ -174,8 +174,11 @@ export function validateGarminActivityId(value) {
 }
 
 export default class GarminConnectService {
-  static async activities(userId) {
-    const data = await authorized(userId, "/activitylist-service/activities/search/activities?start=0&limit=20&sortBy=startLocal&sortOrder=desc");
+  static async activities(userId, start = 0) {
+    if (!["string", "number"].includes(typeof start) || !/^(0|[1-9]\d*)$/.test(String(start)) || !Number.isSafeInteger(Number(start)) || Number(start) > Number.MAX_SAFE_INTEGER - 20) {
+      throw failure("garmin_invalid_page", 400);
+    }
+    const data = await authorized(userId, `/activitylist-service/activities/search/activities?start=${Number(start)}&limit=20&sortBy=startLocal&sortOrder=desc`);
     if (!Array.isArray(data)) {
       throw Object.assign(failure("garmin_invalid_response"), {
         diagnostic: { stage: "activities", upstreamStatus: 200, technicalCode: "INVALID_RESPONSE" }

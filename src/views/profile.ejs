@@ -194,7 +194,13 @@
                 <form id="garmin-settings-form" class="profile-form">
                     <p id="garmin-settings-status" role="status"></p>
                     <label for="garmin-api-key" class="form-label"><%= t("profile.garmin.label") %></label>
-                    <input id="garmin-api-key" class="form-control" type="password" required maxlength="8192" autocomplete="new-password" spellcheck="false" aria-describedby="garmin-key-help" disabled>
+                    <p class="small mb-2">
+                        <a href="https://developer.garmin.com/gc-developer-program/personal/personal-api/" target="_blank" rel="noopener noreferrer">
+                            <span aria-hidden="true">ⓘ</span> <%= t("profile.garmin.keyGuide") %><span class="visually-hidden"> (<%= t("profile.garmin.keyGuideNewTab") %>)</span>
+                        </a>
+                    </p>
+                    <p id="garmin-key-guide-hint" class="text-muted small"><%= t("profile.garmin.keyGuideHint") %></p>
+                    <input id="garmin-api-key" class="form-control" type="password" required maxlength="8192" autocomplete="new-password" spellcheck="false" aria-describedby="garmin-key-guide-hint garmin-key-help" disabled>
                     <p id="garmin-key-help" class="text-muted small mt-2"><%= t("profile.garmin.help") %></p>
                     <div class="d-flex gap-2 flex-wrap">
                         <button type="submit" class="btn btn-dark" disabled><%= t("profile.garmin.save") %></button>

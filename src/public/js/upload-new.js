@@ -1,4 +1,4 @@
-import { initializeGarminImport } from "./garmin-import-ui.js?v=garmin-diagnostics-1";
+import { initializeGarminImport } from "./garmin-import-ui.js?v=garmin-pagination-1";
 
 const form = document.getElementById("uploadForm");
 const fileInput = document.getElementById("file");

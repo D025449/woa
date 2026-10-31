@@ -94,6 +94,7 @@
                                         <a class="d-block small mt-2" href="/profile"><%= t("uploadPage.garmin.setup") %></a>
                                         <p id="garmin-import-status" class="small mt-2" role="status"></p>
                                         <ul id="garmin-activities" class="list-group mb-2" style="max-height: 20rem; overflow-y: auto"></ul>
+                                        <button id="garmin-load-more" type="button" class="btn btn-outline-primary mb-2" hidden disabled><%= t("uploadPage.garmin.loadMore") %></button>
                                         <button id="garmin-import-selected" type="button" class="btn btn-primary" disabled><%= t("uploadPage.garmin.importSelected") %></button>
                                     </section>
                                     <div id="response" class="mt-3"></div>
@@ -177,7 +178,7 @@
         window.__I18N = <%- JSON.stringify(i18n || { locale: "en", messages: {} }) %>;
     </script>
     <script id="garmin-import-messages" type="application/json"><%- JSON.stringify(i18n?.messages?.uploadPage?.garmin || {}).replace(/</g, "\\u003c") %></script>
-    <script type="module" src="/js/upload-new.js?v=garmin-diagnostics-1"></script>
+    <script type="module" src="/js/upload-new.js?v=garmin-pagination-1"></script>
 </body>
 
 </html>
