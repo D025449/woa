@@ -1,0 +1,34 @@
+<div id="statusArea" class="upload-status-panel d-none">
+    <div class="upload-status-stack">
+        <div class="upload-phase-card">
+            <span class="upload-phase-label"><%= t("uploadPage.currentPhase") %></span>
+            <div id="phaseText" class="fw-semibold"><%= t("uploadPage.ready") %></div>
+        </div>
+
+        <div class="upload-progress-block">
+            <div class="d-flex justify-content-between">
+                <span><%= t("uploadPage.woaRead") %></span>
+                <span id="uploadPercentText">0%</span>
+            </div>
+            <div class="progress">
+                <div id="uploadProgressBar" class="progress-bar" role="progressbar"
+                    style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                </div>
+            </div>
+            <div id="uploadDetailText" class="small text-muted mt-1"></div>
+        </div>
+
+        <div class="upload-progress-block">
+            <div class="d-flex justify-content-between">
+                <span id="processingLabel"><%= t("uploadPage.woaConvert") %></span>
+                <span id="processingPercentText">0%</span>
+            </div>
+            <div class="progress">
+                <div id="processingProgressBar" class="progress-bar bg-success" role="progressbar"
+                    style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                </div>
+            </div>
+            <div id="processingDetailText" class="small text-muted mt-1"></div>
+        </div>
+    </div>
+</div>

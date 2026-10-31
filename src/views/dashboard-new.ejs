@@ -12,7 +12,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
     <link rel="stylesheet" href="/css/ui-system.css?v=atlas-blue-4">
-    <link rel="stylesheet" href="/css/dashboard-new.css?v=atlas-blue-5">
+    <link rel="stylesheet" href="/css/dashboard-new.css?v=garmin-import-1">
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -920,6 +920,15 @@
                                     <small><%= t("dashboardNewPage.manualActivityImportOptionCopy") %></small>
                                 </span>
                             </button>
+                            <a class="dashboard-add-training-option" href="/files/garminImport">
+                                <span class="dashboard-add-training-option__icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M5 17v4h14v-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                                </span>
+                                <span>
+                                    <strong><%= t("dashboardNewPage.addTrainingGarminTitle") %></strong>
+                                    <small><%= t("dashboardNewPage.addTrainingGarminCopy") %></small>
+                                </span>
+                            </a>
                         </div>
                     </div>
                 </div>

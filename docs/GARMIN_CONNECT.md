@@ -58,7 +58,14 @@ Account-Export/Import muss die Verbindung erneut eingerichtet werden.
 
 ## Manueller Workout-Import
 
-Auf der bestehenden Importseite lädt „Neueste Workouts von Garmin holen“ die letzten
+Im Dashboard führt die vierte Option „Von Garmin importieren“ unter
+„Training hinzufügen“ auf die eigene Seite `/files/garminImport`.
+Ohne gespeicherten Schlüssel zeigt sie „Garmin verbinden“ mit Link zum Profil.
+Ein gespeicherter Schlüssel bestätigt noch keine erfolgreiche Garmin-Anmeldung.
+Die lokale Datei-Importseite `/files/uploadUI` enthält keine Garmin-Steuerung mehr;
+ihr Button heißt „Importieren“, die bisherige Ablauf-Erklärung entfällt.
+
+Auf der Garmin-Seite lädt „Neueste Workouts von Garmin holen“ die letzten
 20 Aktivitäten (nach lokaler Startzeit absteigend). „Weitere 20 laden“ hängt ältere
 Aktivitäten an; Auswahl und Importstatus bleiben erhalten. Nach einer kürzeren oder
 leeren Seite verschwindet der Button. Fehler lassen sich ohne Verlust der Liste
@@ -95,7 +102,10 @@ weitere Details zur zuletzt verarbeiteten Aktivität.
   werden nicht an den Client weitergereicht.
 - Die bestehende Frontend-Verarbeitung in `upload-new.js` nimmt zusätzliche
   Quelldateien entgegen und meldet den Abschluss erst nach Verarbeitung/Speicherung.
-  Während des Garmin-Ablaufs ist paralleles lokales Importieren gesperrt.
+  Beide Seiten verwenden diese Verarbeitung und das gemeinsame Fortschritts-Partial.
+  `garmin-import-page.js` verbindet die Garmin-Auswahl mit der exportierten
+  `externalWorkoutImport`-Schnittstelle; der Datei-Upload initialisiert keine
+  Garmin-Oberfläche. Während eines Garmin-Laufs bleibt die Überschreiboption gesperrt.
 
 Offizielle Basisadresse: `https://personal.connectapi.garmin.com`.
 Aktivitäten: GET `/activitylist-service/activities/search/activities`.

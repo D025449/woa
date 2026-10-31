@@ -1,3 +1,4 @@
+import GarminConnectionService from "../services/garminConnectionService.js";
 import UserWeightHistoryService from "../services/userWeightHistoryService.js";
 import express from "express";
 import { strToU8, zipSync } from "fflate";
@@ -154,6 +155,20 @@ router.post("/workouts/bulk-delete", authMiddleware, requireActiveAccountWrite, 
   }
 });
 
+
+router.get('/garminImport', checkAuth, async (req, res, next) => {
+  if (!req?.user?.id) {
+    return res.redirect(`/login?redirect=${encodeURIComponent(req.originalUrl)}`);
+  }
+  try {
+    const connection = await GarminConnectionService.status(req.user.id);
+    res.render('garminImport', {
+      userInfo: req.user,
+      isAuthenticated: req.isAuthenticated,
+      garminConfigured: connection.configured
+    });
+  } catch (error) { next(error); }
+});
 
 router.get('/uploadUI', checkAuth, async (req, res) => {
   if (!req?.user?.id) {

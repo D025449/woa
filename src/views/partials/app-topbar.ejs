@@ -68,13 +68,6 @@
                         </li>
                     <% } %>
 
-                    <% if (typeof showUploadLink === "undefined" || showUploadLink !== false) { %>
-                        <li class="nav-item">
-                            <a class="nav-link <%= currentPage === 'upload' ? 'active' : '' %>" href="/files/uploadUI">
-                                <%= tr("common.nav.upload") %>
-                            </a>
-                        </li>
-                    <% } %>
 
                     <li class="nav-item">
                         <details class="app-topbar-menu" <%= ['home', 'groups', 'sudoku', 'admin'].includes(currentPage) ? 'data-active="true"' : '' %>>

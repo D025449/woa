@@ -668,3 +668,23 @@ body.upload-page {
     align-items: stretch;
   }
 }
+
+/* Both import pages use normal document scrolling and a single content column. */
+body[data-import-layout="simple"] .upload-shell {
+  max-width: 960px;
+  margin-inline: auto;
+}
+
+body[data-import-layout="simple"] .upload-stage-body {
+  display: flex;
+  flex-direction: column;
+}
+
+body[data-import-layout="simple"] .upload-status-panel {
+  margin-top: 1rem;
+}
+
+.garmin-activity-list {
+  max-height: 28rem;
+  overflow-y: auto;
+}

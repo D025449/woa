@@ -1,5 +1,3 @@
-import { initializeGarminImport } from "./garmin-import-ui.js?v=garmin-pagination-1";
-
 const form = document.getElementById("uploadForm");
 const fileInput = document.getElementById("file");
 const filePickerButton = document.getElementById("filePickerButton");
@@ -33,7 +31,7 @@ let garminBatchBusy = false;
 let finishGarminImport = null;
 let garminImportOutcome = { status: "failed" };
 
-initializeGarminImport({
+export const externalWorkoutImport = {
     isBusy: () => isUploadSubmitting || garminBatchBusy,
     setBusy: value => { garminBatchBusy = value; refreshSubmitAvailability(); },
     importFile: file => new Promise(resolve => {
@@ -43,7 +41,7 @@ initializeGarminImport({
             if (!isUploadSubmitting && finishGarminImport) setLoading(false);
         }).catch(() => setLoading(false));
     })
-});
+};
 
 window.addEventListener("beforeunload", (event) => {
     if (!isUploadSubmitting && !garminBatchBusy) return;
@@ -112,7 +110,7 @@ function tr(path, fallback) {
 }
 
 function initializeClientLayout() {
-    if (!uploadShell) {
+    if (!uploadShell || document.body.dataset.importLayout === "simple") {
         return;
     }
 

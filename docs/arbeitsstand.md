@@ -67,6 +67,20 @@ Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 - Bereits vorhanden laut bisheriger Codelektüre: CTL/ATL/TSB, TSS, FTP, CP-Leistungsprofile, W/kg, Leistungsverteilung sowie Planerfüllung/Soll-Ist im Coaching. Vor Umsetzung erneut abgleichen.
 - In dieser Sitzung ausschließlich diese Vormerkung dokumentiert; keine neuen KPIs implementiert. Prüfung: `git diff --check`.
 
+## Menüleiste bereinigt (2026-10-31)
+
+- Nach Freigabe Upload-Eintrag aus der gemeinsamen Menüleiste (`partials/app-topbar.ejs`) entfernt. „Training hinzufügen“ in der Workouts-Ansicht bleibt der Einstieg für die vier Optionen.
+- Verifikation: Menüleiste gerendert und Upload-Abwesenheit/Workouts-Link geprüft, Importseiten-Tests und `git diff --check` erfolgreich. Keine visuelle Browserprüfung.
+
+## Getrennte Importseiten (2026-10-31)
+
+- Nach ausdrücklicher Freigabe umgesetzt: vierte Dashboard-Option „Von Garmin importieren“ im Dialog „Training hinzufügen“, Desktop-Raster mit zwei Spalten. Eigene geschützte Seite `/files/garminImport` mit Schlüsselstatus, Profileinrichtung bei fehlendem Schlüssel, Auswahl/Nachladen, Überschreiboption und Einzelstatus; Hinweis zum Offenlassen der Seite.
+- Garmin-Bereich aus Datei-Upload `/files/uploadUI` entfernt. Button heißt „Importieren“, Ablauf-Erklärung entfernt; beide Seiten einspaltig mit normalem Seitenscrollen. Fortschritt bleibt während der Verarbeitung verfügbar.
+- Bewährte ZIP-/FIT-Verarbeitung in `upload-new.js` weiterverwendet: exportierte `externalWorkoutImport`-Schnittstelle, Garmin-Anbindung in separatem `garmin-import-page.js`; gemeinsames EJS-Partial für Fortschritt. Kein verstecktes Datei-Formular auf der Garmin-Seite.
+- Sprachschlüssel in sechs Dateien vorhanden (neue Garmin-Seitentexte deutsch/englisch, übrige Sprachen hierfür Englisch). Cache-Versionen aktualisiert; Upload-Test prüft vorhandene Version statt eines fest eingefrorenen Werts. Garmin-Anleitung aktualisiert.
+- Verifikation: gesamte Testsuite 630/630 erfolgreich (mit lokalen Testports); neue Renderprüfungen für lokalen Import und Garmin mit/ohne Schlüssel sowie bestehende Garmin-/Überschreibtests erfolgreich. Syntax der betroffenen JS-Dateien, EJS-Kompilierung des Dashboards und gezieltes ESLint erfolgreich (zehn bestehende Warnungen). Diff-Prüfung erfolgreich.
+- Offen: visuelle Browserprüfung und Live-Import über die neue Garmin-Seite. Keine Migration und kein Deployment ausgeführt.
+
 ## Deploy-Testkorrektur (2026-10-31)
 
 - Nach Freigabe veraltete Cache-Version im Test `tests/upload-overwrite-propagation.test.js` auf `garmin-pagination-1` aktualisiert; entspricht dem Upload-Template. Keine Änderung am Überschreibverhalten.
