@@ -1,7 +1,16 @@
 # Arbeitsstand
 
-Stand: 2026-10-30. Diese Datei hält Absprachen für folgende Sitzungen fest.
+Stand: 2026-10-31. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
+
+## npm-Skript-Dokumentation (2026-10-31)
+
+- `npm run start:all` nach ausdrücklicher Freigabe ergänzt: `src/scripts/start-all.js` startet App, Import- und Backup-Worker als eigene Node-Prozesse ohne zusätzliche Abhängigkeit. Logs erhalten Prozesspräfixe; SIGINT/SIGTERM stoppt alle, nach zehn Sekunden SIGKILL. Unerwartetes Prozessende stoppt die anderen mit Fehlerstatus. Einzelbefehle bleiben bestehen; README und Skriptübersicht aktualisiert.
+- Verifikation von `start:all`: `node --check` und gezieltes ESLint erfolgreich. Laufzeitprüfung mit isolierten Testprozessen nicht erfolgreich verifizierbar: Bereits ein minimaler Node-Spawn von `console.log(123)` lieferte in dieser Werkzeugumgebung keine Child-Ausgabe. Keine echten Dienste gestartet; gemeinsames Beenden im normalen Terminal noch zu prüfen.
+- Nach ausdrücklicher Freigabe zentrale Übersicht `docs/npm-scripts.md` für alle Skripte aus `package.json` erstellt: Zweck, Aufruf/Parameter, Voraussetzungen, Datenänderungen und Links zu Detailanleitungen; im README verlinkt.
+- Verbindlicher Benutzerwunsch in `AGENTS.md` festgehalten: Übersicht und betroffene Detailanleitungen bei relevanten Skriptänderungen im selben Auftrag aktualisieren.
+- Angaben durch Codelektüre abgeglichen; keine Betriebs-, Import-, Deploy- oder Migrationsskripte ausgeführt. Nur Dokumentation geändert.
+- Verifikation: alle 32 npm-Skripte in der Übersicht enthalten, lokale Linkziele vorhanden, `git diff --check` erfolgreich. Keine Anwendungstests für diese reine Dokumentationsänderung ausgeführt.
 
 ## Zeitabhängige Körpergewichtspflege
 
@@ -60,31 +69,28 @@ Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
 ## Garmin Connect (2026-10-30)
 
-- Freigegeben und implementiert: erster Schritt, UI im Profil zum Hinterlegen/Ersetzen/Entfernen des persönlichen API-Schlüssels und Persistenz. Keine Garmin-Anmeldung oder Imports in diesem Schritt.
-- Neue Tabelle `user_garmin_connections`, additive Migration `src/migrations/089_user_garmin_connections.sql`. Benutzer hat ausdrücklich korrigiert: Er führt die Migration selbst aus. Vom Agenten nicht ausgeführt; keine Live-Datenbankprüfung.
-- Service `garminConnectionService.js`: AES-256-GCM, neue IV je Speicherung, Benutzer-ID als AAD. Separater Server-Schlüssel `GARMIN_API_ENCRYPTION_KEY` (64 Hex-Zeichen); lokal in Git-ignorierter `.env.development` eingerichtet, geheimen Wert nicht dokumentieren. Neustart erforderlich; andere Umgebungen separat konfigurieren und Schlüssel für Restore sichern.
-- GET/PUT/DELETE `/api/profile/garmin`; explizite Anmeldung, bestehende Kontostatus-Schreibsperre, Statusantwort ohne Schlüssel, kein HTTP-Cache. Schlüssel wird bei endgültiger Kontolöschung entfernt. Profil-/Account-Exports enthalten keine Garmin-Zugangsdaten.
-- Profiloberfläche: neues Passwortfeld, Status „hinterlegt“, Ersetzen, Entfernen mit App-Dialog; zeigt ausdrücklich, dass keine Garmin-Prüfung erfolgt ist. Texte deutsch/englisch, übrige Sprachen englisch.
-- Verifikation: drei neue Tests für Verschlüsselung/Manipulation/Benutzerbindung, Persistenz und HTTP-Zugriffsschutz erfolgreich. Gesamtsuite aktuell 616 Tests erfolgreich, keine Fehler. Syntaxprüfung und EJS-Kompilierung erfolgreich, gezieltes ESLint ohne Fehler (vorhandene `next`-Warnung in Profilrouten). Typprüfung scheitert an drei bestehenden Null-Prüfungen in `src/shared/MicroIntervalDetector.js:141`; keine Garmin-bezogenen Typfehler. Kein visueller Browsertest.
-- Vereinbarter weiterer Ablauf: Token-Service → Aktion „Neueste Workouts von Garmin holen“ auf Importseite mit Aktivitätsauswahl → Server reicht ZIPs an Browser → vorhandener Browser-Worker parst FIT → bestehender Upload speichert. Duplikatprüfung zuerst wiederverwenden; zusätzliche Garmin-ID-Verwaltung zunächst zurückgestellt. Kein Hintergrundimport ohne Browser.
-- Details zu Einrichtung, API-Vertrag und Folgeschritten: `docs/GARMIN_CONNECT.md`.
-- Benutzer bestätigt nach Deployment: Schlüssel lässt sich auf Produktion speichern. Produktions-Verschlüsselungskonfiguration vom Benutzer eingerichtet; nicht vom Agenten geprüft.
-- Weiterer Umfang ausdrücklich freigegeben und jetzt implementiert: manueller Garmin-Import auf bestehender Importseite, neueste 20 Aktivitäten mit Auswahl und Einzelstatus. Neue `garminRoutes.js`, `garminConnectService.js`, `garmin-import-ui.js`; bestehender Frontend-Import nimmt Garmin-ZIPs entgegen und verwendet denselben Worker und Speicherweg. Duplikatprüfung/Überschreiben bleiben bestehen, Downloads/Imports sequenziell, Fehler stoppen weitere Einträge nicht. Keine neue Migration.
-- Token-Cache pro Benutzer und gespeicherter Schlüsselversion; Erneuerung vor Ablauf und einmal nach HTTP 401. Schlüssel und Tokens ausschließlich serverseitig. Feste Garmin-Adresse, keine Redirects, Zeit-/Größenlimits, ZIP-Signaturprüfung und bereinigte Fehlercodes.
-- Verifikation dieser Erweiterung: Gesamtsuite 622 Tests erfolgreich, Syntax und EJS-Kompilierung erfolgreich; gezieltes ESLint ohne Fehler (acht bestehende Warnungen in `app.js`/`upload-new.js`). Typprüfung weiterhin nur die drei bekannten Null-Fehler in `MicroIntervalDetector.js:141`. Neue Service-/Routen- und simulierte DOM-Tests erfolgreich. Vorhandenen Test auf neue Import-Scriptversion aktualisiert.
-- Noch offen: echter Token-/Aktivitäts-/ZIP-Abruf mit persönlichem Schlüssel und visuelle Prüfung/kompletter Browserimport nach Deployment. Token-Antwortformat bislang nicht live bestätigt; unterstützt übliche snake_case-/camelCase-Felder. Keine persönlichen Zugangsdaten für Tests verwendet.
+### Bestätigter Umfang und Umsetzung
 
-### Garmin-Fehlerdiagnose
+- Persönlichen API-Schlüssel im Profil hinterlegen, ersetzen und entfernen. Verschlüsselte Speicherung in `user_garmin_connections`; additive Migration `src/migrations/089_user_garmin_connections.sql` nur erstellt, vom Agenten nicht ausgeführt. Migrationen führt ausschließlich der Benutzer aus.
+- `garminConnectionService.js`: AES-256-GCM, frische IV je Speicherung und Benutzer-ID als AAD. Separater Server-Schlüssel `GARMIN_API_ENCRYPTION_KEY`; lokal eingerichtet, auf Produktion laut Benutzer ebenfalls eingerichtet. Schlüssel niemals dokumentieren und für Restore außerhalb der Datenbank sichern.
+- GET/PUT/DELETE `/api/profile/garmin`: angemeldeter Benutzer, bestehende Kontostatus-Schreibsperre, Statusantwort ohne Schlüssel, kein HTTP-Cache. Beim endgültigen Löschen des Kontos wird die Verbindung entfernt; Profil-/Account-Exports enthalten keine Garmin-Zugangsdaten.
+- Manueller Import auf bestehender Importseite: „Neueste Workouts von Garmin holen“, Auswahl aus neuesten 20 Aktivitäten, sequenzieller ZIP-Download und Einzelstatus. `garminRoutes.js`, `garminConnectService.js`, `garmin-import-ui.js`; ZIP-/FIT-Verarbeitung im bestehenden Browser-Worker und bestehender Speicherweg in `upload-new.js`.
+- Vorhandene Duplikatprüfung und Überschreiboption gelten weiter. Einzelne Fehler stoppen die restliche Auswahl nicht. Keine zusätzliche Garmin-ID-Verwaltung, keine älteren Listenseiten und kein Hintergrundimport ohne Browser. Für den Import keine weitere Migration erforderlich.
+- Token-Cache pro Benutzer und gespeicherter Schlüsselversion; Erneuerung vor Ablauf und einmal nach HTTP 401. Schlüssel/Tokens ausschließlich serverseitig. Feste Garmin-Adresse, keine Redirects, Zeit-/Größenlimits und ZIP-Signaturprüfung.
+- Diagnosefeld mit Schritt, Garmin-HTTP-Status und freigegebenem technischen Code, Anzeige im UI und bereinigtes Serverlog. Keine Schlüssel, Tokens, ursprünglichen Fehlermeldungen oder Antwortinhalte ausgeben.
+- Lokaler HTTP-406-Fehler bei Token-Anforderung nach Umstellung auf `Accept: */*` behoben laut Benutzer. Parser unterstützt JSON-Objekte, JSON-Strings und einzelne Token als `text/plain`/`application/jwt`; HTML/ungültige Token werden abgewiesen.
 
-- Nach erstem Produktionsversuch meldet der Benutzer `garmin_unavailable`. Ursache noch nicht bekannt; bisher wurden mehrere HTTP-/Netzwerkfehler zusammengefasst.
-- Diagnoseergänzung ausdrücklich freigegeben: Fehlerantworten enthalten jetzt `diagnostic` mit Schritt (`token`, `activities`, `download`, `credentials`, `storage`/`internal`), gegebenenfalls Garmin-HTTP-Status und ausschließlich freigegebenem technischen Code. Anzeige auch im Frontend und strukturiertes Serverlog `[garmin] request failed`.
-- Keine ursprünglichen Fehlermeldungen, URLs, Schlüssel, Tokens oder Garmin-Response-Bodies werden protokolliert/ausgegeben. Unbekannte technische Codes werden durch feste generische Codes ersetzt. Scriptversionen für Browsercache aktualisiert.
-- Prüfung: 623 Tests erfolgreich, darunter HTTP-/Netzwerk-/Antwortformatdiagnose, Filterung sensibler Daten und Frontend-Anzeige. Syntax, gezieltes ESLint und EJS-Kompilierung erfolgreich, `git diff --check` erfolgreich. Ursache auf Produktion erst nach Deployment und erneutem Versuch bestimmbar; kein Produktionszugriff durchgeführt.
+### Verifikation und aktueller Stand
 
-- Benutzer testet lokal; Diagnose zeigt `token`, Garmin HTTP 406. Freigegebene Korrektur: Token-Anforderung mit `Accept: */*` statt JSON-Einschränkung. Parser akzeptiert zusätzlich JSON-Strings und einzelne Token als `text/plain`/`application/jwt`; HTML, mehrzeilige/ungültige Tokens und fehlerhaftes JSON werden abgewiesen. Aktivitäts-/ZIP-Abrufe behalten ihre bisherigen Accept-Header.
-- Prüfung dieser Korrektur: 625 Tests erfolgreich, gezieltes ESLint, Service-Syntax und `git diff --check` erfolgreich. Typprüfung weiterhin nur bekannte drei Fehler in `MicroIntervalDetector.js:141`. Ob dies den lokalen HTTP-406-Fehler behebt, muss der Benutzer nach Server-Neustart erneut prüfen; kein Abruf mit seinem Schlüssel erfolgt.
+- **Benutzer bestätigt vollständigen lokalen Live-Test erfolgreich:** Token-Anforderung, Aktivitätsliste, Auswahl, ZIP-Download und FIT-Import bis zur Speicherung. Kein separater Live-Test durch den Agenten; konkretes Token-Antwortformat nicht separat festgestellt.
+- Auf Produktion hat der Benutzer zuvor die erfolgreiche Schlüsselspeicherung bestätigt. Vollständiger Garmin-Import auf Produktion noch nicht bestätigt.
+- Zuletzt 625 Tests erfolgreich. Syntax, gezieltes ESLint, EJS-Kompilierung und `git diff --check` erfolgreich; vorhandene ESLint-Warnungen bleiben. Typprüfung scheitert weiterhin an drei bekannten Null-Prüfungen in `src/shared/MicroIntervalDetector.js:141`.
+- Noch nicht live bestätigt: erneuter Import derselben Aktivität/Duplikatverhalten und langfristige automatische Token-Erneuerung. Automatisierte Tests für Cache/Erneuerung/401-Retry, Benutzertrennung, Diagnose/Geheimnisschutz und UI-Fehlerfortsetzung vorhanden.
+- Einrichtung und API-Vertrag: `docs/GARMIN_CONNECT.md`.
 
 ## Sitzungsübergreifender Kontext
+
+- **Verbindlich: Migrations-SQL niemals durch den Agenten ausführen, auch nicht indirekt über Runner oder Deployments. Nur erstellen/vorbereiten; ausschließlich der Benutzer führt Migrationen aus.** Ebenso in `AGENTS.md` festgehalten.
 
 - Verbindliche Absprache: Dateien nur nach ausdrücklicher Bestätigung ändern. Vorher lesen, analysieren und einen konkreten Vorschlag zeigen. Die beschriebene UI-Überarbeitung einschließlich Scrollbereich wurde mit „ok los“ freigegeben.
 - Anlass: Nach einem VS-Code-Neustart fehlte im Chat die vorherige Absprache zum Implementierungsumfang.

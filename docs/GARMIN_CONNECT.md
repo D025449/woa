@@ -96,9 +96,10 @@ Header `Authorization: ApiKey …`; Datenabrufe mit `Authorization: Bearer …`.
   unerwartete Antworten und HTTP-Zugriffsschutz.
 - Frontend-Test mit simuliertem DOM: Auswahl, sequenzielle Verarbeitung,
   Fortsetzung nach Download-/Importfehlern, erneute Auswahl und Textdarstellung.
-- Noch kein Live-Abruf mit persönlichem Schlüssel und keine visuelle Browserprüfung.
-  Ein vollständiger Garmin-Import einschließlich echter ZIP-/FIT-Verarbeitung
-  muss nach dem Deployment geprüft werden.
+- Benutzer bestätigt vollständigen lokalen Live-Test erfolgreich: Token-Abruf,
+  Aktivitätsliste, ZIP-Download und FIT-Verarbeitung bis zur Speicherung. Kein
+  separater Live-Test durch den Agenten. Vollständiger Produktionsimport noch
+  nicht bestätigt.
 - Keine zusätzliche Garmin-ID-Verwaltung, kein Hintergrundimport ohne Browser,
   keine Seitennavigation für ältere Garmin-Aktivitäten in dieser Version.
 
@@ -115,5 +116,5 @@ werden separat als `DATABASE_ERROR` bzw. `STORAGE_ERROR` eingeordnet.
 
 Token-Anforderungen senden `Accept: */*`. Neben JSON-Objekten werden JSON-Strings
 und einzelne Token als `text/plain` oder `application/jwt` verarbeitet. HTML,
-mehrzeilige Token und ungültige JSON-Antworten werden abgewiesen. Diese Änderung
-adressiert den lokal gemeldeten HTTP-406-Fehler; die Behebung ist noch live zu prüfen.
+mehrzeilige Token und ungültige JSON-Antworten werden abgewiesen. Der Benutzer
+hat die Behebung des lokalen HTTP-406-Fehlers und den vollständigen Import bestätigt.

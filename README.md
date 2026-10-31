@@ -9,8 +9,10 @@ Simple-nodejs-app is a simple web application created using [Node.js](https://gi
 
 ## Usage
 
+- Die zentrale Übersicht aller npm-Skripte mit Parametern, Voraussetzungen und Auswirkungen steht in [docs/npm-scripts.md](docs/npm-scripts.md).
 - After installation, run ```npm install``` to download and install all the required dependencies.
 - Run ```npm start``` to run the web application.
+- Mit `npm run start:all` Anwendung, Import-Worker und Backup-Worker gemeinsam in einer Konsole starten; `Strg+C` beendet alle drei Prozesse.
 
 ### One-time GPS segment best-effort rebuild
 

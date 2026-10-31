@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
+    "start:all": "node src/scripts/start-all.js",
     "worker": "node src/workers/import-worker.js",
     "backup:worker": "node src/workers/postgres-backup-ops-worker.js",
     "deploy:prod": "./release-prod.sh",

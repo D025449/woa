@@ -11,8 +11,11 @@
 
 ## Projekt und Prüfungen
 
+- Migrations-SQL niemals selbst ausführen, auch nicht über Migrationsrunner, Deployments oder andere indirekte Wege. Migrationen nur vorbereiten und zur manuellen Ausführung bereitstellen; ausschließlich der Benutzer führt sie aus.
+
 - Änderungen an Dateien erst nach ausdrücklicher Bestätigung des Benutzers vornehmen. Zunächst prüfen und einen konkreten Vorschlag vorstellen; nach Freigabe den vereinbarten Umfang umsetzen. Reine Lesezugriffe benötigen keine zusätzliche Bestätigung.
 - Node.js-Anwendung mit ES-Modulen, Express, PostgreSQL und EJS; Browsercode liegt unter `src/public/js`.
 - Verfügbare Prüfungen stehen in `package.json`: `npm test`, `npm run check:syntax`, `npm run check:lint` und `npm run check:types`.
+- Pflege `docs/npm-scripts.md` und betroffene Detailanleitungen im selben Auftrag mit, wenn npm-Skripte hinzugefügt, entfernt oder in Zweck, Parametern, Voraussetzungen oder Nebenwirkungen relevant geändert werden. Halte den Verweis im README aktuell.
 - Führe zur Änderung passende Prüfungen aus und dokumentiere relevante Fehler und Grenzen der Verifikation.
 - Kommuniziere mit dem Benutzer auf Deutsch.
