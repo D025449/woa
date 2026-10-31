@@ -22,7 +22,7 @@ Token-Verwaltung und lokalem Trennen im Profil. Der Workout-Import folgt separat
 5. App mit diesen Variablen neu starten. Im Profil „Mit Wahoo verbinden“ auswählen,
    bei Wahoo anmelden und den Zugriff bestätigen. Danach zeigt WOA den Status an.
 
-Client-Secret und Verschlüsselungsschlüssel gehören ausschließlich auf den Server.
+Client-Secret und Verschlüsselungsschlüssel gehören ausschließlich auf den Server..
 Den Verschlüsselungsschlüssel getrennt von der Datenbank für Wiederherstellungen
 sichern. Austausch ohne Umschlüsselung macht bestehende Tokens unlesbar.
 Keine zusätzlichen npm-Skripte oder Abhängigkeiten erforderlich.
