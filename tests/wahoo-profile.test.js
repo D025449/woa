@@ -18,6 +18,6 @@ test("Wahoo profile renders localized controls and usable message data in every 
     assert.equal(data.connected, messages.profile.wahoo.connected);
     assert.equal(data.error, messages.profile.wahoo.error);
     assert.doesNotMatch(html, /profile\.wahoo\./);
-    assert.match(html, /\/js\/wahoo-settings-ui.js\?v=1/);
+    assert.match(html, /\/js\/wahoo-settings-ui.js\?v=2/);
   }
 });

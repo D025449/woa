@@ -62,7 +62,10 @@ test("Wahoo endpoints enforce login, active account, Origin, safe status and ses
   });
   const removed = [];
   t.mock.method(Service, "remove", async id => removed.push(id));
+  const settings = [];
+  t.mock.method(Service, "setAutoImport", async (...args) => settings.push(args));
   const app = express();
+  app.use(express.json());
   const session = { save(callback) { callback(); } };
   app.use((req, res, next) => {
     req.cookies = {};
@@ -75,10 +78,10 @@ test("Wahoo endpoints enforce login, active account, Origin, safe status and ses
   await new Promise((resolve, reject) => { server.once("listening", resolve); server.once("error", reject); });
   t.after(() => new Promise(resolve => server.close(resolve)));
   const base = `http://127.0.0.1:${server.address().port}/auth/wahoo`;
-  for (const [path, method] of [["status", "GET"], ["start", "POST"], ["connection", "DELETE"], ["callback", "GET"]]) {
+  for (const [path, method] of [["status", "GET"], ["start", "POST"], ["connection", "DELETE"], ["callback", "GET"], ["auto-import", "PUT"]]) {
     assert.equal((await fetch(`${base}/${path}`, { method })).status, 401);
   }
-  for (const [path, method] of [["start", "POST"], ["connection", "DELETE"]]) {
+  for (const [path, method] of [["start", "POST"], ["connection", "DELETE"], ["auto-import", "PUT"]]) {
     assert.equal((await fetch(`${base}/${path}`, { method, headers: { "x-user": "1", "x-status": "pending_deletion" } })).status, 423);
     for (const origin of [undefined, "https://attacker.example"]) {
       const headers = { "x-user": "1" };
@@ -87,6 +90,9 @@ test("Wahoo endpoints enforce login, active account, Origin, safe status and ses
     }
   }
   const headers = { "x-user": "1", Origin: "https://woa.example" };
+  assert.equal((await fetch(`${base}/auto-import`, { method: "PUT", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ enabled: true, userId: 99 }) })).status, 204);
+  assert.deepEqual(settings, [[42, true]]);
+  assert.equal((await fetch(`${base}/auto-import`, { method: "PUT", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ enabled: "true" }) })).status, 400);
   const status = await fetch(`${base}/status`, { headers });
   assert.equal(status.headers.get("cache-control"), "no-store");
   assert.equal(status.headers.get("referrer-policy"), "no-referrer");

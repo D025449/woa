@@ -30,6 +30,13 @@ router.get("/status", async (req, res) => {
   try { res.json({ data: await WahooService.status(req.user.id) }); }
   catch { res.status(503).json({ error: "Wahoo connection unavailable." }); }
 });
+router.put("/auto-import", requireActiveAccountWrite, requireWahooOrigin, async (req, res) => {
+  if (typeof req.body?.enabled !== "boolean") return res.status(400).json({ error: "Invalid setting" });
+  try {
+    await WahooService.setAutoImport(req.user.id, req.body.enabled);
+    res.status(204).end();
+  } catch { res.status(503).json({ error: "Wahoo settings unavailable." }); }
+});
 router.post("/start", requireActiveAccountWrite, requireWahooOrigin, async (req, res) => {
   try {
     const state = randomBytes(32).toString("hex");

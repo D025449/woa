@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { startWahooWebhookImports } from "../services/wahooWebhookImportService.js";
 import util from "node:util";
 
 import { Worker } from "bullmq";
@@ -1134,6 +1135,7 @@ export async function createApp(options = {}) {
 
 
   if (enableImportWorker) {
+    startWahooWebhookImports();
     const enqueueRecoverableWoaBundles = async () => {
       if (!WOA_BUNDLE_RECOVERY_ENABLED) return;
       const recoverable = await listRecoverableWoaBundleUploads(100);

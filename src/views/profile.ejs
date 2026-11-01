@@ -196,6 +196,11 @@
                     <button id="wahoo-connect" type="button" class="btn btn-dark" disabled><%= t("profile.wahoo.connect") %></button>
                     <button id="wahoo-remove" type="button" class="btn btn-outline-danger" disabled><%= t("profile.wahoo.remove") %></button>
                 </div>
+                <div class="form-check mt-3">
+                    <input id="wahoo-auto-import" class="form-check-input" type="checkbox" disabled aria-describedby="wahoo-auto-import-help">
+                    <label class="form-check-label" for="wahoo-auto-import"><%= t("profile.wahoo.autoImport") %></label>
+                </div>
+                <p id="wahoo-auto-import-help" class="small text-muted"><%= t("profile.wahoo.autoImportHelp") %></p>
                 <p id="wahoo-feedback" class="small mt-2" role="status"></p>
             </section>
 
@@ -317,8 +322,8 @@
     <script src="/js/weight-history-ui.js" type="module"></script>
     <script id="garmin-settings-messages" type="application/json"><%- JSON.stringify(Object.fromEntries(["configured", "empty", "saved", "removed", "error", "unavailable", "remove", "confirmDelete", "cancel"].map(key => [key, t(`profile.garmin.${key}`)]))).replace(/</g, "\\u003c") %></script>
     <script src="/js/garmin-settings-ui.js" type="module"></script>
-    <script id="wahoo-settings-messages" type="application/json"><%- JSON.stringify(Object.fromEntries(["configured", "empty", "connected", "denied", "error", "unavailable", "remove", "removed", "confirmDelete", "cancel"].map(key => [key, t(`profile.wahoo.${key}`)]))).replace(/</g, "\\u003c") %></script>
-    <script src="/js/wahoo-settings-ui.js?v=1" type="module"></script>
+    <script id="wahoo-settings-messages" type="application/json"><%- JSON.stringify(Object.fromEntries(["configured", "empty", "connected", "denied", "error", "unavailable", "remove", "removed", "confirmDelete", "cancel", "reconnect", "offlineRequired", "webhookUnavailable", "autoImportSaved", "autoImportHelp"].map(key => [key, t(`profile.wahoo.${key}`)]))).replace(/</g, "\\u003c") %></script>
+    <script src="/js/wahoo-settings-ui.js?v=2" type="module"></script>
     <script src="/js/profile-ui.js" type="module"></script>
 </body>
 

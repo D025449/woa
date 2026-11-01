@@ -7,7 +7,7 @@ Token-Verwaltung, lokales Trennen im Profil und manueller Workout-Import.
 
 1. In [Wahoos Developer Portal](https://developers.wahooligan.com/applications)
    eine **Confidential**-Anwendung für den serverseitigen OAuth-Code-Flow einrichten.
-   Sandbox und Produktion sind getrennte Anwendungen; Freigaben bei Wahoo beachten.
+   Sandbox und Produktion sind getrennte Anwendungen - Freigaben bei Wahoo beachten.
 2. Als Redirect URI exakt `https://<WOA-Domain>/auth/wahoo/callback` registrieren.
    Der Browser muss WOA unter derselben Origin benutzen. Für lokale Entwicklung
    ist außerhalb von Produktion auch HTTP auf `localhost`/`127.0.0.1` zulässig,
@@ -31,6 +31,11 @@ Keine zusätzlichen npm-Skripte oder Abhängigkeiten erforderlich.
 
 ### Wahoo-Benutzer-ID als Vorbereitung für Webhooks
 
+Migration `src/migrations/092_wahoo_webhook_import.sql` ergänzt die zunächst
+abgeschaltete Importoption, das Kennzeichen für die Offline-Freigabe und den
+dauerhaften Auftragseingang. Der Benutzer bestätigt die manuelle Ausführung;
+vom Agenten weder ausgeführt noch gegen die Datenbank geprüft.
+
 `src/migrations/091_wahoo_user_id.sql` nach Migration 090 manuell ausführen.
 Sie ergänzt die nullable Spalte `wahoo_user_id` (positive BIGINT, eindeutig über
 alle Verbindungen). Der Benutzer hat die manuelle Ausführung am 2026-11-01
@@ -48,10 +53,10 @@ fehlgeschlagenen Neuverbinden nicht überschrieben. Beim Nachtragen verhindert
 ein Vergleich der verschlüsselten Tokens das Überschreiben einer inzwischen
 geänderten Verbindung; gegebenenfalls den Abruf wiederholen. Bereits rotierte
 Tokens bleiben auch bei anschließendem Fehler gespeichert.
-Webhooks und die zusätzliche Berechtigung `offline_data` sind noch nicht implementiert.
+Automatischer Import und Einrichtung sind im Abschnitt „Webhooks“ beschrieben.
 
 - `GET /auth/wahoo/status`: angemeldet, liefert nur `configured`, `available` und
-  `updatedAt` in `data`. `configured` bedeutet gespeicherte Verbindung, keine
+  `updatedAt`, `autoImportEnabled`, `offlineDataGranted`, `webhookAvailable` in `data`. `configured` bedeutet gespeicherte Verbindung, keine
   Live-Prüfung der Wahoo-Freigabe. `available` prüft die Server-Konfiguration.
 - `POST /auth/wahoo/start`: aktives Konto und passende explizite `Origin` erforderlich.
   Erzeugt zufälligen State, bindet ihn an Sitzung/Benutzer (zehn Minuten gültig),
@@ -67,10 +72,10 @@ Webhooks und die zusätzliche Berechtigung `offline_data` sind noch nicht implem
   Diese kann zusätzlich in den Wahoo-Kontoeinstellungen widerrufen werden.
 
 Alle Endpunkte setzen `Cache-Control: no-store` und `Referrer-Policy: no-referrer`.
-Es werden `user_read workouts_read` angefordert. Bereits verbundene Konten mit
+Es werden `user_read workouts_read offline_data` angefordert. Bereits verbundene Konten mit
 reinem Profilzugriff müssen im Profil getrennt und erneut verbunden werden.
 Falls nötig, auch die erlaubten Scopes im Wahoo Developer Portal erweitern.
-Kein Hintergrundabruf.
+Manuelle Importe bleiben verfügbar; automatische Importe benötigen die unten beschriebene Einrichtung.
 Reverse-Proxy-/Access-Logs sollten OAuth-Queryparameter grundsätzlich ausblenden.
 
 ## Token-Verwaltung
@@ -145,3 +150,77 @@ die Migration wurden vom Agenten nicht durchgeführt. Tatsächlich gewährter
 Scope und konkretes Token-Antwortformat wurden nicht separat geprüft.
 
 Der neue Workout-Import und die erweiterte Freigabe sind noch nicht live geprüft.
+
+## Webhooks und automatischer Import
+
+### Einrichtung
+
+1. Migrationen 090–092 müssen manuell ausgeführt sein.
+2. Im Wahoo Developer Portal für die Anwendung zusätzlich `offline_data` erlauben.
+3. Auf dem WOA-Webserver `WAHOO_WEBHOOK_TOKEN` als eigenes zufälliges Geheimnis
+   mit 32–512 Zeichen setzen, beispielsweise 32 zufällige Bytes als 64 Hexzeichen.
+   Keinen Wert ins Repository oder in Logs schreiben.
+4. Bei Wahoo Webhooks aktivieren (`webhook_enabled`),
+   `webhook_url = https://<WOA-Domain>/webhooks/wahoo` und denselben Wert als
+   `webhook_token` hinterlegen. Sandbox und Produktion getrennt konfigurieren.
+   Die Adresse muss von Wahoo öffentlich per HTTPS erreichbar sein.
+5. Anwendung und bestehenden Import-Worker neu starten (`npm run worker` oder
+   `npm run start:all`). Der Worker benötigt dieselben Datenbank-/Wahoo-Variablen
+   wie die Anwendung sowie die bestehende Redis-Infrastruktur für Folgeaufträge.
+6. Im Profil bei bestehenden Verbindungen „Wahoo-Freigabe erweitern“ anklicken,
+   bei Wahoo zustimmen und anschließend „Neue Wahoo-Trainings automatisch
+   importieren“ aktivieren. Neue Verbindungen fordern die Berechtigung direkt an.
+   Nach jeder erneuten Verbindung ist die Importoption zunächst ausgeschaltet.
+
+Der OAuth-Token-Antwort-Scope wird berücksichtigt, falls Wahoo ihn liefert;
+ohne `scope` wird gemäß OAuth die angeforderte Freigabe angenommen. Alte
+Verbindungen erhalten durch Migration oder Token-Refresh keine Offline-Freigabe.
+Die Profilanzeige prüft die Konfiguration des Webservers, nicht die Erreichbarkeit
+von außen oder den Betriebszustand des Workers.
+
+### Verarbeitung und Grenzen
+
+- `POST /webhooks/wahoo` läuft ohne Browsersitzung. JSON maximal 64 KiB;
+  Prüfung des `webhook_token` mit zeitkonstantem Vergleich. Fehlendes/falsches
+  Token: 401; fehlende Serverkonfiguration oder Speicherfehler: 503;
+  ungültige IDs/JSON: 400; zu große Nachricht: 413.
+- Nur dokumentierte `workout_summary`-Meldungen mit positiven BIGINT-IDs für
+  Benutzer, Summary und Workout werden verarbeitet. Andere Ereignistypen,
+  unbekannte/abgeschaltete Verbindungen und inaktive Konten werden mit 200
+  ignoriert. Empfangene Dateilinks und vollständige Payloads werden nicht gespeichert.
+- HTTP 200 erfolgt nach dem dauerhaften Datenbankeintrag (bzw. bei Duplikaten),
+  nicht erst nach dem Import. UNIQUE je WOA-/Wahoo-Konto und Summary verhindert
+  wiederholte Aufträge. Wahoo wiederholt bei fehlendem 200 nach 30 Minuten,
+  vier, 24 und 72 Stunden.
+- Der Import-Worker prüft den Eingang alle fünf Sekunden. PostgreSQL-Sessionlocks
+  verhindern gleichzeitige Verarbeitung durch mehrere Worker und erlauben
+  Wiederaufnahme nach Prozessabbruch. Maximal fünf Versuche; bei Fehlern
+  Wartezeiten von 30, 120, 480 und 1.920 Sekunden. Fehlercodes bleiben bereinigt;
+  endgültige Fehler stehen als `failed` im Auftragseingang. Keine eigene
+  Fehler-/Wiederholungsoberfläche in diesem Umfang.
+- Vor Download und vor Speicherung werden Wahoo-ID, aktivierte Option,
+  Offline-Freigabe und aktiver Kontostatus geprüft. Die letzte Prüfung sperrt
+  Konto/Verbindung während des Speicherns gegen Änderungen. Nach Deaktivieren
+  werden wartende Aufträge übersprungen. Trennen löscht zugehörige Aufträge.
+- Download über die authentifizierte API und bestehenden begrenzten FIT-Download;
+  die Summary-ID muss zur Meldung passen. Der FIT-Parser läuft in einem separaten
+  Thread (60 Sekunden, 512 MiB V8-Heap-Limit). Bestehende Parserkorrekturen,
+  Mindestlänge 300 Datensätze und WOA-Komprimierung gelten auch hier.
+- Speicherung und Folgeaufträge verwenden den gemeinsamen WOA-Importweg.
+  Vorhandene Trainings werden am Startzeitpunkt erkannt und übersprungen;
+  zusätzlich schützt der Datenbankkonflikt auf Benutzer/Startzeit vor Duplikaten.
+  Es wird niemals überschrieben. Bei Wiederholungen nach Teilfehlern dürfen
+  Folgeaufträge für bereits gespeicherte Trainings erneut angestoßen werden.
+- Dies importiert neue Meldungen, keine vollständige Historie. Dafür bleibt der
+  manuelle Import bestehen. Empfangene Änderungen/Löschungen überschreiben oder
+  löschen keine vorhandenen WOA-Trainings. Wahoo liefert keine Summaries von
+  Trainings, die Drittanbieter-Apps erstellt haben.
+- Wahoo verlangt laut Dokumentation einen gültigen Access-Token mit `offline_data`
+  für Webhooks. Die bestehende Token-Erneuerung erfolgt weiter bei API-Bedarf;
+  es gibt keinen zusätzlichen Token-Timer. Langfristige Zustellung bei längerer
+  Inaktivität muss live geprüft werden.
+
+Grundlage: [Wahoo-Webhooks](https://cloud-api.wahooligan.com/#webhooks).
+Automatisierte Prüfungen stehen zusätzlich in `tests/wahoo-webhook.test.js`
+und `tests/wahoo-settings-ui.test.js`. Live-Zustellung, öffentliche HTTPS-Adresse,
+Wahoo-Freigabe und Verarbeitung gegen PostgreSQL/Redis sind separat zu prüfen.

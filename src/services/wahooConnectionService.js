@@ -1,7 +1,7 @@
 import { randomBytes, createCipheriv, createDecipheriv } from "node:crypto";
 import pool from "./database.js";
 
-function wahooUserId(profile) {
+export function wahooUserId(profile) {
   const value = profile?.id;
   if ((typeof value !== "string" && typeof value !== "number") ||
       (typeof value === "number" && !Number.isSafeInteger(value)) ||
@@ -74,7 +74,7 @@ export default class WahooConnectionService {
     const { clientId, redirectUri } = this.config();
     const url = new URL("https://api.wahooligan.com/oauth/authorize");
     url.search = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri,
-      scope: "user_read workouts_read", response_type: "code", state }).toString();
+      scope: "user_read workouts_read offline_data", response_type: "code", state }).toString();
     return url.href;
   }
   static async exchange(parameters) {
@@ -90,23 +90,39 @@ export default class WahooConnectionService {
       throw new Error("Invalid Wahoo token response");
     }
     return { accessToken: data.access_token, refreshToken: data.refresh_token,
-      expiresAt: Date.now() + data.expires_in * 1000 };
+      expiresAt: Date.now() + data.expires_in * 1000,
+      offlineDataGranted: data.scope == null || (typeof data.scope === "string" && data.scope.split(/\s+/).includes("offline_data")) };
   }
   static async connect(userId, code) {
     try {
       const tokens = await this.exchange({ grant_type: "authorization_code", code });
       const id = wahooUserId(await authenticatedRequest(tokens, "/v1/user"));
-      await pool.query(`INSERT INTO user_wahoo_connections (user_id, tokens_encrypted, wahoo_user_id)
-        VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE
-        SET tokens_encrypted = EXCLUDED.tokens_encrypted, wahoo_user_id = EXCLUDED.wahoo_user_id, updated_at = NOW()`,
-      [userId, encryptWahooTokens(userId, tokens), id]);
+      await pool.query(`INSERT INTO user_wahoo_connections (user_id, tokens_encrypted, wahoo_user_id, offline_data_granted)
+        VALUES ($1, $2, $3, $4) ON CONFLICT (user_id) DO UPDATE
+        SET tokens_encrypted = EXCLUDED.tokens_encrypted, wahoo_user_id = EXCLUDED.wahoo_user_id,
+        offline_data_granted = EXCLUDED.offline_data_granted, auto_import_enabled = FALSE, updated_at = NOW()`,
+      [userId, encryptWahooTokens(userId, tokens), id, tokens.offlineDataGranted]);
     } catch { throw new Error("Wahoo request failed"); }
   }
   static async status(userId) {
     let available = true;
     try { this.config(); } catch { available = false; }
-    const { rows } = await pool.query("SELECT updated_at FROM user_wahoo_connections WHERE user_id = $1", [userId]);
-    return { configured: rows.length > 0, available, updatedAt: rows[0]?.updated_at || null };
+    const { rows } = await pool.query("SELECT updated_at, auto_import_enabled, offline_data_granted FROM user_wahoo_connections WHERE user_id = $1", [userId]);
+    return { configured: rows.length > 0, available, updatedAt: rows[0]?.updated_at || null,
+      autoImportEnabled: rows[0]?.auto_import_enabled === true,
+      offlineDataGranted: rows[0]?.offline_data_granted === true,
+      webhookAvailable: this.webhookAvailable() };
+  }
+  static webhookAvailable() {
+    const token = process.env.WAHOO_WEBHOOK_TOKEN || "";
+    return token.length >= 32 && token.length <= 512;
+  }
+  static async setAutoImport(userId, enabled) {
+    if (typeof enabled !== "boolean" || (enabled && !this.webhookAvailable())) throw new Error("Wahoo settings unavailable");
+    const result = await pool.query(`UPDATE user_wahoo_connections
+      SET auto_import_enabled = $2, updated_at = NOW()
+      WHERE user_id = $1 AND ($2 = FALSE OR (offline_data_granted = TRUE AND wahoo_user_id IS NOT NULL))`, [userId, enabled]);
+    if (result.rowCount !== 1) throw new Error("Wahoo settings unavailable");
   }
   // Internal operation: credentials never leave the service. Row locking
   // serializes refreshes across app processes and coordinates with disconnect.

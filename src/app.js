@@ -11,6 +11,7 @@ import collaborationRoutes from "./routes/collaborationRoutes.js";
 import wahooImportRoutes from "./routes/wahooImportRoutes.js";
 import garminRoutes from "./routes/garminRoutes.js";
 import wahooRoutes from "./routes/wahooRoutes.js";
+import wahooWebhookRoutes from "./routes/wahooWebhookRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
 import paymentsRoutes from "./routes/paymentsRoutes.js";
 import coachingRoutes from "./routes/coachingRoutes.js";
@@ -65,6 +66,8 @@ export async function createApp() {
         };
         next();
     });
+    // Server-to-server endpoint: no browser session or authentication middleware.
+    app.use("/webhooks/wahoo", wahooWebhookRoutes);
     const sessionMiddleware = await createSessionMiddleware();
     app.use(sessionMiddleware);
     app.use((req, res, next) => {

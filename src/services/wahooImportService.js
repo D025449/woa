@@ -33,9 +33,10 @@ export default class WahooImportService {
       duration: Number.isFinite(Number(workout.minutes)) && Number(workout.minutes) >= 0 ? Number(workout.minutes) * 60 : 0
     }));
   }
-  static async file(userId, activityId) {
+  static async file(userId, activityId, expectedSummaryId = null) {
     const id = validateWahooId(activityId);
     const summary = await WahooConnectionService.apiRequest(userId, `/v1/workouts/${id}/workout_summary`);
+    if (expectedSummaryId !== null && validateWahooId(summary?.id) !== String(expectedSummaryId)) throw failure("wahoo_file_unavailable");
     if (!summary?.file?.url) throw failure("wahoo_file_unavailable");
     const url = validateWahooFileUrl(summary.file.url);
     // CDN requests never receive OAuth credentials or follow redirects.

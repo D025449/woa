@@ -33,7 +33,7 @@ test("Wahoo authorization has fixed endpoint, minimal scope and validated config
   configure(t);
   const url = new URL(Service.authorizationUrl("example-state"));
   assert.equal(url.origin, "https://api.wahooligan.com");
-  assert.equal(url.searchParams.get("scope"), "user_read workouts_read");
+  assert.equal(url.searchParams.get("scope"), "user_read workouts_read offline_data");
   assert.equal(url.searchParams.get("state"), "example-state");
   assert.equal(url.searchParams.get("client_secret"), null);
   for (const invalid of ["https://woa.example/other", "https://woa.example/auth/wahoo/callback?x=1", "http://woa.example/auth/wahoo/callback"]) {
@@ -61,6 +61,8 @@ test("Wahoo code exchange sends credentials only in POST body and persists ciphe
     assert.match(sql, /INSERT INTO user_wahoo_connections/);
     assert.equal(params[0], 42);
     assert.equal(params[2], "60462");
+    assert.equal(params[3], true);
+    assert.match(sql, /auto_import_enabled = FALSE/);
     const stored = decryptWahooTokens(42, params[1]);
     assert.equal(stored.accessToken, "new-access");
     assert.equal(stored.refreshToken, "new-refresh");
@@ -89,7 +91,7 @@ test("Wahoo status and deletion return no credentials and use only requested use
   configure(t);
   const calls = [];
   t.mock.method(pool, "query", async (sql, params) => { calls.push([sql, params]); return { rows: [{ updated_at: "date" }] }; });
-  assert.deepEqual(await Service.status(42), { configured: true, available: true, updatedAt: "date" });
+  assert.deepEqual(await Service.status(42), { configured: true, available: true, updatedAt: "date", autoImportEnabled: false, offlineDataGranted: false, webhookAvailable: false });
   await Service.remove(43);
   assert.deepEqual(calls.map(call => call[1]), [[42], [43]]);
   assert.match(calls[0][0], /^SELECT updated_at/);

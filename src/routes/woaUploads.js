@@ -185,7 +185,7 @@ function createImportProfile() {
   };
 }
 
-async function importWoaEntryReaders({
+export async function importWoaEntryReaders({
   userId,
   sourceName,
   uploadedSizeBytes,

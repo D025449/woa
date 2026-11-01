@@ -243,7 +243,7 @@
       "cancel": "Cancel"
     },
     "wahoo": {
-      "copy": "Connect your Wahoo account. Workout import will be available in a later step.",
+      "copy": "Connect your Wahoo account to import workouts manually or automatically.",
       "loading": "Loading connection…",
       "configured": "Wahoo is connected.",
       "empty": "Wahoo is not connected.",
@@ -255,7 +255,13 @@
       "unavailable": "Wahoo is not configured on this server.",
       "removed": "Wahoo connection removed from WOA.",
       "confirmDelete": "Remove the stored Wahoo connection from WOA? You can also revoke access in your Wahoo account.",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "autoImport": "Automatically import new Wahoo workouts",
+      "autoImportHelp": "New workouts are imported in the background. Existing workouts are not overwritten.",
+      "reconnect": "Extend Wahoo authorization",
+      "offlineRequired": "Extend your Wahoo authorization for automatic import, then enable this option.",
+      "webhookUnavailable": "Automatic Wahoo import is not configured on this server yet.",
+      "autoImportSaved": "Automatic import setting saved."
     }
   },
   "uploadPage": {

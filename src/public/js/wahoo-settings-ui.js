@@ -4,6 +4,8 @@ const connect = document.getElementById("wahoo-connect");
 if (connect) {
   const messages = JSON.parse(document.getElementById("wahoo-settings-messages").textContent);
   const remove = document.getElementById("wahoo-remove");
+  const autoImport = document.getElementById("wahoo-auto-import");
+  const help = document.getElementById("wahoo-auto-import-help");
   const status = document.getElementById("wahoo-status");
   const feedback = document.getElementById("wahoo-feedback");
   let data = { configured: false, available: false };
@@ -11,15 +13,22 @@ if (connect) {
   let busy = false;
   function lock(value) {
     busy = value;
-    connect.disabled = busy || readOnly || !data.available || data.configured;
+    connect.disabled = busy || readOnly || !data.available || (data.configured && data.offlineDataGranted);
     remove.disabled = busy || readOnly || !data.configured;
+    autoImport.disabled = busy || readOnly || !data.configured || !data.offlineDataGranted || !data.webhookAvailable;
   }
-  async function request(path, method = "GET") {
-    const response = await fetch(`/auth/wahoo/${path}`, { method, credentials: "same-origin", cache: "no-store" });
+  async function request(path, method = "GET", body) {
+    const response = await fetch(`/auth/wahoo/${path}`, { method, credentials: "same-origin", cache: "no-store",
+      ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}) });
     if (!response.ok) throw new Error(messages.error);
     return response.status === 204 ? null : response.json();
   }
+  const connectLabel = connect.textContent;
   function display() {
+    connect.textContent = data.configured && !data.offlineDataGranted ? messages.reconnect : connectLabel;
+    autoImport.checked = Boolean(data.autoImportEnabled);
+    help.textContent = !data.webhookAvailable ? messages.webhookUnavailable
+      : data.configured && !data.offlineDataGranted ? messages.offlineRequired : messages.autoImportHelp;
     status.textContent = data.configured ? messages.configured : data.available ? messages.empty : messages.unavailable;
   }
   const outcome = new URLSearchParams(location.search).get("wahoo");
@@ -42,10 +51,23 @@ if (connect) {
         acceptLabel: messages.remove, cancelLabel: messages.cancel, acceptClass: "btn-danger" }) || readOnly) return;
       await request("connection", "DELETE");
       data.configured = false;
+      data.autoImportEnabled = false;
+      data.offlineDataGranted = false;
       display();
       feedback.textContent = messages.removed;
     } catch { feedback.textContent = messages.error; }
     finally { lock(false); }
+  });
+  autoImport.addEventListener("change", async () => {
+    if (busy || readOnly) { autoImport.checked = Boolean(data.autoImportEnabled); return; }
+    const enabled = autoImport.checked;
+    lock(true);
+    try {
+      await request("auto-import", "PUT", { enabled });
+      data.autoImportEnabled = enabled;
+      feedback.textContent = messages.autoImportSaved;
+    } catch { feedback.textContent = messages.error; }
+    finally { display(); lock(false); }
   });
   window.addEventListener("profile-account-state", event => {
     readOnly = event.detail !== "active";
