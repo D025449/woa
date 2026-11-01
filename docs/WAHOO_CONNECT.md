@@ -1,7 +1,7 @@
 # Wahoo verbinden
 
 Stand: 2026-11-01. Implementiert sind OAuth-Verbindung mit verschlüsselter
-Token-Verwaltung, lokales Trennen im Profil und manueller Workout-Import.
+Token-Verwaltung, lokales Trennen im Profil und manueller Workout-Import..
 
 ## Einrichtung
 
