@@ -8,6 +8,7 @@ import fileRoutes from "./routes/fileRoutes.js";
 import workoutRoutes from "./routes/workoutRoutes.js"
 import segmentRoutes from "./routes/segmentRoutes.js";
 import collaborationRoutes from "./routes/collaborationRoutes.js";
+import wahooImportRoutes from "./routes/wahooImportRoutes.js";
 import garminRoutes from "./routes/garminRoutes.js";
 import wahooRoutes from "./routes/wahooRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
@@ -108,6 +109,7 @@ export async function createApp() {
     app.use('/collaboration', collaborationRoutes);
     app.use('/api/profile', profileRoutes);
     app.use('/api/garmin', garminRoutes);
+    app.use('/api/wahoo', wahooImportRoutes);
     app.use('/auth/wahoo', wahooRoutes);
     app.use('/api/payments', paymentsRoutes);
     app.use('/api/coaching', coachingRoutes);

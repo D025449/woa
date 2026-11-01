@@ -339,6 +339,33 @@
       "stage_credentials": "Database access",
       "stage_storage": "Key decryption",
       "stage_internal": "WOA server"
+    },
+    "wahoo": {
+      "title": "Wahoo Connect",
+      "pageTitle": "Import from Wahoo",
+      "pageCopy": "Select and import workouts from Wahoo.",
+      "connectionSaved": "Wahoo connection saved. Disconnect and reconnect once for import if you previously granted profile access only.",
+      "connectionMissing": "First connect your Wahoo account in your profile.",
+      "connect": "Connect Wahoo",
+      "keepOpen": "Please keep this page open during the import.",
+      "load": "Get newest workouts from Wahoo",
+      "loadMore": "Load 20 more",
+      "allLoaded": "All available activities loaded. Select the workouts to import.",
+      "importSelected": "Import selected activities",
+      "setup": "Manage Wahoo connection",
+      "loading": "Loading activities…",
+      "choose": "Select activities to import. The existing import checks for duplicates.",
+      "empty": "No activities found.",
+      "running": "Import running. Keep this page open.",
+      "downloading": "Downloading FIT file…",
+      "processing": "Processing and saving…",
+      "imported": "Imported",
+      "skipped": "Skipped by existing import filters (e.g. duplicate or too short)",
+      "failed": "Import failed. Please try again.",
+      "done": "Selection processed.",
+      "partial": "Selection processed with errors. Failed activities can be selected again.",
+      "wahoo_unavailable": "Wahoo request failed. Check your connection and workout permission, then retry.",
+      "wahoo_file_unavailable": "No supported FIT file available."
     }
   },
   "login": {
@@ -863,7 +890,9 @@
     "microintervalSelectionDifference": "Difference from selection: {seconds} s",
     "segmentTypeMicrointervals": "Microintervals",
     "microintervalWorkTimeShort": "WT",
-    "microintervalWorkPowerShort": "WP"
+    "microintervalWorkPowerShort": "WP",
+    "addTrainingWahooTitle": "Import from Wahoo",
+    "addTrainingWahooCopy": "Select workouts from your Wahoo account."
   },
   "segmentsPage": {
     "title": "Segments",

@@ -40,3 +40,15 @@ test("configured Garmin import provides selection, overwrite, pagination and sha
   assert.match(html, /während des Imports geöffnet/);
   assert.doesNotMatch(html, /id="uploadForm"|type="file"|upload-guidance-panel/);
 });
+
+for (const configured of [false, true]) {
+  test(`Wahoo import renders connection and controls (${configured})`, async () => {
+    const html = await render("wahooImport", { wahooConfigured: configured });
+    assert.match(html, /href="\/profile#wahoo-settings"/);
+    assert.equal(html.includes('id="wahoo-load"'), configured);
+    assert.equal(html.includes('id="overwriteExistingWorkouts"'), configured);
+    assert.equal(html.includes('id="statusArea"'), configured);
+    assert.equal(html.includes('/js/wahoo-import-page.js'), configured);
+    assert.doesNotMatch(html, /id="uploadForm"|type="file"/);
+  });
+}

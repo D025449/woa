@@ -413,6 +413,33 @@
       "stage_credentials": "Datenbankzugriff",
       "stage_storage": "Schlüsselentschlüsselung",
       "stage_internal": "WOA-Server"
+    },
+    "wahoo": {
+      "title": "Wahoo Connect",
+      "pageTitle": "Von Wahoo importieren",
+      "pageCopy": "Workouts von Wahoo auswählen und importieren.",
+      "connectionSaved": "Wahoo-Verbindung gespeichert. Für den Import bitte einmal trennen und erneut verbinden, falls bisher nur der Profilzugriff freigegeben wurde.",
+      "connectionMissing": "Verbinde zuerst dein Wahoo-Konto im Profil.",
+      "connect": "Wahoo verbinden",
+      "keepOpen": "Bitte lasse diese Seite während des Imports geöffnet.",
+      "load": "Neueste Workouts von Wahoo holen",
+      "loadMore": "Weitere 20 laden",
+      "allLoaded": "Alle verfügbaren Aktivitäten geladen. Wähle die gewünschten Workouts aus.",
+      "importSelected": "Ausgewählte Aktivitäten importieren",
+      "setup": "Wahoo-Verbindung verwalten",
+      "loading": "Aktivitäten werden geladen…",
+      "choose": "Aktivitäten auswählen. Der vorhandene Import prüft auf Duplikate.",
+      "empty": "Keine Aktivitäten gefunden.",
+      "running": "Import läuft. Bitte die Seite geöffnet lassen.",
+      "downloading": "FIT-Datei wird heruntergeladen…",
+      "processing": "Verarbeiten und speichern…",
+      "imported": "Importiert",
+      "skipped": "Durch vorhandene Importfilter übersprungen (z. B. Duplikat oder zu kurz)",
+      "failed": "Import fehlgeschlagen. Bitte erneut versuchen.",
+      "done": "Auswahl verarbeitet.",
+      "partial": "Auswahl mit Fehlern verarbeitet. Fehlgeschlagene Aktivitäten können erneut ausgewählt werden.",
+      "wahoo_unavailable": "Wahoo-Abruf fehlgeschlagen. Bitte Verbindung und Workout-Freigabe prüfen und erneut versuchen.",
+      "wahoo_file_unavailable": "Keine unterstützte FIT-Datei verfügbar."
     }
   },
   "login": {
@@ -1006,7 +1033,9 @@
     "microintervalSelectionDifference": "Abweichung zur Auswahl: {seconds} s",
     "segmentTypeMicrointervals": "Mikrointervalle",
     "microintervalWorkTimeShort": "BZ",
-    "microintervalWorkPowerShort": "BP"
+    "microintervalWorkPowerShort": "BP",
+    "addTrainingWahooTitle": "Von Wahoo importieren",
+    "addTrainingWahooCopy": "Workouts aus deinem Wahoo-Konto auswählen."
   },
   "segmentsPage": {
     "title": "Segmente",

@@ -1,7 +1,17 @@
 # Arbeitsstand
 
-Stand: 2026-10-31. Diese Datei hält Absprachen für folgende Sitzungen fest.
+Stand: 2026-11-01. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
+
+## Wahoo-Workout-Import (2026-11-01)
+
+- Ausdrücklich freigegebener Umfang umgesetzt: eigene Seite `/files/wahooImport`, Dashboard-Einstieg „Von Wahoo importieren“, Verbindungshinweis, Auswahl, Nachladen in 20er-Seiten, Überschreiboption und Einzelstatus. Auswahl/Status bleiben beim Nachladen erhalten; einzelne Fehler stoppen die restliche Auswahl nicht.
+- OAuth fordert jetzt `user_read workouts_read`; bestehende Verbindungen mit reinem Profilzugriff müssen getrennt und erneut verbunden werden. Keine zusätzliche Migration oder npm-Skripte/Abhängigkeiten.
+- `wahooImportService.js` und `/api/wahoo/activities[/:id/file]`: aktives angemeldetes Konto, benutzergebundene API-Zugriffe, feste API-Pfade, validierte IDs/Offsets und bereinigte Fehler. Bestehende Token-Erneuerung für API-Aufrufe wiederverwendet; Tokens bleiben serverseitig.
+- FIT-Download nur HTTPS von `cdn.wahooligan.com`, ohne OAuth-Header/Redirects, maximal 50 MiB/60 Sekunden und FIT-Headerprüfung. JSON-Limit für authentifizierte API-Aufrufe auf 1 MiB erweitert; Token-Austausch weiterhin 64 KiB. Andere Downloadhosts werden abgewiesen und müssen gegebenenfalls nach belegtem Live-Befund ergänzt werden.
+- Gemeinsame Auswahloberfläche in `garmin-import-ui.js` um Provider/Dateiformat erweitert; Wahoo übergibt FIT an `externalWorkoutImport`, bestehender Worker-/Speicherweg mit Duplikaten und Importfiltern. Neue Texte deutsch/englisch; vorhandene gemeinsame Texte in weiteren Sprachen übernommen. Anleitung aktualisiert, bereits vorhandene Dokumentationsänderungen erhalten.
+- Verifikation: Gesamtsuite **651/651 erfolgreich** mit freigegebenen lokalen Testports (Sandbox blockiert sonst `listen`). Neue Tests für Pagination, Benutzerbindung, Routenschutz, Fehlerbereinigung, CDN-/FIT-Prüfung, Auswahl/Fehlerfortsetzung und Rendering. Nach abschließender Textbereinigung zusätzlich 16 gezielte Tests erfolgreich. Syntax erfolgreich; ESLint ohne Fehler (71 bestehende Warnungen); Typprüfung weiterhin vier bekannte Fehler in unveränderten `start-all.js:39` und `MicroIntervalDetector.js:141`. `git diff --check` erfolgreich.
+- Offen: Live-Test der erweiterten Wahoo-Freigabe, tatsächlicher FIT-Downloadhost, Import/Duplikate/Überschreiben sowie visuelle Browserprüfung. Keine Migration oder Deployment ausgeführt. API-Vertrag anhand offizieller Wahoo-Referenz erneut geprüft.
 
 ## Wahoo-OAuth-Verbindung (2026-10-31)
 
@@ -11,7 +21,9 @@ Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 - Trennen löscht lokal Tokens und den laufenden OAuth-Versuch dieser Sitzung; kein Remote-Widerruf bei Wahoo. Oberfläche/Dokumentation erklären den zusätzlichen Widerruf im Wahoo-Konto. Endgültige Kontolöschung entfernt die Verbindung; Account-/Profilexporte enthalten keine Tokens.
 - Migration `src/migrations/090_user_wahoo_connections.sql` ausschließlich vorbereitet, **nicht ausgeführt**. Servervariablen `WAHOO_CLIENT_ID`, `WAHOO_CLIENT_SECRET`, `WAHOO_REDIRECT_URI`, `WAHOO_TOKEN_ENCRYPTION_KEY` erforderlich, keine Werte eingerichtet. Einrichtung/API/Grenzen in `docs/WAHOO_CONNECT.md`; offizielle Wahoo-Referenz geprüft.
 - Verifikation: Gesamtsuite 640/640 erfolgreich mit freigegebenen lokalen Testports; anschließend zusätzliche Prüfungen für Refresh-Fehler/fehlende Verbindung und Profil-Rendering in sechs Sprachen ergänzt, abschließend alle 13 Wahoo-Tests erfolgreich. Syntaxprüfung erfolgreich; gesamtes ESLint ohne Fehler (71 bestehende Warnungen). Typprüfung scheitert in unveränderten Dateien: `start-all.js:39` (`write`-Typ) und drei Null-Prüfungen in `MicroIntervalDetector.js:141`.
-- Noch offen: echte Wahoo-Anmeldung/Consent/Callback, reales Tokenformat, Refresh gegen Wahoo/PostgreSQL und visuelle Browserprüfung nach manueller Einrichtung. Kein Deployment durchgeführt. Früherer Platzhalter-Abschnitt unten dokumentiert den abgelösten Stand.
+- Benutzer bestätigt nach Einrichtung einen erfolgreichen Live-Test des Wahoo-Verbindungsablaufs (Anmeldung/Freigabe/Callback). Kein separater Live-Test durch den Agenten; lokale oder produktive Umgebung nicht ausdrücklich benannt. Konkrete Migration/Deployment-Ausführung und Tokenformat nicht separat geprüft.
+- Noch offen: automatische Token-Erneuerung gegen Wahoo/PostgreSQL sowie Trennen/erneutes Verbinden live prüfen. Damals war der Workout-Import noch nicht freigegeben/implementiert; inzwischen umgesetzt, siehe Abschnitt oben. Früherer Platzhalter-Abschnitt unten dokumentiert den abgelösten Stand.
+- Sitzungsabschluss: ausschließlich Live-Test-Bestätigung und offene Punkte dokumentiert; `git diff --check` erfolgreich.
 
 ## npm-Skript-Dokumentation (2026-10-31)
 

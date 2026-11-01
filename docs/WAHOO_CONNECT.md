@@ -1,7 +1,7 @@
 # Wahoo verbinden
 
-Stand: 2026-10-31. Implementiert ist der OAuth-Verbindungsablauf mit verschlüsselter
-Token-Verwaltung und lokalem Trennen im Profil. Der Workout-Import folgt separat.
+Stand: 2026-11-01. Implementiert sind OAuth-Verbindung mit verschlüsselter
+Token-Verwaltung, lokales Trennen im Profil und manueller Workout-Import.
 
 ## Einrichtung
 
@@ -22,7 +22,7 @@ Token-Verwaltung und lokalem Trennen im Profil. Der Workout-Import folgt separat
 5. App mit diesen Variablen neu starten. Im Profil „Mit Wahoo verbinden“ auswählen,
    bei Wahoo anmelden und den Zugriff bestätigen. Danach zeigt WOA den Status an.
 
-Client-Secret und Verschlüsselungsschlüssel gehören ausschließlich auf den Server..
+Client-Secret und Verschlüsselungsschlüssel gehören ausschließlich auf den Server.
 Den Verschlüsselungsschlüssel getrennt von der Datenbank für Wiederherstellungen
 sichern. Austausch ohne Umschlüsselung macht bestehende Tokens unlesbar.
 Keine zusätzlichen npm-Skripte oder Abhängigkeiten erforderlich.
@@ -46,8 +46,10 @@ Keine zusätzlichen npm-Skripte oder Abhängigkeiten erforderlich.
   Diese kann zusätzlich in den Wahoo-Kontoeinstellungen widerrufen werden.
 
 Alle Endpunkte setzen `Cache-Control: no-store` und `Referrer-Policy: no-referrer`.
-Es wird nur `user_read` angefordert; für späteren Workout-Import muss der Umfang
-um `workouts_read` erweitert und erneut autorisiert werden. Kein Hintergrundabruf.
+Es werden `user_read workouts_read` angefordert. Bereits verbundene Konten mit
+reinem Profilzugriff müssen im Profil getrennt und erneut verbunden werden.
+Falls nötig, auch die erlaubten Scopes im Wahoo Developer Portal erweitern.
+Kein Hintergrundabruf.
 Reverse-Proxy-/Access-Logs sollten OAuth-Queryparameter grundsätzlich ausblenden.
 
 ## Token-Verwaltung
@@ -66,23 +68,58 @@ keine Erneuerung beim bloßen Laden des Profils. Der Service ist derzeit noch
 kein eigener öffentlicher API-Endpunkt. Bei widerrufenen/ungültigen Tokens ist
 Trennen und erneutes Verbinden erforderlich; kein automatischer 401-Retry.
 
-Feste Wahoo-Endpunkte, keine HTTP-Redirects, 15 Sekunden Zeitlimit je Anfrage und
-64 KiB Antwortlimit. Fehlerantworten werden verworfen. Nach Wahoos Vorgabe löst
+Feste Wahoo-Endpunkte, keine HTTP-Redirects und 15 Sekunden Zeitlimit je API-Anfrage.
+Antwortlimits: 64 KiB beim Token-Austausch, 1 MiB bei authentifizierten API-Abrufen. Fehlerantworten werden verworfen. Nach Wahoos Vorgabe löst
 erst ein erfolgreicher API-Aufruf mit erneuertem Token die Ablösung vorheriger
 Tokens aus; deshalb keine vorsorglichen Erneuerungen ohne API-Bedarf.
 
 Grundlage: [offizielle Wahoo-API-Referenz](https://cloud-api.wahooligan.com/),
-am 2026-10-31 geprüft (OAuth, Scopes, Token-Limits und Deauthorization).
+am 2026-11-01 erneut geprüft (OAuth, Scopes, Token-Limits und Deauthorization).
+
+## Workouts importieren
+
+Unter „Training hinzufügen“ → „Von Wahoo importieren“ öffnet sich
+`/files/wahooImport`. Ohne gespeicherte Verbindung führt ein Link zum Profil.
+Nach dem Laden können Workouts ausgewählt und ältere mit „Weitere 20 laden“
+nachgeladen werden. Auswahl und Einzelstatus bleiben beim Nachladen erhalten.
+Die Seite während des Imports geöffnet lassen.
+
+- `GET /api/wahoo/activities?start=0`: neueste 20 Workouts; `start` ist ein
+  nichtnegatives Vielfaches von 20 und wird auf Wahoos `page`/`per_page` abgebildet.
+  Liefert nur ID, Name, Startzeit und Dauer (sowie derzeit leeres `sport`).
+- `GET /api/wahoo/activities/:id/file`: lädt die Workout-Zusammenfassung des
+  angemeldeten Benutzers und deren FIT-Datei. OAuth-Tokens und Download-URLs
+  werden nicht an den Browser weitergegeben. Beide Endpunkte benötigen ein
+  angemeldetes aktives Konto und erlauben keinen HTTP-Cache.
+- Downloads nur per HTTPS von `cdn.wahooligan.com`, ohne Zugangsdaten oder
+  Redirects, mit 60 Sekunden Zeitlimit und maximal 50 MiB. Andere Hosts werden
+  abgewiesen; tatsächliche Wahoo-Downloadhosts sind im Live-Test zu bestätigen.
+  FIT-Header werden vor der Übergabe geprüft. Workouts ohne verfügbare FIT-Datei
+  erhalten einen Einzelstatus; die restliche Auswahl läuft weiter.
+- FIT-Verarbeitung und Speicherung nutzen den bestehenden Browser-Worker und
+  Importweg mit Duplikatprüfung, Importfiltern und optionalem Überschreiben.
+  Eine volle Seite bietet weiteres Nachladen an; gegebenenfalls bestätigt erst
+  eine zusätzliche leere Seite das Listenende.
+
+Keine weitere Migration, Abhängigkeit oder neues npm-Skript erforderlich.
 
 ## Prüfungen und noch offene Live-Prüfung
 
-Automatisierte Tests stehen in `tests/wahoo-callback.test.js` und
+Automatisierte Importtests stehen in `tests/wahoo-import.test.js`,
+`tests/wahoo-import-ui.test.js` und `tests/import-pages.test.js`.
+Verbindungstests stehen in `tests/wahoo-callback.test.js` und
 `tests/wahoo-connection.test.js`; `tests/wahoo-profile.test.js` prüft das Rendering
 in allen sechs Sprachen. Die Service-/Routentests verwenden simulierte Wahoo-Antworten und
 Datenbankzugriffe; HTTP-Routentests verwenden ausschließlich einen lokalen Testserver.
 
-Noch erforderlich nach manueller Einrichtung: echter Wahoo-Consent/Callback,
-Trennen und erneutes Verbinden sowie Token-Erneuerung gegen Wahoo und PostgreSQL.
-Eine visuelle Browserprüfung, ein Deployment und die Migration wurden vom Agenten
-nicht durchgeführt. Der tatsächlich gewährte Scope und das produktive
-Token-Antwortformat müssen dabei live bestätigt werden.
+Der Benutzer hat am 2026-10-31 nach Einrichtung den erfolgreichen Live-Test des
+Verbindungsablaufs (Anmeldung/Freigabe/Callback) bestätigt. Die Testumgebung
+(lokal oder Produktion) wurde nicht ausdrücklich benannt; kein separater
+Live-Test durch den Agenten.
+
+Noch offen: Trennen und erneutes Verbinden sowie automatische Token-Erneuerung
+gegen Wahoo und PostgreSQL. Eine visuelle Browserprüfung, ein Deployment und
+die Migration wurden vom Agenten nicht durchgeführt. Tatsächlich gewährter
+Scope und konkretes Token-Antwortformat wurden nicht separat geprüft.
+
+Der neue Workout-Import und die erweiterte Freigabe sind noch nicht live geprüft.

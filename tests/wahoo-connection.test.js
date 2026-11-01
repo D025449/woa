@@ -33,7 +33,7 @@ test("Wahoo authorization has fixed endpoint, minimal scope and validated config
   configure(t);
   const url = new URL(Service.authorizationUrl("example-state"));
   assert.equal(url.origin, "https://api.wahooligan.com");
-  assert.equal(url.searchParams.get("scope"), "user_read");
+  assert.equal(url.searchParams.get("scope"), "user_read workouts_read");
   assert.equal(url.searchParams.get("state"), "example-state");
   assert.equal(url.searchParams.get("client_secret"), null);
   for (const invalid of ["https://woa.example/other", "https://woa.example/auth/wahoo/callback?x=1", "http://woa.example/auth/wahoo/callback"]) {

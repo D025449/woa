@@ -1,3 +1,4 @@
+import WahooConnectionService from "../services/wahooConnectionService.js";
 import GarminConnectionService from "../services/garminConnectionService.js";
 import UserWeightHistoryService from "../services/userWeightHistoryService.js";
 import express from "express";
@@ -166,6 +167,20 @@ router.get('/garminImport', checkAuth, async (req, res, next) => {
       userInfo: req.user,
       isAuthenticated: req.isAuthenticated,
       garminConfigured: connection.configured
+    });
+  } catch (error) { next(error); }
+});
+
+router.get('/wahooImport', checkAuth, async (req, res, next) => {
+  if (!req?.user?.id) {
+    return res.redirect(`/login?redirect=${encodeURIComponent(req.originalUrl)}`);
+  }
+  try {
+    const connection = await WahooConnectionService.status(req.user.id);
+    res.render('wahooImport', {
+      userInfo: req.user,
+      isAuthenticated: req.isAuthenticated,
+      wahooConfigured: connection.configured
     });
   } catch (error) { next(error); }
 });

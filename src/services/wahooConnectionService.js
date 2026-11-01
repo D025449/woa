@@ -21,7 +21,7 @@ export function decryptWahooTokens(userId, envelope) {
   decipher.setAuthTag(Buffer.from(tag, "base64"));
   return JSON.parse(Buffer.concat([decipher.update(Buffer.from(data, "base64")), decipher.final()]).toString("utf8"));
 }
-async function jsonRequest(url, options) {
+async function jsonRequest(url, options, maxBytes = 65536) {
   try {
     const response = await fetch(url, { ...options, redirect: "error", signal: AbortSignal.timeout(15000) });
     if (!response.ok) { await response.body?.cancel(); throw new Error("Wahoo request failed"); }
@@ -33,7 +33,7 @@ async function jsonRequest(url, options) {
         const { done, value } = await reader.read();
         if (done) break;
         size += value.length;
-        if (size > 65536) throw new Error("Wahoo response too large");
+        if (size > maxBytes) throw new Error("Wahoo response too large");
         chunks.push(Buffer.from(value));
       }
     } finally { await reader.cancel(); }
@@ -59,7 +59,7 @@ export default class WahooConnectionService {
     const { clientId, redirectUri } = this.config();
     const url = new URL("https://api.wahooligan.com/oauth/authorize");
     url.search = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri,
-      scope: "user_read", response_type: "code", state }).toString();
+      scope: "user_read workouts_read", response_type: "code", state }).toString();
     return url.href;
   }
   static async exchange(parameters) {
@@ -93,6 +93,9 @@ export default class WahooConnectionService {
   // Internal operation: credentials never leave the service. Row locking
   // serializes refreshes across app processes and coordinates with disconnect.
   static async readUser(userId) {
+    return this.apiRequest(userId, "/v1/user");
+  }
+  static async apiRequest(userId, path) {
     const client = await pool.connect();
     let committed = false;
     try {
@@ -108,9 +111,9 @@ export default class WahooConnectionService {
       // Preserve rotated credentials even if the following API request fails.
       await client.query("COMMIT");
       committed = true;
-      return await jsonRequest("https://api.wahooligan.com/v1/user", {
+      return await jsonRequest(`https://api.wahooligan.com${path}`, {
         headers: { Authorization: `Bearer ${tokens.accessToken}`, Accept: "application/json" }
-      });
+      }, 1024 * 1024);
     } catch {
       if (!committed) await client.query("ROLLBACK");
       throw new Error("Wahoo request failed");

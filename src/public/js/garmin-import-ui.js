@@ -1,11 +1,12 @@
-export function initializeGarminImport({ isBusy, setBusy, importFile }) {
-  const load = document.getElementById("garmin-load");
+export function initializeGarminImport({ isBusy, setBusy, importFile }, { provider = "garmin", extension = "zip" } = {}) {
+  const element = suffix => document.getElementById(`${provider}-${suffix}`);
+  const load = element("load");
   if (!load) return;
-  const messages = JSON.parse(document.getElementById("garmin-import-messages").textContent);
-  const list = document.getElementById("garmin-activities");
-  const status = document.getElementById("garmin-import-status");
-  const start = document.getElementById("garmin-import-selected");
-  const more = document.getElementById("garmin-load-more");
+  const messages = JSON.parse(element("import-messages").textContent);
+  const list = element("activities");
+  const status = element("import-status");
+  const start = element("import-selected");
+  const more = element("load-more");
   let nextStart = 0;
   let hasMore = false;
   let rows = [];
@@ -21,7 +22,7 @@ export function initializeGarminImport({ isBusy, setBusy, importFile }) {
   }
 
   async function request(path, zip = false) {
-    const response = await fetch(`/api/garmin/${path}`, { credentials: "same-origin", signal: AbortSignal.timeout(75_000) });
+    const response = await fetch(`/api/${provider}/${path}`, { credentials: "same-origin", signal: AbortSignal.timeout(75_000) });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
       const diagnostic = payload.diagnostic;
@@ -100,7 +101,7 @@ export function initializeGarminImport({ isBusy, setBusy, importFile }) {
           row.result.textContent = messages.downloading;
           const blob = await request(`activities/${encodeURIComponent(row.activity.id)}/file`, true);
           row.result.textContent = messages.processing;
-          const outcome = await importFile(new File([blob], `${row.activity.id}.zip`, { type: "application/zip" }));
+          const outcome = await importFile(new File([blob], `${row.activity.id}.${extension}`, { type: extension === "fit" ? "application/vnd.ant.fit" : "application/zip" }));
           row.result.textContent = messages[outcome.status] || messages.failed;
           if (outcome.status === "failed") failed++;
           else row.checkbox.checked = false;
