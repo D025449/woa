@@ -1,6 +1,21 @@
 import { randomBytes, createCipheriv, createDecipheriv } from "node:crypto";
 import pool from "./database.js";
 
+function wahooUserId(profile) {
+  const value = profile?.id;
+  if ((typeof value !== "string" && typeof value !== "number") ||
+      (typeof value === "number" && !Number.isSafeInteger(value)) ||
+      !/^[1-9][0-9]{0,18}$/.test(String(value)) || BigInt(value) > 9223372036854775807n) {
+    throw new Error("Wahoo request failed");
+  }
+  return String(value);
+}
+function authenticatedRequest(tokens, path) {
+  return jsonRequest(`https://api.wahooligan.com${path}`, {
+    headers: { Authorization: `Bearer ${tokens.accessToken}`, Accept: "application/json" }
+  }, 1024 * 1024);
+}
+
 function key() {
   const value = process.env.WAHOO_TOKEN_ENCRYPTION_KEY || "";
   if (!/^[a-f0-9]{64}$/i.test(value)) throw new Error("Wahoo storage unavailable");
@@ -78,11 +93,14 @@ export default class WahooConnectionService {
       expiresAt: Date.now() + data.expires_in * 1000 };
   }
   static async connect(userId, code) {
-    const tokens = await this.exchange({ grant_type: "authorization_code", code });
-    await pool.query(`INSERT INTO user_wahoo_connections (user_id, tokens_encrypted)
-      VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE
-      SET tokens_encrypted = EXCLUDED.tokens_encrypted, updated_at = NOW()`,
-    [userId, encryptWahooTokens(userId, tokens)]);
+    try {
+      const tokens = await this.exchange({ grant_type: "authorization_code", code });
+      const id = wahooUserId(await authenticatedRequest(tokens, "/v1/user"));
+      await pool.query(`INSERT INTO user_wahoo_connections (user_id, tokens_encrypted, wahoo_user_id)
+        VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE
+        SET tokens_encrypted = EXCLUDED.tokens_encrypted, wahoo_user_id = EXCLUDED.wahoo_user_id, updated_at = NOW()`,
+      [userId, encryptWahooTokens(userId, tokens), id]);
+    } catch { throw new Error("Wahoo request failed"); }
   }
   static async status(userId) {
     let available = true;
@@ -100,20 +118,29 @@ export default class WahooConnectionService {
     let committed = false;
     try {
       await client.query("BEGIN");
-      const { rows } = await client.query("SELECT tokens_encrypted FROM user_wahoo_connections WHERE user_id = $1 FOR UPDATE", [userId]);
+      const { rows } = await client.query("SELECT tokens_encrypted, wahoo_user_id FROM user_wahoo_connections WHERE user_id = $1 FOR UPDATE", [userId]);
       if (!rows.length) throw new Error("Wahoo is not connected");
       let tokens = decryptWahooTokens(userId, rows[0].tokens_encrypted);
       if (tokens.expiresAt <= Date.now() + 60000) {
         tokens = await this.exchange({ grant_type: "refresh_token", refresh_token: tokens.refreshToken });
+        rows[0].tokens_encrypted = encryptWahooTokens(userId, tokens);
         await client.query("UPDATE user_wahoo_connections SET tokens_encrypted = $2, updated_at = NOW() WHERE user_id = $1",
-          [userId, encryptWahooTokens(userId, tokens)]);
+          [userId, rows[0].tokens_encrypted]);
       }
       // Preserve rotated credentials even if the following API request fails.
       await client.query("COMMIT");
       committed = true;
-      return await jsonRequest(`https://api.wahooligan.com${path}`, {
-        headers: { Authorization: `Bearer ${tokens.accessToken}`, Accept: "application/json" }
-      }, 1024 * 1024);
+      let profile;
+      if (rows[0].wahoo_user_id == null) {
+        profile = await authenticatedRequest(tokens, "/v1/user");
+        const id = wahooUserId(profile);
+        // Do not attach a stale profile after disconnect/reconnect or token rotation.
+        const result = await client.query(`UPDATE user_wahoo_connections SET wahoo_user_id = $2
+          WHERE user_id = $1 AND tokens_encrypted = $3 AND wahoo_user_id IS NULL`,
+        [userId, id, rows[0].tokens_encrypted]);
+        if (result.rowCount !== 1) throw new Error("Wahoo request failed");
+      }
+      return path === "/v1/user" && profile ? profile : await authenticatedRequest(tokens, path);
     } catch {
       if (!committed) await client.query("ROLLBACK");
       throw new Error("Wahoo request failed");

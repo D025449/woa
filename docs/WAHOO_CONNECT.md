@@ -29,6 +29,27 @@ Keine zusätzlichen npm-Skripte oder Abhängigkeiten erforderlich.
 
 ## Ablauf und Schnittstellen
 
+### Wahoo-Benutzer-ID als Vorbereitung für Webhooks
+
+`src/migrations/091_wahoo_user_id.sql` nach Migration 090 manuell ausführen.
+Sie ergänzt die nullable Spalte `wahoo_user_id` (positive BIGINT, eindeutig über
+alle Verbindungen). Der Benutzer hat die manuelle Ausführung am 2026-11-01
+bestätigt; vom Agenten weder ausgeführt noch gegen die Datenbank geprüft.
+
+Beim Verbinden wird nach dem Token-Austausch `/v1/user` abgerufen und dessen ID
+zusammen mit den Tokens gespeichert. Bei bestehenden Verbindungen mit `NULL`
+wird das Profil beim nächsten Wahoo-API-Abruf (z. B. Laden der Trainingsliste)
+einmal zusätzlich abgerufen und die ID nachgetragen. Erneutes Verbinden ist
+allein dafür nicht erforderlich; das bloße Öffnen des WOA-Profils genügt nicht.
+Es werden keine weiteren Wahoo-Profildaten gespeichert. Ungültige IDs,
+Profilabruf-Fehler und bereits einem anderen WOA-Konto zugeordnete IDs führen
+zu einer bereinigten Fehlermeldung. Bestehende Verbindungen werden beim
+fehlgeschlagenen Neuverbinden nicht überschrieben. Beim Nachtragen verhindert
+ein Vergleich der verschlüsselten Tokens das Überschreiben einer inzwischen
+geänderten Verbindung; gegebenenfalls den Abruf wiederholen. Bereits rotierte
+Tokens bleiben auch bei anschließendem Fehler gespeichert.
+Webhooks und die zusätzliche Berechtigung `offline_data` sind noch nicht implementiert.
+
 - `GET /auth/wahoo/status`: angemeldet, liefert nur `configured`, `available` und
   `updatedAt` in `data`. `configured` bedeutet gespeicherte Verbindung, keine
   Live-Prüfung der Wahoo-Freigabe. `available` prüft die Server-Konfiguration.
@@ -101,7 +122,8 @@ Die Seite während des Imports geöffnet lassen.
   Eine volle Seite bietet weiteres Nachladen an; gegebenenfalls bestätigt erst
   eine zusätzliche leere Seite das Listenende.
 
-Keine weitere Migration, Abhängigkeit oder neues npm-Skript erforderlich.
+Für den Import selbst keine weitere Migration erforderlich; die oben beschriebene
+ID-Persistierung setzt Migration 091 voraus. Keine neue Abhängigkeit oder neues npm-Skript.
 
 ## Prüfungen und noch offene Live-Prüfung
 

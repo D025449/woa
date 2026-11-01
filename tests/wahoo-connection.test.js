@@ -45,6 +45,10 @@ test("Wahoo authorization has fixed endpoint, minimal scope and validated config
 test("Wahoo code exchange sends credentials only in POST body and persists ciphertext scoped to user", async t => {
   configure(t);
   t.mock.method(globalThis, "fetch", async (url, options) => {
+    if (url.endsWith("/v1/user")) {
+      assert.equal(options.headers.Authorization, "Bearer new-access");
+      return Response.json({ id: 60462 });
+    }
     assert.equal(url, "https://api.wahooligan.com/oauth/token");
     assert.equal(options.method, "POST");
     assert.equal(options.redirect, "error");
@@ -56,6 +60,7 @@ test("Wahoo code exchange sends credentials only in POST body and persists ciphe
   t.mock.method(pool, "query", async (sql, params) => {
     assert.match(sql, /INSERT INTO user_wahoo_connections/);
     assert.equal(params[0], 42);
+    assert.equal(params[2], "60462");
     const stored = decryptWahooTokens(42, params[1]);
     assert.equal(stored.accessToken, "new-access");
     assert.equal(stored.refreshToken, "new-refresh");
@@ -98,7 +103,7 @@ for (const expired of [false, true]) {
     const client = {
       async query(sql, params) {
         calls.push([sql, params]);
-        if (sql.startsWith("SELECT")) return { rows: [{ tokens_encrypted: encryptWahooTokens(42, { ...tokens, expiresAt: expired ? 0 : Date.now() + 3600000 }) }] };
+        if (sql.startsWith("SELECT")) return { rows: [{ wahoo_user_id: "123", tokens_encrypted: encryptWahooTokens(42, { ...tokens, expiresAt: expired ? 0 : Date.now() + 3600000 }) }] };
         return { rows: [] };
       },
       release() { calls.push(["release"]); }
@@ -156,3 +161,77 @@ test("Wahoo missing connection rolls back without external requests", async t =>
   assert.equal(calls.at(-2), "ROLLBACK");
   assert.equal(calls.at(-1), "release");
 });
+
+for (const expired of [false, true]) {
+  test(`Wahoo backfills missing ID during workout access with ${expired ? "refreshed" : "valid"} tokens`, async t => {
+    configure(t);
+    let envelope = encryptWahooTokens(42, { ...tokens, expiresAt: expired ? 0 : Date.now() + 3600000 });
+    const calls = [];
+    const client = {
+      async query(sql, params) {
+        calls.push([sql, params]);
+        if (sql.startsWith("SELECT")) return { rows: [{ tokens_encrypted: envelope, wahoo_user_id: null }] };
+        if (sql.includes("SET tokens_encrypted")) envelope = params[1];
+        if (sql.includes("SET wahoo_user_id")) {
+          assert.deepEqual(params, [42, "9223372036854775807", envelope]);
+          assert.match(sql, /tokens_encrypted = \$3 AND wahoo_user_id IS NULL/);
+          return { rowCount: 1 };
+        }
+        return { rows: [] };
+      },
+      release() {}
+    };
+    t.mock.method(pool, "connect", async () => client);
+    const urls = [];
+    t.mock.method(globalThis, "fetch", async url => {
+      urls.push(url);
+      if (url.endsWith("/oauth/token")) return Response.json(response());
+      if (url.endsWith("/v1/user")) return Response.json({ id: "9223372036854775807" });
+      return Response.json({ workouts: [] });
+    });
+    assert.deepEqual(await Service.apiRequest(42, "/v1/workouts"), { workouts: [] });
+    assert.equal(urls.filter(url => url.endsWith("/v1/user")).length, 1);
+    assert.ok(calls.findIndex(([sql]) => sql === "COMMIT") < calls.findIndex(([sql]) => sql.includes("SET wahoo_user_id")));
+  });
+}
+
+test("Wahoo rejects invalid profile IDs before storing a connection", async t => {
+  configure(t);
+  t.mock.method(pool, "query", async () => assert.fail("Invalid IDs must not be stored"));
+  for (const id of [null, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, "9223372036854775808", "001", {}, "1; DROP TABLE users"]) {
+    t.mock.method(globalThis, "fetch", async url => Response.json(url.endsWith("/oauth/token") ? response() : { id }));
+    await assert.rejects(Service.connect(42, "code"), { message: "Wahoo request failed" });
+  }
+});
+
+test("Wahoo connection uniqueness errors are sanitized", async t => {
+  configure(t);
+  t.mock.method(globalThis, "fetch", async url => Response.json(url.endsWith("/oauth/token") ? response() : { id: 123 }));
+  t.mock.method(pool, "query", async () => { throw new Error("duplicate key: private provider ID"); });
+  await assert.rejects(Service.connect(42, "code"), { message: "Wahoo request failed" });
+});
+
+for (const failure of ["changed", "conflict", "invalid"]) {
+  test(`Wahoo backfill fails safely when ${failure}`, async t => {
+    configure(t);
+    let released = false;
+    const client = {
+      async query(sql) {
+        if (sql.startsWith("SELECT")) return { rows: [{ tokens_encrypted: encryptWahooTokens(42, { ...tokens, expiresAt: Date.now() + 3600000 }), wahoo_user_id: null }] };
+        if (sql.includes("SET wahoo_user_id")) {
+          if (failure === "conflict") throw new Error("private duplicate ID");
+          return { rowCount: 0 };
+        }
+        return { rows: [] };
+      },
+      release() { released = true; }
+    };
+    t.mock.method(pool, "connect", async () => client);
+    t.mock.method(globalThis, "fetch", async url => {
+      assert.ok(url.endsWith("/v1/user"));
+      return Response.json({ id: failure === "invalid" ? 0 : 123 });
+    });
+    await assert.rejects(Service.apiRequest(42, "/v1/workouts"), { message: "Wahoo request failed" });
+    assert.equal(released, true);
+  });
+}

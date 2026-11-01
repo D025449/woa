@@ -3,6 +3,15 @@
 Stand: 2026-11-01. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Wahoo-ID für Webhooks vorbereiten (2026-11-01)
+
+- Freigegebene Reihenfolge: zuerst Migrations-SQL bereitstellen, Benutzer führt es aus; anschließend Code zum Befüllen umsetzen.
+- `091_wahoo_user_id.sql` vorbereitet: nullable positive BIGINT-Spalte `wahoo_user_id` in `user_wahoo_connections`, UNIQUE für eindeutige Wahoo-/WOA-Zuordnung. Bestehende Verbindungen bleiben zunächst NULL. Anleitung ergänzt.
+- Benutzer bestätigt manuelle Ausführung von Migration 091; keine separate Datenbankprüfung und keine Ausführung durch den Agenten.
+- Befüllen implementiert: beim Verbinden authentifiziertes `/v1/user` lesen und validierte ID atomar mit Tokens speichern. Bei NULL beim nächsten Wahoo-API-Abruf nachtragen (bei `/v1/user` kein doppelter Abruf); kein Abruf beim bloßen Profilöffnen. Nur ID speichern, bestehende Scopes genügen.
+- Positive BIGINT-ID als String ohne unsichere Zahlenkonvertierung; UNIQUE-Konflikte/ungültige Profile bereinigt abweisen. Beim Nachtragen Tokenhülle vergleichen gegen zwischenzeitliches Trennen/Neuverbinden/Refresh; rotierte Tokens bleiben bei Folgefehler erhalten. Anleitung aktualisiert. Webhook-Empfang weiterhin nicht implementiert.
+- Verifikation: 26 gezielte Wahoo-Tests erfolgreich mit getrennten Testprozessen und freigegebenen lokalen HTTP-Testports (Sandbox sonst EPERM). Darunter neue Fälle für Speichern, Nachtragen mit/ohne Refresh, ungültige IDs, Konflikte und zwischenzeitliche Verbindungsänderung. Gemeinsamer Lauf ohne Prozessisolation hatte eine Mock-Wechselwirkung; regulärer isolierter Lauf erfolgreich. Service-Syntax, gezieltes ESLint und `git diff --check` erfolgreich. Kein Live-Test, Deployment oder Gesamtsuitenlauf für diese Ergänzung.
+
 ## Wahoo-Workout-Import (2026-11-01)
 
 - Ausdrücklich freigegebener Umfang umgesetzt: eigene Seite `/files/wahooImport`, Dashboard-Einstieg „Von Wahoo importieren“, Verbindungshinweis, Auswahl, Nachladen in 20er-Seiten, Überschreiboption und Einzelstatus. Auswahl/Status bleiben beim Nachladen erhalten; einzelne Fehler stoppen die restliche Auswahl nicht.
