@@ -149,7 +149,19 @@ gegen Wahoo und PostgreSQL. Eine visuelle Browserprüfung, ein Deployment und
 die Migration wurden vom Agenten nicht durchgeführt. Tatsächlich gewährter
 Scope und konkretes Token-Antwortformat wurden nicht separat geprüft.
 
-Der neue Workout-Import und die erweiterte Freigabe sind noch nicht live geprüft.
+Am 2026-11-01 bestätigt der Benutzer den vollständigen automatischen Live-Import:
+Webhook empfangen und zugeordnet, Verarbeitung nach zunächst fehlgeschlagenem
+Versuch später `completed`, ungefähr sechsminütiges Training in WOA sichtbar.
+Damit ist der automatische Ablauf einschließlich Wiederholung für diesen Test
+bestätigt. Kein separater Live-Test durch den Agenten; Testumgebung (lokal oder
+Produktion), konkrete Freigabeantwort und Downloadhost wurden nicht separat geprüft.
+Der manuelle Workout-Import ist dadurch nicht separat live bestätigt.
+
+Ein vorheriger Test mit ungefähr 3,5 Minuten erhielt `skipped`. Die Mindestlänge
+von 300 Datensätzen ist eine plausible Ursache, aber der konkrete Überspringgrund
+wird derzeit nicht gespeichert. Auch die Ursache des ersten fehlgeschlagenen
+Versuchs beim längeren Training bleibt offen: Eine noch nicht verfügbare FIT-Datei
+ist eine Vermutung, kein nachgewiesener Wahoo-Fehler.
 
 ## Webhooks und automatischer Import
 
@@ -198,6 +210,15 @@ von außen oder den Betriebszustand des Workers.
   Wartezeiten von 30, 120, 480 und 1.920 Sekunden. Fehlercodes bleiben bereinigt;
   endgültige Fehler stehen als `failed` im Auftragseingang. Keine eigene
   Fehler-/Wiederholungsoberfläche in diesem Umfang.
+- Jeder erneute Verarbeitungsversuch startet nach erfolgreicher Verbindungsprüfung
+  erneut `GET /v1/workouts/<workout_id>/workout_summary` mit dem OAuth-Token des
+  zugeordneten Benutzers. Aus der aktuellen Antwort wird der FIT-Dateilink gelesen
+  und die Datei erneut vom zugelassenen CDN geladen. Es wird keine alte
+  Download-Adresse zwischengespeichert. Schlägt bereits der Zusammenfassungsabruf
+  fehl oder fehlt der Dateilink, erfolgt in diesem Versuch kein FIT-Download.
+  Die Wiederholung verwendet den gespeicherten Auftrag; Wahoo muss dafür keinen
+  weiteren Webhook senden. Dies ist unabhängig von Wahoos Wiederholung bei
+  fehlender HTTP-200-Empfangsbestätigung.
 - Vor Download und vor Speicherung werden Wahoo-ID, aktivierte Option,
   Offline-Freigabe und aktiver Kontostatus geprüft. Die letzte Prüfung sperrt
   Konto/Verbindung während des Speicherns gegen Änderungen. Nach Deaktivieren
@@ -222,5 +243,7 @@ von außen oder den Betriebszustand des Workers.
 
 Grundlage: [Wahoo-Webhooks](https://cloud-api.wahooligan.com/#webhooks).
 Automatisierte Prüfungen stehen zusätzlich in `tests/wahoo-webhook.test.js`
-und `tests/wahoo-settings-ui.test.js`. Live-Zustellung, öffentliche HTTPS-Adresse,
-Wahoo-Freigabe und Verarbeitung gegen PostgreSQL/Redis sind separat zu prüfen.
+und `tests/wahoo-settings-ui.test.js`. Der erfolgreiche Live-Ablauf ist oben als
+Benutzerbestätigung dokumentiert. Weiter offen bleiben insbesondere langfristige
+Zustellung bei Inaktivität/Tokenablauf sowie gesonderte Live-Prüfungen von
+Duplikaten, Trennen/Deaktivieren und Wiederanlauf nach Prozessabbruch.
