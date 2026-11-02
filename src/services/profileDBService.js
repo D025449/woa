@@ -121,7 +121,8 @@ export default class ProfileDBService {
     const displayName = toNullableString(payload.displayName, 100);
     const phone = toNullableString(payload.phone, 50);
     const dateOfBirth = toNullableString(payload.dateOfBirth, 10);
-    const weightKg = toNullableNumber(payload.weightKg);
+    const weightKg = typeof payload.weightKg === "number" || typeof payload.weightKg === "string"
+      ? toNullableNumber(payload.weightKg) : null;
     const heightCm = toNullableNumber(payload.heightCm);
     const addressLine1 = toNullableString(payload.addressLine1, 255);
     const addressLine2 = toNullableString(payload.addressLine2, 255);
@@ -140,8 +141,8 @@ export default class ProfileDBService {
       throw error;
     }
 
-    if (weightKg != null && (weightKg <= 0 || weightKg > 500)) {
-      const error = new Error("Gewicht liegt außerhalb des erlaubten Bereichs.");
+    if (weightKg == null || weightKg <= 0 || weightKg > 500) {
+      const error = new Error("Profilgewicht ist erforderlich und muss größer als 0 und höchstens 500 kg sein.");
       error.statusCode = 400;
       throw error;
     }

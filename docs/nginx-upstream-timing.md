@@ -1,4 +1,4 @@
-# Nginx Upstream Timing fuer Workout-Open Analyse
+# Nginx Upstream Timing für Workout-Open Analyse
 
 Ziel: sichtbar machen, wo zwischen Browser, Nginx und Node Zeit verloren geht.
 
@@ -27,7 +27,7 @@ Bedeutung:
 - `uht`: Zeit bis der erste Header vom Upstream kommt
 - `urt`: komplette Upstream-Zeit
 
-## 2. Eigenes Access-Log fuer die App aktivieren
+## 2. Eigenes Access-Log für die App aktivieren
 
 Im relevanten `server { ... }`-Block oder im passenden `location / { ... }`:
 
@@ -37,9 +37,9 @@ access_log /var/log/nginx/cwa24-access.log upstream_timing;
 
 Wenn du nur den App-Traffic separat sehen willst, ist das meist die beste Stelle.
 
-## 3. Optional: dediziert fuer Workout-Open Requests loggen
+## 3. Optional: dediziert für Workout-Open Requests loggen
 
-Wenn du die Logs nur fuer die Workout-Open-Requests enger schneiden willst:
+Wenn du die Logs nur für die Workout-Open-Requests enger schneiden willst:
 
 ```nginx
 map $request_uri $log_workout_open {
@@ -87,10 +87,10 @@ Beispiel:
 rt=0.248 uct=0.000 uht=0.007 urt=0.007
 ```
 
-Dann bedeutet das ungefaehr:
+Dann bedeutet das ungefähr:
 
 - Node war schnell (`uht`/`urt` sehr klein)
-- aber Nginx-Request insgesamt war deutlich laenger (`rt`)
+- aber Nginx-Request insgesamt war deutlich länger (`rt`)
 - also liegt die Zeit eher vor oder nach dem Upstream:
   - Client-Netz
   - TLS
@@ -105,14 +105,14 @@ rt=0.255 uct=0.001 uht=0.190 urt=0.191
 
 Dann wartet Nginx wirklich lange auf Node bzw. die App.
 
-## 7. Empfehlung fuer deinen Fall
+## 7. Empfehlung für deinen Fall
 
-Da dein PM2-Log fuer `/workouts/:id/open` aktuell nur etwa `5-7 ms` zeigt, ist die wahrscheinlichste Erwartung:
+Da dein PM2-Log für `/workouts/:id/open` aktuell nur etwa `5-7 ms` zeigt, ist die wahrscheinlichste Erwartung:
 
 - `uht` und `urt` klein
-- `rt` deutlich groesser
+- `rt` deutlich größer
 
-Wenn das so rauskommt, brauchen wir nicht weiter im Node-Code zu suchen, sondern muessen auf:
+Wenn das so rauskommt, brauchen wir nicht weiter im Node-Code zu suchen, sondern müssen auf:
 
 - Netzwerk / Bandbreite / RTT
 - TLS / Keep-Alive
@@ -120,12 +120,12 @@ Wenn das so rauskommt, brauchen wir nicht weiter im Node-Code zu suchen, sondern
 
 ## 8. Sinnvolle Folgeanalyse
 
-Wenn die Upstream-Zeiten klein sind, als naechstes pruefen:
+Wenn die Upstream-Zeiten klein sind, als nächstes prüfen:
 
-1. HTTP/2 fuer TLS-Server aktiv?
+1. HTTP/2 für TLS-Server aktiv?
 2. Keep-Alive zwischen Client und Nginx aktiv?
 3. Keep-Alive zwischen Nginx und Node aktiv?
-4. Unnoetige Response-Kompression fuer kleine JSON-Antworten deaktivieren oder gegenmessen
+4. Unnötige Response-Kompression für kleine JSON-Antworten deaktivieren oder gegenmessen
 5. Browser DevTools:
    - `Waiting (TTFB)`
    - `Content Download`

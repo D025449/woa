@@ -1,0 +1,61 @@
+<section class="profile-surface ui-surface">
+    <div class="profile-section-header ui-section-header">
+        <h2 class="profile-section-title ui-title"><%= t("profile.sectionProfileTitle") %></h2>
+        <p class="profile-section-copy ui-copy"><%= t("profile.sectionProfileCopy") %></p>
+    </div>
+
+    <form id="profile-form" class="profile-form">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label" for="profile-display-name"><%= t("profile.displayName") %></label>
+                <input class="form-control" id="profile-display-name" name="displayName" maxlength="100">
+            </div>
+            <div class="col-md-6">
+                <label class="form-label" for="profile-email"><%= t("profile.email") %></label>
+                <input class="form-control" id="profile-email" name="email" readonly>
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label" for="profile-phone"><%= t("profile.phone") %></label>
+                <input class="form-control" id="profile-phone" name="phone" maxlength="50">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label" for="profile-dob"><%= t("profile.dob") %></label>
+                <input type="date" class="form-control" id="profile-dob" name="dateOfBirth">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="profile-weight"><%= t("profile.weight") %> <span aria-hidden="true">*</span></label>
+                <input type="number" step="0.01" min="0.01" max="500" required class="form-control" id="profile-weight" name="weightKg">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="profile-height"><%= t("profile.height") %></label>
+                <input type="number" step="0.1" min="0" class="form-control" id="profile-height" name="heightCm">
+            </div>
+
+            <div class="col-12">
+                <label class="form-label" for="profile-address1"><%= t("profile.address1") %></label>
+                <input class="form-control" id="profile-address1" name="addressLine1" maxlength="255">
+            </div>
+            <div class="col-12">
+                <label class="form-label" for="profile-address2"><%= t("profile.address2") %></label>
+                <input class="form-control" id="profile-address2" name="addressLine2" maxlength="255">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="profile-postal"><%= t("profile.postalCode") %></label>
+                <input class="form-control" id="profile-postal" name="postalCode" maxlength="20">
+            </div>
+            <div class="col-md-5">
+                <label class="form-label" for="profile-city"><%= t("profile.city") %></label>
+                <input class="form-control" id="profile-city" name="city" maxlength="120">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label" for="profile-country"><%= t("profile.country") %></label>
+                <input class="form-control" id="profile-country" name="country" maxlength="120">
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-end mt-4">
+            <button id="profile-submit" type="submit" class="btn btn-dark"><%= t("profile.save") %></button>
+        </div>
+    </form>
+</section>

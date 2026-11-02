@@ -1,10 +1,10 @@
 # WOA Workout-Stream-Format
 
-Aktueller Standard fuer den Workout-Stream im WOA1-Container ist `WST6`.
+Aktueller Standard für den Workout-Stream im WOA1-Container ist `WST6`.
 
-Diese Datei beschreibt nur den Workout-Stream-Block, nicht den aeusseren WOA1-Container und nicht den GPS-Track-Block.
+Diese Datei beschreibt nur den Workout-Stream-Block, nicht den äußeren WOA1-Container und nicht den GPS-Track-Block.
 
-## Ueberblick
+## Überblick
 
 `WST6` ist ein kompakter 1-Hz-Stream mit:
 
@@ -12,12 +12,12 @@ Diese Datei beschreibt nur den Workout-Stream-Block, nicht den aeusseren WOA1-Co
 - `power`: bevorzugt delta-codiert als `int16` mit Escape-Fallback auf absoluten `uint16`-Wert
 - `heart rate`: absolut als `uint8`
 - `cadence`: absolut als `uint8`
-- `speed`: absolut als `uint16`, aber nur wenn keine vollstaendige Distanzserie vorhanden ist
+- `speed`: absolut als `uint16`, aber nur wenn keine vollständige Distanzserie vorhanden ist
 - `altitude`: absolut als `int16` bei `0.1 m`-Quantisierung
 
 Zeitstempel werden nicht pro Sample gespeichert. Es gibt:
 
-- `baseTimestampMs` fuer Sample `0`
+- `baseTimestampMs` für Sample `0`
 - `sampleIntervalMs` aktuell immer `1000`
 
 Damit ergibt sich:
@@ -34,14 +34,14 @@ Damit ergibt sich:
 | `4` | `uint32 LE` | `recordCount` |
 | `8` | `float64 LE` | `baseTimestampMs` |
 | `16` | `uint32 LE` | `sampleIntervalMs` |
-| `20` | `uint32 LE` | Byte-Laenge Distanzblock |
-| `24` | `uint32 LE` | Byte-Laenge Powerblock |
-| `28` | `uint32 LE` | Byte-Laenge Heart-Rate-Block |
-| `32` | `uint32 LE` | Byte-Laenge Cadence-Block |
-| `36` | `uint32 LE` | Byte-Laenge Speed-Block |
-| `40` | `uint32 LE` | Byte-Laenge Altitude-Block |
+| `20` | `uint32 LE` | Byte-Länge Distanzblock |
+| `24` | `uint32 LE` | Byte-Länge Powerblock |
+| `28` | `uint32 LE` | Byte-Länge Heart-Rate-Block |
+| `32` | `uint32 LE` | Byte-Länge Cadence-Block |
+| `36` | `uint32 LE` | Byte-Länge Speed-Block |
+| `40` | `uint32 LE` | Byte-Länge Altitude-Block |
 
-Danach folgen die sechs Payload-Bloecke genau in dieser Reihenfolge.
+Danach folgen die sechs Payload-Blöcke genau in dieser Reihenfolge.
 
 ## Sample-Serien
 
@@ -58,12 +58,12 @@ Danach folgen die sechs Payload-Bloecke genau in dieser Reihenfolge.
 
 ### Interne Quantisierung
 
-Die FIT-Distanz liegt als ganzzahliger Zentimeterwert vor und wird im Compact-Parser direkt in `0.5 m`-Schritte quantisiert. Eine zusaetzliche Zwischenquantisierung findet nicht statt.
+Die FIT-Distanz liegt als ganzzahliger Zentimeterwert vor und wird im Compact-Parser direkt in `0.5 m`-Schritte quantisiert. Eine zusätzliche Zwischenquantisierung findet nicht statt.
 
 Im Stream wird intern der quantisierte Integerwert gespeichert:
 
 - `compactDistanceQ = round(distanceCentimeters / 50)`
-- Rueckrechnung:
+- Rückrechnung:
   - `distanceMeters = compactDistanceQ / 2`
 
 Beispiel:
@@ -83,14 +83,14 @@ Historischer Legacy-Alias:
 
 Wichtig:
 
-- `uint8-q02` ist nur noch ein Kompatibilitaetsname
+- `uint8-q02` ist nur noch ein Kompatibilitätsname
 - semantisch meint der aktuelle Produktpfad **nicht** `0.2 m`
 - er arbeitet direkt auf den im Parser erzeugten `0.5 m`-Werten
 
 Konkret:
 
 - Encoder-Ausgangspunkt: `compactDistanceQ` in `0.5 m`
-- fuer den `uint8-q05m`-Pfad wird `compactDistanceQ` unveraendert gespeichert
+- für den `uint8-q05m`-Pfad wird `compactDistanceQ` unverändert gespeichert
 - damit ergibt sich effektiv:
   - `distanceMeters = encodedDistanceQ * 0.5`
 
@@ -98,7 +98,7 @@ Das ist die heute produktive Distanzauflosung im Workout-Stream.
 
 ### Blockformat
 
-Die Distanz wird in Bloecken von `128` Samples (`DELTA_BLOCK_SIZE`) gespeichert.
+Die Distanz wird in Blöcken von `128` Samples (`DELTA_BLOCK_SIZE`) gespeichert.
 
 Jeder Block beginnt mit:
 
@@ -107,7 +107,7 @@ Jeder Block beginnt mit:
 | `mode` | `uint8` |
 | `count` | `uint16 LE` |
 
-Danach haengt der Payload vom `mode` ab.
+Danach hängt der Payload vom `mode` ab.
 
 ### Mode `3`: `uint8`-Delta mit Escape-Resync, bevorzugter Fall
 
@@ -119,7 +119,7 @@ Payload:
 |---|---:|---|
 | `firstScaled` | `uint32 LE` | erster encodierter Distanzwert des Blocks |
 | `token[1..n-1]` | `uint8[]` | Delta oder Escape |
-| `absoluteTail[...]` | `uint32 LE[]` | absolute Resync-Werte fuer Escape-Faelle |
+| `absoluteTail[...]` | `uint32 LE[]` | absolute Resync-Werte für Escape-Fälle |
 
 Formel:
 
@@ -129,9 +129,9 @@ Formel:
 
 Wichtig:
 
-- Deltas duerfen nicht negativ sein
+- Deltas dürfen nicht negativ sein
 - `255` ist als Escape reserviert
-- normale Inline-Deltas duerfen daher nur `0..254` sein
+- normale Inline-Deltas dürfen daher nur `0..254` sein
 
 ### Mode `0`: absoluter Fallback
 
@@ -149,12 +149,12 @@ Der aktuelle Distanzpfad hat zwei Ebenen:
 
 1. bevorzugt `mode = 3`
    - bei Delta `0..254` wird inline gespeichert
-   - bei groesseren oder problematischen Spruengen wird `255` geschrieben und der absolute Wert im Tail abgelegt
+  - bei größeren oder problematischen Sprüngen wird `255` geschrieben und der absolute Wert im Tail abgelegt
 2. kompletter Block-Fallback auf `mode = 0`
-   - wenn der Block wegen ungueltiger Ausgangsdaten nicht auf dem kompakten Pfad darstellbar ist
-   - zum Beispiel bei `NaN`/Sentinel an einer Stelle, an der der kompakte Pfad einen gueltigen Startwert braucht
+  - wenn der Block wegen ungültiger Ausgangsdaten nicht auf dem kompakten Pfad darstellbar ist
+  - zum Beispiel bei `NaN`/Sentinel an einer Stelle, an der der kompakte Pfad einen gültigen Startwert braucht
 
-Damit ist der heutige Distanzpfad robuster als ein reiner Ganzblock-Fallback, aber nicht vollstaendig escape-only.
+Damit ist der heutige Distanzpfad robuster als ein reiner Ganzblock-Fallback, aber nicht vollständig escape-only.
 
 ## Power-Kodierung
 
@@ -166,7 +166,7 @@ Stattdessen:
 
 - erstes Sample: absolut als `uint16`
 - alle weiteren Samples: bevorzugt als Delta `int16`
-- wenn ein Delta nicht in `int16` passt oder wegen `NaN` ungueltig ist:
+- wenn ein Delta nicht in `int16` passt oder wegen `NaN` ungültig ist:
   - Escape schreiben
   - absoluten `uint16`-Wert in den Absolut-Tail schreiben
 
@@ -175,18 +175,18 @@ Stattdessen:
 Der Power-Block besteht logisch aus drei Teilen:
 
 1. `firstValue` als `uint16`
-2. Delta-Array mit `recordCount - 1` Eintraegen als `int16`
-3. Absolut-Tail mit nur den Escape-Faellen als `uint16[]`
+2. Delta-Array mit `recordCount - 1` Einträgen als `int16`
+3. Absolut-Tail mit nur den Escape-Fällen als `uint16[]`
 
 ### Escape-Wert
 
-Als Escape fuer das Delta wird verwendet:
+Als Escape für das Delta wird verwendet:
 
 - `INT16_NAN = -32768`
 
-Das ist absichtlich der `int16`-Wert, der fuer echte Deltas nicht zugelassen wird.
+Das ist absichtlich der `int16`-Wert, der für echte Deltas nicht zugelassen wird.
 
-Gueltige Delta-Werte sind:
+Gültige Delta-Werte sind:
 
 - `-32767 .. +32767`
 
@@ -207,7 +207,7 @@ Wenn eines davon eintritt:
 - Delta ist nicht endlich
 - Delta < `-32767`
 - Delta > `32767`
-- Vorwert/aktueller Wert ist ungueltig
+- Vorwert/aktueller Wert ist ungültig
 
 dann passiert:
 
@@ -220,10 +220,10 @@ Beim Decoding:
 2. wenn Delta != `-32768`
    - normaler Delta-Pfad
 3. wenn Delta == `-32768`
-   - naechsten Wert aus dem Absolut-Tail lesen
+  - nächsten Wert aus dem Absolut-Tail lesen
    - diesen als echten aktuellen Powerwert nehmen
 
-Das ist der aktuelle Overflow-/Escape-Mechanismus fuer Power.
+Das ist der aktuelle Overflow-/Escape-Mechanismus für Power.
 
 ## Heart Rate
 
@@ -245,15 +245,15 @@ Keine Delta-Kodierung, kein Escape-Pfad.
 
 ## Speed
 
-Speed wird nur gespeichert, wenn keine vollstaendige Distanzserie vorhanden ist.
+Speed wird nur gespeichert, wenn keine vollständige Distanzserie vorhanden ist.
 
 Dann gilt:
 
 - Typ: `uint16`
 - interne Skalierung: `storedSpeed = round(speedMps * 100)`
-- Rueckrechnung: `speedMps = storedSpeed / 100`
+- Rückrechnung: `speedMps = storedSpeed / 100`
 
-Wenn Distanz vollstaendig vorhanden ist, ist der Speed-Block leer (`0` Bytes), weil Speed spaeter aus Distanz rekonstruiert werden kann.
+Wenn Distanz vollständig vorhanden ist, ist der Speed-Block leer (`0` Bytes), weil Speed später aus Distanz rekonstruiert werden kann.
 
 ## Altitude
 
@@ -262,9 +262,9 @@ Altitude wird absolut gespeichert:
 - Typ: `int16`
 - Quantisierung: `0.1 m`
 - interne Skalierung: `storedAltitude = round(altitudeMeters * 10)`
-- Rueckrechnung: `altitudeMeters = storedAltitude / 10`
+- Rückrechnung: `altitudeMeters = storedAltitude / 10`
 
-Zulaessiger Bereich:
+Zulässiger Bereich:
 
 - `-32768 .. 32767` in der quantisierten Darstellung
 - also grob `-3276.8 m .. +3276.7 m`
@@ -285,8 +285,8 @@ Im Workout-Stream werden diese Sentinel-Werte verwendet:
 
 Wichtig:
 
-- fuer Power ist `INT16_NAN` gleichzeitig der Escape-Marker im Delta-Block
-- fuer Distanz gibt es keinen Sample-weisen Escape, sondern Block-Fallback
+- für Power ist `INT16_NAN` gleichzeitig der Escape-Marker im Delta-Block
+- für Distanz gibt es keinen Sample-weisen Escape, sondern Block-Fallback
 
 ## Aktueller Standard
 
@@ -304,7 +304,7 @@ Das ist im Code aktuell in [woa-format-compact.js](/Users/D025449/woa/src/public
 
 ## Historische Notiz: Escape-Resync bei Distanz
 
-Dieser Abschnitt war frueher als Designskizze fuer eine moegliche Nachfolgevariante gedacht.
+Dieser Abschnitt war früher als Designskizze für eine mögliche Nachfolgevariante gedacht.
 
 Wichtig:
 
@@ -314,7 +314,7 @@ Wichtig:
 
 Ziel:
 
-- nicht mehr ganze 128er-Bloecke auf absoluten Fallback werfen
+- nicht mehr ganze 128er-Blöcke auf absoluten Fallback werfen
 - stattdessen bei problematischen Einzelstellen lokal resynchronisieren
 
 ### Motivation
@@ -326,11 +326,11 @@ Die Motivation war damals:
 
 ### Vorgeschlagene Kodierung
 
-Quantisierung waere aus heutiger Sicht:
+Quantisierung wäre aus heutiger Sicht:
 
 - Compact-Basis und Produktpfad: `compactDistanceQ = round(distanceCentimeters / 50)`
 
-Ein Block wuerde weiter mit `mode` und `count` beginnen:
+Ein Block würde weiter mit `mode` und `count` beginnen:
 
 | Feld | Typ |
 |---|---:|
@@ -341,13 +341,13 @@ Neuer vorgeschlagener Modus:
 
 - `mode = 3`
 
-Payload fuer `mode = 3`:
+Payload für `mode = 3`:
 
 | Feld | Typ | Bedeutung |
 |---|---:|---|
 | `firstScaled` | `uint32 LE` | absoluter Startwert des Blocks |
 | `token[1..n-1]` | `uint8[]` | Delta oder Escape |
-| `absoluteTail[...]` | `uint32 LE[]` | nur fuer Escape-Faelle |
+| `absoluteTail[...]` | `uint32 LE[]` | nur für Escape-Fälle |
 
 ### Token-Semantik
 
@@ -366,7 +366,7 @@ Semantik:
   - `value[i] = value[i-1] + token`
 - `token == 255`
   - Escape / Resync
-  - naechsten Wert aus `absoluteTail` lesen
+  - nächsten Wert aus `absoluteTail` lesen
   - `value[i] = nextAbsolute`
 
 ### Decoder-Ablauf
@@ -388,7 +388,7 @@ for each token:
 
 ### Encoder-Regeln
 
-Fuer jedes Sample `i > 0`:
+Für jedes Sample `i > 0`:
 
 1. `delta = current - previous`
 2. Wenn gilt:
@@ -404,7 +404,7 @@ Fuer jedes Sample `i > 0`:
 
 ### Overflow-/Fallback-Fall
 
-Der Overflow-/Inkonsistenz-Fall waere dann sample-lokal statt block-global.
+Der Overflow-/Inkonsistenz-Fall wäre dann sample-lokal statt block-global.
 
 Das heisst:
 
@@ -413,16 +413,16 @@ Das heisst:
   - Escape
   - absoluten Resync-Wert
 
-Typische Trigger fuer Escape:
+Typische Trigger für Escape:
 
 - Delta > `254`
 - Delta < `0`
 - Delta nicht endlich
-- Distanzsample ungueltig oder inkonsistent
+- Distanzsample ungültig oder inkonsistent
 
 ### Speichercharakteristik
 
-Fuer einen Block mit `N` Samples und `E` Escape-Faellen:
+Für einen Block mit `N` Samples und `E` Escape-Fällen:
 
 - `3` Bytes Blockheader
 - `4` Bytes `firstScaled`
@@ -485,9 +485,9 @@ Decoder:
 
 ### Praktische Empfehlung
 
-Wenn wir das ausprobieren, waere der pragmatische erste Schritt:
+Wenn wir das ausprobieren, wäre der pragmatische erste Schritt:
 
 - 128er-Blockstruktur beibehalten
-- innerhalb des Blocks `mode = 3` mit Escape-Resync einfuehren
+- innerhalb des Blocks `mode = 3` mit Escape-Resync einführen
 
 Dann bleibt das Format lokal und robust, ohne den bisherigen Alles-oder-Nichts-Fallback des aktuellen Distanzmodells.

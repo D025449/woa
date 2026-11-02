@@ -16,7 +16,7 @@ export default class WorkoutSharingService {
   static async ensureGroupMember(userId, groupId) {
     const normalizedGroupId = Number(groupId);
     if (!Number.isInteger(normalizedGroupId) || normalizedGroupId <= 0) {
-      const error = new Error("Ungueltige Gruppe.");
+      const error = new Error("Ungültige Gruppe.");
       error.statusCode = 400;
       throw error;
     }
@@ -30,7 +30,7 @@ export default class WorkoutSharingService {
     `, [userId, normalizedGroupId]);
 
     if (result.rowCount === 0) {
-      const error = new Error("Gruppe fuer diesen User nicht verfuegbar.");
+      const error = new Error("Gruppe für diesen User nicht verfügbar.");
       error.statusCode = 403;
       throw error;
     }
@@ -95,7 +95,7 @@ export default class WorkoutSharingService {
     const requestedGroupIds = normalizeGroupIds(payload.groupIds);
 
     if (requestedGroupIds.length === 0) {
-      const error = new Error("Bitte mindestens eine Gruppe zum Teilen auswaehlen.");
+      const error = new Error("Bitte mindestens eine Gruppe zum Teilen auswählen.");
       error.statusCode = 400;
       throw error;
     }
@@ -111,7 +111,7 @@ export default class WorkoutSharingService {
     const allowedGroupIds = result.rows.map((row) => Number(row.group_id));
 
     if (allowedGroupIds.length !== requestedGroupIds.length) {
-      const error = new Error("Mindestens eine ausgewaehlte Gruppe ist fuer diesen User nicht freigegeben.");
+      const error = new Error("Mindestens eine ausgewählte Gruppe ist für diesen User nicht freigegeben.");
       error.statusCode = 403;
       throw error;
     }

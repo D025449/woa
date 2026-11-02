@@ -232,7 +232,7 @@ export default class CollaborationDBService {
     const group = groupResult.rows[0];
 
     if (Number(group.owner_user_id) !== Number(ownerUserId)) {
-      fail("Nur der Owner kann die Gruppe loeschen", 403);
+      fail("Nur der Owner kann die Gruppe löschen", 403);
     }
 
     await pool.query(`
@@ -523,7 +523,7 @@ export default class CollaborationDBService {
 
     const invite = inviteResult.rows[0];
     if (String(invite.status || "").toLowerCase() === "pending") {
-      fail("Pending invites koennen nicht ausgeblendet werden", 409);
+      fail("Pending invites können nicht ausgeblendet werden", 409);
     }
 
     await pool.query(`

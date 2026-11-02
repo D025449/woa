@@ -614,7 +614,7 @@ function buildStartupTimingLines(timings = {}) {
         fitWorkerPoolWarmMs: "FIT-Worker-Pool warmziehen",
         unzipSyncMs: "ZIP entpacken",
         entryScanMs: "ZIP-Entries einsammeln",
-        zipOpenMs: "ZIP oeffnen",
+        zipOpenMs: "ZIP öffnen",
         firstFitDispatchMs: "Bis erster FIT-Dispatch",
         firstFitResultMs: "Bis erstes FIT-Ergebnis"
     };

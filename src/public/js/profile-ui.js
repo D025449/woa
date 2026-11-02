@@ -28,6 +28,10 @@ class ProfileUI {
   }
 
   registerEvents() {
+    this.form?.addEventListener("invalid", (event) => {
+      document.dispatchEvent(new CustomEvent("profile-reveal-field", { detail: event.target.id }));
+    }, true);
+
     this.form?.addEventListener("submit", async (event) => {
       event.preventDefault();
       await this.save();
@@ -145,6 +149,11 @@ class ProfileUI {
 
   async save() {
     if (!this.form) {
+      return;
+    }
+
+    if (!this.form.checkValidity()) {
+      this.form.reportValidity();
       return;
     }
 

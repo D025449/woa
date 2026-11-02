@@ -48,6 +48,12 @@ After migration `088_user_weight_history.sql`, the profile page supports dated b
 weight entries, editing and deletion. The profile weight remains an independent
 fallback; saving it does not create history entries or recalculate workouts.
 
+The history has its own [Body weight settings facet](docs/user-settings.md) at
+`/profile#weight-history`. Saving profile data or preferences through
+`PUT /api/profile` now requires a valid `weightKg` greater than 0 and at most
+500 kg. Existing NULL profile weights remain readable and are not backfilled;
+no database constraint or additional migration is introduced for this requirement.
+
 All endpoints require authentication and operate on the current user's data:
 
 | Method | Endpoint | Description |

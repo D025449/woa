@@ -1,0 +1,43 @@
+<section id="wahoo-settings" class="profile-surface ui-surface" aria-labelledby="wahoo-settings-title">
+    <div class="profile-section-header ui-section-header">
+        <h2 id="wahoo-settings-title" class="profile-section-title ui-title">Wahoo</h2>
+        <p class="profile-section-copy ui-copy"><%= t("profile.wahoo.copy") %></p>
+    </div>
+    <div class="profile-form">
+        <p id="wahoo-status" role="status"><%= t("profile.wahoo.loading") %></p>
+        <div class="d-flex gap-2 flex-wrap">
+            <button id="wahoo-connect" type="button" class="btn btn-dark" disabled><%= t("profile.wahoo.connect") %></button>
+            <button id="wahoo-remove" type="button" class="btn btn-outline-danger" disabled><%= t("profile.wahoo.remove") %></button>
+        </div>
+        <div class="form-check mt-3">
+            <input id="wahoo-auto-import" class="form-check-input" type="checkbox" disabled aria-describedby="wahoo-auto-import-help">
+            <label class="form-check-label" for="wahoo-auto-import"><%= t("profile.wahoo.autoImport") %></label>
+        </div>
+        <p id="wahoo-auto-import-help" class="small text-muted"><%= t("profile.wahoo.autoImportHelp") %></p>
+        <p id="wahoo-feedback" class="small mt-2" role="status"></p>
+    </div>
+</section>
+
+<section class="profile-surface ui-surface" aria-labelledby="garmin-settings-title">
+    <div class="profile-section-header ui-section-header">
+        <h2 id="garmin-settings-title" class="profile-section-title ui-title"><%= t("profile.garmin.title") %></h2>
+        <p class="profile-section-copy ui-copy"><%= t("profile.garmin.copy") %></p>
+    </div>
+    <form id="garmin-settings-form" class="profile-form">
+        <p id="garmin-settings-status" role="status"></p>
+        <label for="garmin-api-key" class="form-label"><%= t("profile.garmin.label") %></label>
+        <p class="small mb-2">
+            <a href="https://developer.garmin.com/gc-developer-program/personal/personal-api/" target="_blank" rel="noopener noreferrer">
+                <span aria-hidden="true">ⓘ</span> <%= t("profile.garmin.keyGuide") %><span class="visually-hidden"> (<%= t("profile.garmin.keyGuideNewTab") %>)</span>
+            </a>
+        </p>
+        <p id="garmin-key-guide-hint" class="text-muted small"><%= t("profile.garmin.keyGuideHint") %></p>
+        <input id="garmin-api-key" class="form-control" type="password" required maxlength="8192" autocomplete="new-password" spellcheck="false" aria-describedby="garmin-key-guide-hint garmin-key-help" disabled>
+        <p id="garmin-key-help" class="text-muted small mt-2"><%= t("profile.garmin.help") %></p>
+        <div class="d-flex gap-2 flex-wrap">
+            <button type="submit" class="btn btn-dark" disabled><%= t("profile.garmin.save") %></button>
+            <button id="garmin-key-remove" type="button" class="btn btn-outline-danger" disabled><%= t("profile.garmin.remove") %></button>
+        </div>
+        <p id="garmin-settings-feedback" class="small mt-2" role="status"></p>
+    </form>
+</section>

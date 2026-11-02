@@ -897,7 +897,7 @@ export default class SegmentDBService {
 
       if (shareMode === "groups") {
         if (requestedGroupIds.length === 0) {
-          throw new Error("Bitte mindestens eine Gruppe auswaehlen.");
+          throw new Error("Bitte mindestens eine Gruppe auswählen.");
         }
 
         const groupsResult = await client.query(`
@@ -910,7 +910,7 @@ export default class SegmentDBService {
         const allowedGroupIds = groupsResult.rows.map((row) => Number(row.group_id));
 
         if (allowedGroupIds.length !== requestedGroupIds.length) {
-          throw new Error("Mindestens eine Gruppe ist fuer dieses Segment nicht erlaubt.");
+          throw new Error("Mindestens eine Gruppe ist für dieses Segment nicht erlaubt.");
         }
 
         await client.query(`
@@ -961,7 +961,7 @@ export default class SegmentDBService {
   static async bulkPublishSegmentsToGroup(uid, groupId) {
     const normalizedGroupId = Number(groupId);
     if (!Number.isInteger(normalizedGroupId) || normalizedGroupId <= 0) {
-      const error = new Error("Ungueltige Gruppe.");
+      const error = new Error("Ungültige Gruppe.");
       error.statusCode = 400;
       throw error;
     }
@@ -975,7 +975,7 @@ export default class SegmentDBService {
     `, [uid, normalizedGroupId]);
 
     if (membershipResult.rowCount === 0) {
-      const error = new Error("Gruppe fuer dieses Segment nicht erlaubt.");
+      const error = new Error("Gruppe für dieses Segment nicht erlaubt.");
       error.statusCode = 403;
       throw error;
     }

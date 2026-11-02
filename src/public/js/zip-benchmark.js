@@ -190,7 +190,7 @@ function renderResults({ file, repeats, summaries, rawRuns }) {
 
     summaryNode.innerHTML = `
         <p><strong>Datei:</strong> ${file.name}</p>
-        <p><strong>Dateigroesse:</strong> ${formatBytes(file.size)}</p>
+        <p><strong>Dateigröße:</strong> ${formatBytes(file.size)}</p>
         <p><strong>Repeats:</strong> ${repeats}</p>
     `;
     resultsNode.innerHTML = buildTable(rows);
@@ -696,7 +696,7 @@ async function runBenchmark() {
     const zipJsWorkers = Math.max(1, Math.min(8, Number.parseInt(zipJsWorkersInput?.value || "4", 10) || 4));
 
     if (!file) {
-        setStatus("Bitte zuerst eine ZIP-Datei auswaehlen.");
+        setStatus("Bitte zuerst eine ZIP-Datei auswählen.");
         return;
     }
 
@@ -814,7 +814,7 @@ async function runBenchmark() {
                 <h2>Streaming-Simulation</h2>
                 <p class="muted">
                     Gemessen wird, wann jeweils ein weiterer Chunk mit ${chunkSize} Workouts theoretisch in einen Request-Stream
-                    geschrieben werden koennte.
+                    geschrieben werden könnte.
                 </p>
                 ${buildStreamingTable(streamingRows)}
             `;

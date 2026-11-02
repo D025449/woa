@@ -3,6 +3,105 @@
 Stand: 2026-11-02. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## German Umlaut Copy Cleanup (2026-11-02)
+
+- User approved all previously listed German umlaut corrections: upload/3D-map
+	translations, sharing/segment/invitation errors, ZIP benchmark labels, and the
+	upload timing label. Translation keys, placeholders, identifiers, and behavior
+	remain unchanged; proper German characters are used in visible copy.
+- Corrected the existing German prose in `docs/woa-workout-stream-format.md`
+	and `docs/nginx-upstream-timing.md`, including the remaining stream-document
+	closing section. Code examples, formulas, and technical names are unchanged.
+	Removed obsolete ASCII spelling examples from the earlier deletion-copy note.
+- Verification: 14 focused i18n/profile/upload tests passed; all changed JS
+	files passed syntax checks. German JSON parses and retains all pre-existing
+	keys and interpolation placeholders. Targeted ESLint has no errors and six
+	existing warnings in `upload-new.js`; editor diagnostics, targeted spelling
+	search, and `git diff --check` passed. No live browser check, database access,
+	migration, service restart, or deployment.
+
+## German Deletion Copy (2026-11-02)
+
+- User-approved copy correction in `src/public/i18n/de.json`: replaced remaining
+	ASCII deletion spellings with proper umlauts in account-deletion and import messages,
+	including adjacent German day-period and final-removal wording. Keys, placeholders, and
+	behavior remain unchanged; use proper umlauts in German UI copy.
+- Verification: JSON parsing, absence of remaining ASCII deletion spellings, retained
+	date placeholder, six-language profile rendering, and `git diff --check` passed.
+- Follow-up: corrected the remaining group-owner deletion error in
+	`src/services/collaborationDBService.js` and removed obsolete spelling examples
+	from this note. Mocked owner-denial check, service syntax, repository text
+	search, and `git diff --check` passed; no live database access.
+
+## Development Translation Reload (2026-11-02)
+
+- User-approved change in `src/i18n/index.js`: when `NODE_ENV` is unset or
+	`development`, requests check locale file metadata and reload changed bundles
+	as one atomic snapshot. Unchanged JSON is not reread; locale additions/removals
+	are discovered. Middleware uses the latest snapshot rather than startup data.
+- Read/parse failures retain all last valid bundles and emit one sanitized
+	warning per failure period; correction is retried on subsequent requests.
+	Startup without a valid snapshot still fails on invalid files. Production and
+	other explicit environments retain their startup cache without request-time
+	filesystem checks. No dependency, watcher, new npm script, or DB change.
+- One manual backend restart is needed to activate this implementation; future
+	development translation edits only require browser refresh. Existing pages do
+	not update automatically. Setup and limits: `docs/npm-scripts.md` under
+	"Translation Changes During Development". No services restarted by the agent.
+- Verification: 13 focused tests passed, including temporary-file reload,
+	unchanged-file read avoidance, snapshot isolation, locale discovery/removal,
+	malformed JSON recovery, missing-file fallback, startup failure, and immutable
+	production/test caches, plus six-language profile rendering and intensity copy.
+	Syntax, targeted ESLint, editor diagnostics, and `git diff --check` passed.
+	Type checking reports only the three known nullability errors in unchanged
+	`src/shared/MicroIntervalDetector.js:141`. No full suite or live browser check.
+
+## Body Weight Facet and Required Profile Weight (2026-11-02)
+
+- User-approved follow-up: body-weight history is now the sixth settings facet,
+	immediately after Profile, with its own EJS partial and `/profile#weight-history`
+	link. Existing history controls and storage behavior remain unchanged; labels
+	are available in all six languages. Profile weight stays in personal data.
+- Profile and preference saves require a valid profile weight greater than 0
+	and at most 500 kg. Native form validation reveals/focuses invalid fields across
+	facets; server validation rejects invalid weights before database access.
+- Existing NULL values remain readable and unchanged. No migration, backfill,
+	default value, new constraint, or live database operation. History resolution,
+	profile fallback, and missing-weight behavior remain unchanged. Details in
+	`docs/user-settings.md`; README updated for the API requirement.
+- Verification: four existing rendering/history checks passed, including profile
+	rendering in six languages. Mocked service checks covered invalid/valid weights
+	and reading NULL; mocked UI checks covered rejected preference saves without
+	HTTP, revealing/focusing profile weight, history deep links, and valid saves.
+	Syntax, targeted ESLint, editor diagnostics, and `git diff --check` passed.
+	No new test files or visual browser check. Type checking reports only the three
+	known nullability errors in unchanged `src/shared/MicroIntervalDetector.js:141`.
+
+## User Settings Facets (2026-11-02)
+
+- User-approved split into Profile, Preferences, Connections, Membership, and
+	Account. Desktop uses local navigation below the heading; mobile uses a select.
+	Five EJS partials preserve existing controls, IDs, save actions, and APIs.
+- Facets retain unsaved form values, support URL/history navigation and existing
+	provider anchors, and select Membership on payment returns. Shared feedback
+	remains visible across facets. No-JavaScript fallback shows all sections.
+	Structure and direct links: `docs/user-settings.md`.
+- Verification: existing six-language profile rendering and Wahoo UI checks
+	passed (three tests); isolated navigation checks covered ten entry URLs,
+	desktop/mobile selection, popstate, and hashchange. Syntax, targeted ESLint,
+	editor diagnostics, and `git diff --check` passed. No new test files.
+- User reports the local app running. No completed visual browser check or live
+	OAuth/payment/save round-trip; browser opening was cancelled. No app/worker
+	restart, migration, or deployment performed by the agent.
+
+## Wahoo Settings Spacing (2026-11-02)
+
+- User-approved change: wrapped the Wahoo section content in the existing
+	`profile-form` container so it uses the same responsive inner padding as
+	neighboring profile sections. Controls and behavior remain unchanged.
+- Verification: profile EJS compilation and `git diff --check` passed.
+	No tests added or run, as requested; no visual browser check performed.
+
 ## Automatic Development Login URLs (2026-11-02)
 
 - User-approved change: in development (also when `NODE_ENV` is unset),

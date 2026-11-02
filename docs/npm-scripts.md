@@ -43,6 +43,25 @@ dokumentieren die Werkzeuge; sie sind keine Ausführungsfreigabe.
 und `DEPLOY_APP_DIR`. `SKIP_RELEASE_CHECKS=1` überspringt Tests und Checks.
 Die Typprüfung gehört nicht zum Release-Check. Implementierung: [`release-prod.sh`](../release-prod.sh).
 
+## Translation Changes During Development
+
+When `NODE_ENV` is unset or `development`, the app checks locale JSON file
+metadata in `src/public/i18n/` on each request. Unchanged bundles are not read or
+parsed again. After editing translations, refresh the browser page; no backend
+restart is needed. Added and removed locales are discovered as well.
+
+Changed bundles are loaded as one snapshot. If reading or parsing fails, the
+last valid snapshot remains active and a sanitized warning is logged once until
+recovery. Fix the file and refresh to retry. Invalid files at startup still fail
+because no valid snapshot exists yet. Open pages do not update automatically.
+
+Production and other explicitly named environments keep their startup cache
+without per-request filesystem checks. This behavior applies to `npm start`,
+`start:all`, and `start:tunnel`; no new script, dependency, or watcher is required.
+Restart the backend once to activate this code change. Later translation edits
+only require a page refresh in development; backend JavaScript changes still
+require a restart. No running service is restarted automatically by this feature.
+
 ## Local Development With ngrok
 
 Use `npm run start:tunnel` instead of `npm run start:all` when the local app needs

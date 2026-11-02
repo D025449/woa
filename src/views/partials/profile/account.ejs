@@ -1,0 +1,19 @@
+<section class="profile-surface ui-surface">
+    <div class="profile-section-header ui-section-header">
+        <h2 class="profile-section-title ui-title"><%= t("profile.sectionDeletionTitle") %></h2>
+        <p class="profile-section-copy ui-copy"><%= t("profile.sectionDeletionCopy") %></p>
+    </div>
+
+    <div class="profile-form">
+        <div id="profile-deletion-alert" class="alert alert-warning d-none" role="alert"></div>
+        <div id="profile-deletion-status" class="profile-deletion-status"></div>
+        <div class="profile-deletion-actions">
+            <button id="profile-request-deletion" type="button" class="btn btn-outline-danger">
+                <%= t("profile.requestDeletion") %>
+            </button>
+            <button id="profile-cancel-deletion" type="button" class="btn btn-dark d-none">
+                <%= t("profile.cancelDeletion") %>
+            </button>
+        </div>
+    </div>
+</section>

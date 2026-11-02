@@ -101,6 +101,15 @@
     }
   },
   "profile": {
+    "facets": {
+      "navigation": "Rubriques du compte",
+      "personal": "Profil",
+      "weight-history": "Poids corporel",
+      "preferences": "Préférences",
+      "connections": "Connexions",
+      "membership": "Abonnement",
+      "account": "Compte"
+    },
     "title": "Profil",
     "topbarTitle": "Profil",
     "heroKicker": "Espace du compte",
