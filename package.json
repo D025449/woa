@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/index.js",
     "start:all": "node src/scripts/start-all.js",
+    "start:tunnel": "node src/scripts/start-all.js --ngrok https://scenic-riverbed-unloader.ngrok-free.dev",
     "worker": "node src/workers/import-worker.js",
     "backup:worker": "node src/workers/postgres-backup-ops-worker.js",
     "deploy:prod": "./release-prod.sh",

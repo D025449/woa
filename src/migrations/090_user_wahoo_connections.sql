@@ -1,4 +1,4 @@
--- Active: 1793265684521@@127.0.0.1@5432@cwa24_dev
+-- Active: 1793603949676@@127.0.0.1@5432@cwa24_dev
 -- Prepare only; run manually after review.
 BEGIN;
 CREATE TABLE IF NOT EXISTS user_wahoo_connections (

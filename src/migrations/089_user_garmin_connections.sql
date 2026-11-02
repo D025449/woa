@@ -1,4 +1,4 @@
--- Active: 1793267108229@@127.0.0.1@5432@cwa24_prod_restore_20260805_144216@public
+-- Active: 1793603949676@@127.0.0.1@5432@cwa24_dev@public
 -- Additive migration: stores encrypted personal Garmin API keys only.
 BEGIN;
 CREATE TABLE IF NOT EXISTS user_garmin_connections (

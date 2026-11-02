@@ -1,7 +1,59 @@
 # Arbeitsstand
 
-Stand: 2026-11-01. Diese Datei hält Absprachen für folgende Sitzungen fest.
+Stand: 2026-11-02. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
+
+## Automatic Development Login URLs (2026-11-02)
+
+- User-approved change: in development (also when `NODE_ENV` is unset),
+	`start:all` passes localhost `APP_BASE_URL` and Cognito callback values to child
+	processes; `start:tunnel` uses the fixed ngrok origin. Local URLs use `PORT`,
+	defaulting to 3000. Both commands load the selected environment configuration.
+- Overrides apply only to spawned processes and supersede old app/Cognito URL
+	values. Wahoo variables, environment files, and non-development URLs remain
+	unchanged. `npm start` and individual worker commands are unaffected.
+- Both Cognito callback URLs must be allowed externally. Wahoo connection flows
+	remain ngrok-only with the current Wahoo redirect. Details in
+	`docs/npm-scripts.md` and `docs/WAHOO_CONNECT.md`; README updated.
+- User confirmed Google/Cognito login and Wahoo connection working on the Mac
+	through ngrok after correcting the localhost Cognito redirect, before this
+	automatic switching change. This does not confirm automatic webhook imports
+	or a live test of the new switching behavior. No migrations run by the agent.
+- Verification: all 12 focused starter tests passed, including URL
+	overrides, configured ports, unchanged Wahoo settings/source environment,
+	production preservation, and existing readiness/shutdown/error behavior.
+	Syntax, targeted ESLint, editor diagnostics, and `git diff --check` passed.
+	Full type checking reports only the three known nullability errors in the
+	unchanged `src/shared/MicroIntervalDetector.js:141`. No full test suite or
+	live OAuth round-trip was run for this change; running services were not
+	restarted. Existing user changes to migration files were left untouched.
+
+## Optional Local ngrok Starter (2026-11-02)
+
+- User-approved short command implemented: `npm run start:tunnel` starts the app,
+	import worker, backup worker, and ngrok at
+	`https://scenic-riverbed-unloader.ngrok-free.dev`. `start:all` remains local-only.
+- Uses the same environment/port as the app (default 3000), waits up to 30 seconds
+	for local HTTP readiness, prefixes tunnel logs, and includes ngrok in shutdown.
+	Tunnel failures leave core services running; core failures still stop all.
+- Setup, public exposure, conflicts with existing processes, and limitations are
+	documented in `docs/npm-scripts.md` under “Local Development With ngrok”; README
+	links there. No dependencies, environment files, or migration behavior changed.
+- Verification: eight focused starter tests passed (mocked subprocesses,
+	real local HTTP readiness/retry/redirect/cancellation checks). Syntax, targeted
+  ESLint, editor diagnostics, and `git diff --check` passed. Full type checking
+  now reports only the three previously known nullability errors in
+  `src/shared/MicroIntervalDetector.js:141`; the starter's previous stream typing
+  error was resolved in the touched code. No full test suite was run.
+  Combined live service startup has not
+	been performed; existing app, workers, and tunnel were not stopped or restarted.
+
+## Documentation Context Across Sessions (2026-11-02)
+
+- User-approved rule added to `AGENTS.md`: read this working state at session start, review the Markdown files available in `docs/`, and read the relevant detailed guides before each task.
+- Keep affected detailed guides current in the same task. Store lasting agreements and relevant context in the appropriate documentation; keep this working state concise and link to details instead of duplicating them. Write new documentation text in English.
+- Documentation-only change; no application code, migrations, deployment, or environment configuration changed.
+- Verification: `git diff --check` passed and the diff was reviewed for the approved scope. No application tests run for this documentation-only change.
 
 ## Automatischer Wahoo-Import über Webhooks (2026-11-01)
 

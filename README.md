@@ -12,7 +12,8 @@ Simple-nodejs-app is a simple web application created using [Node.js](https://gi
 - Die zentrale Übersicht aller npm-Skripte mit Parametern, Voraussetzungen und Auswirkungen steht in [docs/npm-scripts.md](docs/npm-scripts.md).
 - After installation, run ```npm install``` to download and install all the required dependencies.
 - Run ```npm start``` to run the web application.
-- Mit `npm run start:all` Anwendung, Import-Worker und Backup-Worker gemeinsam in einer Konsole starten; `Strg+C` beendet alle drei Prozesse.
+- Run `npm run start:all` to start the app and both workers together. In development, app/Cognito URLs automatically use localhost and the configured port (default 3000); `Ctrl+C` stops all three processes.
+- Run `npm run start:tunnel` to start the same services with a public ngrok tunnel at https://scenic-riverbed-unloader.ngrok-free.dev. In development, app/Cognito URLs automatically use that origin; Wahoo settings remain unchanged. Requires ngrok installed and authenticated on this computer; `Ctrl+C` stops all services and the tunnel. See [tunnel setup and behavior](docs/npm-scripts.md#local-development-with-ngrok).
 
 ### One-time GPS segment best-effort rebuild
 

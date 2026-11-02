@@ -27,6 +27,32 @@ Den Verschlüsselungsschlüssel getrennt von der Datenbank für Wiederherstellun
 sichern. Austausch ohne Umschlüsselung macht bestehende Tokens unlesbar.
 Keine zusätzlichen npm-Skripte oder Abhängigkeiten erforderlich.
 
+## Local Development With ngrok
+
+- `npm run start:tunnel` starts the app, both workers, and the configured ngrok
+  endpoint. In development it sets app/Cognito URLs to the ngrok origin for the
+  child processes. `npm run start:all` selects localhost instead. Neither command
+  edits environment files or changes Wahoo variables.
+- For tunnel testing, configure `WAHOO_REDIRECT_URI` as
+  `https://scenic-riverbed-unloader.ngrok-free.dev/auth/wahoo/callback` and register
+  exactly that URI in the Wahoo development application. Keep credentials and
+  encryption/webhook secrets in local configuration, never documentation or Git.
+- Allow `https://scenic-riverbed-unloader.ngrok-free.dev/auth/callback` in the
+  Cognito app client's callback URLs, alongside the localhost callback used by
+  `start:all`. This Cognito callback is separate from the Wahoo callback above.
+- Open `https://scenic-riverbed-unloader.ngrok-free.dev/profile`, log in through
+  that origin, and start the Wahoo connection from the profile. Do not open the
+  callback URL directly. Starting on localhost and returning to ngrok loses the
+  browser-session association; localhost also fails the Wahoo origin check when
+  the Wahoo callback is configured for ngrok.
+- With this setup, `start:all` supports ordinary local development and local
+  Cognito login, but connecting/reconnecting Wahoo requires tunnel mode. Public
+  webhook delivery additionally requires the matching Wahoo portal configuration
+  and a running tunnel/worker; a successful OAuth connection alone does not
+  verify webhook imports.
+
+See [starter setup and shutdown behavior](npm-scripts.md#local-development-with-ngrok).
+
 ## Ablauf und Schnittstellen
 
 ### Wahoo-Benutzer-ID als Vorbereitung für Webhooks

@@ -3,8 +3,10 @@
 ## Kontext über Sitzungen hinweg
 
 - Lies zu Beginn jeder Sitzung `docs/arbeitsstand.md`, bevor Du Änderungen planst oder ausführst.
+- Verschaffe Dir zusätzlich einen Überblick über die Markdown-Dateien in `docs/` und lies vor der jeweiligen Aufgabe die thematisch relevanten Detailanleitungen. Nutze sie zusammen mit dem Arbeitsstand als sitzungsübergreifenden Projektkontext.
 - Prüfe den tatsächlichen Code und Git-Status; der dokumentierte Arbeitsstand kann veraltet sein.
 - Aktualisiere `docs/arbeitsstand.md` nach wesentlichen Änderungen und vor Abschluss eines Implementierungsauftrags: Umfang, Entscheidungen, Umsetzung, Prüfungen und offene Punkte.
+- Halte betroffene Detailanleitungen in `docs/` im selben Auftrag aktuell. Dokumentiere dauerhafte Absprachen und relevanten Kontext dort, wo sie fachlich hingehören; der Arbeitsstand enthält eine knappe Zusammenfassung mit Verweisen statt doppelter Detailbeschreibungen. Neue Dokumentationstexte werden auf Englisch verfasst.
 - Halte den Arbeitsstand knapp. Speichere keine Zugangsdaten, Tokens oder Inhalte aus `.env`- oder SSH-Dateien darin.
 - Unterscheide bestätigte Anforderungen, implementierte Funktionen und noch nicht geprüfte Annahmen. Behaupte keine ausgeführten Migrationen, Tests oder Deployments ohne entsprechende Grundlage.
 - Nutze vorhandene Absprachen, bevor Du den Benutzer erneut nach bereits geklärten Anforderungen fragst.

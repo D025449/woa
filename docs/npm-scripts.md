@@ -32,7 +32,8 @@ dokumentieren die Werkzeuge; sie sind keine Ausführungsfreigabe.
 | Skript | Zweck und Aufruf | Auswirkungen / Voraussetzungen |
 | --- | --- | --- |
 | `start` | `npm start`: Express-Anwendung starten. | Port aus `PORT`, sonst 3000; startet auch Kontolöschungs- und Importbereinigungs-Scheduler. |
-| `start:all` | `npm run start:all`: Anwendung, Import-Worker und Backup-Worker gemeinsam starten. | Drei eigene Node-Prozesse, Logs mit `[app]`, `[worker]`, `[backup]` in einer Konsole. Umgebung wird vererbt. `Strg+C`/SIGTERM beendet alle; nach zehn Sekunden werden verbleibende Prozesse erzwungen beendet. Endet ein Prozess unerwartet, werden die übrigen gestoppt und der Gesamtaufruf meldet einen Fehler. Gleiche Voraussetzungen und Datenänderungen wie bei den drei Einzelbefehlen. |
+| `start:all` | `npm run start:all`: start the app, import worker, and backup worker together. | Same prerequisites and data changes as the individual services. Logs use `[app]`, `[worker]`, and `[backup]`. In development, sets child-process app/Cognito URLs to localhost using `PORT` (default 3000). Other environment values are inherited. `Ctrl+C`/SIGTERM stops all services; after ten seconds remaining processes are forcibly stopped. Core service failures stop the other processes with an error status. |
+| `start:tunnel` | `npm run start:tunnel`: start the app, both workers, and ngrok using the fixed public URL. | Same service prerequisites and data changes as `start:all`, plus public access to the local app. Requires an installed, authenticated ngrok agent. Uses the app's `PORT` (default 3000); waits for local HTTP readiness. Tunnel failures leave local services running. `Ctrl+C` stops all processes. [Setup and details](#local-development-with-ngrok). |
 | `worker` | `npm run worker`: Import-Worker starten. | Verarbeitet Import-Jobs und den dauerhaften Wahoo-Webhook-Eingang; schreibt Trainings und Folgeaufträge. Benötigt die konfigurierte Datenbank und Queue-Infrastruktur, für Wahoo zusätzlich Migration 092 und die [Wahoo-Konfiguration](WAHOO_CONNECT.md#webhooks-und-automatischer-import). |
 | `backup:worker` | `npm run backup:worker`: Backup-/Restore-Worker für den Admin-Wizard. | Führt eingereihte Betriebsaufträge aus. [Betriebsanleitung](../ops/postgres-backup/README.md). |
 | `deploy:prod` | `npm run deploy:prod -- "Commit-Nachricht"` | Führt `npm test` und `npm run check` aus, nimmt **alle Repository-Änderungen** mit `git add --all` auf, erstellt Commit und Push und ruft per SSH `./deploy.sh code-only` auf. Erwartet den Release-Branch, standardmäßig `main`. |
@@ -41,6 +42,56 @@ dokumentieren die Werkzeuge; sie sind keine Ausführungsfreigabe.
 `deploy:prod` unterstützt `GIT_REMOTE`, `RELEASE_BRANCH`, `DEPLOY_SSH_TARGET`
 und `DEPLOY_APP_DIR`. `SKIP_RELEASE_CHECKS=1` überspringt Tests und Checks.
 Die Typprüfung gehört nicht zum Release-Check. Implementierung: [`release-prod.sh`](../release-prod.sh).
+
+## Local Development With ngrok
+
+Use `npm run start:tunnel` instead of `npm run start:all` when the local app needs
+to receive external requests, for example development webhooks. This publishes
+the app at https://scenic-riverbed-unloader.ngrok-free.dev. In development it
+automatically selects this origin for `APP_BASE_URL` and `COGNITO_REDIRECT_URI`.
+It does not add access restrictions or change Wahoo configuration, webhook
+registrations, or identity-provider settings.
+
+- Install the ngrok agent once per computer (`brew install ngrok` on macOS).
+- Authenticate it yourself using `ngrok config add-authtoken <TOKEN>`. Obtain the
+	token from the ngrok dashboard; never put it in Git, documentation, or chat.
+- Stop any separately running app/workers before using this combined command.
+	Stop an existing tunnel using the same domain, including one on another
+	computer. Only one non-pooled endpoint can use this URL at a time.
+- Both starters load `.env.${NODE_ENV}` (development by default), preserving
+	already exported variables except for the development URL overrides below.
+	The tunnel uses the same `PORT` as the app, defaulting to 3000. No environment
+	file is modified.
+- When `NODE_ENV` is unset or `development`, `start:all` passes
+	`APP_BASE_URL=http://localhost:<PORT>` and
+	`COGNITO_REDIRECT_URI=http://localhost:<PORT>/auth/callback` to the child
+	processes. `start:tunnel` uses the ngrok origin for those two values instead.
+	This overrides old URL values from the environment file or shell for this run
+	only. Other environments, including production, retain their configured URLs.
+- Allow both callback URLs on the Cognito app client: the localhost callback
+	for local mode and `https://scenic-riverbed-unloader.ngrok-free.dev/auth/callback`
+	for tunnel mode. Google federates through Cognito; its redirect normally stays
+	on the Cognito domain at `/oauth2/idpresponse`.
+- Begin browser login on the origin selected by the starter and stay there.
+	localhost and ngrok have separate browser sessions. Wahoo variables remain
+	unchanged in both modes; with the configured ngrok Wahoo callback, start Wahoo
+	connection flows through the ngrok origin, not localhost. See
+	[Wahoo development login](WAHOO_CONNECT.md#local-development-with-ngrok).
+- ngrok starts after the local app responds with HTTP status below 500. The
+	readiness check retries for up to 30 seconds; redirects count as ready.
+	Readiness failure skips ngrok, while local services continue running.
+- Logs use `[ngrok]`. Missing installation, authentication errors, or URL conflicts
+	do not stop the local services. Fix the issue and restart the combined command.
+- `Ctrl+C` or SIGTERM stops the services, any pending readiness check, and ngrok;
+	processes still running after ten seconds are forcibly stopped. Core service
+	failures stop the other processes as with `start:all`.
+- Inspect requests at http://127.0.0.1:4040 while the tunnel is running. The app
+	and ngrok must both stay running for the public URL to work.
+
+`npm run start:all` does not start a public tunnel. Switching modes requires
+stopping the current combined starter and running the other command. `npm start`
+and the individual worker commands continue to use their configured environment
+without these automatic URL overrides.
 
 ## Konten übertragen und Admin einrichten
 
