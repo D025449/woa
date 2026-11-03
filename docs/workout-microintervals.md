@@ -14,7 +14,7 @@ The segment GET endpoint and workout-open payload include the same structure.
 Ordinary segments remain `structure_kind: "simple"` and do not require phases.
 No power stream is decoded or scanned by the persistence API.
 
-A minimal one-repetition block, including its last recovery:
+A minimal one-repetition block, including its last recovery::
 
 ```json
 {
