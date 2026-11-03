@@ -3,6 +3,32 @@
 Stand: 2026-11-03. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## In-Place Workout Terrain Map (2026-11-03)
+
+- User approved only an embedded Leaflet/MapLibre switch in the workout UI,
+	including actual terrain like the MapLibre example. The existing flyover
+	modal and separate segment page remain unchanged.
+- Added a 2D/3D control; Leaflet stays the default. MapLibre uses OSM raster
+	tiles and Mapterhorn Terrarium DEM tiles with 1x relief and hillshading,
+	without an API key. Shared track gaps, segment colors/selection/hover and
+	chart-position markers are retained. The switch transfers center and
+	approximate zoom; manual editing and workouts without GPS stay in 2D.
+- Terrain initializes on demand. Startup/source/WebGL failures or the initial
+	20-second timeout return to Leaflet with localized feedback. Existing
+	MapLibre 4.7.1 loading for the flyover is unchanged. No database changes,
+	migration, scheduler, full app startup or deployment performed.
+- Details, provider usage/attribution, privacy and limitations:
+	`docs/workout-map.md`. Public hosting is not an unlimited service guarantee.
+- Verification: 10 focused tests passed; targeted ESLint has no errors and
+	one existing unused-variable warning. Syntax, EJS compilation, all six
+	locale JSON bundles, editor diagnostics and `git diff --check` passed.
+	Isolated Playwright preview with real map modules/public tiles and synthetic
+	GPS verified desktop/mobile screenshots, nonblank canvas pixels, terrain,
+	marker/selection, rotation/tilt, center preservation, workout/no-GPS changes
+	and mobile popup bounds. Full suite and authenticated dashboard/real chart
+	interaction were not tested. Static preview runs at http://127.0.0.1:3107;
+	it does not start application workers or access the database.
+
 ## Workout Time Exclusion (2026-11-03)
 
 - User chose any positive same-user time overlap as a conflict, rather than the

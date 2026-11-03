@@ -15,6 +15,12 @@ Simple-nodejs-app is a simple web application created using [Node.js](https://gi
 - Run `npm run start:all` to start the app and both workers together. In development, app/Cognito URLs automatically use localhost and the configured port (default 3000); `Ctrl+C` stops all three processes.
 - Run `npm run start:tunnel` to start the same services with a public ngrok tunnel at https://scenic-riverbed-unloader.ngrok-free.dev. In development, app/Cognito URLs automatically use that origin; Wahoo settings remain unchanged. Requires ngrok installed and authenticated on this computer; `Ctrl+C` stops all services and the tunnel. See [tunnel setup and behavior](docs/npm-scripts.md#local-development-with-ngrok).
 
+### Workout map views
+
+The workout map supports an in-place Leaflet 2D / MapLibre 3D terrain switch.
+See [Workout Map Views](docs/workout-map.md) for data sources, public-service
+usage conditions, interaction and verification limits. The flyover modal is unchanged.
+
 ### One-time GPS segment best-effort rebuild
 
 The versioned GPS segment best-effort rebuild uses the shared compact matcher and defaults to a

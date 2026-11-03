@@ -754,6 +754,7 @@
     "map3dEyebrow": "Modalità terreno",
     "map3dTitle": "Vista 3D del percorso",
     "map3dEmpty": "Seleziona un allenamento con dati GPS validi.",
+    "mapTerrainUnavailable": "Il terreno 3D non è attualmente disponibile. La mappa 2D resta disponibile.",
     "map3dPresetLabel": "Camera",
     "map3dPresetStandard": "Standard",
     "map3dPresetAction": "Action Cam",

@@ -776,6 +776,10 @@
                                         <h2 class="dashboard-section-title"><%= t("dashboardNewPage.routeMapTitle") %></h2>
                                     </div>
                                     <div class="dashboard-toolbar dashboard-workspace-toolbar">
+                                        <div class="btn-group btn-group-sm" role="group" aria-label="<%= t('dashboardNewPage.routeMapTitle') %>">
+                                            <button type="button" class="btn btn-outline-secondary active" data-workout-map-renderer="2d" aria-pressed="true">2D</button>
+                                            <button type="button" class="btn btn-outline-secondary" data-workout-map-renderer="3d" aria-pressed="false" disabled>3D</button>
+                                        </div>
                                         <button id="dashboard-map-3d-toggle" class="btn btn-outline-secondary btn-sm" type="button">
                                             <%= t("dashboardNewPage.map3dOpen") %>
                                         </button>
@@ -830,7 +834,9 @@
 
                             <div class="dashboard-surface-body ui-surface-body ui-surface-body--flush">
                                     <div id="dashboard-manual-gps-hint" class="dashboard-map-hint d-none"><%= t("dashboardNewPage.manualGpsHint") %></div>
+                                    <div id="workout-map-renderer-error" class="dashboard-map-hint" role="status" hidden><%= t("dashboardNewPage.mapTerrainUnavailable") %></div>
                                     <div id="workout-map"></div>
+                                    <div id="workout-terrain-map" hidden></div>
                                 </div>
                             </aside>
                         </div>

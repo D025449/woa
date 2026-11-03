@@ -891,6 +891,7 @@
     "map3dEyebrow": "Terrain-Modus",
     "map3dTitle": "3D-Routenansicht",
     "map3dEmpty": "Wähle ein Workout mit gültigen GPS-Daten.",
+    "mapTerrainUnavailable": "3D-Gelände ist derzeit nicht verfügbar. Die 2D-Karte bleibt nutzbar.",
     "map3dPresetLabel": "Kamera",
     "map3dPresetStandard": "Standard",
     "map3dPresetAction": "Action Cam",

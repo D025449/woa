@@ -3487,8 +3487,30 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   }
 }
 
-#workout-map {
+#workout-map,
+#workout-terrain-map {
   height: 340px !important;
+}
+
+#workout-map[hidden],
+#workout-terrain-map[hidden] {
+  display: none !important;
+}
+
+.workout-terrain-position {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #111111;
+  border-radius: 50%;
+  background: #ffd54f;
+}
+
+#workout-terrain-map .maplibregl-popup-content {
+  display: flex;
+  gap: 8px;
+  max-width: 240px;
+  color: #111111;
 }
 
 .workout-map-segment-label-anchor {
@@ -3621,7 +3643,8 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
 }
 
 .dashboard-master-detail #workout-chart,
-.dashboard-master-detail #workout-map {
+.dashboard-master-detail #workout-map,
+.dashboard-master-detail #workout-terrain-map {
   height: 100% !important;
   min-height: 0;
 }
@@ -3836,7 +3859,8 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
     min-height: 320px;
   }
 
-  #workout-map {
+  #workout-map,
+  #workout-terrain-map {
     height: 280px !important;
     min-height: 280px;
   }
@@ -3850,7 +3874,8 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
     height: 320px !important;
   }
 
-  .dashboard-master-detail #workout-map {
+  .dashboard-master-detail #workout-map,
+  .dashboard-master-detail #workout-terrain-map {
     height: 280px !important;
   }
 }

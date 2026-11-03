@@ -7,6 +7,7 @@ import {
 } from "./segment-visibility.js";
 import Utils from "../../shared/Utils.js";
 import { getCPSeriesColor } from "../../shared/CriticalPowerAppearance.js";
+import WorkoutTerrainView from "./workout-terrain-view.js";
 
 const SEGMENT_FOCUS_COLOR = "#2563eb";
 const SEGMENT_HOVER_COLOR = "#0ea5e9";
@@ -25,6 +26,12 @@ export default class MapView {
     this.baseLayerButtons = new Map();
 
     this.map = L.map(containerId);
+    this.renderer = "2d";
+    this.rendererButtons = Array.from(document.querySelectorAll("[data-workout-map-renderer]"));
+    this.terrainContainer = document.getElementById("workout-terrain-map");
+    this.rendererButtons.forEach((button) => {
+      button.addEventListener("click", () => this.setRenderer(button.dataset.workoutMapRenderer));
+    });
     this.trackLayer = L.layerGroup().addTo(this.map);
     this.segmentLayer = L.layerGroup().addTo(this.map);
     this.segmentLabelLayer = L.layerGroup().addTo(this.map);
@@ -148,6 +155,7 @@ export default class MapView {
     const bounds = L.latLngBounds(coords);
 
     this.map.fitBounds(bounds, { padding: [20, 20] });
+    this.terrainView?.fit(coords);
   }
 
   fitTrackBounds() {
@@ -159,6 +167,7 @@ export default class MapView {
     }
 
     this.map.fitBounds(L.latLngBounds(coords), { padding: [10, 10] });
+    this.terrainView?.fit(coords);
   }
 
   // -----------------------------
@@ -176,6 +185,9 @@ export default class MapView {
     this.currentTrackPoints = [];
     this.currentTrackSegments = [];
     this.currentTrackSampleRate = 1;
+
+    this.markerPosition = null;
+    this.terrainView?.render();
 
     if (workout?.validGps) {
 
@@ -212,6 +224,7 @@ export default class MapView {
     }
 
     this.syncManualGpsUi();
+    this.terrainView?.render();
   }
 
   setSegmentVisibility(visibility = {}) {
@@ -296,6 +309,7 @@ export default class MapView {
     }
 
     this.updateSegmentLabels();
+    this.terrainView?.render();
   }
 
   resetSegmentOverlayState() {
@@ -401,6 +415,7 @@ export default class MapView {
       const coordinates = entry.coordinateSegments.flat();
       if (coordinates.length > 0) {
         this.map.fitBounds(L.latLngBounds(coordinates), { padding: [20, 20] });
+        this.terrainView?.fit(coordinates);
       }
     }
     return true;
@@ -439,6 +454,7 @@ export default class MapView {
 
   renderActiveSegmentHighlight() {
     this.segmentHighlightLayer.clearLayers();
+    this.terrainView?.render();
     const entry = this.hoveredSegmentOverlay || this.selectedSegmentOverlay;
     if (!entry) {
       return;
@@ -650,6 +666,8 @@ export default class MapView {
   // MARKER
   // -----------------------------
   moveMarker(lat, lng) {
+    this.markerPosition = [lng, lat];
+    this.terrainView?.moveMarker(this.markerPosition);
     if (!this.hoverMarker) {
       this.hoverMarker = L.circleMarker([lat, lng], {
         radius: 7,
@@ -695,6 +713,8 @@ export default class MapView {
   }
 
   hideMarker() {
+    this.markerPosition = null;
+    this.terrainView?.moveMarker(null);
     if (this.hoverMarker) {
       this.hoverLayer.removeLayer(this.hoverMarker);
       this.hoverMarker = null;
@@ -790,6 +810,7 @@ export default class MapView {
       return;
     }
 
+    this.setRenderer("2d");
     this.manualGpsMode = true;
     this.map.getContainer().style.cursor = "crosshair";
     this.ensureInteractiveViewport();
@@ -882,6 +903,11 @@ export default class MapView {
     this.gpxImportButtons.forEach((button) => {
       button.disabled = this.gpxImportBusy;
     });
+    this.rendererButtons?.forEach((button) => {
+      button.disabled = button.dataset.workoutMapRenderer === "3d"
+        && (this.manualGpsMode || !this.currentWorkout?.validGps);
+    });
+    if (!this.currentWorkout?.validGps && this.renderer === "3d") this.setRenderer("2d");
   }
 
   handleMapClick(event) {
@@ -911,6 +937,43 @@ export default class MapView {
     }
 
     this.map.invalidateSize(false);
+    this.terrainView?.map?.resize();
+  }
+
+  setRenderer(mode) {
+    const next = mode === "3d" ? "3d" : "2d";
+    if (next === this.renderer || !this.terrainContainer) return;
+    if (next === "3d" && (this.manualGpsMode || !this.currentWorkout?.validGps)) return;
+    const errorElement = document.getElementById("workout-map-renderer-error");
+    if (errorElement) errorElement.hidden = true;
+    if (next === "2d" && this.terrainView?.map) {
+      const center = this.terrainView.map.getCenter();
+      this.map.setView([center.lat, center.lng], this.terrainView.map.getZoom() + 1, { animate: false });
+    }
+    this.renderer = next;
+    this.map.getContainer().hidden = next !== "2d";
+    this.terrainContainer.hidden = next !== "3d";
+    this.rendererButtons.forEach((button) => {
+      const active = button.dataset.workoutMapRenderer === next;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    this.baseLayerMenu?.classList.toggle("d-none", next === "3d");
+    if (next === "3d") {
+      if (!this.terrainView || this.terrainView.failed) {
+        this.terrainView = new WorkoutTerrainView(this.terrainContainer, this);
+      }
+      this.terrainView.open(this.map.getCenter(), this.map.getZoom());
+    } else {
+      this.map.invalidateSize(false);
+      this.clearSegmentHover();
+      this.handlers.onSegmentHoverChange?.(null);
+    }
+  }
+
+  showTerrainError() {
+    const element = document.getElementById("workout-map-renderer-error");
+    if (element) element.hidden = false;
   }
 
   // -----------------------------

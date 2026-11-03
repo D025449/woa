@@ -1,0 +1,63 @@
+# Workout Map Views
+
+The workout detail map has an in-place **2D / 3D** switch. Leaflet remains the
+default. The existing MapTiler-powered flyover modal and the separate segment
+page are unchanged.
+
+## Rendering and Data Sources
+
+- 2D keeps the existing OpenStreetMap, OpenTopoMap and CyclOSM choices.
+- 3D uses MapLibre GL JS, OpenStreetMap raster tiles and Mapterhorn elevation
+  tiles from `https://tiles.mapterhorn.com/tilejson.json`. The 512-pixel DEM
+  tiles use Terrarium encoding. Terrain exaggeration is 1, with a separate
+  DEM source for hillshading, following the MapLibre terrain example.
+- No API key, MapTiler account, database change or migration is needed for this
+  embedded terrain view. The flyover still uses its existing MapTiler setup.
+- The terrain map and its network requests are created only after selecting
+  3D. The dashboard already loads MapLibre 4.7.1 for the flyover; that shared
+  dependency remains unchanged. This version does not expose `supported()`;
+  map construction failures are caught instead.
+- Public endpoints currently require no paid subscription. This is not a
+  promise of unlimited access or availability. Follow the
+  [OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/)
+  and [Mapterhorn attribution requirements](https://mapterhorn.com/attribution).
+  Preserve the visible map attribution. Browsers contact both providers directly;
+  providers receive the requesting IP and tile areas, not uploaded workout files.
+- Terrain only affects visualization. Stored GPS positions, recorded altitude,
+  ascent/descent and workout analysis are not changed.
+
+## Interaction and Failure Handling
+
+`MapView` owns the shared workout, GPS sample indexing, segment visibility,
+selection and chart-position state. `WorkoutTerrainView` renders those values
+without connecting to workout APIs itself. GPS gaps remain separate lines.
+Segment colors, hover, selection and the chart-position marker work in both
+views. Selected 3D segment popups use visible track points to avoid clipping
+outside the map on narrow viewports.
+
+Switching keeps the center and approximately equivalent zoom (Leaflet and
+MapLibre use different base tile sizes). The 3D camera starts at a 60-degree
+pitch and can be rotated or tilted with MapLibre navigation. Map style choices
+are available only in 2D. Starting manual GPS editing switches to Leaflet;
+switching to 3D is disabled during editing and for workouts without valid GPS.
+The renderer selection is not persisted across page reloads.
+
+Startup errors, source errors, WebGL context loss or a 20-second initial load
+timeout return to Leaflet and show a localized status message. 3D can be retried.
+Returning to 2D retains the existing terrain instance for reuse; shared data and
+fit updates are skipped while it is inactive, but already-started tile requests
+may finish.
+
+## Verification
+
+- Focused tests in `tests/map-segment-label.test.js` cover existing Leaflet labels,
+  GPS gaps, coordinate order, shared route/segment/focus/marker state, WebGL
+  fallback, in-place switching, editing/no-GPS restrictions, inactive rendering,
+  terrain configuration and compatibility with the current MapLibre version.
+- An isolated local browser preview with the real map modules, public tile
+  services and a synthetic Innsbruck track verified desktop/mobile rendering,
+  screenshots, nonblank canvas pixels, terrain activation, position markers,
+  segment selection, center-preserving switching and workout/no-GPS changes.
+- This preview is not an authenticated end-to-end dashboard test. The complete
+  dashboard layout, real workout data and real chart pointer interaction still
+  need a user check in the running application.
