@@ -254,10 +254,13 @@ von außen oder den Betriebszustand des Workers.
   Thread (60 Sekunden, 512 MiB V8-Heap-Limit). Bestehende Parserkorrekturen,
   Mindestlänge 300 Datensätze und WOA-Komprimierung gelten auch hier.
 - Speicherung und Folgeaufträge verwenden den gemeinsamen WOA-Importweg.
-  Vorhandene Trainings werden am Startzeitpunkt erkannt und übersprungen;
-  zusätzlich schützt der Datenbankkonflikt auf Benutzer/Startzeit vor Duplikaten.
-  Es wird niemals überschrieben. Bei Wiederholungen nach Teilfehlern dürfen
-  Folgeaufträge für bereits gespeicherte Trainings erneut angestoßen werden.
+  Exact-start matches are checked early. After manual migration 093, overlapping
+  time ranges for the same user are also skipped by the database exclusion
+  constraint, including persistence-time races, without retrying as failures.
+  Existing workouts are never overwritten. Retries after partial failures may
+  still reschedule postprocessing for previously saved exact-start workouts.
+  See [Workout Import Deduplication](workout-import-deduplication.md) for the rule,
+  rollout and limits.
 - Dies importiert neue Meldungen, keine vollständige Historie. Dafür bleibt der
   manuelle Import bestehen. Empfangene Änderungen/Löschungen überschreiben oder
   löschen keine vorhandenen WOA-Trainings. Wahoo liefert keine Summaries von

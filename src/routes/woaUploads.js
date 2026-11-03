@@ -17,6 +17,7 @@ import { decodeWoa1BufferLight } from "../services/woa1Service.js";
 import { decodeWoaTransportContainer } from "../public/js/woa-transport-container.js";
 import { decodeWorkoutLocalPostprocessTransport } from "../shared/WorkoutLocalPostprocess.js";
 import { decodeBrowserGpsBestEffortsTransport } from "../shared/BrowserGpsBestEffortsTransport.js";
+import { excludeTimeConflictWorkouts } from "../shared/WorkoutImportConflicts.js";
 import {
   persistWorkoutLocalPostprocess,
   WorkoutLocalPostprocessValidationError
@@ -336,7 +337,9 @@ export async function importWoaEntryReaders({
         if (!dbrow?.id) {
           skipped.push({
             entryName: item.entryName,
-            error: "Workout could not be resolved after bulk insert"
+            code: "workout_time_conflict",
+            startTime: new Date(item.preparedInsert.fileRow.start_time).toISOString(),
+            error: "Workout overlaps an existing workout for this user"
           });
           continue;
         }
@@ -610,8 +613,9 @@ async function processDecodedWoaBundle({ bundle, artifacts, safeMode }) {
       }))
     });
     importResult.bundlePhaseMs = performance.now() - importStartedAt;
-    if (safeMode && Number(importResult.skippedCount || 0) > 0) {
-      throw new Error(`WOA bundle workout phase skipped ${importResult.skippedCount} entries`);
+    const failedEntries = importResult.skipped.filter((entry) => entry.code !== "workout_time_conflict");
+    if (safeMode && failedEntries.length > 0) {
+      throw new Error(`WOA bundle workout phase skipped ${failedEntries.length} entries`);
     }
     if (safeMode) {
       const checkpointStartedAt = performance.now();
@@ -625,7 +629,7 @@ async function processDecodedWoaBundle({ bundle, artifacts, safeMode }) {
     const postprocessStartedAt = performance.now();
     const persistedPostprocess = await persistWorkoutLocalPostprocess({
       uid: bundle.uid,
-      decoded: artifacts.decodedPostprocess.value,
+      decoded: excludeTimeConflictWorkouts(artifacts.decodedPostprocess.value, importResult.skipped),
       pool,
       batchWorkoutCount: BROWSER_POSTPROCESS_DB_BATCH_WORKOUTS
     });
@@ -649,7 +653,7 @@ async function processDecodedWoaBundle({ bundle, artifacts, safeMode }) {
     const gpsBestEffortsStartedAt = performance.now();
     const persistedGpsBestEfforts = await persistBrowserGpsBestEfforts({
       uid: bundle.uid,
-      decoded: artifacts.decodedGpsBestEfforts.value,
+      decoded: excludeTimeConflictWorkouts(artifacts.decodedGpsBestEfforts.value, importResult.skipped),
       pool
     });
     await scheduleAffectedSegmentElevationProfiles(persistedGpsBestEfforts.affectedSegmentIds);

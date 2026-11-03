@@ -1,7 +1,33 @@
 # Arbeitsstand
 
-Stand: 2026-11-02. Diese Datei hält Absprachen für folgende Sitzungen fest.
+Stand: 2026-11-03. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
+
+## Workout Time Exclusion (2026-11-03)
+
+- User chose any positive same-user time overlap as a conflict, rather than the
+	proposed 90% rule with application-level serialization. Prepared migration 093
+	adds an immediate GiST exclusion constraint via `btree_gist` on valid half-open
+	`[start_time, end_time)` ranges. Adjacent workouts remain allowed; invalid or
+	missing ranges are excluded. Existing start-time uniqueness remains unchanged.
+- Common inserts now use untargeted `ON CONFLICT DO NOTHING`. Shifted conflicts
+	are skipped without mapping their postprocessing onto existing workouts.
+	Bundle WPP1/GBE1 filtering and recovery checkpoints accept explicit time skips;
+	Wahoo persistence-time skips do not trigger failure retries.
+- Overwrite remains exact-start-only and is always transactional per batch.
+	Missing replacements roll back that batch to preserve deleted workouts and
+	dependencies. No custom duplicate-detection advisory locks were added.
+- Manual audit, rollout, table-lock impact and limits are documented in
+	`docs/workout-import-deduplication.md`; provider/recovery guides link there.
+	Existing overlaps prevent constraint creation and require manual resolution.
+- Verification: all 699 tests passed, including new conflict, overwrite rollback,
+	WPP1/GBE1 filtering and Wahoo skip regressions with mocked database access.
+	Syntax, targeted ESLint (one existing warning), editor diagnostics and
+	`git diff --check` passed. Types retain only the three known nullability errors
+	in unchanged `src/shared/MicroIntervalDetector.js:141`. Migration checks are
+	structural only. No live database/constraint/concurrency/performance check,
+	migration execution, browser check, restart or deployment. Migration 093 must
+	still be executed manually by the user before the new DB protection is active.
 
 ## German Umlaut Copy Cleanup (2026-11-02)
 

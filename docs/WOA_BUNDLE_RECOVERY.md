@@ -15,7 +15,9 @@ WOA_BUNDLE_RECOVERY_RETENTION_HOURS=24
 ```
 
 With `WOA_BUNDLE_RECOVERY_ENABLED=0` or unset, the endpoint follows the previous fast path
-without bundle metadata writes or transactional workout overwrite batches.
+without bundle metadata writes. Workout overwrite batches are always transactional,
+including when recovery is disabled, to preserve existing workouts if a replacement
+conflicts with another workout.
 
 ## Safe-mode phases
 
@@ -28,6 +30,11 @@ without bundle metadata writes or transactional workout overwrite batches.
 Workout overwrite uses one transaction per configured workout batch. The complete bundle does
 not use one large database transaction. A retry resumes at the latest persisted phase, while a
 phase whose commit raced with a process crash can safely be repeated.
+
+Explicit `workout_time_conflict` skips are accepted at the workout checkpoint and
+excluded from WPP1/GBE1 postprocessing. Other skipped entries still fail that phase.
+See [Workout Import Deduplication](workout-import-deduplication.md) for the
+exclusion rule, manual migration and overwrite behavior.
 
 The import worker scans stale or failed bundles and submits `woa-bundle-recovery` jobs to the
 existing `fit-imports` BullMQ queue. Completed and permanently failed metadata is removed after

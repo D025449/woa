@@ -2464,7 +2464,8 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     if (!uid || !normalizedStartTimes.length) {
       return {
         rowCount: 0,
-        deletedIds: []
+        deletedIds: [],
+        deletedStartTimes: []
       };
     }
 
@@ -2473,14 +2474,15 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       DELETE FROM workouts
       WHERE uid = $1
         AND start_time = ANY($2::timestamptz[])
-      RETURNING id
+      RETURNING id, start_time
       `,
       [uid, normalizedStartTimes]
     );
 
     return {
       rowCount: result.rowCount,
-      deletedIds: result.rows.map((row) => Number(row.id))
+      deletedIds: result.rows.map((row) => Number(row.id)),
+      deletedStartTimes: result.rows.map((row) => new Date(row.start_time).toISOString())
     };
   }
 
@@ -2504,9 +2506,10 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       params.push(...FileDBService.buildPreparedInsertParams(preparedItems[index]));
     }
 
-    const transactionalOverwrite = !!options?.overwriteExisting && !!options?.transactionalOverwrite;
+    const transactionalOverwrite = !!options?.overwriteExisting;
     const client = transactionalOverwrite ? await pool.connect() : null;
     const queryable = client || pool;
+    let deletedStartTimes = [];
     try {
       if (transactionalOverwrite) await client.query("BEGIN");
 
@@ -2516,6 +2519,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
           preparedItems.map((item) => item?.fileRow?.start_time),
           queryable
         );
+        deletedStartTimes = deleteResult.deletedStartTimes;
         timing.mark("delete-existing-workout-rows", {
           deletedCount: deleteResult.rowCount
         });
@@ -2576,7 +2580,7 @@ INSERT INTO workouts (
 )
 VALUES
 ${valuesClauses.join(",\n")}
-ON CONFLICT (uid, start_time)
+ON CONFLICT
 DO NOTHING
 RETURNING id, uid, start_time;
       `,
@@ -2587,6 +2591,10 @@ RETURNING id, uid, start_time;
       });
 
       const insertedRows = Array.isArray(result.rows) ? result.rows : [];
+      const insertedStartTimes = new Set(insertedRows.map((row) => new Date(row.start_time).toISOString()));
+      if (deletedStartTimes.some((startTime) => !insertedStartTimes.has(startTime))) {
+        throw new Error("Overwrite conflicts with another workout; existing workouts were preserved");
+      }
       const startTimes = preparedItems.map((item) => item.fileRow.start_time);
       const existingRowsByKey = await FileDBService.findExistingWorkoutsByStartTimes(
         preparedItems[0]?.fileRow?.uid,
@@ -2711,7 +2719,7 @@ VALUES (
   $48,
   $49::jsonb
 )
-ON CONFLICT (uid, start_time)
+ON CONFLICT
 DO NOTHING
 RETURNING id, uid;
     `,

@@ -74,6 +74,11 @@ nacheinander heruntergeladen und durch dieselbe Browser-Verarbeitung wie lokale
 Dateien importiert. Der vorhandene Duplikatfilter und die Option zum Überschreiben
 gelten auch hier. Keine neue Migration für diesen Schritt erforderlich.
 
+After manual migration 093, the common import path also skips any overlapping
+valid workout time range for the same user, not just identical start times.
+See [Workout Import Deduplication](workout-import-deduplication.md) for the
+constraint, manual rollout and exact-start-only overwrite behavior.
+
 Der Browser muss geöffnet bleiben. Pro Aktivität erscheint „Importiert“,
 „Übersprungen“ oder ein Fehler. Fehlgeschlagene Einträge bleiben für einen erneuten
 Versuch ausgewählt. Übersprungen kann insbesondere Duplikate und zu kurze Workouts

@@ -54,9 +54,9 @@ export async function importWahooEvent(client, event, { convert = convertWahooFi
         return "skipped";
       }
     }
-    await persist(event, woa, bytes.length);
+    const status = await persist(event, woa, bytes.length);
     await client.query("COMMIT");
-    return "completed";
+    return status === "skipped" ? "skipped" : "completed";
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -70,7 +70,11 @@ async function persistWahooWorkout(event, woa, size) {
     overwriteExisting: false,
     entryReaders: [{ path: "wahoo.woa1", buffer: async () => woa }]
   });
-  if (result.importedCount !== 1 || result.postprocessErrorCount) throw new Error("Wahoo import failed");
+  if (result.postprocessErrorCount) throw new Error("Wahoo import failed");
+  if (result.importedCount === 0 && result.skippedCount === 1
+    && result.skipped[0]?.code === "workout_time_conflict") return "skipped";
+  if (result.importedCount !== 1) throw new Error("Wahoo import failed");
+  return "completed";
 }
 
 export async function processNextWahooImport(processEvent = importWahooEvent) {

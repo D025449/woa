@@ -123,6 +123,24 @@ test("Wahoo worker skips existing start times without persisting or overwriting"
   assert.equal(await importWahooEvent(client, event, { convert: async () => woa, persist: async () => assert.fail("Duplicate must be skipped") }), "skipped");
 });
 
+test("Wahoo worker commits persistence-time overlap skips instead of retrying them", async t => {
+  const calls = [];
+  t.mock.method(ImportService, "file", async () => Buffer.from("fit"));
+  const client = { async query(sql) {
+    calls.push(sql);
+    return { rows: sql.includes("FROM user_wahoo_connections") ? [{ user_id: "42" }] : [] };
+  } };
+
+  const result = await importWahooEvent(client, { ...event, attempts: 2 }, {
+    convert: async () => Buffer.from("woa"),
+    persist: async () => "skipped"
+  });
+
+  assert.equal(result, "skipped");
+  assert.equal(calls.at(-1), "COMMIT");
+  assert.equal(calls.includes("ROLLBACK"), false);
+});
+
 for (const fail of [false, true]) {
   test(`Wahoo durable worker ${fail ? "retries with bounded sanitized failures" : "completes claims and releases advisory locks"}`, async t => {
     const calls = [];
