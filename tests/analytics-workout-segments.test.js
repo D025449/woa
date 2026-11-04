@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import { filterAnalyticsWorkoutSegments } from "../src/public/js/analytics-workout-segments.js";
 import CPChartView from "../src/public/js/cp-chart-view.js";
 import ChartView from "../src/public/js/chart-view.js";
@@ -56,4 +57,60 @@ test("the shared workout chart retains all segment types and durations by defaul
   chart.xAxisMode = "time";
   assert.equal(chart.buildMarkAreasForMode(workout).length, 7);
   assert.equal(chart.getSegmentHeaderLayout().items.length, 7);
+});
+
+test("analytics forwards the same filtered CP workout to map renderers and chart on selection and legend changes", async () => {
+  const source = await readFile(new URL("../src/public/js/analytics-controller.js", import.meta.url), "utf8");
+  const method = source.match(/ {2}renderWorkoutDetailSegments\([\s\S]*?(?=\n {2}markSelectedWorkoutCard\()/)?.[0];
+  assert.ok(method);
+  const Controller = new Function("filterAnalyticsWorkoutSegments", `return class { ${method} }`)(filterAnalyticsWorkoutSegments);
+  const powerCurve = createPowerCurve();
+  let chartWorkout;
+  let mapWorkout;
+  let trackRenders = 0;
+  const controller = Object.assign(Object.create(Controller.prototype), {
+    detailWorkout: workout,
+    cpChartView: powerCurve,
+    chartView: {
+      hideSegmentHoverTooltip() {}, clearSegmentHover() {}, clearSegmentFocus() {},
+      updateWorkout(value) { chartWorkout = value; }
+    },
+    mapView: {
+      renderTrack(value) { mapWorkout = value; trackRenders += 1; },
+      renderSegmentOverlays(value) { mapWorkout = value; }
+    }
+  });
+  controller.renderWorkoutDetailSegments({ renderTrack: true });
+  assert.equal(mapWorkout, chartWorkout);
+  assert.deepEqual(mapWorkout.segments.map((segment) => segment.id), [1, 3]);
+  powerCurve.seriesVisibility = { cp5: false, cp300: false, cp60: true };
+  controller.renderWorkoutDetailSegments();
+  assert.equal(mapWorkout, chartWorkout);
+  assert.equal(controller.mapView.currentWorkout, mapWorkout);
+  assert.deepEqual(mapWorkout.segments.map((segment) => segment.id), [2]);
+  assert.equal(trackRenders, 1);
+  assert.equal(workout.segments.length, 7);
+});
+
+test("analytics measures a revealed map before fitting its workout track", async () => {
+  const source = await readFile(new URL("../src/public/js/analytics-controller.js", import.meta.url), "utf8");
+  const method = source.match(/ {2}async openWorkoutDetail\([\s\S]*?(?=\n {2}renderWorkoutDetailSegments\()/)?.[0];
+  assert.ok(method);
+  for (const validGps of [false, true]) {
+    const calls = [];
+    const selectedWorkout = { ...workout, validGps };
+    const Controller = new Function("WorkoutService", "requestAnimationFrame", `return class { ${method} }`)(
+      { loadWorkoutByRow: async () => selectedWorkout }, (callback) => callback()
+    );
+    const controller = Object.assign(Object.create(Controller.prototype), {
+      detailPlaceholderElement: { hidden: false }, detailElement: { hidden: true },
+      focusGridElement: { classList: { toggle(_name, hidden) { calls.push(["visibility", hidden]); } } },
+      mapView: { resize() { calls.push(["resize"]); } }, chartView: { resize() {} },
+      renderWorkoutDetailSegments(options) { calls.push(["render", options]); },
+      renderWorkoutMeta() {}, markSelectedWorkoutCard() {}, rememberSelectedWorkout() {}, markSelectedPowerMetric() {}
+    });
+    assert.equal(await controller.openWorkoutDetail(42), true);
+    assert.deepEqual(calls.slice(0, 3), [["visibility", !validGps], ["resize"], ["render", { renderTrack: true }]]);
+    assert.equal(controller.selectedWorkoutId, 42);
+  }
 });

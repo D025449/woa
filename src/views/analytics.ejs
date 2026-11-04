@@ -13,10 +13,12 @@
     <script src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
     <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator_bootstrap5.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
     <link rel="stylesheet" href="/css/ui-system.css?v=atlas-blue-4">
     <link rel="stylesheet" href="/css/analytics.css?v=power-weight-1">
 
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 
 </head>
 
@@ -171,10 +173,16 @@
                                 <span class="analytics-eyebrow ui-eyebrow"><%= t("analyticsPage.spatialEyebrow") %></span>
                                 <h2 class="analytics-section-title ui-title"><%= t("analyticsPage.spatialTitle") %></h2>
                             </div>
+                            <div class="btn-group btn-group-sm analytics-map-renderer" role="group" aria-label="<%= t('analyticsPage.spatialTitle') %>">
+                                <button class="btn btn-outline-secondary active" type="button" data-workout-map-renderer="2d" aria-pressed="true">2D</button>
+                                <button class="btn btn-outline-secondary" type="button" data-workout-map-renderer="3d" aria-pressed="false">3D</button>
+                            </div>
                         </div>
 
                         <div class="analytics-body">
+                            <div id="workout-map-renderer-error" class="small text-danger mb-2" role="status" hidden><%= t("dashboardNewPage.mapTerrainUnavailable") %></div>
                             <div id="workout-map"></div>
+                            <div id="workout-terrain-map" hidden></div>
                         </div>
                     </aside>
                 </section>

@@ -260,6 +260,10 @@ export function normalizeAnalyticsState(state = {}) {
     normalized.workoutChartLayoutMode = source.workoutChartLayoutMode;
   }
 
+  if (MAP_RENDERERS.has(source.mapRenderer)) {
+    normalized.mapRenderer = source.mapRenderer;
+  }
+
   return normalized;
 }
 

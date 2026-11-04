@@ -22,8 +22,8 @@ async function loadPreferenceController(fileName, methodNames) {
     const next = rest.search(/\n {2}(?:async )?\w+\(/);
     return source.slice(start, next < 0 ? source.lastIndexOf("}") : start + 1 + next);
   });
-  return new Function("ViewPreferenceService", "WORKOUT_LIBRARY_VIEW_KEY", "SEGMENTS_VIEW_KEY", "VIEW_PREFERENCE_SAVE_DELAY_MS",
-    `return class { ${methods.join("\n")} }`)(BrowserViewPreferenceService, "workout-library", "segments", 500);
+  return new Function("ViewPreferenceService", "WORKOUT_LIBRARY_VIEW_KEY", "SEGMENTS_VIEW_KEY", "VIEW_PREFERENCE_SAVE_DELAY_MS", "ANALYTICS_VIEW_KEY", "writeWorkoutChartLayoutMode",
+    `return class { ${methods.join("\n")} }`)(BrowserViewPreferenceService, "workout-library", "segments", 500, "analytics", () => {});
 }
 
 test("normalizes workout library preferences to supported values", () => {
@@ -157,8 +157,8 @@ test("keeps legacy preferences without segment visibility backward compatible", 
   assert.equal("bridgePowerCadenceZeros" in state, false);
 });
 
-test("persists only supported map renderers independently for workout and segment views", async () => {
-  for (const normalize of [normalizeWorkoutLibraryState, normalizeSegmentsState]) {
+test("persists only supported map renderers independently for workout, segment and analytics views", async () => {
+  for (const normalize of [normalizeWorkoutLibraryState, normalizeSegmentsState, normalizeAnalyticsState]) {
     assert.equal(normalize({ mapRenderer: "3d" }).mapRenderer, "3d");
     assert.equal(normalize({ mapRenderer: "2d" }).mapRenderer, "2d");
     assert.equal("mapRenderer" in normalize({ mapRenderer: "other" }), false);
@@ -176,9 +176,55 @@ test("persists only supported map renderers independently for workout and segmen
   };
   await ViewPreferenceService.upsert(7, "workout-library", { mapRenderer: "3d" }, db);
   await ViewPreferenceService.upsert(7, "segments", { mapRenderer: "2d" }, db);
+  await ViewPreferenceService.upsert(7, "analytics", { mapRenderer: "3d" }, db);
   assert.equal((await ViewPreferenceService.get(7, "workout-library", db)).state.mapRenderer, "3d");
   assert.equal((await ViewPreferenceService.get(7, "segments", db)).state.mapRenderer, "2d");
+  assert.equal((await ViewPreferenceService.get(7, "analytics", db)).state.mapRenderer, "3d");
   assert.equal(await ViewPreferenceService.get(8, "segments", db), null);
+});
+
+test("analytics defaults to 2D and retains its renderer across chart preference changes", () => {
+  const initial = createDefaultAnalyticsPreferences();
+  assert.equal(initial.mapRenderer, "2d");
+  initial.mapRenderer = "3d";
+  const updated = mergeAnalyticsPreferences(initial, "powerCurve", { grouping: "year" });
+  assert.equal(updated.mapRenderer, "3d");
+  assert.equal(updated.powerCurve.grouping, "year");
+});
+
+test("analytics controller restores its map renderer and saves explicit choices with existing preferences", async () => {
+  const Controller = await loadPreferenceController("analytics-controller.js", [
+    "restoreAnalyticsPreferences", "handleMapRendererChange", "scheduleAnalyticsPreferenceSave", "persistAnalyticsPreferences"
+  ]);
+  const originalLoad = BrowserViewPreferenceService.load;
+  const originalSave = BrowserViewPreferenceService.save;
+  const saved = [];
+  BrowserViewPreferenceService.save = async (key, state) => { saved.push({ key, state }); return state; };
+  try {
+    for (const storedState of [null, {}, { mapRenderer: "2d" }, { mapRenderer: "3d" }]) {
+      BrowserViewPreferenceService.load = async (key) => { assert.equal(key, "analytics"); return storedState; };
+      let restored;
+      const controller = Object.assign(Object.create(Controller.prototype), {
+        analyticsPreferences: createDefaultAnalyticsPreferences(),
+        chartView: { applyPreferences() {} },
+        mapView: { applyRendererPreference(mode) { restored = mode; } },
+        preferenceSaveChain: Promise.resolve()
+      });
+      await controller.restoreAnalyticsPreferences();
+      assert.equal(restored, storedState?.mapRenderer || "2d");
+      assert.equal(controller.pendingPreferenceState, undefined);
+      controller.handleMapRendererChange("3d");
+      clearTimeout(controller.preferenceSaveTimer);
+      controller.persistAnalyticsPreferences();
+      await controller.preferenceSaveChain;
+      assert.equal(saved.at(-1).key, "analytics");
+      assert.equal(saved.at(-1).state.mapRenderer, "3d");
+      assert.equal(saved.at(-1).state.grouping, "month");
+    }
+  } finally {
+    BrowserViewPreferenceService.load = originalLoad;
+    BrowserViewPreferenceService.save = originalSave;
+  }
 });
 
 test("both controllers restore server map choices, default missing choices and save through view preferences", async () => {

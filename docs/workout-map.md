@@ -1,13 +1,14 @@
-# Workout and Segment Map Views
+# Workout, Analytics and Segment Map Views
 
-The workout detail map and the separate segment page have an in-place
+The workout detail map, Analytics workout detail and separate segment page have an in-place
 **2D / 3D** switch. Leaflet is the default when no server preference exists.
 Each page restores its own saved renderer choice. The existing MapTiler-powered
 flyover modals are unchanged.
 
 ## Rendering and Data Sources
 
-- 2D keeps the existing OpenStreetMap, OpenTopoMap and CyclOSM choices.
+- 2D keeps each page's existing Leaflet behavior. Workout and segment pages
+  retain their OpenStreetMap, OpenTopoMap and CyclOSM choices.
 - 3D uses MapLibre GL JS, OpenStreetMap raster tiles and Mapterhorn elevation
   tiles from `https://tiles.mapterhorn.com/tilejson.json`. The 512-pixel DEM
   tiles use Terrarium encoding. Terrain exaggeration is 1, with a separate
@@ -15,8 +16,8 @@ flyover modals are unchanged.
 - No API key, MapTiler account, database change or migration is needed for this
   embedded terrain view. The flyover still uses its existing MapTiler setup.
 - The terrain map and its network requests are created only after selecting
-  or restoring 3D. Both pages already load MapLibre 4.7.1 for the flyover; that shared
-  dependency remains unchanged. This version does not expose `supported()`;
+  or restoring 3D. All three pages use MapLibre 4.7.1, the existing workout and
+  segment flyover version. This version does not expose `supported()`;
   map construction failures are caught instead.
 - Public endpoints currently require no paid subscription. This is not a
   promise of unlimited access or availability. Follow the
@@ -70,12 +71,13 @@ are available only in 2D.
 
 ## Server-Side Renderer Preference
 
-Both pages use the existing authenticated `/api/view-preferences/:viewKey`
+All three pages use the existing authenticated `/api/view-preferences/:viewKey`
 GET/PUT path. The optional `mapRenderer` field accepts only `2d` or `3d` and is
 stored in the existing JSON preference state in `user_view_preferences`:
 
 - Workout detail: `workout-library` view key.
 - Segment page: `segments` view key.
+- Analytics workout detail: `analytics` view key.
 
 The choices are independent per user and per view. Existing filter/chart state,
 debounced saves and page-leave flushing remain in use. No schema change or
@@ -117,6 +119,23 @@ The isolated preview verified real canvas events at zoom 14/pitch 75 and zoom
 second-click deselection, background clicks, GPS draft points and nonblank
 canvas pixels. This confirms callback forwarding, not an authenticated complete
 dashboard/chart pointer round trip. No routing or database writes were run.
+
+## Analytics Workout Detail
+
+Analytics uses the same `MapView` and `WorkoutTerrainView` as the workout page,
+including projected hover/click hit testing, segment labels, chart-position
+markers, terrain sources and automatic Leaflet fallback. Its read-only detail
+map does not introduce GPS editing or change the existing chart/map callbacks.
+
+The CP legend continues to filter the same workout segments for both chart and
+map. Renderer changes preserve the selected workout and CP filters; chart and
+filter preference updates preserve `mapRenderer`. Restoring a saved 3D choice
+waits until a GPS workout is selected and does not schedule another save.
+
+Workouts without valid GPS retain the existing hidden-map layout. Before fitting
+a newly revealed workout map, Analytics refreshes its dimensions so Leaflet does
+not supply a stale zero-size camera to terrain. Returning to a GPS workout
+reactivates a preferred 3D renderer without replacing the saved preference.
 
 ## Segment Page
 
@@ -200,8 +219,23 @@ may finish.
 
 ## Verification
 
-- The combined focused map, view-preference, hover/header, track-rendering,
-  best-effort-paging and UI-state checks pass 84 tests. New coverage includes
+- The Analytics integration passes 117 focused Analytics, map, view-preference,
+  hover/visibility and CP-header tests. Added coverage checks its default and
+  server normalization, independent per-user/per-view storage, controller
+  restore/save, preservation across chart preferences, shared chart/map CP
+  filtering and map sizing before track fitting. Syntax and targeted ESLint pass
+  with two existing controller warnings; types retain the three known nullability
+  errors in unchanged `MicroIntervalDetector.js:141`.
+- An isolated Analytics preview used its actual EJS/CSS, real map libraries,
+  synthetic workouts and simulated preference APIs. Desktop and 390 x 844 mobile
+  screenshots and canvas pixels confirmed terrain, labels, position markers,
+  controls without overlap and no horizontal overflow. Real canvas hover/click
+  worked at zoom 14/pitch 75/bearing 40. Switching, CP filtering, non-saving
+  restore and no-GPS/eligible-workout transitions also passed, including camera
+  framing after revealing the map. This is not an authenticated Analytics/chart
+  pointer end-to-end test; no real preference or workout writes were performed.
+- The preceding combined workout/segment map, view-preference, hover/header, track-rendering,
+  best-effort-paging and UI-state checks passed 84 tests. Coverage includes
   per-user/per-view storage, invalid/legacy values, both controller restore/save
   paths, delayed workout availability, non-persisting fallbacks, segment endpoint
   actions, labels, active bounds/camera switching and tooltip escaping.

@@ -3,6 +3,24 @@
 Stand: 2026-11-04. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Analytics Terrain Map (2026-11-04)
+
+- User approved the same embedded 2D/3D map for Analytics. It reuses the shared
+	workout map, terrain sources, labels, hit testing and position marker. The
+	independent `analytics.mapRenderer` preference uses existing JSON view state;
+	no migration. Only explicit renderer choices save; automatic fallback and
+	no-GPS workouts retain the preferred renderer. Existing CP filtering and
+	hidden-map layout remain. Map dimensions refresh before fitting a revealed
+	track to avoid inheriting a zero-size Leaflet camera. Details:
+	`docs/workout-map.md` (Analytics Workout Detail).
+- Verification: 117 focused Analytics/map/preference/hover/header tests passed;
+	syntax and targeted ESLint passed (two existing controller warnings). Types
+	retain the three known nullability errors in `MicroIntervalDetector.js:141`.
+	Actual-template synthetic preview verified desktop/mobile screenshots and
+	nonblank pixels, CP filters, marker, switching, simulated preference saves,
+	hover/click at pitch 75 and no-GPS/eligible-workout camera recovery. No full
+	suite, authenticated end-to-end test, database write, migration or deployment.
+
 ## Workout Terrain Hit Testing (2026-11-04)
 
 - User confirmed the same issue in the workout UI and approved applying the

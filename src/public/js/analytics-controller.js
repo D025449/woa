@@ -115,6 +115,7 @@ export default class Controller {
   // -----------------------------
   initViews() {
     this.mapView = new MapView("workout-map");
+    this.mapView.onRendererChange = (mapRenderer) => this.handleMapRendererChange(mapRenderer);
 
     this.chartView = new ChartView("workout-chart", {
       initialState: {
@@ -154,10 +155,19 @@ export default class Controller {
       });
   }
 
-  async initAnalyticsCharts() {
+  handleMapRendererChange(mapRenderer) {
+    this.analyticsPreferences = { ...this.analyticsPreferences, mapRenderer };
+    this.scheduleAnalyticsPreferenceSave();
+  }
+
+  async restoreAnalyticsPreferences() {
     try {
       const storedState = await ViewPreferenceService.load(ANALYTICS_VIEW_KEY);
       this.viewPreferencesAvailable = true;
+      this.analyticsPreferences = {
+        ...this.analyticsPreferences,
+        mapRenderer: storedState?.mapRenderer === "3d" ? "3d" : "2d"
+      };
       if (storedState) {
         this.analyticsPreferences = {
           ...this.analyticsPreferences,
@@ -191,7 +201,11 @@ export default class Controller {
     } catch (err) {
       console.warn("Analytics preferences remain at their defaults for this session:", err);
     }
+    this.mapView.applyRendererPreference(this.analyticsPreferences.mapRenderer);
+  }
 
+  async initAnalyticsCharts() {
+    await this.restoreAnalyticsPreferences();
     this.renderTimeRangeSummary();
     this.initSharedGroupingControl();
     const grouping = mapSharedGrouping(this.analyticsPreferences.grouping);
@@ -1212,6 +1226,7 @@ export default class Controller {
     this.detailPlaceholderElement.hidden = true;
     this.detailElement.hidden = false;
     this.focusGridElement.classList.toggle("analytics-focus-grid--no-map", !workout.validGps);
+    this.mapView.resize();
     this.renderWorkoutDetailSegments({ renderTrack: true });
     if (cpRow?.startOffset != null && cpRow?.endOffset != null) {
       this.chartView.zoomToCriticalPowerEffort(cpRow);
