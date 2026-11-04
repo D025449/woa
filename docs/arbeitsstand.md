@@ -3,6 +3,23 @@
 Stand: 2026-11-04. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Production Lockfile Repair (2026-11-04)
+
+- The user-reported deployment of `70df056` pulled code but failed at
+	`npm ci --omit=dev`, before service reload: `sharp` was declared without
+	matching lockfile entries. The production process state was not inspected.
+- User approved a local-only repair. Regenerated `package-lock.json` with
+	`npm install --package-lock-only --ignore-scripts --no-audit --no-fund`.
+	Sharp 0.35.5 and Linux ARM64 Sharp/libvips packages are now included;
+	retained package versions are unchanged.
+- Production-style `npm ci --dry-run --ignore-scripts --no-audit --no-fund
+	--omit=dev`, structured lockfile assertions and patch whitespace checks passed
+	with Node 26.4.0/npm 12.0.2. This does not verify a clean installation,
+	native module loading or Linux ARM64 runtime behavior. No server access,
+	commit, deployment, restart or migration performed. User must redeploy.
+- Added the manifest/lockfile synchronization requirement to
+	`docs/npm-scripts.md` under application operations.
+
 ## Production Environment Shortcut (2026-11-04)
 
 - User approved `npm run env:prod` to open `~/woa/.env.production` directly in

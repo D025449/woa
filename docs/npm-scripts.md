@@ -44,6 +44,13 @@ dokumentieren die Werkzeuge; sie sind keine Ausführungsfreigabe.
 und `DEPLOY_APP_DIR`. `SKIP_RELEASE_CHECKS=1` überspringt Tests und Checks.
 Die Typprüfung gehört nicht zum Release-Check. Implementierung: [`release-prod.sh`](../release-prod.sh).
 
+Production deployment installs dependencies with `npm ci --omit=dev`. Whenever
+dependencies change, update and commit both `package.json` and `package-lock.json`;
+otherwise installation fails even after the code has already been pulled.
+For a lockfile-only repair, run `npm install --package-lock-only --ignore-scripts`,
+review the diff, then check `npm ci --dry-run --ignore-scripts --omit=dev` locally.
+A dry-run checks dependency resolution, not native binaries or runtime behavior.
+
 ## Edit the Production Environment
 
 Run from the local repository in an interactive terminal:
