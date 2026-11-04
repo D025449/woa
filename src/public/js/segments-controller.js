@@ -101,6 +101,8 @@ export default class Controller {
     try {
       const storedState = await ViewPreferenceService.load(SEGMENTS_VIEW_KEY);
       this.viewPreferencesAvailable = true;
+      this.mapViewState = { ...this.mapViewState, mapRenderer: storedState?.mapRenderer === "3d" ? "3d" : "2d" };
+      this.uiState.set("segmentsMapViewState", this.mapViewState);
       if (!storedState) return;
 
       this.segmentScope = storedState.segmentScope;
@@ -125,7 +127,8 @@ export default class Controller {
       bestEffortsScope: this.bestEffortsScope,
       bestEffortsPerUser: this.bestEffortsPerUser,
       bestEffortsPeriod: this.bestEffortsPeriod,
-      bestEffortsPageSize: this.bestEffortsPageSize
+      bestEffortsPageSize: this.bestEffortsPageSize,
+      mapRenderer: this.mapViewState.mapRenderer || "2d"
     };
   }
 
@@ -169,11 +172,16 @@ export default class Controller {
           await this.handleSegmentOpen(e, segment);
         },
         onBaseLayerChange: (baseLayerMode) => {
-          this.mapViewState = { baseLayerMode };
+          this.mapViewState = { ...this.mapViewState, baseLayerMode };
           this.uiState.set("segmentsMapViewState", this.mapViewState);
           if (this.didRestoreMapViewState) {
             this.showToast(this.t("messages.mapStyleChanged", { style: this.t(`mapStyle${baseLayerMode.charAt(0).toUpperCase()}${baseLayerMode.slice(1)}`) }));
           }
+        },
+        onRendererChange: (mapRenderer) => {
+          this.mapViewState = { ...this.mapViewState, mapRenderer };
+          this.uiState.set("segmentsMapViewState", this.mapViewState);
+          this.scheduleSegmentPreferenceSave();
         }
       }
 
@@ -614,7 +622,7 @@ export default class Controller {
     this.mapView.controller.mapSegments = this.mapSegments;
     this.mapView.refreshSegments();
     this.focusApplied = false;
-    await this.mapView.loadSegmentsForViewport(this.mapView.map.getBounds());
+    await this.mapView.loadSegmentsForViewport(this.mapView.getBounds());
   }
 
   async toggleFavoriteFilter() {
@@ -629,7 +637,7 @@ export default class Controller {
 
     this.mapView.refreshSegments();
     this.renderQuickAccess();
-    await this.mapView.loadSegmentsForViewport(this.mapView.map.getBounds());
+    await this.mapView.loadSegmentsForViewport(this.mapView.getBounds());
   }
 
   isSegmentVisibleInCurrentScope(segment) {
@@ -1106,7 +1114,7 @@ export default class Controller {
       this.clearSelectedSegment();
       this.mapView.refreshSegments();
       try {
-        await this.mapView.loadSegmentsForViewport(this.mapView.map.getBounds());
+        await this.mapView.loadSegmentsForViewport(this.mapView.getBounds());
       } catch (err) {
         console.error(err);
       }
@@ -1761,7 +1769,7 @@ export default class Controller {
       this.mapView.controller.mapSegments = this.mapSegments;
       this.mapView.refreshSegments();
       this.focusApplied = false;
-      await this.mapView.loadSegmentsForViewport(this.mapView.map.getBounds());
+      await this.mapView.loadSegmentsForViewport(this.mapView.getBounds());
       this.showToast(this.t("messages.segmentArchiveImported", {
         imported: Number(result.imported || 0),
         skipped: Number(result.skippedDuplicates || 0)

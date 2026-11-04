@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
+import BrowserViewPreferenceService from "../src/public/js/view-preference-service.js";
 
 import ViewPreferenceService, {
   normalizeAnalyticsState,
@@ -10,6 +12,19 @@ import {
   createDefaultAnalyticsPreferences,
   mergeAnalyticsPreferences
 } from "../src/public/js/analytics-preferences.js";
+
+async function loadPreferenceController(fileName, methodNames) {
+  const source = await readFile(new URL(`../src/public/js/${fileName}`, import.meta.url), "utf8");
+  const methods = methodNames.map((name) => {
+    const start = source.search(new RegExp(`^  (?:async )?${name}\\(`, "m"));
+    assert.ok(start >= 0, `Controller method ${name} exists`);
+    const rest = source.slice(start + 1);
+    const next = rest.search(/\n {2}(?:async )?\w+\(/);
+    return source.slice(start, next < 0 ? source.lastIndexOf("}") : start + 1 + next);
+  });
+  return new Function("ViewPreferenceService", "WORKOUT_LIBRARY_VIEW_KEY", "SEGMENTS_VIEW_KEY", "VIEW_PREFERENCE_SAVE_DELAY_MS",
+    `return class { ${methods.join("\n")} }`)(BrowserViewPreferenceService, "workout-library", "segments", 500);
+}
 
 test("normalizes workout library preferences to supported values", () => {
   assert.deepEqual(normalizeWorkoutLibraryState({
@@ -140,6 +155,83 @@ test("keeps legacy preferences without segment visibility backward compatible", 
   assert.equal("chartLayoutMode" in state, false);
   assert.equal("smoothingLevel" in state, false);
   assert.equal("bridgePowerCadenceZeros" in state, false);
+});
+
+test("persists only supported map renderers independently for workout and segment views", async () => {
+  for (const normalize of [normalizeWorkoutLibraryState, normalizeSegmentsState]) {
+    assert.equal(normalize({ mapRenderer: "3d" }).mapRenderer, "3d");
+    assert.equal(normalize({ mapRenderer: "2d" }).mapRenderer, "2d");
+    assert.equal("mapRenderer" in normalize({ mapRenderer: "other" }), false);
+    assert.equal("mapRenderer" in normalize({}), false);
+  }
+  const rows = new Map();
+  const db = {
+    async query(sql, values) {
+      const key = `${values[0]}:${values[1]}`;
+      if (sql.includes("INSERT INTO")) {
+        rows.set(key, { viewKey: values[1], state: JSON.parse(values[2]), version: 1 });
+      }
+      return { rows: rows.has(key) ? [rows.get(key)] : [] };
+    }
+  };
+  await ViewPreferenceService.upsert(7, "workout-library", { mapRenderer: "3d" }, db);
+  await ViewPreferenceService.upsert(7, "segments", { mapRenderer: "2d" }, db);
+  assert.equal((await ViewPreferenceService.get(7, "workout-library", db)).state.mapRenderer, "3d");
+  assert.equal((await ViewPreferenceService.get(7, "segments", db)).state.mapRenderer, "2d");
+  assert.equal(await ViewPreferenceService.get(8, "segments", db), null);
+});
+
+test("both controllers restore server map choices, default missing choices and save through view preferences", async () => {
+  const WorkoutController = await loadPreferenceController("dashboard-new-controller.js", [
+    "restoreWorkoutLibraryPreferences", "scheduleWorkoutLibraryPreferenceSave", "persistWorkoutLibraryPreferences"
+  ]);
+  const SegmentsController = await loadPreferenceController("segments-controller.js", [
+    "restoreSegmentPreferences", "buildSegmentPreferenceState", "scheduleSegmentPreferenceSave", "persistSegmentPreferences"
+  ]);
+  const originalLoad = BrowserViewPreferenceService.load;
+  const originalSave = BrowserViewPreferenceService.save;
+  const saves = [];
+  BrowserViewPreferenceService.save = async (key, state) => { saves.push({ key, state }); return state; };
+  try {
+    for (const [Controller, viewKey] of [[WorkoutController, "workout-library"], [SegmentsController, "segments"]]) {
+      for (const storedState of [null, {}, { mapRenderer: "2d" }, { mapRenderer: "3d" }]) {
+        let appliedRenderer;
+        BrowserViewPreferenceService.load = async (key) => { assert.equal(key, viewKey); return storedState; };
+        const controller = Object.assign(Object.create(Controller.prototype), {
+          mapViewState: { mapRenderer: "3d", baseLayerMode: "topo" },
+          uiState: { set() {} }, libraryState: { search: "test" },
+          libraryView: { applyState() {} }, chartViewState: { seriesVisibility: {}, segmentVisibility: {} },
+          mapView: { applyRendererPreference(mode) { appliedRenderer = mode; } },
+          viewPreferenceSaveChain: Promise.resolve()
+        });
+        const expected = storedState?.mapRenderer || "2d";
+        if (viewKey === "workout-library") {
+          await controller.restoreWorkoutLibraryPreferences();
+          assert.equal(appliedRenderer, expected);
+        } else {
+          await controller.restoreSegmentPreferences();
+        }
+        assert.equal(controller.mapViewState.mapRenderer, expected);
+        assert.equal(controller.mapViewState.baseLayerMode, "topo");
+        controller.mapViewState.mapRenderer = "3d";
+        if (viewKey === "workout-library") {
+          controller.scheduleWorkoutLibraryPreferenceSave(controller.libraryState);
+          clearTimeout(controller.viewPreferenceSaveTimer);
+          controller.persistWorkoutLibraryPreferences();
+        } else {
+          controller.scheduleSegmentPreferenceSave();
+          clearTimeout(controller.viewPreferenceSaveTimer);
+          controller.persistSegmentPreferences();
+        }
+        await controller.viewPreferenceSaveChain;
+        assert.equal(saves.at(-1).key, viewKey);
+        assert.equal(saves.at(-1).state.mapRenderer, "3d");
+      }
+    }
+  } finally {
+    BrowserViewPreferenceService.load = originalLoad;
+    BrowserViewPreferenceService.save = originalSave;
+  }
 });
 
 test("normalizes analytics chart grouping and legend visibility independently", () => {

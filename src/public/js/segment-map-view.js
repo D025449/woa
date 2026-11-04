@@ -1,6 +1,7 @@
 import MapSegment from "../../shared/MapSegment.js"
 import { createTranslator, getCurrentLocale } from "./i18n.js";
 import { smoothSegmentTrackForRendering } from "./segment-track-rendering.js";
+import SegmentTerrainView from "./segment-terrain-view.js";
 
 export default class MapView {
 
@@ -10,6 +11,13 @@ export default class MapView {
     this.locale = getCurrentLocale();
     this.SEMI_TO_DEG = 18000 / 2147483648;
     this.handlers = handlers;
+    this.renderer = "2d";
+    this.preferredRenderer = "2d";
+    this.terrainContainer = document.getElementById("segments-terrain-map");
+    this.rendererButtons = Array.from(document.querySelectorAll("[data-segment-map-renderer]"));
+    this.rendererButtons.forEach((button) => {
+      button.addEventListener("click", () => this.setRenderer(button.dataset.segmentMapRenderer));
+    });
     this.baseLayerMode = "standard";
     this.baseLayer = null;
     this.baseLayerSlot = document.getElementById("segments-map-style-slot");
@@ -82,25 +90,16 @@ export default class MapView {
 
     this.syncSelectionUi();
 
-    this.map.whenReady(async () => {
-      console.log("Map ready");
-
-      const bounds = this.map.getBounds();
-      const segments = await this.loadSegmentsForViewport(bounds);
-
-      //this.renderSegments(segments);
+    this.map.whenReady(() => {
+      if (this.preferredRenderer === "3d") this.setRenderer("3d", { persist: false });
+      this.scheduleViewportLoad();
     });
 
 
     this.timeout = 0;
 
     this.map.on("moveend", () => {
-      clearTimeout(this.timeout);
-
-      this.timeout = setTimeout(async () => {
-        const bounds = this.map.getBounds();
-        this.loadSegmentsForViewport(bounds)
-      }, 200);
+      if (this.renderer === "2d") this.scheduleViewportLoad();
     });
 
 
@@ -127,11 +126,13 @@ export default class MapView {
   bindMapState(key = "map") {
     let timeout;
 
-    const save = () => {
+    this.saveMapState = () => {
       clearTimeout(timeout);
       timeout = setTimeout(() => {
-        const center = this.map.getCenter();
-        const zoom = this.map.getZoom();
+        const activeMap = this.renderer === "3d" && this.terrainView?.map
+          ? this.terrainView.map : this.map;
+        const center = activeMap.getCenter();
+        const zoom = activeMap.getZoom() + (activeMap === this.map ? 0 : 1);
 
         this.controller.uiState.set(key, {
           lat: center.lat,
@@ -141,8 +142,26 @@ export default class MapView {
       }, 200);
     };
 
-    this.map.on("move", save);
-    this.map.on("zoomend", save);
+    this.map.on("move", () => { if (this.renderer === "2d") this.saveMapState(); });
+    this.map.on("zoomend", () => { if (this.renderer === "2d") this.saveMapState(); });
+  }
+
+  getBounds() {
+    return this.renderer === "3d" && this.terrainView?.map
+      ? this.terrainView.map.getBounds() : this.map.getBounds();
+  }
+
+  scheduleViewportLoad() {
+    clearTimeout(this.timeout);
+    this.timeout = setTimeout(() => {
+      void this.loadSegmentsForViewport(this.getBounds()).catch((error) => console.error(error));
+    }, 200);
+  }
+
+  handleTerrainMove() {
+    if (this.renderer !== "3d") return;
+    this.scheduleViewportLoad();
+    this.saveMapState?.();
   }
 
 
@@ -180,6 +199,7 @@ export default class MapView {
       this.lookupBtn.classList.toggle("btn-outline-secondary", !this.isSelecting || !hasEnoughPoints);
       this.lookupBtn.classList.toggle("active", this.isSelecting && hasEnoughPoints);
     }
+    this.terrainView?.renderManualGpsSelection();
   }
 
   closeActionsMenu() {
@@ -195,7 +215,9 @@ export default class MapView {
       return;
     }
 
-    const { lat, lng } = e.latlng;
+    const lat = Number(e?.latlng?.lat);
+    const lng = Number(e?.latlng?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     this.lookupPoints.push({ lat, lng });
     this.syncSelectionUi();
 
@@ -210,7 +232,7 @@ export default class MapView {
       .openPopup();
   }
 
-  async loadSegmentsForViewport(bounds) {
+  async loadSegmentsForViewport(bounds = this.getBounds()) {
     const newSegs = await MapSegment.loadSegments(this.controller, bounds);
     this.renderAllSegments(newSegs);
     await this.controller.tryFocusRequestedSegment?.();
@@ -269,38 +291,46 @@ export default class MapView {
     if (new_segs) {
       new_segs.forEach(s => {
         if (!this.controller.favoriteOnly || this.controller.isFavoriteSegment(s.id)) {
-          this.renderSegment(s);
+          this.renderSegment(s, false);
         }
       });
     } else {
       this.lookupResultLayer.clearLayers();
       this.controller.getRenderableSegments().forEach(s => {
-        this.renderSegment(s);
+        this.renderSegment(s, false);
       });
       //this.map.fitBounds(polyline.getBounds(), { padding: [10, 10] });
     }
+    this.terrainView?.render();
   }
 
   refreshSegments() {
     this.segmentLayers.clear();
     this.lookupResultLayer.clearLayers();
     this.controller.getRenderableSegments().forEach(s => {
-      this.renderSegment(s);
+      this.renderSegment(s, false);
     });
+    this.terrainView?.render();
   }
 
-  renderSegment(segment) {
+  getSegmentRenderTrack(segment) {
+    if (!Array.isArray(segment?.track)) return [];
+    let renderTrack = this.renderTrackCache.get(segment.track);
+    if (!renderTrack) {
+      renderTrack = smoothSegmentTrackForRendering(segment.track);
+      this.renderTrackCache.set(segment.track, renderTrack);
+    }
+    return renderTrack;
+  }
+
+  renderSegment(segment, updateTerrain = true) {
     const isSelected = this.selectedSegmentId === segment.id;
 
 
     // -------------------
     // Track zeichnen
     // -------------------
-    let renderTrack = this.renderTrackCache.get(segment.track);
-    if (!renderTrack) {
-      renderTrack = smoothSegmentTrackForRendering(segment.track);
-      this.renderTrackCache.set(segment.track, renderTrack);
-    }
+    const renderTrack = this.getSegmentRenderTrack(segment);
     const latlngs = renderTrack.map(p => [p.lat, p.lng]);
 
     const polyline = L.polyline(latlngs, {
@@ -386,6 +416,7 @@ export default class MapView {
     // Map fitten
     // -------------------
     //this.map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
+    if (updateTerrain) this.terrainView?.render();
   }
 
   selectSegment(segment) {
@@ -401,6 +432,7 @@ export default class MapView {
     const latlngs = segment.track.map((point) => [point.lat, point.lng]);
     const bounds = L.latLngBounds(latlngs);
     this.map.fitBounds(bounds, { padding: [28, 28] });
+    this.terrainView?.fit(segment.track);
   }
 
   formatSegmentDistance(distanceMeters) {
@@ -440,8 +472,8 @@ export default class MapView {
   }
 
   buildSegmentTooltip(segment) {
-    const startName = segment?.start?.name || this.t("na");
-    const endName = segment?.end?.name || this.t("na");
+    const startName = this.escapeHtml(segment?.start?.name || this.t("na"));
+    const endName = this.escapeHtml(segment?.end?.name || this.t("na"));
     const distance = this.formatSegmentDistance(segment?.distance);
     const altitudeRange = this.formatSegmentAltitudeRange(segment);
     const avgGrade = this.formatSegmentAverageGrade(segment);
@@ -471,7 +503,7 @@ export default class MapView {
   }
 
   buildEndpointTooltip(label, point) {
-    const name = point?.name || this.t("na");
+    const name = this.escapeHtml(point?.name || this.t("na"));
     const altitude = typeof point?.altitude === "number"
       ? `${Math.round(point.altitude)} m`
       : this.t("na");
@@ -497,6 +529,7 @@ export default class MapView {
     const bounds = L.latLngBounds(coords);
 
     this.map.fitBounds(bounds, { padding: [20, 20] });
+    this.terrainView?.fit(coords);
   }
 
 
@@ -559,6 +592,9 @@ export default class MapView {
   }
   setMap(lat, lng, zoom = 13) {
     this.map.setView([lat, lng], zoom);
+    if (this.renderer === "3d") {
+      this.terrainView?.map?.jumpTo({ center: [lng, lat], zoom: Math.max(0, zoom - 1) });
+    }
     L.marker([lat, lng]).addTo(this.map).bindPopup(this.t("yourLocation")).openPopup();
   }
 
@@ -591,6 +627,8 @@ export default class MapView {
   // MARKER
   // -----------------------------
   moveMarker(lat, lng) {
+    this.markerPosition = [lng, lat];
+    this.terrainView?.moveMarker(this.markerPosition);
     if (!this.hoverMarker) {
       this.hoverMarker = L.circleMarker([lat, lng], {
         radius: 7,
@@ -617,6 +655,8 @@ export default class MapView {
   }
 
   hideMarker() {
+    this.markerPosition = null;
+    this.terrainView?.moveMarker(null);
     if (this.hoverMarker) {
       this.hoverLayer.removeLayer(this.hoverMarker);
       this.hoverMarker = null;
@@ -632,6 +672,59 @@ export default class MapView {
 
   resize() {
     this.map.invalidateSize(false);
+    this.terrainView?.map?.resize();
+  }
+
+  escapeHtml(value) {
+    return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    })[character]);
+  }
+
+  applyRendererPreference(mode) {
+    this.preferredRenderer = mode === "3d" ? "3d" : "2d";
+    this.setRenderer(this.preferredRenderer, { persist: false });
+  }
+
+  setRenderer(mode, { persist = true } = {}) {
+    const next = mode === "3d" ? "3d" : "2d";
+    if (persist) {
+      this.preferredRenderer = next;
+      this.handlers.onRendererChange?.(next);
+    }
+    if (next === this.renderer || !this.terrainContainer) return;
+    if (next === "3d" && !Number.isFinite(this.map.getZoom())) return;
+    const errorElement = document.getElementById("segments-map-renderer-error");
+    if (errorElement) errorElement.hidden = true;
+    if (next === "2d" && this.terrainView?.map) {
+      const center = this.terrainView.map.getCenter();
+      this.map.setView([center.lat, center.lng], this.terrainView.map.getZoom() + 1, { animate: false });
+    }
+    this.renderer = next;
+    this.map.getContainer().hidden = next !== "2d";
+    this.terrainContainer.hidden = next !== "3d";
+    this.rendererButtons.forEach((button) => {
+      const active = button.dataset.segmentMapRenderer === next;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    this.baseLayerSlot?.closest(".segments-map-actions-menu__group")?.classList.toggle("d-none", next === "3d");
+    if (next === "3d") {
+      if (!this.terrainView || this.terrainView.failed) {
+        this.terrainView = new SegmentTerrainView(this.terrainContainer, this);
+      }
+      this.terrainView.open(this.map.getCenter(), this.map.getZoom());
+    } else {
+      this.terrainView?.showTooltip(null);
+      this.map.invalidateSize(false);
+      this.scheduleViewportLoad();
+    }
+    this.saveMapState?.();
+  }
+
+  showTerrainError() {
+    const element = document.getElementById("segments-map-renderer-error");
+    if (element) element.hidden = false;
   }
 
   setInitialState(state = {}) {
@@ -640,6 +733,7 @@ export default class MapView {
     } else {
       this.syncBaseLayerButtons();
     }
+    this.applyRendererPreference(state.mapRenderer);
   }
 
   initBaseLayerControls() {

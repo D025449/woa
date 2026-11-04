@@ -316,6 +316,11 @@ export default class Controller {
       };
       this.uiState.set("dashboardMapViewState", this.mapViewState);
     };
+    this.mapView.onRendererChange = (mapRenderer) => {
+      this.mapViewState = { ...this.mapViewState, mapRenderer };
+      this.uiState.set("dashboardMapViewState", this.mapViewState);
+      this.scheduleWorkoutLibraryPreferenceSave(this.libraryState);
+    };
     this.mapView.setInitialState(this.mapViewState);
     this.didRestoreMapViewState = true;
 
@@ -1261,10 +1266,6 @@ export default class Controller {
     try {
       const storedState = await ViewPreferenceService.load(WORKOUT_LIBRARY_VIEW_KEY);
       this.viewPreferencesAvailable = true;
-      if (!storedState) {
-        return;
-      }
-
       const {
         xAxisMode,
         chartLayoutMode,
@@ -1272,8 +1273,14 @@ export default class Controller {
         bridgePowerCadenceZeros,
         seriesVisibility,
         segmentVisibility,
+        mapRenderer,
         ...storedLibraryState
-      } = storedState;
+      } = storedState || {};
+      const restoredMapRenderer = mapRenderer === "3d" ? "3d" : "2d";
+      this.mapViewState = { ...this.mapViewState, mapRenderer: restoredMapRenderer };
+      this.uiState.set("dashboardMapViewState", this.mapViewState);
+      this.mapView.applyRendererPreference(restoredMapRenderer);
+      if (!storedState) return;
       this.libraryState = {
         ...this.libraryState,
         ...storedLibraryState
@@ -1326,6 +1333,7 @@ export default class Controller {
 
     this.pendingWorkoutLibraryPreferenceState = {
       ...state,
+      mapRenderer: this.mapViewState.mapRenderer || "2d",
       xAxisMode: this.chartViewState.xAxisMode,
       chartLayoutMode: this.chartViewState.chartLayoutMode,
       smoothingLevel: this.chartViewState.smoothingLevel,

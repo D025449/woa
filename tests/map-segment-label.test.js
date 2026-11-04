@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import MapView from "../src/public/js/map-view.js";
 import WorkoutTerrainView from "../src/public/js/workout-terrain-view.js";
+import SegmentTerrainView from "../src/public/js/segment-terrain-view.js";
+import SegmentMapView from "../src/public/js/segment-map-view.js";
 import { getCPSeriesColor } from "../src/shared/CriticalPowerAppearance.js";
 
 function createView(pathLength = 100) {
@@ -13,6 +15,165 @@ function createView(pathLength = 100) {
   });
   return view;
 }
+
+test("segment terrain renders filtered tracks, selection and endpoint actions in longitude-latitude order", () => {
+  const segment = { id: 42, start: { lat: 48, lng: 9 }, end: { lat: 49, lng: 10 } };
+  const actions = [];
+  const owner = {
+    renderer: "3d", selectedSegmentId: 42,
+    controller: { getRenderableSegments: () => [segment] },
+    getSegmentRenderTrack: () => [segment.start, segment.end],
+    onSegmentStartClick: (value) => actions.push(["start", value.id]),
+    onSegmentEndClick: (value) => actions.push(["end", value.id]),
+    selectSegment: (value) => actions.push(["select", value.id]),
+    handlers: { onSegmentOpen: (event) => actions.push([event.type]) },
+    handleMapClick: (event) => actions.push(["draft", event.latlng])
+  };
+  const view = new SegmentTerrainView({}, owner);
+  const data = new Map();
+  view.ready = true;
+  let endpoint = "start";
+  view.map = {
+    getSource: (key) => ({ setData(value) { data.set(key, value); } }),
+    queryRenderedFeatures: () => [{ properties: { key: "42", endpoint } }]
+  };
+  view.moveMarker = () => {};
+  view.updateSegmentLabels = () => {};
+  view.showTooltip = () => {};
+  view.render();
+  assert.deepEqual(data.get("workout").features.map((item) => item.properties.kind), ["segment", "focus"]);
+  assert.deepEqual(data.get("workout").features[0].geometry.coordinates, [[9, 48], [10, 49]]);
+  assert.deepEqual(data.get("segment-endpoints").features.map((item) => item.properties.endpoint), ["start", "end"]);
+  view.handleClick({});
+  endpoint = "end";
+  view.handleClick({});
+  endpoint = undefined;
+  view.handleClick({});
+  owner.isSelecting = true;
+  view.handleClick({ lngLat: segment.start });
+  assert.deepEqual(actions, [["start", 42], ["end", 42], ["select", 42], ["line"], ["draft", segment.start]]);
+  owner.lookupPoints = [segment.start, segment.end];
+  assert.deepEqual(view.getDraftSelection(), { editing: true, points: owner.lookupPoints });
+  owner.renderer = "2d";
+  view.map = {};
+  assert.doesNotThrow(() => view.render());
+});
+
+test("segment terrain labels prefer selection and reject short, overlapping and offscreen paths", () => {
+  const owner = {
+    selectedSegmentId: 2,
+    controller: { getRenderableSegments: () => [1, 2, 3, 4].map((id) => ({ id })) },
+    getSegmentRenderTrack: (segment) => segment.id
+  };
+  const view = new SegmentTerrainView({}, owner);
+  view.map = { getCanvas: () => ({ clientWidth: 400, clientHeight: 300 }) };
+  view.measureCoordinatePath = (id) => ({ length: id === 3 ? 10 : 120, point: { x: id === 4 ? -20 : 100, y: 100 }, latlng: [9, 48] });
+  assert.deepEqual(view.getLabelCandidates().map((candidate) => candidate.text), ["S-2"]);
+});
+
+test("segment map restores renderer, active bounds and camera without persisting automatic fallback", () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById: () => null };
+  const saved = [];
+  let center = { lat: 48, lng: 9 };
+  let zoom = 12;
+  const leafletContainer = { hidden: false };
+  const view = Object.assign(Object.create(SegmentMapView.prototype), {
+    renderer: "2d", terrainContainer: { hidden: true }, rendererButtons: [],
+    handlers: { onRendererChange: (mode) => saved.push(mode) },
+    scheduleViewportLoad() {},
+    map: {
+      getZoom: () => zoom, getCenter: () => center, getBounds: () => "leaflet",
+      getContainer: () => leafletContainer, invalidateSize() {},
+      setView(coords, nextZoom) { center = { lat: coords[0], lng: coords[1] }; zoom = nextZoom; }
+    },
+    terrainView: {
+      open() {}, showTooltip() {},
+      map: { getCenter: () => ({ lat: 49, lng: 10 }), getZoom: () => 10, getBounds: () => "terrain" }
+    },
+    lookupPoints: [{ lat: 48, lng: 9 }]
+  });
+  try {
+    view.applyRendererPreference("3d");
+    assert.equal(view.renderer, "3d");
+    assert.equal(view.getBounds(), "terrain");
+    assert.equal(leafletContainer.hidden, true);
+    assert.deepEqual(saved, []);
+    view.setRenderer("2d", { persist: false });
+    assert.equal(view.preferredRenderer, "3d");
+    assert.equal(view.getBounds(), "leaflet");
+    assert.deepEqual(center, { lat: 49, lng: 10 });
+    assert.equal(zoom, 11);
+    assert.equal(view.lookupPoints.length, 1);
+    view.setRenderer("2d");
+    assert.equal(view.preferredRenderer, "2d");
+    assert.deepEqual(saved, ["2d"]);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+});
+
+test("workout map defers restored terrain until eligible data and never saves automatic fallback", () => {
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+  globalThis.document = { getElementById: () => null };
+  globalThis.window = {};
+  const saves = [];
+  let opened = 0;
+  const view = Object.assign(Object.create(MapView.prototype), {
+    renderer: "2d", terrainContainer: {}, rendererButtons: [], handlers: {},
+    currentWorkout: null, manualGpsPoints: [], gpxImportButtons: [],
+    clearSegmentHover() {}, onRendererChange: (mode) => saves.push(mode),
+    map: {
+      getContainer: () => ({}), getCenter: () => ({ lat: 48, lng: 9 }), getZoom: () => 12,
+      setView() {}, invalidateSize() {}
+    },
+    terrainView: {
+      open() { opened += 1; },
+      map: { getCenter: () => ({ lat: 48, lng: 9 }), getZoom: () => 11 }
+    }
+  });
+  try {
+    view.applyRendererPreference("3d");
+    assert.equal(view.renderer, "2d");
+    assert.equal(view.preferredRenderer, "3d");
+    view.currentWorkout = { validGps: true };
+    view.syncManualGpsUi();
+    assert.equal(view.renderer, "3d");
+    assert.equal(opened, 1);
+    view.currentWorkout = { validGps: false };
+    view.syncManualGpsUi();
+    assert.equal(view.renderer, "2d");
+    assert.equal(view.preferredRenderer, "3d");
+    view.currentWorkout = { validGps: true };
+    view.syncManualGpsUi();
+    assert.equal(opened, 2);
+    view.terrainView.failed = true;
+    view.setRenderer("2d", { persist: false });
+    view.syncManualGpsUi();
+    assert.equal(view.renderer, "2d");
+    assert.equal(view.preferredRenderer, "3d");
+    assert.deepEqual(saves, []);
+    view.setRenderer("2d");
+    assert.deepEqual(saves, ["2d"]);
+    assert.equal(view.preferredRenderer, "2d");
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
+});
+
+test("shared segment tooltips escape location names before Leaflet or MapLibre HTML rendering", () => {
+  const view = Object.assign(Object.create(SegmentMapView.prototype), { t: (key) => key });
+  const point = { name: '<img src=x onerror="alert(1)">', altitude: 500 };
+  const tooltip = view.buildSegmentTooltip({ id: 42, start: point, end: point, distance: 1000, ascent: 20 });
+  assert.doesNotMatch(tooltip, /<img/);
+  assert.match(tooltip, /&lt;img/);
+  assert.doesNotMatch(view.buildEndpointTooltip("start", point), /<img/);
+});
 
 test("Leaflet CP segment labels use the shared duration notation and curve color", () => {
   const segment = {
@@ -190,6 +351,7 @@ test("inactive terrain does not update data or move its viewport", () => {
 test("terrain uses Terrarium height tiles and starts with MapLibre 4 without supported()", () => {
   const previousLibrary = globalThis.maplibregl;
   let options;
+  const controlPositions = [];
   const owner = {
     renderer: "3d", currentTrackSegments: [], segmentOverlayEntries: [],
     getVisibleSegmentLabels: () => []
@@ -199,18 +361,24 @@ test("terrain uses Terrarium height tiles and starts with MapLibre 4 without sup
   globalThis.maplibregl = {
     Map: class {
       constructor(value) { options = value; }
-      addControl() {}
+      addControl(_control, position) { controlPositions.push(position); }
       on(name, ...args) { events.set(name, args.at(-1)); }
       getCanvas() { return { addEventListener() {} }; }
       addSource() {}
       addLayer() {}
       getSource() { return { setData() {} }; }
     },
-    NavigationControl: class {}
+    NavigationControl: class {},
+    AttributionControl: class {}
   };
   try {
     view.open({ lat: 48, lng: 9 }, 12);
     assert.equal(view.failed, undefined);
+    assert.equal(options.attributionControl, false);
+    assert.deepEqual(controlPositions, ["top-right", "bottom-right"]);
+    const segmentTerrain = new SegmentTerrainView({}, owner);
+    assert.equal(segmentTerrain.navigationControlPosition, "top-left");
+    assert.equal(segmentTerrain.attributionControlPosition, "bottom-left");
     assert.deepEqual(options.terrain, undefined);
     assert.deepEqual(options.style.terrain, { source: "terrain", exaggeration: 1 });
     assert.equal(options.style.sources.terrain.encoding, "terrarium");

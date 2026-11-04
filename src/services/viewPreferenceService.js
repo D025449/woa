@@ -22,6 +22,7 @@ const INTENSITY_PROFILES = new Set(["all", "recovery", "endurance", "tempo", "th
 const GPS_FILTERS = new Set(["all", "valid", "invalid"]);
 const CHART_X_AXIS_MODES = new Set(["time", "distance"]);
 const CHART_LAYOUT_MODES = new Set(["overlay", "bands"]);
+const MAP_RENDERERS = new Set(["2d", "3d"]);
 const CHART_SMOOTHING_LEVELS = new Set([
   "automatic",
   "off",
@@ -129,6 +130,10 @@ export function normalizeWorkoutLibraryState(state = {}) {
 
   if (typeof source.bridgePowerCadenceZeros === "boolean") {
     normalized.bridgePowerCadenceZeros = source.bridgePowerCadenceZeros;
+  }
+
+  if (MAP_RENDERERS.has(source.mapRenderer)) {
+    normalized.mapRenderer = source.mapRenderer;
   }
 
   if (
@@ -265,7 +270,7 @@ export function normalizeSegmentsState(state = {}) {
     : {};
   const requestedPageSize = Number(source.bestEffortsPageSize);
 
-  return {
+  const normalized = {
     segmentScope: normalizeEnum(source.segmentScope, SEGMENT_SCOPES, "mine"),
     bestEffortsScope: normalizeEnum(source.bestEffortsScope, SEGMENT_SCOPES, "mine"),
     bestEffortsPerUser: normalizeEnum(
@@ -282,6 +287,10 @@ export function normalizeSegmentsState(state = {}) {
       ? requestedPageSize
       : 25
   };
+  if (MAP_RENDERERS.has(source.mapRenderer)) {
+    normalized.mapRenderer = source.mapRenderer;
+  }
+  return normalized;
 }
 
 function normalizeViewState(viewKey, state) {

@@ -27,6 +27,7 @@ export default class MapView {
 
     this.map = L.map(containerId);
     this.renderer = "2d";
+    this.preferredRenderer = "2d";
     this.rendererButtons = Array.from(document.querySelectorAll("[data-workout-map-renderer]"));
     this.terrainContainer = document.getElementById("workout-terrain-map");
     this.rendererButtons.forEach((button) => {
@@ -925,7 +926,11 @@ export default class MapView {
       button.disabled = button.dataset.workoutMapRenderer === "3d"
         && !this.canShowTerrain();
     });
-    if (!this.canShowTerrain() && this.renderer === "3d") this.setRenderer("2d");
+    if (!this.canShowTerrain() && this.renderer === "3d") this.setRenderer("2d", { persist: false });
+    if (this.canShowTerrain() && this.preferredRenderer === "3d"
+      && this.renderer !== "3d" && !this.terrainView?.failed) {
+      this.setRenderer("3d", { persist: false });
+    }
   }
 
   handleMapClick(event) {
@@ -958,8 +963,12 @@ export default class MapView {
     this.terrainView?.map?.resize();
   }
 
-  setRenderer(mode) {
+  setRenderer(mode, { persist = true } = {}) {
     const next = mode === "3d" ? "3d" : "2d";
+    if (persist) {
+      this.preferredRenderer = next;
+      this.onRendererChange?.(next);
+    }
     if (next === this.renderer || !this.terrainContainer) return;
     if (next === "3d" && !this.canShowTerrain()) return;
     const errorElement = document.getElementById("workout-map-renderer-error");
@@ -998,6 +1007,11 @@ export default class MapView {
     return !!this.currentWorkout && (!!this.currentWorkout.validGps || this.canEditManualGps());
   }
 
+  applyRendererPreference(mode) {
+    this.preferredRenderer = mode === "3d" ? "3d" : "2d";
+    this.setRenderer(this.preferredRenderer, { persist: false });
+  }
+
   // -----------------------------
   // GETTER
   // -----------------------------
@@ -1021,6 +1035,7 @@ export default class MapView {
     } else {
       this.syncBaseLayerButtons();
     }
+    this.applyRendererPreference(state.mapRenderer);
   }
 
   ensureInteractiveViewport() {

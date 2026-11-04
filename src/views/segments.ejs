@@ -76,6 +76,10 @@
                                 title="<%= t('segmentsPage.lookupTitle') %>">
                                 <%= t("segmentsPage.lookup") %>
                             </button>
+                            <div class="btn-group btn-group-sm segments-map-renderer" role="group" aria-label="<%= t('segmentsPage.mapStyleLabel') %>">
+                                <button class="btn btn-outline-secondary active" type="button" data-segment-map-renderer="2d" aria-pressed="true">2D</button>
+                                <button class="btn btn-outline-secondary" type="button" data-segment-map-renderer="3d" aria-pressed="false">3D</button>
+                            </div>
                             <div id="segments-map-header-toolbar-main" class="segments-map-header-toolbar-main">
                                 <div class="segments-map-scope-toggle" role="group" aria-label="<%= t('segmentsPage.scopeAria') %>">
                                     <button id="segments-scope-mine" class="btn btn-sm btn-outline-secondary" type="button" data-segment-scope="mine">
@@ -149,7 +153,9 @@
                 <section id="segments-workspace" class="segments-workspace">
                     <article class="segments-surface ui-surface ui-surface--gradient segments-workspace-panel segments-map-panel">
                         <div class="segments-body segments-map-body">
+                            <div id="segments-map-renderer-error" class="segments-map-renderer-error small text-danger" role="status" hidden><%= t("dashboardNewPage.mapTerrainUnavailable") %></div>
                             <div id="workout-map"></div>
+                            <div id="segments-terrain-map" hidden></div>
                         </div>
                     </article>
 

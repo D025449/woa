@@ -32,6 +32,7 @@ export default class WorkoutTerrainView {
         pitch: 60,
         maxPitch: 85,
         maxZoom: 18,
+        attributionControl: false,
         style: {
           version: 8,
           sources: {
@@ -62,7 +63,8 @@ export default class WorkoutTerrainView {
           terrain: { source: "terrain", exaggeration: 1 }
         }
       });
-      this.map.addControl(new library.NavigationControl({ visualizePitch: true }), "top-right");
+      this.map.addControl(new library.NavigationControl({ visualizePitch: true }), this.navigationControlPosition || "top-right");
+      this.map.addControl(new library.AttributionControl(), this.attributionControlPosition || "bottom-right");
       this.timeout = globalThis.setTimeout(() => this.fail(), 20000);
       this.map.on("error", () => this.fail());
       this.map.on("load", () => {
@@ -103,34 +105,7 @@ export default class WorkoutTerrainView {
             "circle-stroke-color": "#ffffff", "circle-color": ["get", "color"]
           }
         });
-        this.map.on("click", (event) => {
-          if (this.owner.manualGpsMode) {
-            this.owner.handleMapClick({ latlng: event.lngLat });
-            return;
-          }
-          const feature = this.map.queryRenderedFeatures(event.point, { layers: ["segment-hit"] })[0];
-          const entry = this.owner.segmentOverlayEntries.find((item) => item.key === feature?.properties?.key);
-          if (entry) {
-            const selected = this.owner.selectSegmentOverlay(entry, event.lngLat);
-            this.owner.handlers.onSegmentSelectionChange?.(selected);
-          } else {
-            this.owner.handleMapClick({});
-          }
-        });
-        this.map.on("mousemove", "segment-hit", (event) => {
-          if (this.owner.manualGpsMode) return;
-          const entry = this.owner.segmentOverlayEntries.find((item) => item.key === event.features?.[0]?.properties?.key);
-          this.map.getCanvas().style.cursor = "pointer";
-          if (entry) {
-            this.owner.hoverSegmentOverlay(entry.segment);
-            this.owner.handlers.onSegmentHoverChange?.(entry.segment);
-          }
-        });
-        this.map.on("mouseleave", "segment-hit", () => {
-          this.map.getCanvas().style.cursor = this.owner.manualGpsMode ? "crosshair" : "";
-          this.owner.clearSegmentHover();
-          this.owner.handlers.onSegmentHoverChange?.(null);
-        });
+        this.bindInteractions();
         this.render();
         this.renderManualGpsSelection();
         this.map.on("moveend", () => this.updateSegmentLabels());
@@ -142,11 +117,42 @@ export default class WorkoutTerrainView {
     }
   }
 
+  bindInteractions() {
+    this.map.on("click", (event) => {
+      if (this.owner.manualGpsMode) {
+        this.owner.handleMapClick({ latlng: event.lngLat });
+        return;
+      }
+      const feature = this.map.queryRenderedFeatures(event.point, { layers: ["segment-hit"] })[0];
+      const entry = this.owner.segmentOverlayEntries.find((item) => item.key === feature?.properties?.key);
+      if (entry) {
+        const selected = this.owner.selectSegmentOverlay(entry, event.lngLat);
+        this.owner.handlers.onSegmentSelectionChange?.(selected);
+      } else {
+        this.owner.handleMapClick({});
+      }
+    });
+    this.map.on("mousemove", "segment-hit", (event) => {
+      if (this.owner.manualGpsMode) return;
+      const entry = this.owner.segmentOverlayEntries.find((item) => item.key === event.features?.[0]?.properties?.key);
+      this.map.getCanvas().style.cursor = "pointer";
+      if (entry) {
+        this.owner.hoverSegmentOverlay(entry.segment);
+        this.owner.handlers.onSegmentHoverChange?.(entry.segment);
+      }
+    });
+    this.map.on("mouseleave", "segment-hit", () => {
+      this.map.getCanvas().style.cursor = this.owner.manualGpsMode ? "crosshair" : "";
+      this.owner.clearSegmentHover();
+      this.owner.handlers.onSegmentHoverChange?.(null);
+    });
+  }
+
   fail() {
     globalThis.clearTimeout(this.timeout);
     if (this.failed) return;
     this.failed = true;
-    this.owner.setRenderer("2d");
+    this.owner.setRenderer("2d", { persist: false });
     this.owner.showTerrainError();
     const map = this.map;
     this.map = null;
@@ -229,11 +235,7 @@ export default class WorkoutTerrainView {
 
   updateSegmentLabels() {
     if (!this.ready || !this.map || this.owner.renderer !== "3d") return;
-    const canvas = this.map.getCanvas();
-    const candidates = this.owner.getVisibleSegmentLabels(
-      { x: canvas.clientWidth, y: canvas.clientHeight },
-      (points) => this.measureCoordinatePath(points)
-    );
+    const candidates = this.getLabelCandidates();
     const visibleKeys = new Set();
     for (const candidate of candidates) {
       const key = candidate.entry.key;
@@ -249,7 +251,7 @@ export default class WorkoutTerrainView {
       const element = marker.getElement();
       element.style.width = `${candidate.width}px`;
       element.style.height = `${candidate.height}px`;
-      element.innerHTML = this.owner.getSegmentLabelHtml(candidate);
+      element.innerHTML = this.getLabelHtml(candidate);
       marker.setLngLat(candidate.latlng);
     }
     for (const [key, marker] of this.labels) {
@@ -258,6 +260,18 @@ export default class WorkoutTerrainView {
         this.labels.delete(key);
       }
     }
+  }
+
+  getLabelCandidates() {
+    const canvas = this.map.getCanvas();
+    return this.owner.getVisibleSegmentLabels(
+      { x: canvas.clientWidth, y: canvas.clientHeight },
+      (points) => this.measureCoordinatePath(points)
+    );
+  }
+
+  getLabelHtml(candidate) {
+    return this.owner.getSegmentLabelHtml(candidate);
   }
 
   moveMarker(position) {
@@ -277,8 +291,10 @@ export default class WorkoutTerrainView {
   }
 
   renderManualGpsSelection() {
-    if (!this.ready || !this.map || !this.owner.manualGpsPoints) return;
-    const editing = !!this.owner.manualGpsMode;
+    if (!this.ready || !this.map) return;
+    const draft = this.getDraftSelection();
+    if (!draft) return;
+    const { editing, points: draftPoints } = draft;
     this.map.getCanvas().style.cursor = editing ? "crosshair" : "";
     if (editing && !this.editing) {
       this.restoreDoubleClickZoom = this.map.doubleClickZoom.isEnabled();
@@ -287,7 +303,7 @@ export default class WorkoutTerrainView {
       this.map.doubleClickZoom.enable();
     }
     this.editing = editing;
-    const points = editing ? this.owner.manualGpsPoints : [];
+    const points = editing ? draftPoints : [];
     const features = this.lineFeatures([points], { kind: "manual" });
     points.forEach((point, index) => {
       features.push({
@@ -297,6 +313,12 @@ export default class WorkoutTerrainView {
       });
     });
     this.map.getSource("manual-gps")?.setData(this.collection(features));
+  }
+
+  getDraftSelection() {
+    return this.owner.manualGpsPoints
+      ? { editing: !!this.owner.manualGpsMode, points: this.owner.manualGpsPoints }
+      : null;
   }
 
   fit(points) {

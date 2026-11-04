@@ -1,8 +1,9 @@
-# Workout Map Views
+# Workout and Segment Map Views
 
-The workout detail map has an in-place **2D / 3D** switch. Leaflet remains the
-default. The existing MapTiler-powered flyover modal and the separate segment
-page are unchanged.
+The workout detail map and the separate segment page have an in-place
+**2D / 3D** switch. Leaflet is the default when no server preference exists.
+Each page restores its own saved renderer choice. The existing MapTiler-powered
+flyover modals are unchanged.
 
 ## Rendering and Data Sources
 
@@ -14,7 +15,7 @@ page are unchanged.
 - No API key, MapTiler account, database change or migration is needed for this
   embedded terrain view. The flyover still uses its existing MapTiler setup.
 - The terrain map and its network requests are created only after selecting
-  3D. The dashboard already loads MapLibre 4.7.1 for the flyover; that shared
+  or restoring 3D. Both pages already load MapLibre 4.7.1 for the flyover; that shared
   dependency remains unchanged. This version does not expose `supported()`;
   map construction failures are caught instead.
 - Public endpoints currently require no paid subscription. This is not a
@@ -65,7 +66,53 @@ dots remain fully opaque; interaction and route-highlight behavior are unchanged
 Switching keeps the center and approximately equivalent zoom (Leaflet and
 MapLibre use different base tile sizes). The 3D camera starts at a 60-degree
 pitch and can be rotated or tilted with MapLibre navigation. Map style choices
-are available only in 2D. The renderer selection is not persisted across page reloads.
+are available only in 2D.
+
+## Server-Side Renderer Preference
+
+Both pages use the existing authenticated `/api/view-preferences/:viewKey`
+GET/PUT path. The optional `mapRenderer` field accepts only `2d` or `3d` and is
+stored in the existing JSON preference state in `user_view_preferences`:
+
+- Workout detail: `workout-library` view key.
+- Segment page: `segments` view key.
+
+The choices are independent per user and per view. Existing filter/chart state,
+debounced saves and page-leave flushing remain in use. No schema change or
+migration is required. Missing or unsupported server choices default to 2D;
+existing browser state remains only the fallback when preferences cannot load.
+Map center, zoom and 2D base style keep their existing local persistence.
+
+Only explicit renderer choices schedule a preference save. Restore, unsupported
+workout GPS/permissions and terrain/WebGL failures do not replace the preferred
+renderer. A restored workout preference waits for eligible workout data. Moving
+to an ineligible workout temporarily shows 2D; a subsequent eligible workout
+reactivates 3D. A failed terrain instance is not automatically retried; the user
+can retry 3D or explicitly choose 2D to change the preference.
+
+## Segment Page
+
+`SegmentTerrainView` reuses the terrain sources, camera switching, draft drawing,
+position markers, label markers and failure handling of `WorkoutTerrainView`.
+Its segment-specific interactions preserve the existing controller callbacks:
+line clicks select/open the segment, and start/end markers retain their distinct
+actions. Tracks use the same cached smoothing as Leaflet. Selected routes are
+highlighted, tooltips escape location names, and short `S-42` labels suppress
+short, overlapping and offscreen candidates, prioritizing the selected segment.
+
+Viewport queries, including filter/favorite reloads, use bounds from the active
+renderer. Terrain camera changes also update the existing local camera state
+using the Leaflet-equivalent zoom. The elevation-profile position marker is
+shared. Navigation and attribution appear on the left in this view so the
+existing right-hand detail overlay cannot hide them.
+
+The 2D/3D switch stays accessible during routing-point selection. Terrain clicks
+append to the same `lookupPoints` array as Leaflet, and both views keep the draft
+when switching. MapLibre shows a dashed connecting line and green/blue/red draft
+points; this is not live routing. Lookup still uses `/segments/track-lookup` with
+the existing start/waypoints/end/points payload and success/failure behavior.
+Double-click zoom is temporarily disabled while selecting. Clearing or cancelling
+selection updates both maps; a terrain failure retains the active draft.
 
 ## GPS Editing in Both Views
 
@@ -104,6 +151,25 @@ may finish.
 
 ## Verification
 
+- The combined focused map, view-preference, hover/header, track-rendering,
+  best-effort-paging and UI-state checks pass 79 tests. New coverage includes
+  per-user/per-view storage, invalid/legacy values, both controller restore/save
+  paths, delayed workout availability, non-persisting fallbacks, segment endpoint
+  actions, labels, active bounds/camera switching and tooltip escaping.
+- The segment preview used the actual EJS template/CSS, real map libraries and
+  synthetic segments with simulated query/routing responses. It verified canvas
+  line/start/end clicks, profile-position markers, camera rotation, desktop
+  screenshot and nonblank pixels, left-side controls/attribution, three routing
+  points with one waypoint, draft preservation across switches, successful draft
+  cleanup and non-persisting failure fallback. Mobile DOM/canvas checks at
+  390 x 844 confirmed nonblank pixels, labels/marker and no horizontal overflow.
+  Mobile screenshots were attempted, but the integrated browser clipped their
+  raster output even in an isolated tab; full mobile visual inspection remains
+  a user check. The hidden-tab animation-frame workaround was preview-only.
+- No authenticated end-to-end preference save/reload, real routing or database
+  write was performed. The full suite was not run. Syntax and targeted ESLint
+  pass (seven existing warnings); type checking remains blocked by three known
+  nullability errors in unchanged `MicroIntervalDetector.js:141`.
 - Focused tests in `tests/map-segment-label.test.js` cover existing Leaflet labels,
   GPS gaps, coordinate order, shared route/segment/focus/marker state, WebGL
   fallback, in-place switching, edit permissions, inactive rendering,

@@ -3,6 +3,30 @@
 Stand: 2026-11-04. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Segment Terrain and Server-Side Map Preferences (2026-11-04)
+
+- User approved the same embedded 2D/3D alternative for the segment page and
+	server-side renderer persistence in both views. Optional `mapRenderer`
+	(`2d`/`3d`) uses existing per-user JSON view preferences, independently under
+	`workout-library` and `segments`; no migration. Missing server choices default
+	to 2D, and automatic fallbacks do not overwrite the preferred renderer.
+- Segment terrain reuses the workout terrain implementation with specialized
+	selection, endpoint actions, escaped tooltips and labels. Active camera bounds
+	drive viewport/filter loads; profile markers and routing drafts are shared.
+	Switching preserves draft points and uses the existing routing endpoint.
+	Navigation/attribution move left to avoid the segment detail overlay.
+- Verification: 79 focused tests passed, including both controller restore/save
+	paths, delayed workout activation and non-persisting fallbacks. Syntax and
+	targeted ESLint pass (seven existing warnings). Types retain the three known
+	nullability errors in unchanged `MicroIntervalDetector.js:141`.
+- Isolated real-template/library preview verified desktop terrain/pixels and
+	screenshot, canvas line/start/end clicks, labels/marker, camera movement,
+	simulated routing and draft/fallback behavior. Mobile 390 x 844 DOM/canvas
+	checks passed without horizontal overflow; browser screenshot raster clipping
+	prevents claiming full mobile visual verification. Details and limits:
+	`docs/workout-map.md`. No full suite, authenticated end-to-end preference test,
+	live routing, database access/write, migration, restart or deployment.
+
 ## Segment Label Layers and Translucency (2026-11-04)
 
 - User requested headers above lines and slightly translucent labels. A real
