@@ -11,6 +11,7 @@ import {
 import { encodeFitDeviceMetadata } from "../../shared/FitDeviceMetadataCodec.js";
 import { classifyTerrainProfile } from "../../shared/WorkoutTerrainClassifier.js";
 import { encodePowerHistogram } from "../../shared/PowerHistogramCodec.js";
+import { resolveSessionEndTimeMs } from "../../shared/WorkoutSessionTime.js";
 
 const textEncoder = new TextEncoder();
 const UINT8_NAN = 0xFF;
@@ -2224,12 +2225,11 @@ function aggregateSessions(sessions = []) {
   };
   const max = (key) => Math.max(...sessions.map((session) => Number(session?.[key]) || 0));
   const minDate = (key) => new Date(Math.min(...sessions.map((session) => new Date(session?.[key]).getTime()))).toISOString();
-  const maxDate = (key) => new Date(Math.max(...sessions.map((session) => new Date(session?.[key]).getTime()))).toISOString();
   const validValues = (key) => sessions.map((session) => session?.[key]).filter((value) => value != null && Number.isFinite(Number(value)));
 
   return {
     start_time: minDate("start_time"),
-    end_time: maxDate("timestamp"),
+    end_time: new Date(Math.max(...sessions.map(resolveSessionEndTimeMs))).toISOString(),
     total_elapsed_time: sum("total_elapsed_time"),
     total_timer_time: sum("total_timer_time"),
     total_distance: sum("total_distance"),

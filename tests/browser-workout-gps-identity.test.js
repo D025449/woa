@@ -11,6 +11,51 @@ import Workout from "../src/shared/Workout.js";
 import { FileDBService } from "../src/services/fileDBService.js";
 import { decodeWoa1BufferLight } from "../src/services/woa1Service.js";
 import { decodePowerHistogram } from "../src/shared/PowerHistogramCodec.js";
+import { resolveSessionEndTimeMs } from "../src/shared/WorkoutSessionTime.js";
+import { createWoa1File } from "../src/public/js/woa-format.js";
+
+test("both WOA1 encoders repair individual session ends without summing across gaps", async () => {
+  const startMs = Date.parse("2026-03-29T00:50:00Z");
+  const sessions = [{
+    start_time: startMs, timestamp: startMs, total_elapsed_time: 600, total_timer_time: 100
+  }, {
+    start_time: startMs + 3600000, timestamp: null, total_elapsed_time: 120.5, total_timer_time: 60
+  }];
+  const results = [
+    createWoa1File({ recordsTyped: { recordCount: 0 }, sessions }),
+    await createWoa1FileFromCompactAsync({ compactRecords: { recordCount: 0, speedsCmS: new Uint16Array(0) }, sessions }, {
+      streamCodec: "identity", gpsTrackBlobCodec: "identity"
+    })
+  ];
+  for (const result of results) {
+    assert.equal(result.meta.persistedRow.start_time, new Date(startMs).toISOString());
+    assert.equal(result.meta.persistedRow.end_time, new Date(startMs + 3720500).toISOString());
+    assert.equal(result.meta.persistedRow.total_elapsed_time, 720.5);
+  }
+});
+
+test("session end fallback uses elapsed wall time and preserves valid timestamps", () => {
+  const startMs = Date.parse("2026-08-15T08:07:36Z");
+  for (const timestamp of [startMs, startMs - 1000, null, undefined, "invalid"]) {
+    assert.equal(resolveSessionEndTimeMs({
+      start_time: startMs,
+      timestamp,
+      total_elapsed_time: 5881.926,
+      total_timer_time: 5627.055
+    }), startMs + 5881926);
+  }
+  assert.equal(resolveSessionEndTimeMs({
+    start_time: new Date(startMs).toISOString(),
+    timestamp: new Date(startMs + 6000).toISOString(),
+    total_elapsed_time: 10
+  }), startMs + 6000);
+  for (const total_elapsed_time of [null, undefined, 0, -1, Infinity, "invalid"]) {
+    assert.equal(resolveSessionEndTimeMs({ start_time: startMs, timestamp: startMs, total_elapsed_time }), startMs);
+  }
+  assert.ok(Number.isNaN(resolveSessionEndTimeMs({
+    start_time: null, timestamp: null, total_elapsed_time: 10
+  })));
+});
 
 test("derives missing session ascent from compact altitude records", () => {
   const altitudesQ = Int16Array.from([
@@ -47,7 +92,7 @@ test("browser WOA1 keeps GPS2 raw while compressing the workout stream", async (
   };
   const sessions = [{
     start_time: new Date(baseTimestampSec * 1000).toISOString(),
-    timestamp: new Date((baseTimestampSec + recordCount - 1) * 1000).toISOString(),
+    timestamp: new Date(baseTimestampSec * 1000).toISOString(),
     total_elapsed_time: recordCount,
     total_timer_time: recordCount,
     total_distance: 600,
@@ -70,6 +115,7 @@ test("browser WOA1 keeps GPS2 raw while compressing the workout stream", async (
   assert.equal(woa.meta.blockCodecs.workout_stream, "gzip");
   assert.equal(woa.meta.blockCodecs.gps_track, "identity");
   assert.equal(woa.meta.persistedRow.gps_track_blob_codec, "identity");
+  assert.equal(woa.meta.persistedRow.end_time, new Date((baseTimestampSec + recordCount) * 1000).toISOString());
   assert.equal(woa.meta.persistedRow.total_calories, 6);
   assert.equal(woa.meta.persistedRow.avg_speed, 72);
   // Persist the value calculated from records, not the device session summary.

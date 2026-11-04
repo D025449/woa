@@ -3,6 +3,82 @@
 Stand: 2026-11-04. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Local Constraint Measurements (2026-11-04)
+
+- User authorized measuring the prepared A/B tables. Local PostgreSQL 16.14,
+	6,142 valid baseline ranges, eight real payloads (233-17,061 bytes). Warmed,
+	alternating order; 128 measured statements per scenario/variant, plus four
+	parallel writers in four rounds for one-user and two-user disjoint ranges.
+- Server execution p50 without/with exclusion: fresh insert 0.136/0.155 ms
+	(+14%); ten-row batch 0.652/0.948 ms (+45%); exact duplicate 0.059/0.060 ms.
+	Shifted overlap: baseline inserts at 0.148 ms; exclusion skips at 0.074 ms.
+	Parallel throughput is noisy and not a production-capacity estimate.
+- All test writes rolled back; benchmark-only VACUUM/ANALYZE between scenarios
+	and concurrent rounds. Full-row fingerprints, counts, all three identity
+	sequences and benchmark index/constraint definitions verified unchanged.
+	Physical benchmark storage/WAL did change. No migration or production access.
+- This measured server-side INSERT SELECT, not full upload, network payload
+	transfer or durable commits. No new runner/npm script added. Results, buffers,
+	WAL, index size and protocol: `docs/workout-import-deduplication.md`.
+
+## Verified Repair And Benchmark Refresh (2026-11-04)
+
+- User reported manually applying the end-time repair. Subsequent SELECT-only
+	verification in local `cwa24_dev` found 6,142 valid workout ranges, zero invalid
+	ranges and zero remaining repair candidates. Six sampled durations match
+	elapsed time exactly; `workouts_no_time_overlap` remains validated. This verifies
+	Dev only, not another database or deployment of the import fix.
+- User explicitly authorized synchronizing both benchmark copies and updating
+	statistics. Updated only 3,908 end times per table from one repeatable-read
+	application snapshot, then ran `ANALYZE`. Each now contains 6,142 valid ranges;
+	whole-row fingerprints match the source and each other. Transaction committed.
+- Preserved all indexes/constraints (eight baseline indexes, nine with exclusion)
+	and both independent identity sequences. Source snapshot and source sequence
+	remained unchanged. No migration executed by the assistant, no production
+	access and no performance measurements. Earlier preparation counts below are
+	historical. Details: `docs/workout-import-deduplication.md`.
+
+## Workout End-Time Repair Preparation (2026-11-04)
+
+- User approved the import fix, regression tests and preparation of a manual
+	historical-data repair. Both WOA1 encoders now share a per-session fallback:
+	missing/invalid/non-increasing timestamps use start plus positive finite elapsed
+	duration; valid increasing timestamps are preserved. Timer time and compressed
+	stream length are not wall-clock substitutes; multi-session gaps are retained.
+- Dev read-only inspection confirmed 3,908 equal start/end timestamps, all with
+	positive durations. Six decoded streams confirm nonzero recordings. Original
+	historical FIT session fields were not inspected. SELECT-only repair preflight:
+	3,908 candidates, zero proposed overlapping pairs.
+- Prepared `src/migrations/095_workout_end_time_repair.sql`: transactional repair
+	under a write-blocking table lock, with pre-UPDATE conflict detection against
+	unchanged and proposed ranges; aborts on conflicts, never disables constraints
+	or deletes workouts. ONLY the user executes it. No migration, backfill, restart,
+	deployment or benchmark refresh performed. Existing benchmark copies still have
+	the old timestamps. Manual audit/rollout: `docs/workout-import-deduplication.md`.
+- Focused import/conflict tests: 17 passed. Touched-module lint has no errors
+	(14 existing warnings). Full suite: 745 passed; syntax check passed. Typecheck
+	still reports only the three known `lastEnd` nullability errors in
+	`src/shared/MicroIntervalDetector.js:141`. SQL tests are structural; live
+	migration is unverified.
+
+## Prepared Constraint Benchmark (2026-11-04)
+
+- User explicitly authorized preparing the isolated benchmark environment in
+	local `cwa24_dev`. Created `benchmark.workouts_unique` and
+	`benchmark.workouts_exclusion`, each with the same 6,142 source rows including
+	blobs; full-row fingerprints match. Common index definitions match, with eight
+	indexes on the baseline and nine on the exclusion variant. Independent identity
+	sequences and `ANALYZE` are ready; application table/sequence were not changed.
+- 2,234 rows have valid ranges; 3,908 are outside the exclusion predicate. Free
+	interval inserts succeed on both test tables; shifted overlaps succeed only
+	on the baseline and produce `23P01` on the exclusion variant. All probe writes
+	rolled back, leaving both at 6,142 rows. No application migration was run.
+- This prepares comparison tables only, not performance results or a benchmark
+	runner. The existing insert-explain script must not be used unchanged. Foreign
+	keys/triggers are not cloned. No application restart/deployment or production
+	access. Details: `docs/workout-import-deduplication.md` (Prepared Development
+	Benchmark). Cleanup requires a separate explicit action.
+
 ## Flexible Interval Blocks (2026-11-04)
 
 - User approved longer interval detection during import and manually, multiple

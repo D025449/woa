@@ -20,6 +20,22 @@ test("prepared migration excludes same-user half-open overlaps only for valid ti
   assert.doesNotMatch(sql, /\b(?:DELETE|UPDATE|DROP|DEFERRABLE)\b/i);
 });
 
+test("prepared end-time repair checks all effective overlaps before updating without disabling constraints", async () => {
+  const sql = await readFile(new URL("../src/migrations/095_workout_end_time_repair.sql", import.meta.url), "utf8");
+  assert.match(sql, /LOCK TABLE public\.workouts IN SHARE ROW EXCLUSIVE MODE/);
+  assert.match(sql, /CREATE TEMP TABLE workout_end_time_repairs ON COMMIT DROP/);
+  assert.match(sql, /make_interval\(secs => total_elapsed_time\)/);
+  assert.match(sql, /end_time IS NULL OR end_time <= start_time/);
+  assert.match(sql, /total_elapsed_time > 0/);
+  assert.match(sql, /total_elapsed_time < 'Infinity'::double precision/);
+  assert.match(sql, /other\.uid = candidate\.uid AND other\.id <> candidate\.id/);
+  assert.match(sql, /COALESCE\(other_repair\.repaired_end_time, other\.end_time\)/);
+  assert.match(sql, /candidate\.start_time < COALESCE/);
+  assert.match(sql, /other\.start_time < candidate\.repaired_end_time/);
+  assert.ok(sql.indexOf("RAISE EXCEPTION") < sql.indexOf("UPDATE public.workouts"));
+  assert.doesNotMatch(sql, /\b(?:DELETE|ALTER|TRUNCATE|DISABLE|total_timer_time)\b/i);
+});
+
 test("bulk inserts handle unique and exclusion conflicts without a conflict target", async (context) => {
   const calls = [];
   context.mock.method(FileDBService, "buildPreparedInsertParams", () => []);
