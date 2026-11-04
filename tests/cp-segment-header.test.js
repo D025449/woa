@@ -48,3 +48,28 @@ test("narrow CP headers omit the text without changing segment bounds", () => {
   assert.deepEqual(header.children.map((child) => child.type), ["rect", "circle"]);
   assert.equal(header.children[0].shape.width, 20);
 });
+
+test("every visible chart header primitive is above data lines with only its background translucent", () => {
+  for (const segmenttype of ["crit", "manual", "auto", "gps"]) {
+    const header = renderHeader({ id: 42, segmenttype, duration: 240, start_offset: 0, end_offset: 239 });
+    assert.ok(header.children.every((child) => child.z === header.z && child.z > 4));
+    assert.equal(header.children[0].style.opacity, 0.52);
+    assert.ok(header.children.slice(1).every((child) => child.style.opacity === undefined));
+  }
+});
+
+test("chart header hover and mouseout keep the translucent states consistent", () => {
+  const view = Object.create(ChartView.prototype);
+  const segment = { id: 42 };
+  const target = { style: {}, attr(value) { this.style = value.style; } };
+  view.chart = { dispatchAction() {} };
+  view.showSegmentHoverTooltip = () => {};
+  view.hideSegmentHoverTooltip = () => {};
+  view.handleSegmentHeaderMouseOver(segment, { target });
+  assert.equal(target.style.opacity, 0.84);
+  view.handleSegmentHeaderMouseOut(segment, { target });
+  assert.equal(target.style.opacity, 0.52);
+  view.focusedSegment = segment;
+  view.handleSegmentHeaderMouseOut(segment, { target });
+  assert.equal(target.style.opacity, 0.78);
+});

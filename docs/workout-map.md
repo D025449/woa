@@ -50,6 +50,18 @@ recomputed on render, camera move end and resize. Existing MapLibre label marker
 are reused, and stale labels are removed after visibility/workout changes or
 terrain failure. Labels themselves do not intercept route clicks or GPS editing.
 
+Leaflet labels use a dedicated noninteractive `segmentLabelPane` at z-index 575,
+above the route (400), segments (500) and temporary/selected highlights (550).
+This prevents highlight strokes from painting over labels. Shared Leaflet and
+MapLibre label backgrounds have 78% white opacity and 2px background blur;
+text and CP markers retain full opacity.
+
+ECharts segment-header background rectangles, CP dots and text each carry an
+explicit `z` of 120 plus their lane. A `z` on the graphic group alone does not
+raise its children in the checked ECharts renderer. Background opacity is 52%
+normally, 78% when highlighted/selected and 84% under the pointer. Text and CP
+dots remain fully opaque; interaction and route-highlight behavior are unchanged.
+
 Switching keeps the center and approximately equivalent zoom (Leaflet and
 MapLibre use different base tile sizes). The 3D camera starts at a 60-degree
 pitch and can be rotated or tilted with MapLibre navigation. Map style choices
@@ -121,3 +133,8 @@ may finish.
   viewport. Invoking the actual chart callback body against the real map modules
   highlighted the route in both renderers and preserved selection after mouseout.
   This is not a full authenticated ECharts/list/map pointer round-trip test.
+- Layering checks also cover explicit ECharts child z-order and hover opacity,
+  plus Leaflet label-pane ordering and background-only translucency. An isolated
+  ECharts browser render confirmed that a crossing line at z=4 is drawn before
+  header rectangle/dot/text at z=120. Leaflet computed pane order and screenshots,
+  plus MapLibre computed alpha, mobile screenshot and canvas pixels, were checked.

@@ -3529,7 +3529,7 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   border: 1px solid color-mix(in srgb, var(--segment-color) 58%, #ffffff);
   border-left: 3px solid var(--segment-color);
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.78);
   box-shadow: 0 3px 10px rgba(15, 23, 42, 0.16);
   color: #172033;
   font-size: 0.68rem;
@@ -3538,7 +3538,7 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  backdrop-filter: blur(5px);
+  backdrop-filter: blur(2px);
 }
 
 .workout-map-segment-tooltip {

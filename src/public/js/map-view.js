@@ -45,10 +45,13 @@ export default class MapView {
     this.map.createPane('trackPane');
     this.map.createPane('segmentPane');
     this.map.createPane('segmentHighlightPane');
+    this.map.createPane('segmentLabelPane');
 
     this.map.getPane('trackPane').style.zIndex = 400;
     this.map.getPane('segmentPane').style.zIndex = 500;
     this.map.getPane('segmentHighlightPane').style.zIndex = 550;
+    this.map.getPane('segmentLabelPane').style.zIndex = 575;
+    this.map.getPane('segmentLabelPane').style.pointerEvents = "none";
 
     this.hoverMarker = null;
     this.currentTrackPoints = [];
@@ -635,7 +638,7 @@ export default class MapView {
     for (const candidate of this.getVisibleSegmentLabels(this.map.getSize())) {
       L.marker(candidate.latlng, {
         interactive: false,
-        pane: "segmentPane",
+        pane: "segmentLabelPane",
         icon: L.divIcon({
           className: "workout-map-segment-label-anchor",
           html: this.getSegmentLabelHtml(candidate),

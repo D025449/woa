@@ -152,3 +152,20 @@ test("Leaflet segment interactions synchronize hover and selection with chart an
   assert.match(controllerSource, /this\.chartView\.focusSegment\(segment\)/u);
   assert.match(controllerSource, /this\.chartView\.clearSegmentFocus\(\{ resetZoom: true \}\)/u);
 });
+
+test("map labels stay above route highlights with a translucent background and no pointer interception", async () => {
+  const [mapSource, cssSource] = await Promise.all([
+    fs.readFile(new URL("../src/public/js/map-view.js", import.meta.url), "utf8"),
+    fs.readFile(new URL("../src/public/css/dashboard-new.css", import.meta.url), "utf8")
+  ]);
+  assert.match(mapSource, /createPane\('segmentLabelPane'\)/u);
+  assert.match(mapSource, /getPane\('segmentLabelPane'\)\.style\.zIndex = 575/u);
+  assert.match(mapSource, /getPane\('segmentHighlightPane'\)\.style\.zIndex = 550/u);
+  assert.match(mapSource, /getPane\('segmentLabelPane'\)\.style\.pointerEvents = "none"/u);
+  const labels = mapSource.slice(mapSource.indexOf("  updateSegmentLabels()"));
+  assert.match(labels, /interactive: false,\s+pane: "segmentLabelPane"/u);
+  const labelStyle = cssSource.match(/\.workout-map-segment-label \{([^}]+)\}/u)?.[1];
+  assert.ok(labelStyle);
+  assert.match(labelStyle, /background: rgba\(255, 255, 255, 0\.78\)/u);
+  assert.doesNotMatch(labelStyle, /(?:^|;)\s*opacity:/u);
+});

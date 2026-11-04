@@ -3,6 +3,25 @@
 Stand: 2026-11-04. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Segment Label Layers and Translucency (2026-11-04)
+
+- User requested headers above lines and slightly translucent labels. A real
+	ECharts render confirmed group z-order did not reach header children, which
+	were at z=0 below a z=4 crossing line. Header rect/dot/text now each explicitly
+	use z=120+lane. Background alpha is 0.52 normally, 0.78 active and 0.84 hovered;
+	text and CP dots stay opaque. Hover and mouseout use the same opacity constants.
+- Leaflet labels additionally moved from the segment pane to a dedicated
+	pointer-transparent pane at z=575, above highlights at 550. Shared Leaflet/
+	MapLibre label backgrounds use 0.78 alpha and 2px blur, without fading text.
+	Details: `docs/workout-map.md`.
+- Verification: all 33 focused CP-header, map-label and segment-visibility tests
+	passed. Targeted syntax/ESLint and `git diff --check` passed, with four known
+	unused-variable/argument warnings. Browser checks confirmed actual ECharts
+	display-list order, header screenshot, Leaflet pane order/alpha and screenshot,
+	MapLibre mobile alpha/screenshot/nonblank pixels with no horizontal overflow.
+	Isolated preview only; no full authenticated workout UI test, full suite,
+	database changes, migrations, service restart or deployment.
+
 ## Segment Hover and Terrain Labels (2026-11-04)
 
 - User approved fixing chart-header hover not highlighting the route and adding

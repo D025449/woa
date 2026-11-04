@@ -25,6 +25,9 @@ const SEGMENT_HEADER_GAP_PX = 2;
 const SEGMENT_HEADER_PADDING_TOP_PX = 4;
 const SEGMENT_HEADER_BASE_GRID_TOP_PX = 40;
 const SEGMENT_HEADER_MAX_LANES = 10;
+const SEGMENT_HEADER_OPACITY = 0.52;
+const SEGMENT_HEADER_ACTIVE_OPACITY = 0.78;
+const SEGMENT_HEADER_HOVER_OPACITY = 0.84;
 const CHART_LAYOUT_OVERLAY = "overlay";
 const CHART_LAYOUT_BANDS = "bands";
 const BAND_CHART_HEIGHT_PX = 80;
@@ -1871,16 +1874,18 @@ export default class ChartView {
       const label = Utils.getSegmentShortLabel(segment);
       const isCriticalPower = segment.segmenttype === "crit" && !segment.isGPSSegment;
       const isHighlighted = this.hoveredSegment === segment || this.focusedSegment === segment;
-      const opacity = isHighlighted ? 0.86 : 0.62;
+      const opacity = isHighlighted ? SEGMENT_HEADER_ACTIVE_OPACITY : SEGMENT_HEADER_OPACITY;
+      const z = 120 + lane;
 
       return [{
         id: this.getSegmentHeaderId(segment, index),
         type: "group",
         silent: isDrawing,
-        z: 120 + lane,
+        z,
         children: [
           {
             type: "rect",
+            z,
             silent: isDrawing,
             cursor: isDrawing ? "crosshair" : "pointer",
             shape: { x: left, y, width, height: SEGMENT_HEADER_HEIGHT_PX, r: 3 },
@@ -1897,6 +1902,7 @@ export default class ChartView {
           },
           ...(isCriticalPower && width >= 12 ? [{
             type: "circle",
+            z,
             silent: true,
             shape: { cx: left + 6, cy: y + SEGMENT_HEADER_HEIGHT_PX / 2, r: 3 },
             style: {
@@ -1907,6 +1913,7 @@ export default class ChartView {
           }] : []),
           ...(label != null && width >= 42 ? [{
             type: "text",
+            z,
             silent: true,
             style: {
               text: label,
@@ -2271,7 +2278,7 @@ export default class ChartView {
     this.chart.dispatchAction({ type: "hideTip" });
     if (event?.target?.style) {
       event.target.attr?.({
-        style: { ...event.target.style, opacity: 0.9, lineWidth: 1.5 }
+        style: { ...event.target.style, opacity: SEGMENT_HEADER_HOVER_OPACITY, lineWidth: 1.5 }
       });
     }
     this.showSegmentHoverTooltip(segment, event?.event || event);
@@ -2283,7 +2290,7 @@ export default class ChartView {
       event.target.attr?.({
         style: {
           ...event.target.style,
-          opacity: isHighlighted ? 0.86 : 0.62,
+          opacity: isHighlighted ? SEGMENT_HEADER_ACTIVE_OPACITY : SEGMENT_HEADER_OPACITY,
           lineWidth: isHighlighted ? 1.5 : 0.75
         }
       });
