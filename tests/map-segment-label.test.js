@@ -357,6 +357,104 @@ test("terrain route features preserve GPS gaps and longitude-latitude order", ()
   assert.deepEqual(features[0].properties, { kind: "route" });
 });
 
+test("workout terrain selects the closest projected segment without bridging GPS gaps or invalid points", () => {
+  const first = { key: "manual:1", coordinateSegments: [
+    [{ lng: 0, lat: 100 }, { lng: 100, lat: 100 }],
+    [{ lng: 200, lat: 100 }, { lng: 300, lat: 100 }]
+  ] };
+  const second = { key: "crit:2", coordinateSegments: [[{ lng: 0, lat: 110 }, { lng: 100, lat: 110 }]] };
+  const invalid = { key: "gps:3", coordinateSegments: [[
+    { lng: 0, lat: 200 }, { lng: NaN, lat: 200 }, { lng: 300, lat: 200 }
+  ]] };
+  const owner = { segmentOverlayEntries: [first, second, invalid] };
+  const view = new WorkoutTerrainView({}, owner);
+  let offset = 0;
+  let projections = 0;
+  view.map = { project([lng, lat]) { projections += 1; return { x: lng + offset, y: lat }; } };
+  assert.equal(view.findHit({ x: 50, y: 108 }), second);
+  const previousProjections = projections;
+  assert.equal(view.findHit({ x: 50, y: 100 }), first);
+  assert.equal(projections, previousProjections);
+  assert.equal(view.findHit({ x: 150, y: 100 }), null);
+  assert.equal(view.findHit({ x: 150, y: 200 }), null);
+  assert.equal(view.findHit({ x: 250, y: 109 }), first);
+  assert.equal(view.findHit({ x: 250, y: 110 }), null);
+  assert.equal(view.findHit({ x: Infinity, y: 100 }), null);
+  offset = 400;
+  view.render();
+  assert.equal(view.findHit({ x: 50, y: 100 }), null);
+  assert.equal(view.findHit({ x: 450, y: 100 }), first);
+  owner.segmentOverlayEntries = [];
+  view.render();
+  assert.equal(view.findHit({ x: 450, y: 100 }), null);
+});
+
+test("workout terrain shares pixel hits for cursor, chart hover and selection while GPS drawing takes priority", () => {
+  const events = new Map();
+  const canvasEvents = new Map();
+  const canvas = { style: {}, addEventListener: (name, handler) => canvasEvents.set(name, handler) };
+  const segment = { id: 42 };
+  const entry = { segment, coordinateSegments: [[{ lng: 0, lat: 100 }, { lng: 200, lat: 100 }]] };
+  const selections = [];
+  const chartHovers = [];
+  const clicks = [];
+  const owner = {
+    segmentOverlayEntries: [entry],
+    selectedSegmentOverlay: entry,
+    hoverSegmentOverlay(value) { assert.equal(value, segment); this.hoveredSegmentOverlay = entry; },
+    clearSegmentHover() { this.hoveredSegmentOverlay = null; },
+    selectSegmentOverlay(value) { this.selectedSegmentOverlay = value; return value.segment; },
+    handleMapClick: (event) => clicks.push(event),
+    handlers: {
+      onSegmentHoverChange: (value) => chartHovers.push(value),
+      onSegmentSelectionChange: (value) => selections.push(value)
+    }
+  };
+  const view = new WorkoutTerrainView({}, owner);
+  let offset = 0;
+  view.map = {
+    on(name, ...handlers) { assert.equal(handlers.length, 1); events.set(name, handlers[0]); },
+    getCanvas: () => canvas,
+    project: ([lng, lat]) => ({ x: lng + offset, y: lat }),
+    queryRenderedFeatures() { throw new Error("Native terrain picking must not be used"); }
+  };
+  view.bindInteractions();
+  const event = { point: { x: 100, y: 100 }, lngLat: { lng: 100, lat: 100 } };
+  events.get("mousemove")(event);
+  assert.equal(canvas.style.cursor, "pointer");
+  assert.equal(chartHovers.at(-1), segment);
+  events.get("click")(event);
+  assert.deepEqual(selections, [segment]);
+  events.get("mousemove")({ ...event, point: { x: 100, y: 130 } });
+  assert.equal(canvas.style.cursor, "");
+  assert.equal(chartHovers.at(-1), null);
+  assert.equal(owner.selectedSegmentOverlay, entry);
+  assert.equal(owner.hoveredSegmentOverlay, null);
+  events.get("click")({ ...event, point: { x: 100, y: 130 } });
+  assert.deepEqual(clicks, [{}]);
+  offset = 300;
+  events.get("render")();
+  events.get("mousemove")(event);
+  assert.equal(canvas.style.cursor, "");
+  events.get("mousemove")({ ...event, point: { x: 400, y: 100 } });
+  assert.equal(canvas.style.cursor, "pointer");
+  canvasEvents.get("mouseleave")();
+  assert.equal(canvas.style.cursor, "");
+  assert.equal(owner.selectedSegmentOverlay, entry);
+  for (const name of ["movestart", "render", "resize"]) {
+    view.projectedHitGeometry = [];
+    events.get(name)();
+    assert.equal(view.projectedHitGeometry, null);
+  }
+  owner.manualGpsMode = true;
+  canvas.style.cursor = "crosshair";
+  events.get("mousemove")(event);
+  events.get("click")(event);
+  assert.equal(canvas.style.cursor, "crosshair");
+  assert.deepEqual(clicks.at(-1), { latlng: event.lngLat });
+  assert.deepEqual(selections, [segment]);
+});
+
 test("terrain renders route, colored segments, focus and chart position from the shared state", () => {
   const points = [{ lat: 48, lng: 9 }, { lat: 49, lng: 10 }];
   const entry = { key: "manual:1", coordinateSegments: [points], color: "#123456" };

@@ -90,6 +90,34 @@ to an ineligible workout temporarily shows 2D; a subsequent eligible workout
 reactivates 3D. A failed terrain instance is not automatically retried; the user
 can retry 3D or explicitly choose 2D to change the preference.
 
+## Shared Terrain Hit Testing
+
+Both terrain views now use the same projection and line-distance implementation
+in `WorkoutTerrainView`. Instead of asking MapLibre which rendered feature lies
+under the mouse, the application projects the current segment paths into CSS
+pixel coordinates with `map.project`. It finds the nearest line portion within
+9 pixels of the pointer. This covers the existing 18-pixel hit-line width and
+stays constant on screen when zoom, pitch or bearing changes. GPS gaps and
+invalid points are never joined for hit testing. Cached projections invalidate
+on camera movement, terrain/map rendering, resize and segment-data rendering.
+
+Workout hover listens to map-wide mouse movement rather than native layer-hover
+events. Hover and click use the same hit result, keeping the cursor, route
+highlight and existing chart/list callbacks consistent even if native terrain
+picking misses. Leaving a segment/map clears only temporary hover; the selected
+segment remains. Clicking a selected segment still toggles it off, and a
+background click uses the existing clear-selection path. Manual GPS drawing
+takes priority and keeps its crosshair/click-to-append behavior. The segment
+page additionally retains its endpoint-marker priority.
+
+Workout regressions cover nearest overlapping paths, GPS gaps, invalid points,
+cache reuse/invalidation, hover/selection callbacks and GPS drawing priority.
+The isolated preview verified real canvas events at zoom 14/pitch 75 and zoom
+15/pitch 80/bearing 40, plus normal-angle recovery, hover-end selection retention,
+second-click deselection, background clicks, GPS draft points and nonblank
+canvas pixels. This confirms callback forwarding, not an authenticated complete
+dashboard/chart pointer round trip. No routing or database writes were run.
+
 ## Segment Page
 
 `SegmentTerrainView` reuses the terrain sources, camera switching, draft drawing,
@@ -118,8 +146,8 @@ distance limits, filtered/invalid tracks, shared cursor/click handlers and cache
 invalidation. The isolated browser preview verified actual canvas mouse events
 at zoom 14/pitch 75, zoom 15/pitch 80/bearing 40 and zoom 13/pitch 60, as well as
 start/end actions and an outside-route click. This was synthetic preview data,
-not an authenticated production segment-page test. Workout-map hit testing is
-unchanged.
+not an authenticated production segment-page test. The segment-specific endpoint
+logic uses the shared terrain projection/line-distance core described above.
 
 Viewport queries, including filter/favorite reloads, use bounds from the active
 renderer. Terrain camera changes also update the existing local camera state
@@ -173,7 +201,7 @@ may finish.
 ## Verification
 
 - The combined focused map, view-preference, hover/header, track-rendering,
-  best-effort-paging and UI-state checks pass 79 tests. New coverage includes
+  best-effort-paging and UI-state checks pass 84 tests. New coverage includes
   per-user/per-view storage, invalid/legacy values, both controller restore/save
   paths, delayed workout availability, non-persisting fallbacks, segment endpoint
   actions, labels, active bounds/camera switching and tooltip escaping.

@@ -123,8 +123,7 @@ export default class WorkoutTerrainView {
         this.owner.handleMapClick({ latlng: event.lngLat });
         return;
       }
-      const feature = this.map.queryRenderedFeatures(event.point, { layers: ["segment-hit"] })[0];
-      const entry = this.owner.segmentOverlayEntries.find((item) => item.key === feature?.properties?.key);
+      const entry = this.findHit(event.point);
       if (entry) {
         const selected = this.owner.selectSegmentOverlay(entry, event.lngLat);
         this.owner.handlers.onSegmentSelectionChange?.(selected);
@@ -132,20 +131,73 @@ export default class WorkoutTerrainView {
         this.owner.handleMapClick({});
       }
     });
-    this.map.on("mousemove", "segment-hit", (event) => {
+    this.map.on("mousemove", (event) => {
       if (this.owner.manualGpsMode) return;
-      const entry = this.owner.segmentOverlayEntries.find((item) => item.key === event.features?.[0]?.properties?.key);
-      this.map.getCanvas().style.cursor = "pointer";
+      const entry = this.findHit(event.point);
       if (entry) {
+        this.map.getCanvas().style.cursor = "pointer";
         this.owner.hoverSegmentOverlay(entry.segment);
         this.owner.handlers.onSegmentHoverChange?.(entry.segment);
+      } else {
+        this.clearHover();
       }
     });
-    this.map.on("mouseleave", "segment-hit", () => {
-      this.map.getCanvas().style.cursor = this.owner.manualGpsMode ? "crosshair" : "";
-      this.owner.clearSegmentHover();
-      this.owner.handlers.onSegmentHoverChange?.(null);
+    this.map.getCanvas().addEventListener("mouseleave", () => this.clearHover());
+    this.map.on("movestart", () => {
+      this.projectedHitGeometry = null;
+      this.clearHover();
     });
+    this.map.on("render", () => { this.projectedHitGeometry = null; });
+    this.map.on("resize", () => { this.projectedHitGeometry = null; });
+  }
+
+  clearHover() {
+    this.map.getCanvas().style.cursor = this.owner.manualGpsMode ? "crosshair" : "";
+    this.owner.clearSegmentHover();
+    this.owner.handlers.onSegmentHoverChange?.(null);
+  }
+
+  findHit(point) {
+    if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return null;
+    this.projectedHitGeometry ||= this.owner.segmentOverlayEntries.flatMap((entry) =>
+      entry.coordinateSegments.map((points) => ({
+        entry, points: points.map((coordinate) => this.projectHitPoint(coordinate))
+      })));
+    return this.findClosestProjectedLine(point, this.projectedHitGeometry)?.entry || null;
+  }
+
+  projectHitPoint(coordinate) {
+    if (!Number.isFinite(coordinate?.lng) || !Number.isFinite(coordinate?.lat)) return null;
+    const projected = this.map.project([coordinate.lng, coordinate.lat]);
+    return Number.isFinite(projected.x) && Number.isFinite(projected.y) ? projected : null;
+  }
+
+  findClosestProjectedLine(point, geometries) {
+    if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return null;
+    let closest = null;
+    let lineDistance = 9;
+    for (const geometry of geometries) {
+      for (let index = 1; index < geometry.points.length; index += 1) {
+        const start = geometry.points[index - 1];
+        const end = geometry.points[index];
+        if (!start || !end) continue;
+        if (point.x < Math.min(start.x, end.x) - lineDistance
+          || point.x > Math.max(start.x, end.x) + lineDistance
+          || point.y < Math.min(start.y, end.y) - lineDistance
+          || point.y > Math.max(start.y, end.y) + lineDistance) continue;
+        const deltaX = end.x - start.x;
+        const deltaY = end.y - start.y;
+        const lengthSquared = deltaX * deltaX + deltaY * deltaY;
+        const ratio = lengthSquared ? Math.max(0, Math.min(1,
+          ((point.x - start.x) * deltaX + (point.y - start.y) * deltaY) / lengthSquared)) : 0;
+        const distance = Math.hypot(point.x - start.x - ratio * deltaX, point.y - start.y - ratio * deltaY);
+        if (distance <= lineDistance) {
+          lineDistance = distance;
+          closest = geometry;
+        }
+      }
+    }
+    return closest;
   }
 
   fail() {
@@ -176,6 +228,7 @@ export default class WorkoutTerrainView {
   }
 
   render() {
+    this.projectedHitGeometry = null;
     if (!this.ready || !this.map) return;
     if (this.owner.renderer && this.owner.renderer !== "3d") return;
     const features = this.lineFeatures(this.owner.currentTrackSegments, { kind: "route" });

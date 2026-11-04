@@ -3,6 +3,25 @@
 Stand: 2026-11-04. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Workout Terrain Hit Testing (2026-11-04)
+
+- User confirmed the same issue in the workout UI and approved applying the
+	pixel-distance fix there, with an explanation of the logic change. Both views
+	now share projection and nearest-line distance code in `WorkoutTerrainView`;
+	the segment view keeps endpoint priority. Workout hover uses map-wide mouse
+	events, not native layer-hover events; click and hover share one pixel hit.
+- The 9 CSS pixel limit, camera/render/resize/data cache invalidation, GPS gaps,
+	existing chart/list callbacks, hover-end selection retention, second-click
+	deselection and manual GPS drawing priority are preserved/tested. Details:
+	`docs/workout-map.md` (Shared Terrain Hit Testing).
+- Verification: 84 focused map/preference/hover/header/track/paging/UI-state
+	tests passed; targeted syntax/ESLint and editor diagnostics passed. Real
+	canvas events in a freshly loaded workout preview verified zoom 14/pitch 75,
+	zoom 15/pitch 80/bearing 40, normal-angle recovery, selection/deselection,
+	background clicks, hover callbacks, draft-point priority and nonblank pixels.
+	Synthetic preview only, not a complete authenticated chart/dashboard check.
+	No full suite, new type check, database write, migration, restart or deployment.
+
 ## Segment Terrain Hit Testing (2026-11-04)
 
 - User approved fixing segment selection/cursor failures after zoom/tilt.
