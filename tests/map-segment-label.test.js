@@ -32,10 +32,9 @@ test("segment terrain renders filtered tracks, selection and endpoint actions in
   const view = new SegmentTerrainView({}, owner);
   const data = new Map();
   view.ready = true;
-  let endpoint = "start";
   view.map = {
     getSource: (key) => ({ setData(value) { data.set(key, value); } }),
-    queryRenderedFeatures: () => [{ properties: { key: "42", endpoint } }]
+    project: ([lng, lat]) => ({ x: (lng - 9) * 200, y: (lat - 48) * 100 })
   };
   view.moveMarker = () => {};
   view.updateSegmentLabels = () => {};
@@ -44,11 +43,9 @@ test("segment terrain renders filtered tracks, selection and endpoint actions in
   assert.deepEqual(data.get("workout").features.map((item) => item.properties.kind), ["segment", "focus"]);
   assert.deepEqual(data.get("workout").features[0].geometry.coordinates, [[9, 48], [10, 49]]);
   assert.deepEqual(data.get("segment-endpoints").features.map((item) => item.properties.endpoint), ["start", "end"]);
-  view.handleClick({});
-  endpoint = "end";
-  view.handleClick({});
-  endpoint = undefined;
-  view.handleClick({});
+  view.handleClick({ point: { x: 0, y: 0 } });
+  view.handleClick({ point: { x: 200, y: 100 } });
+  view.handleClick({ point: { x: 100, y: 50 } });
   owner.isSelecting = true;
   view.handleClick({ lngLat: segment.start });
   assert.deepEqual(actions, [["start", 42], ["end", 42], ["select", 42], ["line"], ["draft", segment.start]]);
@@ -69,6 +66,121 @@ test("segment terrain labels prefer selection and reject short, overlapping and 
   view.map = { getCanvas: () => ({ clientWidth: 400, clientHeight: 300 }) };
   view.measureCoordinatePath = (id) => ({ length: id === 3 ? 10 : 120, point: { x: id === 4 ? -20 : 100, y: 100 }, latlng: [9, 48] });
   assert.deepEqual(view.getLabelCandidates().map((candidate) => candidate.text), ["S-2"]);
+});
+
+test("segment terrain uses projected pixel distance despite missing terrain feature hits", () => {
+  const segment = {
+    id: 42, start: { lng: 0, lat: 100 }, end: { lng: 200, lat: 100 },
+    track: [{ lng: 0, lat: 100 }, { lng: 100, lat: 100 }, { lng: 200, lat: 100 }]
+  };
+  let projectionCount = 0;
+  let offset = 0;
+  const owner = {
+    controller: { getRenderableSegments: () => [segment] },
+    getSegmentRenderTrack: (item) => item.track
+  };
+  const view = new SegmentTerrainView({}, owner);
+  view.map = {
+    queryRenderedFeatures: () => [],
+    project([lng, lat]) { projectionCount += 1; return { x: lng + offset, y: lat }; }
+  };
+  assert.equal(view.findHit({ x: 100, y: 108 }).segment, segment);
+  assert.equal(view.findHit({ x: 100, y: 110 }), null);
+  assert.equal(view.findHit({ x: 100, y: 300 }), null);
+  assert.equal(view.findHit({ x: NaN, y: 100 }), null);
+  assert.equal(projectionCount, 5);
+  assert.equal(view.findHit({ x: 4, y: 100 }).endpoint, "start");
+  assert.equal(view.findHit({ x: 198, y: 100 }).endpoint, "end");
+  offset = 250;
+  view.render();
+  assert.equal(view.findHit({ x: 100, y: 100 }), null);
+  assert.equal(view.findHit({ x: 350, y: 100 }).segment, segment);
+});
+
+test("segment terrain prioritizes endpoints and rejects false native hits, hidden segments and invalid tracks", () => {
+  const first = { id: 1, start: { lng: 0, lat: 100 }, end: { lng: 200, lat: 100 } };
+  const second = { id: 2, start: { lng: 100, lat: 100 }, end: { lng: 100, lat: 200 } };
+  let nativeFeatures = [{ properties: { key: "1" } }];
+  let segments = [first, second];
+  const view = new SegmentTerrainView({}, {
+    controller: { getRenderableSegments: () => segments },
+    getSegmentRenderTrack: (item) => [item.start, item.end]
+  });
+  view.map = {
+    queryRenderedFeatures: () => nativeFeatures,
+    project: ([lng, lat]) => ({ x: lng, y: lat })
+  };
+  assert.deepEqual(view.findHit({ x: 100, y: 100 }), { segment: second, endpoint: "start" });
+  assert.equal(view.findHit({ x: 400, y: 400 }), null);
+  nativeFeatures.push({ properties: { key: "2", endpoint: "end" } });
+  assert.equal(view.findHit({ x: 100, y: 200 }).endpoint, "end");
+  segments = [];
+  view.render();
+  assert.equal(view.findHit({ x: 100, y: 100 }), null);
+  segments = [{ id: 3 }];
+  view.owner.getSegmentRenderTrack = () => [{ lng: NaN, lat: 100 }, { lng: 100, lat: Infinity }];
+  view.render();
+  assert.equal(view.findHit({ x: 100, y: 100 }), null);
+});
+
+test("segment terrain shares projected hits for cursor and clicks and invalidates projection after camera events", () => {
+  const previousLibrary = globalThis.maplibregl;
+  const events = new Map();
+  const actions = [];
+  const canvas = { style: {}, addEventListener() {} };
+  const segment = { id: 42, start: { lng: 0, lat: 100 }, end: { lng: 200, lat: 100 } };
+  let offset = 0;
+  const view = new SegmentTerrainView({}, {
+    controller: { getRenderableSegments: () => [segment] },
+    getSegmentRenderTrack: (item) => [item.start, item.end],
+    handleTerrainMove() {},
+    selectSegment: (item) => actions.push(["select", item.id]),
+    onSegmentStartClick: (item) => actions.push(["start", item.id]),
+    onSegmentEndClick: (item) => actions.push(["end", item.id]),
+    handlers: { onSegmentOpen: (event) => actions.push([event.type]) },
+    buildSegmentTooltip: () => "segment",
+    buildEndpointTooltip: () => "endpoint",
+    t: (key) => key
+  });
+  view.map = {
+    addSource() {}, addLayer() {},
+    on: (name, handler) => events.set(name, handler),
+    getCanvas: () => canvas,
+    queryRenderedFeatures: () => [],
+    project: ([lng, lat]) => ({ x: lng + offset, y: lat })
+  };
+  globalThis.maplibregl = { Popup: class {
+    remove() {}
+    setLngLat() { return this; }
+    setHTML() { return this; }
+    addTo() { return this; }
+  } };
+  try {
+    view.bindInteractions();
+    const event = { point: { x: 100, y: 100 }, lngLat: { lng: 100, lat: 100 } };
+    events.get("mousemove")(event);
+    assert.equal(canvas.style.cursor, "pointer");
+    events.get("click")(event);
+    events.get("click")({ ...event, point: { x: 0, y: 100 } });
+    events.get("click")({ ...event, point: { x: 200, y: 100 } });
+    assert.deepEqual(actions, [["select", 42], ["line"], ["start", 42], ["end", 42]]);
+    offset = 300;
+    events.get("render")();
+    events.get("mousemove")(event);
+    assert.equal(canvas.style.cursor, "");
+    events.get("click")(event);
+    assert.equal(actions.length, 4);
+    events.get("mousemove")({ ...event, point: { x: 400, y: 100 } });
+    assert.equal(canvas.style.cursor, "pointer");
+    for (const name of ["movestart", "render", "resize"]) {
+      view.projectedHitGeometry = [];
+      events.get(name)();
+      assert.equal(view.projectedHitGeometry, null);
+    }
+  } finally {
+    if (previousLibrary === undefined) delete globalThis.maplibregl;
+    else globalThis.maplibregl = previousLibrary;
+  }
 });
 
 test("segment map restores renderer, active bounds and camera without persisting automatic fallback", () => {

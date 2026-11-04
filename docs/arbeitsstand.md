@@ -3,6 +3,24 @@
 Stand: 2026-11-04. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Segment Terrain Hit Testing (2026-11-04)
+
+- User approved fixing segment selection/cursor failures after zoom/tilt.
+	Isolated MapLibre 4.7.1 preview reproduced native feature-query misses on
+	pixel-confirmed visible lines at zoom 14/pitch 75, plus false outside hits.
+- Segment hover/click now share authoritative projected screen-space geometry:
+	nearest smoothed line within 9 CSS pixels, with start/end marker priority.
+	Cached projections invalidate on camera movement, map render/resize and data
+	rendering. No changes to workout-map hit testing, routing or preferences.
+- Verification: all 26 map tests passed, including three new regressions for
+	distance limits, native misses/false hits, endpoints, filtered/invalid data,
+	cursor/click sharing and projection invalidation. Targeted syntax/ESLint and
+	editor diagnostics passed. Real canvas events in the synthetic preview
+	confirmed selection/pointer at zoom 14/pitch 75 and zoom 15/pitch 80/bearing 40,
+	normal-angle recovery, start/end actions and no outside selection. Details:
+	`docs/workout-map.md`. No authenticated application test, full suite, database
+	write, migration, restart or deployment.
+
 ## Segment Terrain and Server-Side Map Preferences (2026-11-04)
 
 - User approved the same embedded 2D/3D alternative for the segment page and

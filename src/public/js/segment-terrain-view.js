@@ -24,17 +24,70 @@ export default class SegmentTerrainView extends WorkoutTerrainView {
     });
     this.map.getCanvas().addEventListener("mouseleave", () => this.showTooltip(null));
     this.map.on("moveend", () => this.owner.handleTerrainMove());
-    this.map.on("movestart", () => this.showTooltip(null));
+    this.map.on("movestart", () => {
+      this.projectedHitGeometry = null;
+      this.showTooltip(null);
+    });
+    this.map.on("render", () => { this.projectedHitGeometry = null; });
+    this.map.on("resize", () => { this.projectedHitGeometry = null; });
     this.owner.handleTerrainMove();
   }
 
   findHit(point) {
-    const feature = this.map.queryRenderedFeatures(point, {
-      layers: ["segment-endpoints", "segment-hit"]
-    })[0];
-    const segment = this.owner.controller.getRenderableSegments()
-      .find((item) => String(item.id) === feature?.properties?.key);
-    return segment ? { segment, endpoint: feature.properties.endpoint } : null;
+    return this.findProjectedHit(point, this.owner.controller.getRenderableSegments());
+  }
+
+  projectHitPoint(coordinate) {
+    if (!Number.isFinite(coordinate?.lng) || !Number.isFinite(coordinate?.lat)) return null;
+    const projected = this.map.project([coordinate.lng, coordinate.lat]);
+    return Number.isFinite(projected.x) && Number.isFinite(projected.y) ? projected : null;
+  }
+
+  findProjectedHit(point, segments) {
+    if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) return null;
+    this.projectedHitGeometry ||= segments.map((segment) => ({
+      segment,
+      endpoints: ["start", "end"].map((endpoint) => ({ endpoint, point: this.projectHitPoint(segment[endpoint]) })),
+      points: this.owner.getSegmentRenderTrack(segment).map((coordinate) => this.projectHitPoint(coordinate))
+    }));
+    let endpointHit = null;
+    let endpointDistance = Infinity;
+    for (const geometry of this.projectedHitGeometry) {
+      const radius = geometry.segment.id === this.owner.selectedSegmentId ? 10 : 8;
+      for (const endpoint of geometry.endpoints) {
+        if (!endpoint.point) continue;
+        const distance = Math.hypot(point.x - endpoint.point.x, point.y - endpoint.point.y);
+        if (distance <= radius && distance < endpointDistance) {
+          endpointDistance = distance;
+          endpointHit = { segment: geometry.segment, endpoint: endpoint.endpoint };
+        }
+      }
+    }
+    if (endpointHit) return endpointHit;
+    let lineHit = null;
+    let lineDistance = 9;
+    for (const geometry of this.projectedHitGeometry) {
+      for (let index = 1; index < geometry.points.length; index += 1) {
+        const start = geometry.points[index - 1];
+        const end = geometry.points[index];
+        if (!start || !end) continue;
+        if (point.x < Math.min(start.x, end.x) - lineDistance
+          || point.x > Math.max(start.x, end.x) + lineDistance
+          || point.y < Math.min(start.y, end.y) - lineDistance
+          || point.y > Math.max(start.y, end.y) + lineDistance) continue;
+        const deltaX = end.x - start.x;
+        const deltaY = end.y - start.y;
+        const lengthSquared = deltaX * deltaX + deltaY * deltaY;
+        const ratio = lengthSquared ? Math.max(0, Math.min(1,
+          ((point.x - start.x) * deltaX + (point.y - start.y) * deltaY) / lengthSquared)) : 0;
+        const distance = Math.hypot(point.x - start.x - ratio * deltaX, point.y - start.y - ratio * deltaY);
+        if (distance <= lineDistance) {
+          lineDistance = distance;
+          lineHit = { segment: geometry.segment, endpoint: undefined };
+        }
+      }
+    }
+    return lineHit;
   }
 
   handleClick(event) {
@@ -67,6 +120,7 @@ export default class SegmentTerrainView extends WorkoutTerrainView {
   }
 
   render() {
+    this.projectedHitGeometry = null;
     if (!this.ready || !this.map || this.owner.renderer !== "3d") return;
     const segments = this.owner.controller.getRenderableSegments();
     const features = [];

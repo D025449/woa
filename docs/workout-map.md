@@ -100,6 +100,27 @@ actions. Tracks use the same cached smoothing as Leaflet. Selected routes are
 highlighted, tooltips escape location names, and short `S-42` labels suppress
 short, overlapping and offscreen candidates, prioritizing the selected segment.
 
+Segment hover and clicks share screen-space hit testing using `map.project`
+on the same smoothed track used for rendering. In the MapLibre 4.7.1 preview,
+`queryRenderedFeatures` missed visible, pixel-confirmed route positions at zoom
+14/pitch 75 and zoom 15/pitch 80, and also reported a false hit away from the
+route. Its results are therefore not authoritative for segment selection.
+The nearest projected line within 9 CSS pixels is selectable, matching half
+the existing 18-pixel hit-line width. Start/end markers take priority within
+their visible radius plus stroke (8 pixels normally, 10 when selected).
+Outside those distances there is no selection or pointer cursor. Invalid track
+positions are skipped without connecting across the invalid entry. Projection
+geometry is cached and invalidated on camera movement, map render/resize and
+segment-data rendering, including updates after terrain tiles load.
+
+Focused regression tests cover missed and false native hits, endpoint priority,
+distance limits, filtered/invalid tracks, shared cursor/click handlers and cache
+invalidation. The isolated browser preview verified actual canvas mouse events
+at zoom 14/pitch 75, zoom 15/pitch 80/bearing 40 and zoom 13/pitch 60, as well as
+start/end actions and an outside-route click. This was synthetic preview data,
+not an authenticated production segment-page test. Workout-map hit testing is
+unchanged.
+
 Viewport queries, including filter/favorite reloads, use bounds from the active
 renderer. Terrain camera changes also update the existing local camera state
 using the Leaflet-equivalent zoom. The elevation-profile position marker is
