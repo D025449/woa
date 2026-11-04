@@ -1,4 +1,4 @@
-import { WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION } from "../../shared/SegmentAppearance.js";
+import { WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION, WORKOUT_THUMBNAIL_CACHE_VERSION } from "../../shared/SegmentAppearance.js";
 import { getBrowserTimeZone } from "../../shared/FitFileName.js";
 import { intensityProfilesFromTags, intensityTagBit } from "../../shared/WorkoutIntensityTags.js";
 import { createTranslator, getCurrentLocale } from "./i18n.js";
@@ -2128,7 +2128,7 @@ export default class WorkoutLibraryView {
               ${workout.has_thumbnail ? `
                 <img
                   class="workout-library-card__thumb-image"
-                  data-thumb-src="/workouts/${workout.id}/thumbnail?v=${encodeURIComponent(workout.thumbnail_updated_at || workout.uploaded_at || "")}&style=${WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION}"
+                  data-thumb-src="/workouts/${workout.id}/thumbnail?v=${encodeURIComponent(workout.thumbnail_updated_at || workout.uploaded_at || "")}&style=${WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION}&cache=${WORKOUT_THUMBNAIL_CACHE_VERSION}"
                   alt=""
                   loading="lazy"
                   decoding="async"

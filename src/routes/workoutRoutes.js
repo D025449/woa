@@ -278,14 +278,13 @@ async function assignManualGpsTrack({
     lookupPoints,
     streamUpdate
   );
-  const thumbnailPayload = WorkoutThumbnailService.createThumbnailPayload({
-    workoutType: context.workout_type ?? context.workoutType,
-    gpsTrack: altitudeEnrichedTrack.track.map((point) => [point.lat, point.lng]),
-    workoutObject: streamUpdate?.workoutObject ?? context.workoutObject
-  });
-  const thumbnail = thumbnailPayload
-    ? await WorkoutThumbnailService.upsertThumbnail(workoutId, thumbnailPayload)
-    : null;
+  const thumbnail = await WorkoutThumbnailService.getOrCreateThumbnail(workoutId, () =>
+    WorkoutThumbnailService.createThumbnailPayloadAsync({
+      workoutId,
+      workoutType: context.workout_type ?? context.workoutType,
+      gpsTrack: altitudeEnrichedTrack.track.map((point) => [point.lat, point.lng]),
+      workoutObject: streamUpdate?.workoutObject ?? context.workoutObject
+    }), { replaceExisting: true });
 
   return {
     ok: true,
@@ -873,14 +872,13 @@ router.post("/:id/gps-copy-from", authMiddleware, requireActiveAccountWrite, asy
       streamUpdate
     );
 
-    const thumbnailPayload = WorkoutThumbnailService.createThumbnailPayload({
-      workoutType: targetContext.workout_type ?? targetContext.workoutType,
-      gpsTrack: effectiveGpsTrack.track.map((point) => [point.lat, point.lng]),
-      workoutObject: streamUpdate?.workoutObject ?? targetContext.workoutObject
-    });
-    const thumbnail = thumbnailPayload
-      ? await WorkoutThumbnailService.upsertThumbnail(targetWorkoutId, thumbnailPayload)
-      : null;
+    const thumbnail = await WorkoutThumbnailService.getOrCreateThumbnail(targetWorkoutId, () =>
+      WorkoutThumbnailService.createThumbnailPayloadAsync({
+        workoutId: targetWorkoutId,
+        workoutType: targetContext.workout_type ?? targetContext.workoutType,
+        gpsTrack: effectiveGpsTrack.track.map((point) => [point.lat, point.lng]),
+        workoutObject: streamUpdate?.workoutObject ?? targetContext.workoutObject
+      }), { replaceExisting: true });
 
     return res.json({
       ok: true,
@@ -951,7 +949,7 @@ router.get("/:id/thumbnail", authMiddleware, async (req, res) => {
     }
 
     res.setHeader("Content-Type", thumbnail.mimeType || "image/svg+xml");
-    res.setHeader("Cache-Control", "private, max-age=31536000, immutable");
+    res.setHeader("Cache-Control", WorkoutThumbnailService.getThumbnailCacheControl(thumbnail));
 
     const responsePreparedAt = performance.now();
     res.once("finish", () => {

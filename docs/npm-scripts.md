@@ -37,11 +37,32 @@ dokumentieren die Werkzeuge; sie sind keine Ausführungsfreigabe.
 | `worker` | `npm run worker`: Import-Worker starten. | Verarbeitet Import-Jobs und den dauerhaften Wahoo-Webhook-Eingang; schreibt Trainings und Folgeaufträge. Benötigt die konfigurierte Datenbank und Queue-Infrastruktur, für Wahoo zusätzlich Migration 092 und die [Wahoo-Konfiguration](WAHOO_CONNECT.md#webhooks-und-automatischer-import). |
 | `backup:worker` | `npm run backup:worker`: Backup-/Restore-Worker für den Admin-Wizard. | Führt eingereihte Betriebsaufträge aus. [Betriebsanleitung](../ops/postgres-backup/README.md). |
 | `deploy:prod` | `npm run deploy:prod -- "Commit-Nachricht"` | Führt `npm test` und `npm run check` aus, nimmt **alle Repository-Änderungen** mit `git add --all` auf, erstellt Commit und Push und ruft per SSH `./deploy.sh code-only` auf. Erwartet den Release-Branch, standardmäßig `main`. |
+| `env:prod` | `npm run env:prod`: open `~/woa/.env.production` on `cwa24-ec2` directly in Nano over SSH. | Requires a local interactive terminal, working SSH access to the `cwa24-ec2` alias, and Nano plus file access on the server. Saving changes the production environment file; no automatic restart or deployment. [Editing details](#edit-the-production-environment). |
 | `account-deletion:sweep` | `npm run account-deletion:sweep` | Führt einen Batch fälliger endgültiger Kontolöschungen aus; kein Vorschau-Modus. |
 
 `deploy:prod` unterstützt `GIT_REMOTE`, `RELEASE_BRANCH`, `DEPLOY_SSH_TARGET`
 und `DEPLOY_APP_DIR`. `SKIP_RELEASE_CHECKS=1` überspringt Tests und Checks.
 Die Typprüfung gehört nicht zum Release-Check. Implementierung: [`release-prod.sh`](../release-prod.sh).
+
+## Edit the Production Environment
+
+Run from the local repository in an interactive terminal:
+
+```bash
+npm run env:prod
+```
+
+This runs `ssh -t cwa24-ec2 'nano ~/woa/.env.production'`. SSH allocates an
+interactive terminal and opens the file directly on the server; no local copy is
+created. The target and path are fixed and do not use the deployment overrides.
+Existing SSH authentication and host-key checks still apply.
+
+In Nano, press `Ctrl+O`, then `Enter` to save, and `Ctrl+X` to exit. To discard
+unsaved changes, press `Ctrl+X`, then `N` when prompted. Closing Nano ends the SSH
+session automatically. Environment changes require a separate restart of the
+affected running application or workers to take effect; this command does not
+restart services, deploy code, or run migrations. Never paste environment values
+into logs, documentation, Git, or chat.
 
 ## Translation Changes During Development
 

@@ -1,5 +1,6 @@
 export const WORKOUT_ROUTE_COLOR = "#ff4d4f";
-export const WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION = "2";
+export const WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION = "3";
+export const WORKOUT_THUMBNAIL_CACHE_VERSION = "1";
 
 export const SEGMENT_COLORS = Object.freeze({
   criticalPower: Object.freeze({

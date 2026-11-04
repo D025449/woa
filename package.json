@@ -11,6 +11,7 @@
     "worker": "node src/workers/import-worker.js",
     "backup:worker": "node src/workers/postgres-backup-ops-worker.js",
     "deploy:prod": "./release-prod.sh",
+    "env:prod": "ssh -t cwa24-ec2 'nano ~/woa/.env.production'",
     "migrate": "node src/migrate.js",
     "account-deletion:sweep": "node src/scripts/run-account-deletion-sweep.js",
     "accounts:export": "node src/scripts/export-user-accounts.js",
@@ -77,6 +78,7 @@
     "pg-copy-streams": "^7.0.0",
     "pg-promise": "^12.6.2",
     "redis": "^5.11.0",
+    "sharp": "^0.35.5",
     "tabulator-tables": "^6.3.1",
     "unzipper": "^0.12.3",
     "uuid": "^13.0.0"

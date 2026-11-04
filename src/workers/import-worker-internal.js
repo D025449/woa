@@ -1104,11 +1104,14 @@ export async function createApp(options = {}) {
 
     const startedAt = Date.now();
     const payload = await readSegmentPersistencePayload(payloadPath);
-    const thumbnailPayload = WorkoutThumbnailService.createThumbnailPayload({
-      gpsTrack: payload?.gpsTrack ?? null,
-      altitudes: Array.isArray(payload?.altitudes) ? payload.altitudes : [],
-      powers: Array.isArray(payload?.powers) ? payload.powers : []
-    });
+    const thumbnailPayload = await WorkoutThumbnailService.getOrCreateThumbnail(workoutId, () =>
+      WorkoutThumbnailService.createThumbnailPayloadAsync({
+        workoutId,
+        workoutType: payload?.workoutType ?? payload?.workout_type,
+        gpsTrack: payload?.gpsTrack ?? null,
+        altitudes: Array.isArray(payload?.altitudes) ? payload.altitudes : [],
+        powers: Array.isArray(payload?.powers) ? payload.powers : []
+      }));
 
     if (!thumbnailPayload) {
       await cleanupSegmentPersistencePayload(payloadPath);
@@ -1119,7 +1122,6 @@ export async function createApp(options = {}) {
       };
     }
 
-    await WorkoutThumbnailService.upsertThumbnail(workoutId, thumbnailPayload);
     await cleanupSegmentPersistencePayload(payloadPath);
 
     recordPostprocessProfile("thumbnail", Date.now() - startedAt, {

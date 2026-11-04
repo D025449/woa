@@ -1,7 +1,9 @@
 import pool from "./database.js";
+import pLimit from "p-limit";
 import Workout from "../shared/Workout.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
 import SegmentDBService from "./segmentDBService.js";
+import GeoapifyThumbnailService from "./geoapifyThumbnailService.js";
 import {
   matchCompactGpsSegmentBestEfforts,
   prepareCompactGpsSegmentDefinitions
@@ -15,12 +17,14 @@ import {
 const SVG_WIDTH = 256;
 const SVG_HEIGHT = 160;
 const SVG_PADDING = 14;
+const MAP_ROUTE_HEIGHT = 124;
+const FALLBACK_RETRY_MS = 5 * 60 * 1000;
 const POWER_THUMB_STRONG_SMOOTHING_WINDOW = 35;
 const INDOOR_THUMB_SMOOTHING_WINDOW = 15;
 const THUMB_MAX_SERIES_POINTS = 180;
 const ROUTE_SIMPLIFY_TOLERANCE_PX = 0.5;
 const thumbnailGenerationInflight = new Map();
-const thumbnailPersistenceInflight = new Map();
+const thumbnailGenerationLimit = pLimit(6);
 
 function escapeXml(value = "") {
   return String(value)
@@ -36,7 +40,8 @@ function createPathFromPoints(
   width = SVG_WIDTH,
   height = SVG_HEIGHT,
   padding = SVG_PADDING,
-  sharedBounds = null
+  sharedBounds = null,
+  precision = 2
 ) {
   if (!Array.isArray(points) || points.length < 2) {
     return "";
@@ -48,7 +53,7 @@ function createPathFromPoints(
     const projected = projectPoint(point, bounds, width, height, padding);
     const px = projected.x;
     const py = projected.y;
-    return `${index === 0 ? "M" : "L"} ${px.toFixed(2)} ${py.toFixed(2)}`;
+    return `${index === 0 ? "M" : "L"} ${px.toFixed(precision)} ${py.toFixed(precision)}`;
   }).join(" ");
 }
 
@@ -88,13 +93,13 @@ function pointToLineDistanceSquared(point, start, end) {
   return (x * x) + (y * y);
 }
 
-function simplifyPointsForSvg(points, bounds, tolerancePx = ROUTE_SIMPLIFY_TOLERANCE_PX) {
+function simplifyPointsForSvg(points, bounds, tolerancePx = ROUTE_SIMPLIFY_TOLERANCE_PX, height = SVG_HEIGHT) {
   if (!Array.isArray(points) || points.length <= 2) {
     return Array.isArray(points) ? points : [];
   }
 
   const projected = points.map((point) =>
-    projectPoint(point, bounds, SVG_WIDTH, SVG_HEIGHT, SVG_PADDING)
+    projectPoint(point, bounds, SVG_WIDTH, height, SVG_PADDING)
   );
   const keep = new Uint8Array(points.length);
   keep[0] = 1;
@@ -284,7 +289,50 @@ function normalizeRouteSegments(gpsTrackSegments = null, gpsTrack = null) {
   return fallback.length >= 2 ? [fallback] : [];
 }
 
-function buildRouteThumbnail(gpsTrackSegments = null, gpsTrack = null, segmentOverlays = []) {
+function projectRouteCoordinate(point, longitudeScale, mercator) {
+  return {
+    x: Number(point.lng) * longitudeScale,
+    y: mercator
+      ? Math.log(Math.tan(Math.PI / 4 + Number(point.lat) * Math.PI / 360)) * 180 / Math.PI
+      : Number(point.lat)
+  };
+}
+
+function annotateRouteFallback(fallback, { reason, retryAt }) {
+  return {
+    ...fallback,
+    content: fallback.content.replace("<svg ", `<svg data-map-fallback="${escapeXml(reason)}" data-map-retry-at="${retryAt}" `),
+    renderStats: { ...fallback.renderStats, mapFallbackReason: reason, mapRetryAt: retryAt }
+  };
+}
+
+async function renderGeoapifyRouteThumbnail(options, fallback = null) {
+  const segments = normalizeRouteSegments(options.gpsTrackSegments, options.gpsTrack);
+  const track = segments.flat();
+  if (track.length < 2 || track.some((point) => Math.abs(point.lat) > 85.05112878 || Math.abs(point.lng) > 180)) {
+    return annotateRouteFallback(fallback, { reason: "unsupported-route", retryAt: Date.now() + FALLBACK_RETRY_MS });
+  }
+  const bounds = getPointBounds(track.map((point) => projectRouteCoordinate(point, 1, true)));
+  if (bounds.maxX - bounds.minX > 180) {
+    return annotateRouteFallback(fallback, { reason: "unsupported-route", retryAt: Date.now() + FALLBACK_RETRY_MS });
+  }
+  const scale = Math.min(
+    (SVG_WIDTH - 2 * SVG_PADDING) / Math.max(1e-9, bounds.maxX - bounds.minX),
+    (MAP_ROUTE_HEIGHT - 2 * SVG_PADDING) / Math.max(1e-9, bounds.maxY - bounds.minY)
+  );
+  const centerY = (bounds.minY + bounds.maxY) / 2 - (SVG_HEIGHT - MAP_ROUTE_HEIGHT) / (2 * scale);
+  let failure = { reason: "unavailable", retryAt: Date.now() + FALLBACK_RETRY_MS };
+  const background = await GeoapifyThumbnailService.getBackground({
+    longitude: (bounds.minX + bounds.maxX) / 2,
+    latitude: Math.atan(Math.sinh(centerY * Math.PI / 180)) * 180 / Math.PI,
+    zoom: Math.log2(scale * (320 / SVG_WIDTH) * 360 / 512)
+  }, { workoutId: options.workoutId ?? null, onFallback: (details) => { failure = details; } });
+  return background
+    ? buildRouteThumbnail(segments, null, options.segmentOverlays, background)
+    : annotateRouteFallback(fallback, failure);
+}
+
+function buildRouteThumbnail(gpsTrackSegments = null, gpsTrack = null, segmentOverlays = [], mapBackground = null) {
   const normalizedSegments = normalizeRouteSegments(gpsTrackSegments, gpsTrack);
   const numericTrack = normalizedSegments.flat();
 
@@ -295,13 +343,11 @@ function buildRouteThumbnail(gpsTrackSegments = null, gpsTrack = null, segmentOv
   const averageLatitudeRadians = (
     numericTrack.reduce((sum, point) => sum + point.lat, 0) / numericTrack.length
   ) * Math.PI / 180;
-  const longitudeScale = Math.max(1e-9, Math.cos(averageLatitudeRadians));
+  const longitudeScale = mapBackground ? 1 : Math.max(1e-9, Math.cos(averageLatitudeRadians));
+  const routeHeight = mapBackground ? MAP_ROUTE_HEIGHT : SVG_HEIGHT;
 
   const points = numericTrack
-    .map((point) => ({
-      x: point.lng * longitudeScale,
-      y: point.lat
-    }))
+    .map((point) => projectRouteCoordinate(point, longitudeScale, !!mapBackground))
     .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
 
   if (points.length < 2) {
@@ -311,63 +357,71 @@ function buildRouteThumbnail(gpsTrackSegments = null, gpsTrack = null, segmentOv
   const bounds = getPointBounds(points);
   const start = points[0];
   const end = points[points.length - 1];
-  const startProjected = projectPoint(start, bounds);
-  const endProjected = projectPoint(end, bounds);
+  const startProjected = projectPoint(start, bounds, SVG_WIDTH, routeHeight);
+  const endProjected = projectPoint(end, bounds, SVG_WIDTH, routeHeight);
   const projectedRouteSegments = normalizedSegments
     .map((segment) => segment
-      .map((point) => ({
-        x: point.lng * longitudeScale,
-        y: point.lat
-      }))
+      .map((point) => projectRouteCoordinate(point, longitudeScale, !!mapBackground))
       .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y)))
     .filter((segment) => segment.length >= 2)
     .map((segment) => ({
       inputPointCount: segment.length,
-      points: simplifyPointsForSvg(segment, bounds)
+      points: simplifyPointsForSvg(segment, bounds, mapBackground ? 0.45 : ROUTE_SIMPLIFY_TOLERANCE_PX, routeHeight)
     }));
   const pathMarkup = projectedRouteSegments
-    .map((segment) => `<path d="${createPathFromPoints(
+    .map((segment, index) => {
+      const path = createPathFromPoints(
       segment.points,
       SVG_WIDTH,
-      SVG_HEIGHT,
+      routeHeight,
       SVG_PADDING,
-      bounds
-    )}" fill="none" stroke="${WORKOUT_ROUTE_COLOR}" stroke-width="4" stroke-opacity="0.9" stroke-linecap="round" stroke-linejoin="round"/>`)
+      bounds,
+      mapBackground ? 1 : 2
+      );
+      return mapBackground
+        ? `<defs><path id="route-${index}" d="${path}"/></defs><use href="#route-${index}" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><use href="#route-${index}" fill="none" stroke="${WORKOUT_ROUTE_COLOR}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`
+        : `<path d="${path}" fill="none" stroke="${WORKOUT_ROUTE_COLOR}" stroke-width="4" stroke-opacity="0.9" stroke-linecap="round" stroke-linejoin="round"/>`;
+    })
     .join("");
   const projectedOverlays = (Array.isArray(segmentOverlays) ? segmentOverlays : [])
     .flatMap((overlay) => (Array.isArray(overlay?.segments) ? overlay.segments : [])
       .map((segment) => ({
         segmenttype: overlay.segmenttype,
         points: segment
-          .map((point) => ({
-            x: Number(point?.lng) * longitudeScale,
-            y: Number(point?.lat)
-          }))
+          .map((point) => projectRouteCoordinate(point, longitudeScale, !!mapBackground))
           .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y))
       })))
     .filter((overlay) => overlay.points.length >= 2)
     .map((overlay) => ({
       ...overlay,
       inputPointCount: overlay.points.length,
-      points: simplifyPointsForSvg(overlay.points, bounds)
+      points: simplifyPointsForSvg(overlay.points, bounds, ROUTE_SIMPLIFY_TOLERANCE_PX, routeHeight)
     }));
   const overlayMarkup = projectedOverlays
     .map((overlay) => (
       `<path data-segment-type="${escapeXml(overlay.segmenttype || "manual")}" d="${createPathFromPoints(
         overlay.points,
         SVG_WIDTH,
-        SVG_HEIGHT,
+        routeHeight,
         SVG_PADDING,
-        bounds
+        bounds,
+        mapBackground ? 1 : 2
       )}" fill="none" stroke="${getSegmentColor(overlay)}" stroke-width="4" stroke-opacity="0.9" stroke-linecap="round" stroke-linejoin="round"/>`
     ))
     .join("");
   const bodyMarkup = `
-    <rect x="12" y="12" width="${SVG_WIDTH - 24}" height="${SVG_HEIGHT - 24}" rx="16" fill="#dcfce7"/>
+    ${mapBackground
+      ? `<image data-map-provider="geoapify" href="${mapBackground}" x="0" y="0" width="${SVG_WIDTH}" height="${SVG_HEIGHT}"/>`
+      : `<rect x="12" y="12" width="${SVG_WIDTH - 24}" height="${SVG_HEIGHT - 24}" rx="16" fill="#dcfce7"/>`}
     ${pathMarkup}
     ${overlayMarkup}
     <circle cx="${startProjected.x.toFixed(2)}" cy="${startProjected.y.toFixed(2)}" r="5" fill="#ffffff" stroke="#16a34a" stroke-width="2"/>
     <circle cx="${endProjected.x.toFixed(2)}" cy="${endProjected.y.toFixed(2)}" r="5.5" fill="#dc2626" stroke="#ffffff" stroke-width="2"/>
+    ${mapBackground ? `<g fill="#26352d" font-family="sans-serif" font-size="12">
+      <rect x="7" y="121" width="242" height="33" fill="#ffffff" fill-opacity="0.96"/>
+      <a href="https://www.openstreetmap.org/copyright"><text x="12" y="134">&#169; OpenStreetMap contributors</text></a>
+      <text x="12" y="148">Powered by <a href="https://www.geoapify.com/">Geoapify</a> | <a href="https://openmaptiles.org/">&#169; OpenMapTiles</a></text>
+    </g>` : ""}
   `;
 
   return {
@@ -690,12 +744,75 @@ export default class WorkoutThumbnailService {
     return null;
   }
 
-  static async upsertThumbnail(workoutId, payload) {
+  static async createThumbnailPayloadAsync(options = {}, { renderRoute = renderGeoapifyRouteThumbnail } = {}) {
+    const fallback = WorkoutThumbnailService.createThumbnailPayload(options);
+    if (fallback?.kind !== "route") {
+      return fallback;
+    }
+    try {
+      return await renderRoute(options, fallback) || fallback;
+    } catch {
+      console.warn("[thumbnail] map.render.failed", { reason: "render-error" });
+      return fallback;
+    }
+  }
+
+  static async getOrCreateThumbnail(workoutId, createPayload, { replaceExisting = false } = {}) {
+    const id = Number(workoutId);
+    if (!Number.isSafeInteger(id) || id <= 0) return null;
+    if (!replaceExisting && thumbnailGenerationInflight.has(id)) {
+      return thumbnailGenerationInflight.get(id);
+    }
+    const generation = thumbnailGenerationLimit(async () => {
+      const connection = await pool.connect();
+      const query = connection.query.bind(connection);
+      try {
+        await query("BEGIN");
+        await query("SET LOCAL lock_timeout = '30s'");
+        await query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`woa:thumbnail:${id}`]);
+        const existing = await WorkoutThumbnailService.getThumbnail(id, query);
+        if (!replaceExisting && existing?.content && WorkoutThumbnailService.isCurrentRouteThumbnail(existing)) {
+          await query("COMMIT");
+          return existing;
+        }
+        const payload = await createPayload();
+        if (!payload?.content) {
+          await query("COMMIT");
+          return null;
+        }
+        const startedAt = performance.now();
+        const persisted = await WorkoutThumbnailService.upsertThumbnail(id, payload, query);
+        await query("COMMIT");
+        console.info("[thumbnail] persist.profile", {
+          workoutId: id,
+          kind: payload.kind,
+          persistThumbnailMs: performance.now() - startedAt,
+          persisted: true,
+          fallbackReason: payload.renderStats?.mapFallbackReason || null,
+          retryAt: payload.renderStats?.mapRetryAt || null
+        });
+        return { ...payload, ...persisted, workoutId: id };
+      } catch (error) {
+        await query("ROLLBACK").catch(() => {});
+        throw error;
+      } finally {
+        connection.release();
+      }
+    });
+    if (!replaceExisting) thumbnailGenerationInflight.set(id, generation);
+    try {
+      return await generation;
+    } finally {
+      if (thumbnailGenerationInflight.get(id) === generation) thumbnailGenerationInflight.delete(id);
+    }
+  }
+
+  static async upsertThumbnail(workoutId, payload, query = pool.query.bind(pool)) {
     if (!Number.isInteger(Number(workoutId)) || !payload?.content) {
       return null;
     }
 
-    const result = await pool.query(
+    const result = await query(
       `
       INSERT INTO workout_thumbnails (
         workout_id,
@@ -729,8 +846,8 @@ export default class WorkoutThumbnailService {
     return result.rows[0] || null;
   }
 
-  static async getThumbnail(workoutId) {
-    const result = await pool.query(
+  static async getThumbnail(workoutId, query = pool.query.bind(pool)) {
+    const result = await query(
       `
       SELECT
         workout_id AS "workoutId",
@@ -749,14 +866,30 @@ export default class WorkoutThumbnailService {
     return result.rows[0] || null;
   }
 
-  static isCurrentRouteThumbnail(thumbnail) {
+  static hasMapBackground(thumbnail) {
+    return thumbnail?.kind === "route"
+      && String(thumbnail.content || "").includes('data-map-provider="geoapify"');
+  }
+
+  static getThumbnailCacheControl(thumbnail) {
+    return thumbnail?.kind === "route" && !WorkoutThumbnailService.hasMapBackground(thumbnail)
+      ? "private, max-age=60"
+      : "private, max-age=31536000, immutable";
+  }
+
+  static isCurrentRouteThumbnail(thumbnail, now = Date.now()) {
     if (thumbnail?.kind !== "route") {
       return true;
     }
 
-    return String(thumbnail.content || "").includes(
+    if (!String(thumbnail.content || "").includes(
       `data-thumbnail-style="${WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION}"`
-    );
+    )) return false;
+    if (WorkoutThumbnailService.hasMapBackground(thumbnail)) return true;
+    const retryAt = Number(String(thumbnail.content || "").match(/\bdata-map-retry-at="(\d+)"/)?.[1]);
+    if (Number.isSafeInteger(retryAt) && retryAt > 0) return now < retryAt;
+    const updatedAt = new Date(thumbnail.updatedAt ?? thumbnail.updated_at ?? NaN).getTime();
+    return Number.isFinite(updatedAt) && now < updatedAt + FALLBACK_RETRY_MS;
   }
 
   static parseGeoJsonTrack(trackGeoJson = null) {
@@ -779,23 +912,14 @@ export default class WorkoutThumbnailService {
       return null;
     }
 
-    const pendingPersistence = thumbnailPersistenceInflight.get(normalizedWorkoutId);
-    if (pendingPersistence?.thumbnail?.content) {
-      return pendingPersistence.thumbnail;
-    }
-
     if (!skipExistingCheck) {
       const existing = await WorkoutThumbnailService.getThumbnail(normalizedWorkoutId);
-      if (existing?.content) {
+      if (existing?.content && WorkoutThumbnailService.isCurrentRouteThumbnail(existing)) {
         return existing;
       }
     }
 
-    if (thumbnailGenerationInflight.has(normalizedWorkoutId)) {
-      return thumbnailGenerationInflight.get(normalizedWorkoutId);
-    }
-
-    const generationPromise = (async () => {
+    return WorkoutThumbnailService.getOrCreateThumbnail(normalizedWorkoutId, async () => {
       const profile = {
         loadWorkoutMs: 0,
         loadWorkoutSegmentsMs: 0,
@@ -807,7 +931,7 @@ export default class WorkoutThumbnailService {
         decodeWorkoutStreamMs: 0,
         renderSvgMs: 0,
         persistThumbnailMs: 0,
-        persistThumbnailMode: "write-behind",
+        persistThumbnailMode: "transaction",
         workoutSegmentCount: 0,
         gpsCandidateCount: 0,
         gpsMatchCount: 0,
@@ -914,7 +1038,8 @@ export default class WorkoutThumbnailService {
       }
 
       stepStartedAt = performance.now();
-      const payload = WorkoutThumbnailService.createThumbnailPayload({
+      const payload = await WorkoutThumbnailService.createThumbnailPayloadAsync({
+        workoutId: normalizedWorkoutId,
         workoutType: row.workout_type,
         gpsTrackSegments,
         segmentOverlays,
@@ -930,54 +1055,10 @@ export default class WorkoutThumbnailService {
       }
 
       profile.totalMs = performance.now() - totalStartedAt;
-      const thumbnail = {
-        workoutId: normalizedWorkoutId,
-        kind: payload.kind,
-        mimeType: payload.mimeType,
-        width: payload.width,
-        height: payload.height,
-        content: payload.content,
+      return {
+        ...payload,
         generationProfile: profile
       };
-      const persistStartedAt = performance.now();
-      const persistencePromise = WorkoutThumbnailService.upsertThumbnail(normalizedWorkoutId, payload)
-        .then((persisted) => {
-          console.info("[thumbnail] persist.profile", {
-            workoutId: normalizedWorkoutId,
-            kind: payload.kind,
-            persistThumbnailMs: performance.now() - persistStartedAt,
-            persisted: !!persisted
-          });
-          return persisted;
-        })
-        .catch((error) => {
-          console.error("[thumbnail] persist.failed", {
-            workoutId: normalizedWorkoutId,
-            kind: payload.kind,
-            persistThumbnailMs: performance.now() - persistStartedAt,
-            error: error?.message || String(error)
-          });
-          return null;
-        });
-      const pending = {
-        thumbnail,
-        promise: persistencePromise
-      };
-      thumbnailPersistenceInflight.set(normalizedWorkoutId, pending);
-      void persistencePromise.finally(() => {
-        if (thumbnailPersistenceInflight.get(normalizedWorkoutId) === pending) {
-          thumbnailPersistenceInflight.delete(normalizedWorkoutId);
-        }
-      });
-      return thumbnail;
-    })();
-
-    thumbnailGenerationInflight.set(normalizedWorkoutId, generationPromise);
-
-    try {
-      return await generationPromise;
-    } finally {
-      thumbnailGenerationInflight.delete(normalizedWorkoutId);
-    }
+    });
   }
 }

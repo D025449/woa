@@ -3,6 +3,86 @@
 Stand: 2026-11-04. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Production Environment Shortcut (2026-11-04)
+
+- User approved `npm run env:prod` to open `~/woa/.env.production` directly in
+	Nano through `ssh -t cwa24-ec2`. No wrapper, dependency or automatic restart.
+- Usage, prerequisites, saving/discarding edits and separate service restarts
+	are documented in `docs/npm-scripts.md` (Edit the Production Environment).
+	The existing README link to the script overview remains valid.
+- Verified package JSON, shell syntax, npm command dispatch with an echo-only
+	script shell, and patch whitespace. No real SSH session, production environment
+	access, restart or migration performed; interactive remote editing is untested.
+
+## Persisted Geoapify Thumbnails (2026-11-04)
+
+- User approved Geoapify integration with the original SVG fallback and explicitly
+	required durable reuse. Dev key is configured; production needs its own server
+	environment configuration. No key values were printed or committed.
+- Implemented self-contained SVGs with 320x200/Q55 WebP backgrounds, Mercator-aligned
+	routes, gaps, segment colors and visible attribution. Indoor/non-GPS paths stay
+	unchanged. Existing thumbnail storage is reused; no migration is needed.
+- All creation paths share per-workout PostgreSQL locking, cache recheck and commit
+	before return. Successful style-3 maps remain permanently reusable. Corrected
+	frozen fallbacks: retry after five minutes or an embedded later deadline;
+	legacy fallbacks use their database timestamp. Browser fallback TTL is 60 seconds,
+	with separate `cache=1` URL invalidation; successful maps retain immutable caching.
+	Older visual styles regenerate lazily; no bulk job or periodic polling.
+- User approved better use of the Free quota: reserve three credits per fixed
+	320x200 map attempt, allowing at most 1,000 attempts/day/key and one start every
+	600 ms. Explicit lower `GEOAPIFY_DAILY_MAP_LIMIT` values remain effective.
+	Six generation jobs may overlap per process, leaving four default pool
+	connections for other operations. Existing Redis usage counters are preserved.
+	Verified all 763 tests, syntax, service lint and patch whitespace. An isolated
+	real-Redis check confirmed 600-ms slots, queue rejection, the 1,000-attempt cap
+	and pause enforcement; test keys were removed and no provider request was made.
+- Redis guards the shared daily and credit-weighted rate limits, with
+	bounded queueing, timeouts, image validation and provider cooldowns. A common
+	budget requires the same Redis backend. See `docs/workout-map.md` for limits,
+	fallback replacement policy and configuration.
+- After a reported timeout on workout 85051, increased network/body timeout to
+  15 seconds and the per-workout lock wait to 30 seconds. A single failure now
+  defers only that thumbnail; three consecutive failures in a process open the
+  shared five-minute pause. Success resets the count; HTTP 429 pauses immediately.
+  Existing pauses/deadlines expire normally. No extra live provider call was made.
+- Provider failures now emit safe server-console warnings with workout ID, reason,
+	HTTP status, consecutive-failure count, global-pause flag and retry time. Fallback SVGs persist reason/deadline without keys,
+	URLs or raw exceptions. Closed Redis connections may recover on later retries.
+- Verified the correction on Dev workout 85045: expired fallback replaced with a
+	16,793-byte map SVG using one request; repeated generation used zero requests.
+	Restart running app/workers and reload the library to activate the new policy.
+- Three real Dev thumbnails (85063/85057/83899) persisted at 18,440/17,698/14,358
+	bytes. Three successful provider requests; repeated reads and a concurrent second
+	process made zero additional calls. Preview: `http://127.0.0.1:3109/` while the
+	ignored `tmp/geoapify-thumbnail-check.mjs` server runs. Desktop/mobile screenshots,
+	image decoding, colored pixels and attribution bounds checked in this fixture.
+- All 761 tests passed; thumbnail-service lint passed, earlier route lint has two existing warnings. Types
+	retain only the three known `lastEnd` null errors. npm reported eleven audit
+	findings; no unrelated fixes. No deployment, migration or production write ran;
+	authenticated library workflow and Linux ARM64 Sharp installation remain untested.
+
+## GPS Thumbnail Visual Prototype (2026-11-04)
+
+- User requested a rendered comparison, not production integration. Created a
+	disposable local preview at `tmp/workout-map-thumbnail-preview.mjs` (ignored
+	temporary artifact), served at `http://127.0.0.1:3108/`. Dev access is read-only;
+	no existing thumbnails, application code or migrations were changed.
+- Three real routes: workouts 85063 (28.3 km), 85057 (48 km), 83899 (95.2 km).
+	Follow-up optimization uses actual UI dimensions measured with original CSS in
+	a browser fixture: desktop 152x95 CSS px; mobile 127.98x79.98 at a 360px card
+	width, with existing 1.08 image zoom. Preview now renders at these sizes.
+- Same Web-Mercator crop, simplified vector route (0.45 logical-pixel RDP,
+	one-decimal coordinates, defs/use instead of duplicated paths) and three WebP
+	background variants. Recommended 320x200/Q55: 9,621 / 9,346 / 10,779 bytes;
+	compact 160x100/Q50: 4,897 / 5,382 / 5,643 bytes. First map draft was
+	42,803 / 50,575 / 65,548 bytes. Route-only SVGs remain 2,340 / 3,877 / 3,787.
+- Small user-requested browser tile view only; OSM attribution retained and normal
+	HTTP caching used. Bulk/static production use still requires provider review.
+	Checked desktop 1280x1000 and mobile 390x1100, DPR 1/2, screenshots, decoding
+	of all 12 images, nonblank/map-route pixels and no horizontal/caption overflow.
+	Cached rebuild timings are not cold production generation timing. No production
+	rendering/persistence changes. Details: `docs/workout-map.md`.
+
 ## Local Constraint Measurements (2026-11-04)
 
 - User authorized measuring the prepared A/B tables. Local PostgreSQL 16.14,

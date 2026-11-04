@@ -28,6 +28,218 @@ flyover modals are unchanged.
 - Terrain only affects visualization. Stored GPS positions, recorded altitude,
   ascent/descent and workout analysis are not changed.
 
+## Persisted Geoapify Route Thumbnails
+
+GPS thumbnails now support a server-generated Geoapify background. This is separate
+from both the interactive maps and the existing MapTiler flyover. Set
+`GEOAPIFY_API_KEY` in the relevant server environment, then restart the app and
+workers. Development configuration does not configure production. Never commit
+keys or put them in browser configuration, logs, or generated SVGs.
+
+The provider receives a viewport center and zoom, not the workout file or full
+GPS route. `GeoapifyThumbnailClient` requests one 320x200 PNG, validates its MIME
+type, dimensions and decoded format, then uses Sharp to produce a muted WebP at
+quality 55. The 256x160 SVG embeds that image as a data URL. Routes, GPS gaps,
+colored segment overlays and endpoint markers stay vector-based, using matching
+Web-Mercator projection and sub-pixel simplification. A reserved attribution area
+includes OpenStreetMap contributors, Geoapify and OpenMapTiles, inset to survive
+the existing clipped 1.08 image zoom. No external image URL is needed to display
+the saved SVG. Indoor and non-GPS profile thumbnails retain their previous path.
+
+### Durable Cache And Concurrency
+
+- The entire SVG, including the raster background, is stored in the existing
+  `workout_thumbnails.content` column. No schema migration is required.
+- Import jobs, on-demand generation and manual/copied GPS updates use the same
+  `getOrCreateThumbnail` persistence boundary. It takes a PostgreSQL
+  transaction-scoped advisory lock per workout and rechecks the saved thumbnail
+  after acquiring it. Concurrent processes reuse the winning result.
+- The upsert is committed before the result is returned. In-flight promises also
+  coalesce same-process requests; at most six generation jobs per process hold
+  database connections. The per-workout lock wait is 30 seconds to accommodate
+  a 15-second provider request plus bounded queueing and encoding. This replaces
+  the former write-behind persistence.
+- Route style version 3 invalidates older route thumbnails lazily when requested.
+  There is no bulk regeneration job. Matching saved map images are reused without
+  new provider calls, including after process restarts. Visual style version 3 is
+  unchanged by the retry correction, so successful maps are not regenerated.
+- Missing credentials, unavailable Redis, exhausted budgets, excessive queueing,
+  invalid geographic bounds, timeout, provider errors or invalid images use the
+  original route-only SVG. That fallback is also saved, but normally retried on
+  its next request after five minutes, not on every view. New fallbacks embed a
+  safe `data-map-fallback` code and `data-map-retry-at` UTC epoch-millisecond
+  deadline. Daily-budget exhaustion and HTTP 429 defer until the next UTC day.
+  Older fallback SVGs without these attributes expire five minutes after their
+  database `updatedAt` timestamp. Provider cooldowns and budgets still guard retries.
+- Successful maps and profile thumbnails retain one-year immutable browser
+  caching. Route fallbacks use `private, max-age=60`. The separate URL parameter
+  `cache=1` bypasses previously immutable fallback responses without changing the
+  visual style version. Restart running app/worker processes and reload the page
+  after updating the code. No periodic browser polling or background job is added.
+- Manual GPS changes intentionally replace the old thumbnail because it depicts
+  a different route. Existing authenticated access checks remain in place. GPS
+  files, workout streams and recorded elevations are not modified.
+
+### Free-Tier Budget And Failure Limits
+
+Geoapify currently advertises 3,000 free credits per day; static maps consume a
+request credit plus tile credits. Credits are not equivalent to images. See the
+[pricing](https://www.geoapify.com/pricing/) and
+[static-map storage and attribution rules](https://www.geoapify.com/static-maps-api/).
+The implementation does not upgrade a plan or configure payment.
+
+The Free plan advertises up to five requests per second, but its FAQ defines
+rate limits in credit-equivalent requests rather than treating every API call
+as equally expensive. For this fixed 320x200, unpitched, marker-free request,
+we conservatively reserve three credits per attempt. The provider calculator's
+tile formula is explicitly only an estimate; this is a local reservation, not
+an exact provider charge. See [credit calculation](https://www.geoapify.com/pricing-details/).
+
+`GEOAPIFY_DAILY_MAP_LIMIT` defaults to 1,000 images per UTC day and is capped at
+1,000 (3,000 reserved credits); set it to `0` to disable new provider requests.
+An explicitly configured lower image cap remains in effect. Redis atomically
+reserves each attempt, including failed attempts, and schedules starts at least
+600 ms apart (five reserved credits per second), with a bounded three-second
+wait. Six parallel generation jobs per process allow slow responses to overlap
+while leaving four connections in the default ten-connection database pool for
+other operations. The existing daily counter and rate/pause keys are preserved
+across the change, without resetting usage. Counters and provider cooldowns are
+shared by the SHA-256 hash of the API key, without storing the key in Redis.
+All processes sharing a key must use the same Redis backend for a common budget.
+Separate Redis instances, Redis data loss and unrelated use of the same provider
+account are outside this guard; monitor the provider dashboard. This conservative
+image budget is not a provider-enforced credit or billing guarantee.
+
+The image response is limited to 512 KiB, network/body reading to 15 seconds,
+and WebP processing to two seconds. The network timer is cleared after the body
+has been read. Redirects are rejected. One timeout or other failed attempt only
+defers the affected thumbnail for five minutes; other workouts may still fetch
+maps. Three consecutive failures in one client process open a shared five-minute
+pause via Redis. A successfully encoded map resets that process's failure count.
+HTTP 429 opens the shared pause immediately until the next UTC day. Logs include
+`consecutiveFailures` and `globalPause` to distinguish individual failures from
+shared pauses. Existing persisted cooldowns and fallback deadlines expire normally;
+this change does not clear or bypass them. Redis failures fail closed rather than
+making unmetered provider requests. Sharp uses
+native image-processing packages; its macOS installation was verified here, but
+the production Linux ARM64 installation has not been exercised in this change.
+
+Actual provider/network/image-processing failures emit `console.warn` under
+`[thumbnail] map.failed`, including workout ID, a safe reason such as `http-503`,
+`timeout`, `invalid-image` or `budget-unavailable`, HTTP status when available,
+and the next attempt time. The cooldown suppresses repeat warnings for skipped
+attempts. Unexpected renderer exceptions emit `[thumbnail] map.render.failed`.
+Persistence logs also include the fallback reason and retry deadline. API keys,
+request URLs, response bodies and raw exception text are never logged. A closed
+Redis connection can be recreated on a later controlled retry.
+
+### Verification
+
+The Free-quota update passed all 763 tests, syntax checks, service lint and patch
+whitespace validation. Regression tests cover the 1,000-attempt default/cap,
+lower configured limits and six overlapping generation jobs with the seventh
+queued. An isolated real-Redis check verified 600-ms slot spacing, bounded queue
+rejection, acceptance of attempt 1,000 followed by rejection, and shared pause
+enforcement. Only random test-key counters were changed and removed afterward;
+no provider requests or thumbnail writes were needed for this verification.
+
+On 2026-11-04, three real Dev workouts were generated and persisted: 85063,
+85057 and 83899, with complete SVG sizes of 18,440 / 17,698 / 14,358 bytes. Exactly
+three Geoapify requests returned PNGs successfully. Repeated generation/cache
+checks caused zero further requests; a concurrently started separate Node
+process reused workout 85063 with zero provider requests. These three Dev
+thumbnail rows were intentionally updated; no migration or production write ran.
+
+The ignored `tmp/geoapify-thumbnail-check.mjs` verifies the saved content and serves
+the generated images at `http://127.0.0.1:3109/` while running. Browser screenshots,
+successful image decoding, nonblank/color pixel checks and attribution bounds
+were checked with desktop and 390px mobile layouts at the representative
+152x95 and 128x80 thumbnail sizes. This was an isolated browser preview, not an
+authenticated end-to-end workout-library or production-worker test.
+
+The retry correction was also verified against workout 85045: its expired style-3
+fallback was replaced by a persisted 16,793-byte map SVG using one provider request;
+the next generation call reused it with zero additional requests. No provider
+budget or pause was bypassed, and no production write or migration was performed.
+
+All 761 tests passed after the timeout/circuit correction, including isolation of
+a single timeout, successful failure-count reset, the three-error threshold,
+immediate HTTP 429 pausing, safe logging and durable map reuse. No additional
+live provider request was needed for these behavior-scoped checks.
+Lint of the two thumbnail services passed; earlier targeted lint reports two existing
+unused-import warnings in the workout routes. The typecheck still reports the
+three pre-existing nullable `lastEnd` errors in `MicroIntervalDetector.js:141`.
+The dependency installation also reported eleven audit findings (eight moderate,
+three high); no unrelated dependency upgrades or automatic audit fixes were run.
+
+## GPS Thumbnail Visual Prototype
+
+On 2026-11-04 the user requested a small rendered comparison before deciding on
+production integration. The disposable, ignored local artifact
+`tmp/workout-map-thumbnail-preview.mjs` runs with
+`node tmp/workout-map-thumbnail-preview.mjs` at `http://127.0.0.1:3108/` while this
+session's server is running; it is not a tracked production tool or npm script.
+It guards local `cwa24_dev`, queries under `BEGIN READ ONLY`, decodes GPS with the
+existing service and rerenders the current route-only SVG style without segment
+overlays. Existing persisted thumbnails and application behavior are untouched.
+
+Examples are workouts 85063, 85057 and 83899 (28.3, 48 and 95.2 km). The proposed
+variant fits actual Web-Mercator bounds and embeds a muted 512x320 WebP map at
+quality 0.78 inside a 256x160 SVG, keeping route/markers as vector overlays. It
+does not create Leaflet/MapLibre instances. One user-requested browser view uses
+6, 6 and 9 OSM tiles respectively, normal HTTP caching and visible attribution;
+it is not a bulk generation path. Provider approval/terms, cache design, segment
+overlays and production persistence remain separate implementation decisions.
+
+Self-contained SVG sizes are 42,803 / 50,575 / 65,548 bytes, versus current-style
+2,340 / 3,877 / 3,787 bytes. Initial PNG embedding was 355-446 KiB and was replaced
+with WebP. Browser rebuild times of 34 / 22 / 26 ms use already cached tiles and
+are neither cold-load nor server-generation benchmarks. Screenshots at desktop
+1280x1300 and mobile 390x1100, successful decoding of all six images, nonblank
+canvas pixels/visible route pixels, and absence of horizontal overflow were
+verified. No complete library rollout, database write or migration was performed.
+
+### Native-Size Optimization
+
+The user subsequently requested optimization for the actual workout UI. A browser
+fixture using the unmodified dashboard CSS measured 152x95 CSS pixels on desktop
+(`9.5rem` at a 16px root). At a 390px viewport with a 360px card, the responsive
+grid measured 127.98x79.98. Mobile width depends on available card width, not a
+universal fixed 128px value. Existing images use `transform: scale(1.08)` and a
+clipped shell; the preview now reproduces the zoom and representative dimensions.
+This was a CSS fixture measurement, not an authenticated live library session.
+
+The comparison now includes the route-only SVG and three map variants. They share
+the same geographic crop and vector route. The route uses the existing thumbnail
+service's iterative RDP strategy, adapted to Web-Mercator screen coordinates with
+0.45 logical-pixel tolerance, one-decimal coordinates and one defs/use path for
+the outline and colored stroke. GPS gaps and endpoint markers are retained.
+Input/output point counts are 650/55, 1,329/141 and 2,146/129 respectively. This
+also reduces the reference variant; changes are still confined to the prototype.
+
+Complete self-contained SVG sizes (UTF-8 bytes, not compressed HTTP transfer):
+
+| Workout | Route only | 512x320/Q78 reference | 320x200/Q55 | 160x100/Q50 |
+| --- | ---: | ---: | ---: | ---: |
+| 85063 | 2,340 | 25,465 | 9,621 | 4,897 |
+| 85057 | 3,877 | 23,198 | 9,346 | 5,382 |
+| 83899 | 3,787 | 27,975 | 10,779 | 5,643 |
+
+The 320x200/Q55 version is the recommended visual compromise for the approximately
+152x95 display and high-density screens: about 77-84% smaller than the original
+42,803-65,548-byte map draft. The 160x100/Q50 version saves more (about 89-91%),
+but its background labels are visibly softer on high-density screens. Both keep
+the route vector-based and sharp. These three samples are not a general size cap.
+The original UI zoom can crop edge content: retain visible provider attribution
+outside the clipped image or within a safe inset in any production integration.
+
+Verified desktop 1280x1000 and mobile 390x1100, DPR 1/2, screenshots and decoding
+of all twelve images. At 152x95, route-colored pixel counts match across the three
+background variants for each workout (157, 331 and 351); backgrounds are nonblank.
+No horizontal or caption overflow was found. Syntax validation passed. No
+application CSS, production thumbnail service, existing thumbnail rows or
+migrations were changed. The local preview remains at port 3108.
+
 ## Interaction and Failure Handling
 
 `MapView` owns the shared workout, GPS sample indexing, segment visibility,
