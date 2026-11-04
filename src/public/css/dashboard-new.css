@@ -3896,6 +3896,7 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
 .microinterval-details table { margin-top: 8px; }
 
 .microinterval-edit { grid-column: 1 / -1; border: 0; background: transparent; color: #2587df; text-align: left; padding: 6px 14px; font-size: 12px; }
+.microinterval-editor, .microinterval-editor * { box-sizing: border-box; }
 .microinterval-editor { width: 470px; max-width: calc(100vw - 32px); max-height: 85vh; margin: auto 24px auto auto; padding: 24px; border: 1px solid #cbd5e1; border-radius: 14px; box-shadow: 0 16px 60px #0f172a33; }
 .microinterval-editor::backdrop { background: #0f172a22; }
 .microinterval-editor h2 { font-size: 20px; margin: 0 0 16px; }
@@ -3913,3 +3914,7 @@ body.has-fixed-app-topbar .dashboard-hero .workout-library-scope-toggle .btn.act
 .microinterval-editor__actions { display: flex; justify-content: flex-end; gap: 8px; }
 .microinterval-editor [data-save] { background: #2587df; color: white; }
 .microinterval-editor [hidden] { display: none !important; }
+@media (max-width: 575.98px) {
+  .microinterval-editor__row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .microinterval-editor fieldset .microinterval-editor__row > label:first-child { grid-column: 1 / -1; }
+}

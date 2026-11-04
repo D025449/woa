@@ -1,4 +1,6 @@
 import { detectMicroIntervalBlocks } from './MicroIntervalDetector.js';
+import { detectIntervalBlocks } from './IntervalBlockDetector.js';
+import { isIntervalBlock } from './WorkoutSegmentStructure.js';
 const UINT8_NAN = 0xff;
 const UINT16_NAN = 0xffff;
 const UINT32_NAN = 0xffffffff;
@@ -141,7 +143,9 @@ export function detectWorkoutLocalSegmentsCompact(compact) {
   };
   const micro = detectMicroIntervalBlocks({ recordCount,
     powerAtIndex: (index) => Number(compact.powersW[index]), metrics });
-  return [...bestEfforts.map((segment) => ({ ...segment, type: 2 })), ...micro.map((block) => ({
+  const intervals = detectIntervalBlocks({ recordCount,
+    powerAtIndex: (index) => Number(compact.powersW[index]), metrics, excludedBlocks: micro });
+  return [...bestEfforts.map((segment) => ({ ...segment, type: 2 })), ...[...micro, ...intervals].map((block) => ({
     ...block, type: 1, start: block.start_offset, end: block.end_offset,
     avgPower: Math.round(block.avg_power), avgHeartRate: Math.round(block.avg_heart_rate),
     avgCadence: Math.round(block.avg_cadence), avgSpeed: block.avg_speed
@@ -348,7 +352,7 @@ export function encodeWorkoutLocalPostprocessTransport(workouts = []) {
   const structures = [];
   let flatIndex = 0;
   for (const workout of normalized) for (const segment of workout.segments || []) {
-    if (segment.structure_kind === 'microintervals') structures.push({ index: flatIndex,
+    if (isIntervalBlock(segment)) structures.push({ index: flatIndex, structure_kind: segment.structure_kind,
       pattern_work_duration_seconds: segment.pattern_work_duration_seconds,
       pattern_recovery_duration_seconds: segment.pattern_recovery_duration_seconds, phases: segment.phases });
     flatIndex++;
@@ -472,7 +476,8 @@ export function decodeWorkoutLocalPostprocessTransport(input) {
     for (const structure of structures) {
       if (!Number.isInteger(structure.index) || structure.index < 0 || structure.index >= segments.length || seen.has(structure.index)) throw new Error("Invalid WPP1 structure index");
       seen.add(structure.index);
-      Object.assign(segments[structure.index], { structure_kind: 'microintervals',
+      if (structure.structure_kind != null && !isIntervalBlock(structure)) throw new Error('Invalid WPP1 block kind');
+      Object.assign(segments[structure.index], { structure_kind: structure.structure_kind ?? 'microintervals',
         pattern_work_duration_seconds: structure.pattern_work_duration_seconds,
         pattern_recovery_duration_seconds: structure.pattern_recovery_duration_seconds, phases: structure.phases });
     }

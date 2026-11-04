@@ -1,3 +1,4 @@
+import { isIntervalBlock } from '../../shared/WorkoutSegmentStructure.js';
 
 import Utils from '../../shared/Utils.js'
 import { getSegmentColor } from "./segment-visibility.js";
@@ -108,7 +109,7 @@ export function buildMarkAreasSegment(segment) {
 }
 
 export function buildMicroIntervalPhaseAreas(segment) {
-  if (segment?.structure_kind !== 'microintervals') return [];
+  if (!isIntervalBlock(segment)) return [];
   return (segment.phases || []).map((phase) => [{
     xAxis: phase.start_offset, segmentId: segment.id,
     itemStyle: { color: getSegmentColor(segment), opacity: phase.phase_kind === 'work' ? 0.28 : 0.04 },

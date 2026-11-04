@@ -1,3 +1,4 @@
+import { isIntervalBlock } from '../shared/WorkoutSegmentStructure.js';
 import pool from "./database.js";
 import pgPromise from "pg-promise";
 import WorkoutSharingService from "./workoutSharingService.js";
@@ -1578,7 +1579,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
   static async insertSegmentsForWorkoutsBulk(uid, workoutSegments, queryable = pool) {
     const micro = await insertWorkoutMicrointervalBlocks(queryable, uid, workoutSegments);
     workoutSegments = workoutSegments.map((item) => ({ ...item,
-      segments: item.segments.filter((segment) => segment.structure_kind !== 'microintervals') }));
+      segments: item.segments.filter((segment) => !isIntervalBlock(segment)) }));
     const { values, segmentCount } = FileDBService.buildSegmentsForWorkoutsBulkArrays(
       uid,
       workoutSegments
@@ -1892,7 +1893,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       const existing = await pool.query(`
         SELECT id FROM workout_segments
         WHERE id = $1 AND wid = $2 AND uid = $3
-          AND segmenttype = 'manual' AND structure_kind = 'microintervals'
+          AND segmenttype = 'manual' AND structure_kind IN ('microintervals', 'intervals')
       `, [segmentId, workoutId, uid]);
       if (existing.rows.length) {
         const rows = await FileDBService.saveSegmentsBulk(uid, workoutId, [

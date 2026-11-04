@@ -1,3 +1,4 @@
+import { isIntervalBlock } from '../../shared/WorkoutSegmentStructure.js';
 import { buildMarkAreas, buildMarkAreasCP, buildMicroIntervalPhaseAreas } from "./chart-helpers.js";
 import SegmentService from "../../shared/SegmentService.js";
 import Utils from "../../shared/Utils.js";
@@ -49,7 +50,7 @@ function isPersistedManualSegment(segment) {
   const segmentId = Number(segment?.id);
   return !segment?.isGPSSegment
     && String(segment?.segmenttype || "").toLowerCase() === "manual"
-    && segment?.structure_kind !== 'microintervals'
+    && !isIntervalBlock(segment)
     && segment?.rowstate !== "DEL"
     && Number.isInteger(segmentId)
     && segmentId > 0;
@@ -1775,7 +1776,7 @@ export default class ChartView {
       this.hoveredSegment ? "hover" : "focus"
     );
     const data = [
-      ...(this.previewMicroIntervalBlock || highlightedSegment?.structure_kind === 'microintervals'
+      ...(this.previewMicroIntervalBlock || isIntervalBlock(highlightedSegment)
         ? this.baseMarkAreas.filter((area) => String(area[0].segmentId) === String(highlightedSegment?.id))
         : this.baseMarkAreas),
       ...(highlightedMarkArea ? [highlightedMarkArea] : []),
@@ -2721,6 +2722,7 @@ export default class ChartView {
   getSegmentToggleDefinitions() {
     return [
       { key: 'microintervals', label: this.t('segmentTypeMicrointervals'), color: SEGMENT_COLORS.microintervals.solid },
+      { key: 'intervals', label: this.t('segmentTypeIntervals'), color: SEGMENT_COLORS.intervals.solid },
       { key: "criticalPower", label: this.t("segmentTypeCriticalPower"), color: SEGMENT_COLORS.criticalPower.solid },
       { key: "auto", label: this.t("segmentTypeAuto"), color: SEGMENT_COLORS.auto.solid },
       { key: "manual", label: this.t("segmentTypeManual"), color: SEGMENT_COLORS.manual.solid },

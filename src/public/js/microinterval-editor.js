@@ -1,4 +1,6 @@
 import { buildMicroIntervalBlock, microIntervalPatternLabel, summarizeMicroIntervalBlock, workoutPhaseMetrics } from '../../shared/MicroIntervalDetector.js';
+import { intervalBlockPatternLabel } from '../../shared/IntervalBlockDetector.js';
+import { isIntervalBlock } from '../../shared/WorkoutSegmentStructure.js';
 import { saveMicroIntervalChanges } from './microinterval-client.js';
 import { createTranslator } from './i18n.js';
 
@@ -30,7 +32,7 @@ export class MicroIntervalEditor {
     // become HTML. Only the fixed editor skeleton uses innerHTML.
     dialog.innerHTML = `<form>
       <h2 data-label="microintervalEditorTitle"></h2>
-      <label><span data-label="microintervalStructure"></span><select name="kind"><option value="simple" data-label="microintervalSimple"></option><option value="microintervals" data-label="microintervalTitle"></option></select></label>
+      <label><span data-label="microintervalStructure"></span><select name="kind"><option value="simple" data-label="microintervalSimple"></option><option value="microintervals" data-label="microintervalTitle"></option><option value="intervals" data-label="intervalBlockTitle"></option></select></label>
       <label><span data-label="microintervalName"></span><input name="name" maxlength="100"></label>
       <div class="microinterval-editor__row"><label><span data-label="microintervalStart"></span><input name="start" required></label><label data-simple><span data-label="microintervalEnd"></span><input name="end"></label></div>
       <fieldset data-pattern><div class="microinterval-editor__row">
@@ -50,7 +52,7 @@ export class MicroIntervalEditor {
     form.elements.namedItem('name').value = existing?.segmentname ?? '';
     form.elements.namedItem('start').value = formatTime(existing?.start_offset ?? range.startIndex);
     form.elements.namedItem('end').value = formatTime(existing?.end_offset ?? range.endIndex);
-    if (existing?.structure_kind === 'microintervals') this.loadBlock(existing);
+    if (isIntervalBlock(existing)) this.loadBlock(existing);
     form.addEventListener('input', (event) => {
       if (['count', 'work', 'recovery', 'trailing', 'kind'].includes(event.target.name)) this.customDurations = null;
       if (event.target.dataset.phaseIndex !== undefined) {
@@ -63,17 +65,18 @@ export class MicroIntervalEditor {
     dialog.querySelector('[data-detect]').onclick = async (event) => {
       event.target.disabled = true;
       try {
-        const { blocks } = await this.worker.scan(workout.workoutObject, { start: range.startIndex, end: range.endIndex + 1 });
+        const kind = form.elements.namedItem('kind').value === 'intervals' ? 'intervals' : 'microintervals';
+        const { blocks } = await this.worker.scan(workout.workoutObject, { start: range.startIndex, end: range.endIndex + 1, kind });
         if (!dialog.open) return;
-        if (!blocks.length) throw new Error(this.t('microintervalNone'));
+        if (!blocks.length) throw new Error(this.t(kind === 'intervals' ? 'intervalBlockNone' : 'microintervalNone'));
         const select = dialog.querySelector('[data-candidates]');
         select.replaceChildren(...blocks.map((block, index) => {
           const option = document.createElement('option'); option.value = index;
-          option.textContent = `${formatTime(block.start_offset)} · ${microIntervalPatternLabel(block)}`; return option;
+          option.textContent = `${formatTime(block.start_offset)} · ${kind === 'intervals' ? intervalBlockPatternLabel(block) : microIntervalPatternLabel(block)}`; return option;
         }));
         select.hidden = blocks.length < 2;
         select.onchange = () => { this.loadBlock(blocks[Number(select.value)]); this.updatePreview(); };
-        form.elements.namedItem('kind').value = 'microintervals';
+        form.elements.namedItem('kind').value = kind;
         this.loadBlock(blocks[0]); this.updatePreview();
       } catch (error) { dialog.querySelector('[data-error]').textContent = error.message; }
       finally { event.target.disabled = false; }
@@ -109,7 +112,9 @@ export class MicroIntervalEditor {
   }
   updatePreview(renderPhases = true) {
     const form = this.form, dialog = this.dialog;
-    const isMicro = form.elements.namedItem('kind').value === 'microintervals';
+    const kind = form.elements.namedItem('kind').value;
+    dialog.querySelector('h2').textContent = this.t(kind === 'intervals' ? 'intervalBlockEditorTitle' : 'microintervalEditorTitle');
+    const isMicro = kind === 'microintervals' || kind === 'intervals';
     dialog.querySelector('[data-pattern]').hidden = !isMicro;
     dialog.querySelector('[data-pattern]').disabled = !isMicro;
     dialog.querySelector('[data-simple]').hidden = isMicro;
@@ -118,7 +123,7 @@ export class MicroIntervalEditor {
       const start = parseSegmentTime(form.elements.namedItem('start').value);
       const name = form.elements.namedItem('name').value;
       if (isMicro) {
-        this.draft = buildMicroIntervalBlock({ start, name,
+        this.draft = buildMicroIntervalBlock({ start, name, structureKind: kind,
           repetitions: Number(form.elements.namedItem('count').value),
           workSeconds: Number(form.elements.namedItem('work').value),
           recoverySeconds: Number(form.elements.namedItem('recovery').value),

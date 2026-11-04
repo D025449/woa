@@ -1,9 +1,11 @@
 import { microIntervalPatternLabel } from './MicroIntervalDetector.js';
+import { intervalBlockPatternLabel } from './IntervalBlockDetector.js';
 import { formatCPDuration } from "./CriticalPowerAppearance.js";
 
 export default class Utils {
 
     static getSegmentShortLabel(seg) {
+        if (seg?.structure_kind === 'intervals') return intervalBlockPatternLabel(seg);
         if (seg?.structure_kind === 'microintervals') return microIntervalPatternLabel(seg);
         const duration = Number(seg?.duration);
         if (seg?.segmenttype === "crit" && !seg.isGPSSegment
@@ -29,6 +31,7 @@ export default class Utils {
             return startName || endName || "GPS Segment";
         }
 
+        if (seg.structure_kind === 'intervals') return `Intervallblock · ${intervalBlockPatternLabel(seg)}`;
         if (seg.structure_kind === 'microintervals') return `Mikrointervalle · ${microIntervalPatternLabel(seg)}`;
         return `${seg.segmenttype ?? "Segment"} Segment`;
     }

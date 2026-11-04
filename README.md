@@ -22,6 +22,14 @@ switch with independent server-side renderer preferences per user and view.
 See [Workout, Analytics and Segment Map Views](docs/workout-map.md) for data sources, public-service
 usage conditions, interaction and verification limits. The flyover modal is unchanged.
 
+### Workout interval blocks
+
+Longer interval blocks are detected during FIT import and on demand through
+**Detect interval blocks** in the workout chart menu. Detection supports multiple
+sets with flexible effort durations and repetition counts, with about 5% work
+and recovery duration tolerance. See [docs/workout-microintervals.md](docs/workout-microintervals.md)
+for editing, detection limits and the manually executed migration 094 prerequisite.
+
 ### One-time GPS segment best-effort rebuild
 
 The versioned GPS segment best-effort rebuild uses the shared compact matcher and defaults to a

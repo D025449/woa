@@ -71,6 +71,18 @@ test('name-only updates preserve structure; resizing requires matching phases; c
   assert.equal(simple.pattern_work_duration_seconds, null);
 });
 
+test('long interval blocks retain phases on save and rename and require phases when resizing', async () => {
+  const segment = { ...block(), structure_kind: 'intervals' };
+  assert.equal(normalizeWorkoutSegmentStructure(segment).structure_kind, 'intervals');
+  assert.throws(() => mergeWorkoutSegmentStructure(segment, { end_offset: 220 }), { status: 409 });
+  const renamed = mergeWorkoutSegmentStructure(segment, { segmentname: 'Long intervals' });
+  assert.deepEqual(renamed.phases, normalizeWorkoutSegmentStructure(segment).phases);
+  const db = database();
+  const [saved] = await saveWorkoutSegmentChanges(db.pool, 49, 85064, [segment]);
+  assert.equal(saved.structure_kind, 'intervals');
+  assert.equal(saved.phases.length, 4);
+});
+
 function database({ owned = true, failPhases = false, existing = [] } = {}) {
   const calls = [];
   let savedRows = [];

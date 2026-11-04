@@ -130,6 +130,7 @@ test("accepts VO2max as a persisted intensity filter", () => {
 test("normalizes persisted segment visibility without accepting extra keys", () => {
   const state = normalizeWorkoutLibraryState({
     segmentVisibility: {
+      intervals: false,
       criticalPower: false,
       auto: true,
       manual: false,
@@ -139,6 +140,8 @@ test("normalizes persisted segment visibility without accepting extra keys", () 
   });
 
   assert.deepEqual(state.segmentVisibility, {
+    microintervals: true,
+    intervals: false,
     criticalPower: false,
     auto: true,
     manual: false,

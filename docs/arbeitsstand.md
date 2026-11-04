@@ -3,6 +3,26 @@
 Stand: 2026-11-04. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Flexible Interval Blocks (2026-11-04)
+
+- User approved longer interval detection during import and manually, multiple
+	independent sets, flexible durations/counts and approximately 5% effort/pause
+	duration tolerance. The separate `intervals` kind reuses structured phases,
+	worker/editor, chart/map labels and visibility, persistence, WPP, backups and
+	FIT export. Existing microintervals and manual corrections remain protected.
+- Migration `094_workout_interval_blocks.sql` is prepared only and MUST be run
+	manually by the user before saving/importing the new kind. No migration,
+	backfill, real segment save, restart or deployment was performed. Read-only
+	`cwa24_dev` analysis recognizes workout 85064 as 3 x 4 min / 3 min, with
+	238/235/234-second efforts and 185/186-second pauses; nothing was saved there.
+- Verification: 742 tests pass in the complete suite; syntax/targeted ESLint
+	pass (15 existing warnings), with the same three known `lastEnd` type errors
+	in `MicroIntervalDetector.js:141`. Real browser worker/editor and isolated
+	controller-method preview verified separate 3/4-repetition blocks, simulated
+	save/manual phase edit, and desktop/mobile editor sizing/screenshots. Not an
+	authenticated dashboard/database-write test. Details and limits:
+	`docs/workout-microintervals.md` (Longer Interval Blocks / Verification).
+
 ## Analytics Terrain Map (2026-11-04)
 
 - User approved the same embedded 2D/3D map for Analytics. It reuses the shared

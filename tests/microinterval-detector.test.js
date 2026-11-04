@@ -8,6 +8,7 @@ import { buildMicroIntervalPhaseAreas } from '../src/public/js/chart-helpers.js'
 import { parseSegmentTime } from '../src/public/js/microinterval-editor.js';
 import { buildAdminWorkoutBackup, decodeAdminWorkoutBackup } from '../src/services/adminWorkoutBackupService.js';
 import { classifyWorkoutIntensity, extractWorkoutIntensityFeatures } from '../src/shared/WorkoutIntensityClassifier.js';
+import { detectIntervalBlocks, intervalBlockPatternLabel } from '../src/shared/IntervalBlockDetector.js';
 
 const repeat = (power, seconds) => Array(seconds).fill(power);
 function series(count, work = 40, recovery = 20, power = 380) {
@@ -17,6 +18,78 @@ function scan(powers, options = {}) {
   return detectMicroIntervalBlocks({ recordCount: powers.length, powerAtIndex: (index) => powers[index],
     metrics: (start, end) => ({ avg_power: Math.round(powers.slice(start, end).reduce((sum, power) => sum + power, 0) / (end - start)) }), ...options });
 }
+
+function scanIntervals(powers, options = {}) {
+  return detectIntervalBlocks({ recordCount: powers.length, powerAtIndex: index => powers[index],
+    metrics: (start, end) => ({ avg_power: Math.round(powers.slice(start, end).reduce((sum, power) => sum + power, 0) / (end - start)) }), ...options });
+}
+
+test('long intervals detect flexible durations and independent three/four repetition blocks', () => {
+  for (const seconds of [60, 120, 240, 480]) {
+    const powers = [...repeat(170, 300), ...series(3, seconds, 180, 310), ...repeat(170, 600), ...series(4, seconds, 180, 320), ...repeat(170, 300)];
+    const blocks = scanIntervals(powers);
+    assert.deepEqual(blocks.map(block => summarizeMicroIntervalBlock(block).repetitions), [3, 4], `${seconds}s`);
+    assert.ok(blocks.every(block => block.structure_kind === 'intervals'));
+    assert.ok(blocks.every(block => block.pattern_work_duration_seconds === seconds));
+  }
+});
+
+test('long intervals tolerate five percent timing changes but reject irregular repeats and steady rides', () => {
+  const powers = [...repeat(170, 300), ...[228, 240, 252].flatMap((duration, index) => [...repeat(320, duration), ...repeat(100, [171, 189, 180][index])]), ...repeat(170, 300)];
+  assert.equal(scanIntervals(powers).length, 1);
+  assert.deepEqual(scanIntervals(repeat(220, 3600)), []);
+  const irregular = [...repeat(170, 300), ...[180, 240, 300].flatMap(duration => [...repeat(320, duration), ...repeat(100, 180)])];
+  assert.deepEqual(scanIntervals(irregular), []);
+});
+
+test('long intervals keep brief dips but never bridge missing samples or protected ranges', () => {
+  const powers = [...repeat(170, 300), ...series(3, 240, 180, 320), ...repeat(170, 300)];
+  powers.fill(180, 400, 405);
+  const blocks = scanIntervals(powers);
+  assert.equal(blocks.length, 1);
+  assert.deepEqual(scanIntervals(powers, { excludedBlocks: blocks }), []);
+  powers.fill(0xffff, 700, 710);
+  assert.deepEqual(scanIntervals(powers), []);
+});
+
+test('import detects long intervals and WPP preserves their kind and complete phases', () => {
+  const powers = [...repeat(170, 300), ...series(3, 240, 180, 320), ...repeat(170, 300)];
+  const compact = { recordCount: powers.length, powersW: Uint16Array.from(powers),
+    heartRatesBpm: new Uint8Array(powers.length).fill(140), cadencesRpm: new Uint8Array(powers.length).fill(90),
+    speedsCmS: new Uint16Array(powers.length).fill(900), altitudesQ: new Int16Array(powers.length).fill(400), distancesQ: new Uint32Array(powers.length).fill(0xffffffff) };
+  const segments = detectWorkoutLocalSegmentsCompact(compact);
+  const original = segments.find(segment => segment.structure_kind === 'intervals');
+  assert.ok(original);
+  const decoded = decodeWorkoutLocalPostprocessTransport(encodeWorkoutLocalPostprocessTransport([{ startTimeSec: 1700000000, recordCount: powers.length, segments }]));
+  const restored = normalizeWorkoutLocalPostprocessPayload(decoded).workouts[0].segments.find(segment => segment.structure_kind === 'intervals');
+  assert.deepEqual(restored.phases, original.phases);
+  assert.equal(restored.pattern_work_duration_seconds, 240);
+});
+
+test('long scans preserve microintervals and all manually edited blocks', () => {
+  const [block] = scanIntervals([...repeat(170, 300), ...series(3, 240, 180, 320), ...repeat(170, 300)]);
+  const automatic = { ...block, id: 21 };
+  const manual = { ...block, id: 22, segmenttype: 'manual' };
+  const micro = { ...block, id: 23, structure_kind: 'microintervals' };
+  const changes = microIntervalScanChanges({ segments: [automatic, manual, micro] }, [block], 'intervals');
+  assert.deepEqual(changes.map(segment => [segment.rowstate, segment.id]), [['DEL', 21]]);
+});
+
+test('long interval selections stay bounded and irregular pauses do not form one block', () => {
+  const powers = [...repeat(170, 300), ...series(3, 240, 180, 320), ...repeat(170, 300)];
+  const [block] = scanIntervals(powers, { start: 300, end: 1380 });
+  assert.ok(block.start_offset >= 300 && block.end_offset < 1380);
+  assert.deepEqual(scanIntervals(powers, { start: 500, end: 1380 }), []);
+  const irregular = [...repeat(170, 300), ...repeat(320, 240), ...repeat(100, 180),
+    ...repeat(320, 240), ...repeat(100, 240), ...repeat(320, 240), ...repeat(170, 300)];
+  assert.deepEqual(scanIntervals(irregular), []);
+});
+
+test('long interval labels use actual phases when optional nominal durations are absent', () => {
+  const block = buildMicroIntervalBlock({ start: 100, workSeconds: 240, recoverySeconds: 180, repetitions: 3,
+    structureKind: 'intervals', includeLastRecovery: false }, () => ({ avg_power: 300 }));
+  assert.equal(intervalBlockPatternLabel({ ...block, pattern_work_duration_seconds: null, pattern_recovery_duration_seconds: null }), '3 × 4 min / 3 min');
+});
 
 test('recognizes two independent 40/20 blocks with ten and nine repetitions', () => {
   const powers = [...repeat(170, 180), ...series(10), ...repeat(180, 180), ...series(9, 40, 20, 410), ...repeat(170, 180)];
@@ -173,4 +246,18 @@ test('native admin backup round trip retains the complete microinterval structur
   const restored = decoded.workouts[0].segments[0];
   assert.equal(restored.structure_kind, 'microintervals');
   assert.deepEqual(restored.phases, block.phases);
+});
+
+test('long interval backup and phase rendering retain the same parent and all phases', async () => {
+  const block = buildMicroIntervalBlock({ start: 100, workSeconds: 240, recoverySeconds: 180, repetitions: 3,
+    includeLastRecovery: false, structureKind: 'intervals' }, () => ({ avg_power: 300 }));
+  block.id = 42;
+  const areas = buildMicroIntervalPhaseAreas(block);
+  assert.equal(areas.length, 5);
+  assert.ok(areas.every(area => area[0].segmentId === 42));
+  const archive = buildAdminWorkoutBackup({ workouts: [{ id: 1, uid: 49, owner_auth_sub: 'test-owner', owner_email: 'test@example.com', stream: Buffer.from('test'), stream_codec: 'gzip' }],
+    segments: [{ ...block, wid: 1 }], favorites: [] });
+  const decoded = await decodeAdminWorkoutBackup(archive);
+  assert.equal(decoded.workouts[0].segments[0].structure_kind, 'intervals');
+  assert.deepEqual(decoded.workouts[0].segments[0].phases, block.phases);
 });

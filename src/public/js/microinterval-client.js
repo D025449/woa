@@ -1,3 +1,4 @@
+import { isIntervalBlock } from '../../shared/WorkoutSegmentStructure.js';
 export class MicroIntervalWorkerClient {
   constructor() {
     this.worker = null;
@@ -45,9 +46,9 @@ export async function saveMicroIntervalChanges(workout, changes) {
   return payload.segments;
 }
 
-export function microIntervalScanChanges(workout, blocks) {
-  const existing = (workout.segments || []).filter((segment) => !segment.isGPSSegment && segment.structure_kind === 'microintervals');
-  const manual = existing.filter((segment) => segment.segmenttype === 'manual');
+export function microIntervalScanChanges(workout, blocks, kind = 'microintervals') {
+  const existing = (workout.segments || []).filter((segment) => !segment.isGPSSegment && segment.structure_kind === kind);
+  const manual = (workout.segments || []).filter(segment => !segment.isGPSSegment && isIntervalBlock(segment) && segment.segmenttype === 'manual');
   const creates = blocks.filter((block) => !manual.some((segment) => block.start_offset <= segment.end_offset && block.end_offset >= segment.start_offset));
   return [
     ...existing.filter((segment) => segment.segmenttype === 'auto').map((segment) => ({ ...segment, rowstate: 'DEL' })),

@@ -1,3 +1,4 @@
+import { isIntervalBlock } from './WorkoutSegmentStructure.js';
 const FIT_EPOCH_MS = Date.UTC(1989, 11, 31, 0, 0, 0);
 const TEXT_ENCODER = new TextEncoder();
 
@@ -525,8 +526,8 @@ function summarizeRecords(records) {
 function normalizeManualLapSegments(segments, recordCount) {
   const maximumOffset = Math.max(0, recordCount - 1);
   return (Array.isArray(segments) ? segments : [])
-    .filter((segment) => String(segment?.segmenttype || "").toLowerCase() === "manual" || segment?.structure_kind === 'microintervals')
-    .flatMap((segment) => segment.structure_kind === 'microintervals'
+    .filter((segment) => String(segment?.segmenttype || "").toLowerCase() === "manual" || isIntervalBlock(segment))
+    .flatMap((segment) => isIntervalBlock(segment)
       ? (segment.phases || []).map((phase) => ({ ...phase, end_offset: phase.end_offset + 1, isMicroPhase: true }))
       : [segment])
     .map((segment) => {

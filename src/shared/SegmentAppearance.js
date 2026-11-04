@@ -11,6 +11,7 @@ export const SEGMENT_COLORS = Object.freeze({
     area: "rgba(37, 135, 223, 0.26)"
   }),
   microintervals: Object.freeze({ solid: '#7c3aed', area: 'rgba(124, 58, 237, 0.12)' }),
+  intervals: Object.freeze({ solid: '#0f8b8d', area: 'rgba(15, 139, 141, 0.16)' }),
   manual: Object.freeze({
     solid: "#ef4444",
     area: "rgba(239, 68, 68, 0.24)"
@@ -22,6 +23,7 @@ export const SEGMENT_COLORS = Object.freeze({
 });
 
 export function getSegmentVisibilityKey(segment) {
+  if (!segment?.isGPSSegment && segment?.structure_kind === 'intervals') return 'intervals';
   if (!segment?.isGPSSegment && segment?.structure_kind === 'microintervals') return 'microintervals';
   if (segment?.isGPSSegment || segment?.segmenttype === "gps") {
     return "gps";

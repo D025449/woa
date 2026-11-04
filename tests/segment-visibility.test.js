@@ -17,6 +17,7 @@ test("maps every workout segment representation to its UI visibility key", () =>
   assert.equal(getSegmentVisibilityKey({ segmenttype: "gps" }), "gps");
   assert.equal(getSegmentVisibilityKey({ isGPSSegment: true, segmenttype: "manual" }), "gps");
   assert.equal(getSegmentVisibilityKey({ segmenttype: 'auto', structure_kind: 'microintervals' }), 'microintervals');
+  assert.equal(getSegmentVisibilityKey({ segmenttype: 'auto', structure_kind: 'intervals' }), 'intervals');
 });
 
 test("provides distinct and consistent colors for every segment type", () => {
@@ -26,7 +27,8 @@ test("provides distinct and consistent colors for every segment type", () => {
   assert.equal(getSegmentColor({ isGPSSegment: true }), SEGMENT_COLORS.gps.solid);
   assert.equal(SEGMENT_COLORS.gps.solid, "#22a957");
   assert.equal(getSegmentColor({ structure_kind: 'microintervals' }), SEGMENT_COLORS.microintervals.solid);
-  assert.equal(new Set(Object.values(SEGMENT_COLORS).map(({ solid }) => solid)).size, 5);
+  assert.equal(getSegmentColor({ structure_kind: 'intervals' }), SEGMENT_COLORS.intervals.solid);
+  assert.equal(new Set(Object.values(SEGMENT_COLORS).map(({ solid }) => solid)).size, 6);
 });
 
 test("uses the same visibility decision for chart and map segments", () => {
@@ -122,7 +124,7 @@ test("chart segment headers own segment interaction while mark areas stay toolti
 test("chart header hover updates the matching list card and map route, including mouseout", async () => {
   const source = await fs.readFile(new URL("../src/public/js/dashboard-new-controller.js", import.meta.url), "utf8");
   const chartSetup = source.slice(source.indexOf("this.chartView = new ChartView("));
-  const callbackBody = chartSetup.match(/onSegmentHoverChange: \(segment\) => \{([\s\S]*?)\n      \},/u)?.[1];
+  const callbackBody = chartSetup.match(/onSegmentHoverChange: \(segment\) => \{([\s\S]*?)\n {6}\},/u)?.[1];
   assert.ok(callbackBody);
   const changes = [];
   const controller = {

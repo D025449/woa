@@ -1,6 +1,9 @@
-# Workout microinterval blocks
+# Workout Microinterval and Interval Blocks
 
 Migration: `src/migrations/087_workout_segment_microintervals.sql`.
+Longer interval blocks additionally require
+`src/migrations/094_workout_interval_blocks.sql`. Execute migrations manually;
+the application changes do not execute them or backfill existing workouts.
 
 ## Persistence API
 
@@ -99,10 +102,48 @@ microinterval blocks. Import reprocessing keeps existing manual segments. Patter
 results are reused by import intensity classification when available; morphology
 alone does not assign a physiological intensity.
 
+## Longer Interval Blocks
+
+Longer intervals use `structure_kind: "intervals"`, separately from
+`"microintervals"`. Both kinds share the same parent/phase persistence contract,
+inclusive second offsets, validation, editor, phase metrics and manual-edit
+protection. Existing simple segments and microinterval detection are unchanged.
+
+`IntervalBlockDetector` recognizes at least three repeated efforts lasting about
+one minute or longer, without hard-coding a work duration or repetition count.
+Work and internal recovery durations must each stay within approximately 5% of
+their respective local median, plus one second for sampled edge resolution.
+Recoveries must last at least 15 seconds. A longer set break or incompatible
+duration pattern ends a block; a subsequent block may have a different duration
+or repetition count. The last work phase ends the detected block: cooldown or a
+long set break is not silently appended as a final recovery.
+
+Detection uses centered power smoothing, hysteresis, several histogram-derived
+contrast levels and short-dip tolerance. Missing power breaks a pattern; steady
+rides, insufficient contrast and irregular timing are rejected. Nominal labels
+are rounded only within the timing tolerance; actual measured phase durations
+remain unchanged. This is morphological detection, not a physiological intensity
+classification or a guarantee that every outdoor training pattern is recognized.
+
+The existing compact FIT import workers call the same shared detector. Detected
+microinterval ranges take priority, avoiding duplicate long blocks over the same
+short protocol. The chart menu also provides **Detect interval blocks**, using
+the existing cached module worker. Opening a workout never starts a scan. The
+editor can scan just a selected range, adjust individual phases and save an
+automatic block as manual. Repeated scans replace only automatic blocks of the
+requested kind and skip manual structured ranges. Interval blocks have their own
+color, visibility toggle, minute-based labels and preserved view preferences.
+
+The read-only development check of workout 85064 recognized **3 x 4 min / 3 min**:
+work phases at offsets 952, 1375 and 1796 last 238, 235 and 234 seconds, averaging
+312, 310 and 307 W. The two measured recoveries last 185 and 186 seconds. No
+detected block was written to that workout during verification. Apply migration
+094 manually before using the saving/import path with the new block kind.
+
 ## Transport and archives
 
 WPP1 version 3 appends a length-prefixed JSON structure extension to the existing
-compact segment columns. Payloads without microintervals remain version 2, and
+compact segment columns. Payloads without structured blocks remain version 2, and
 both versions are accepted. Only recognized blocks/phases are transmitted; raw
 power samples are not added to the transport. Parents and phases are inserted
 in batches within the existing import transaction.
@@ -114,3 +155,30 @@ its intensity. FIT alone does not retain the app-specific parent name or hierarc
 on ordinary FIT reimport, the browser detector reconstructs regular blocks from
 power data. Native backups (including FIT backups with their metadata sidecar)
 preserve the exact hierarchy instead of relying on redetection.
+
+The structure extension now includes the optional `structure_kind` field for
+both block kinds. Legacy version-3 extensions without that field remain
+microintervals; unknown extension kinds are rejected. Payloads without either
+structured block kind remain version 2. Admin/native backups and FIT phase-lap
+export retain longer interval phases through the existing common paths. FIT
+alone still does not preserve the application-specific parent hierarchy.
+
+## Interval Block Verification
+
+- The complete test suite passes 742 tests, including flexible 1/2/4/8-minute
+  efforts, independent 3/4-repetition sets, 5% duration variation, irregular
+  pauses, brief dips, missing samples, selected ranges, manual scan protection,
+  WPP import, phase persistence/rename/resize, backup, visibility and phase areas.
+- Syntax and targeted ESLint pass; the touched code retains 15 existing warnings.
+  Type checking still reports the three previously known nullable `lastEnd`
+  errors in `MicroIntervalDetector.js:141`, with no new type errors.
+- A browser preview exercised the actual module worker, extracted unchanged
+  controller scan method, editor and simulated segment API. It detected separate
+  3/4-repetition sets, saved a manual phase correction and retained block kind.
+  Desktop and 390-pixel mobile editor screenshots and dimensions were checked;
+  the shared editor now sizes itself independently of global CSS resets and
+  avoids overlapping mobile field labels.
+- This was not an authenticated application/database write test. The complete
+  dashboard controller could not be imported in the static preview because it
+  does not serve the application's vendor URL. Migration 094 was prepared only;
+  no migration, backfill, real segment save, deployment or restart was performed.

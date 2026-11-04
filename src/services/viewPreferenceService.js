@@ -40,6 +40,8 @@ const CHART_SERIES_VISIBILITY_KEYS = [
   "leftRightBalance"
 ];
 const SEGMENT_VISIBILITY_KEYS = [
+  "microintervals",
+  "intervals",
   "criticalPower",
   "auto",
   "manual",

@@ -1,3 +1,4 @@
+import { isIntervalBlock } from '../shared/WorkoutSegmentStructure.js';
 import WahooConnectionService from "../services/wahooConnectionService.js";
 import GarminConnectionService from "../services/garminConnectionService.js";
 import UserWeightHistoryService from "../services/userWeightHistoryService.js";
@@ -732,7 +733,7 @@ router.patch(
       const segment = {
         start_offset: startOffset,
         end_offset: endOffset,
-        duration: payload.structure_kind === 'microintervals' ? endOffset - startOffset + 1 : endOffset - startOffset,
+        duration: isIntervalBlock(payload) ? endOffset - startOffset + 1 : endOffset - startOffset,
         ...(payload.structure_kind !== undefined ? { structure_kind: payload.structure_kind } : {}),
         ...(payload.phases !== undefined ? { phases: payload.phases } : {}),
         ...(payload.pattern_work_duration_seconds !== undefined ? { pattern_work_duration_seconds: payload.pattern_work_duration_seconds } : {}),

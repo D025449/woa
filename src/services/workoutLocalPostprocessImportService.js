@@ -1,4 +1,4 @@
-import { normalizeWorkoutSegmentStructure } from '../shared/WorkoutSegmentStructure.js';
+import { isIntervalBlock, normalizeWorkoutSegmentStructure } from '../shared/WorkoutSegmentStructure.js';
 import { FileDBService } from "./fileDBService.js";
 import { invalidateAnalyticsOverviewCache } from "./analyticsOverviewCache.js";
 
@@ -48,7 +48,7 @@ export function normalizeWorkoutLocalPostprocessPayload(decoded) {
         throw new WorkoutLocalPostprocessValidationError(`WPP1 segment exceeds workout ${workoutIndex} record range`);
       }
       const duration = requireInteger(segment?.duration, `workout ${workoutIndex} segment ${segmentIndex} duration`, 1, 0xfffffffe);
-      const expectedDuration = segment.structure_kind !== 'microintervals' && (segmenttype === "auto" || segmenttype === "manual")
+      const expectedDuration = !isIntervalBlock(segment) && (segmenttype === "auto" || segmenttype === "manual")
         ? endOffset - startOffset
         : endOffset - startOffset + 1;
       if (duration !== expectedDuration) {
@@ -68,10 +68,10 @@ export function normalizeWorkoutLocalPostprocessPayload(decoded) {
         altimeters: requireInteger(segment?.altimeters, `workout ${workoutIndex} segment ${segmentIndex} altimeters`, -0x80000000, 0x7fffffff),
         segmentname: ""
       };
-      if (segment.structure_kind === 'microintervals') {
+      if (isIntervalBlock(segment)) {
         try {
           return normalizeWorkoutSegmentStructure({ ...normalizedSegment,
-            structure_kind: 'microintervals', phases: segment.phases,
+            structure_kind: segment.structure_kind, phases: segment.phases,
             pattern_work_duration_seconds: segment.pattern_work_duration_seconds,
             pattern_recovery_duration_seconds: segment.pattern_recovery_duration_seconds });
         } catch (error) { throw new WorkoutLocalPostprocessValidationError(error.message); }
@@ -146,10 +146,10 @@ export async function persistWorkoutLocalPostprocess({
     const manualBlocks = (await client.query(`
       SELECT wid, start_offset, end_offset FROM workout_segments
       WHERE uid = $1 AND wid = ANY($2::bigint[])
-        AND segmenttype = 'manual' AND structure_kind = 'microintervals'
+        AND segmenttype = 'manual' AND structure_kind IN ('microintervals', 'intervals')
     `, [uid, workoutIds])).rows;
     for (const item of workoutSegments) item.segments = item.segments.filter((segment) =>
-      segment.structure_kind !== 'microintervals' || !manualBlocks.some((manual) =>
+      !isIntervalBlock(segment) || !manualBlocks.some((manual) =>
         String(manual.wid) === String(item.workoutId)
         && segment.start_offset <= manual.end_offset && segment.end_offset >= manual.start_offset));
 

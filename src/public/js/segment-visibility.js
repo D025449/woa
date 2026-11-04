@@ -13,6 +13,7 @@ export {
 };
 
 export const DEFAULT_SEGMENT_VISIBILITY = Object.freeze({
+  intervals: true,
   microintervals: true,
   criticalPower: true,
   auto: true,

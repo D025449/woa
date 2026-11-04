@@ -1,6 +1,8 @@
 import { MicroIntervalEditor } from './microinterval-editor.js';
 import { MicroIntervalWorkerClient, microIntervalScanChanges, saveMicroIntervalChanges } from './microinterval-client.js';
 import { microIntervalPatternLabel, summarizeMicroIntervalBlock } from '../../shared/MicroIntervalDetector.js';
+import { intervalBlockPatternLabel } from '../../shared/IntervalBlockDetector.js';
+import { isIntervalBlock } from '../../shared/WorkoutSegmentStructure.js';
 import MapView from "./map-view.js";
 import ChartView from "./chart-view.js";
 import FlyoverView from "./flyover-view.js";
@@ -220,6 +222,7 @@ export default class Controller {
       this.microCreationRequested = true; this.chartView.setMode('create');
     });
     document.getElementById('scan-microintervals')?.addEventListener('click', () => this.scanMicroIntervals());
+    document.getElementById('scan-intervals')?.addEventListener('click', () => this.scanMicroIntervals('intervals'));
     this.didRestoreMapViewState = false;
     this.registerEvents();
     this.boot();
@@ -2106,6 +2109,7 @@ export default class Controller {
   getWorkoutSegmentTypeLabel(segment) {
     const labels = {
       microintervals: 'microintervalTitle',
+      intervals: 'intervalBlockTitle',
       criticalPower: "workoutSegmentTypeCriticalPower",
       auto: "workoutSegmentTypeAuto",
       manual: "workoutSegmentTypeManual",
@@ -2115,6 +2119,7 @@ export default class Controller {
   }
 
   getWorkoutSegmentTitle(segment) {
+    if (segment.structure_kind === 'intervals') return `${segment.segmentname?.trim() || this.t('intervalBlockTitle')} · ${intervalBlockPatternLabel(segment)}`;
     if (segment.structure_kind === 'microintervals') return `${segment.segmentname?.trim() || this.t('microintervalTitle')} · ${microIntervalPatternLabel(segment)}`;
     const explicitName = String(segment?.segmentname ?? "").trim();
     if (explicitName) {
@@ -2208,7 +2213,7 @@ export default class Controller {
     const isOwner = workout?.access?.isOwner !== false && workout?.is_owned !== false;
     return isOwner
       && !segment?.isGPSSegment
-      && (getSegmentVisibilityKey(segment) === "manual" || (segment.structure_kind === 'microintervals' && segment.segmenttype === 'manual'))
+      && (getSegmentVisibilityKey(segment) === "manual" || (isIntervalBlock(segment) && segment.segmenttype === 'manual'))
       && Number.isInteger(segmentId)
       && segmentId > 0;
   }
@@ -2270,9 +2275,9 @@ export default class Controller {
     return true;
   }
 
-  async scanMicroIntervals() {
+  async scanMicroIntervals(kind = 'microintervals') {
     const workout = this.chartView.currentWorkout;
-    const button = document.getElementById('scan-microintervals');
+    const button = document.getElementById(kind === 'intervals' ? 'scan-intervals' : 'scan-microintervals');
     if (!workout?.workoutObject || this.microScanPending) return;
     if (workout.access?.isOwner === false || workout.is_owned === false) {
       this.showToast(this.t('microintervalOwnerOnly')); return;
@@ -2280,14 +2285,14 @@ export default class Controller {
     this.microScanPending = true;
     if (button) button.disabled = true;
     try {
-      const result = await this.microWorker.scan(workout.workoutObject);
-      const changes = microIntervalScanChanges(workout, result.blocks);
+      const result = await this.microWorker.scan(workout.workoutObject, { kind });
+      const changes = microIntervalScanChanges(workout, result.blocks, kind);
       if (changes.length) await saveMicroIntervalChanges(workout, changes);
       if (String(this.currentWorkoutId) === String(workout.id)) {
         this.chartView.updateWorkout(workout);
         this.renderWorkoutSegments(workout);
       }
-      this.showToast(this.t('microintervalScanResult', { count: result.blocks.length }));
+      this.showToast(this.t(kind === 'intervals' ? 'intervalBlockScanResult' : 'microintervalScanResult', { count: result.blocks.length }));
     } catch (error) {
       this.showToast(error.message);
     } finally {
@@ -2347,11 +2352,11 @@ export default class Controller {
         ...(averageCadence ? [["CD", averageCadence]] : []),
         ...(averageSpeed ? [["SP", averageSpeed]] : [])
       ];
-      const micro = segment.structure_kind === 'microintervals' ? summarizeMicroIntervalBlock(segment) : null;
+      const micro = isIntervalBlock(segment) ? summarizeMicroIntervalBlock(segment) : null;
       if (micro) stats.push([this.t('microintervalWorkTimeShort'), Utils.formatDuration(micro.workSeconds), this.t('microintervalWorkTime')],
         [this.t('microintervalWorkPowerShort'), micro.workPower == null ? '–' : `${micro.workPower} W`, this.t('microintervalWorkPower')]);
-      const cardTitle = micro ? (segment.segmentname?.trim() || this.t('microintervalTitle')) : title;
-      const cardMeta = micro ? microIntervalPatternLabel(segment) : (title !== typeLabel ? typeLabel : '');
+      const cardTitle = micro ? (segment.segmentname?.trim() || typeLabel) : title;
+      const cardMeta = micro ? (segment.structure_kind === 'intervals' ? intervalBlockPatternLabel(segment) : microIntervalPatternLabel(segment)) : (title !== typeLabel ? typeLabel : '');
       const canDelete = this.canDeleteWorkoutSegment(workout, segment);
       const deleteAction = this.t("workoutSegmentDeleteAction");
 

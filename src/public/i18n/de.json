@@ -1018,6 +1018,12 @@
       "failedLoadGroups": "Gruppen konnten nicht geladen werden ({status})"
     },
     "microintervalTitle": "Mikrointervalle",
+    "intervalBlockTitle": "Intervallblöcke",
+    "intervalBlockScan": "Intervallblöcke erkennen",
+    "intervalBlockScanResult": "{count} Intervallblöcke erkannt",
+    "intervalBlockNone": "Kein regelmäßiger Intervallblock in der Auswahl erkannt.",
+    "intervalBlockEditorTitle": "Intervallblock bearbeiten",
+    "segmentTypeIntervals": "Intervallblöcke",
     "microintervalScan": "Mikrointervalle erkennen",
     "microintervalOwnerOnly": "Nur der Eigentümer kann erkannte Blöcke speichern.",
     "microintervalScanResult": "{count} Mikrointervallblöcke erkannt",

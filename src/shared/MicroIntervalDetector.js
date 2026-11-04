@@ -59,7 +59,7 @@ export function microIntervalPatternLabel(block) {
 }
 
 export function buildMicroIntervalBlock({ start, workSeconds, recoverySeconds, repetitions,
-  includeLastRecovery = true, phaseDurations = null, name = '', segmenttype = 'manual' }, metrics) {
+  includeLastRecovery = true, phaseDurations = null, name = '', segmenttype = 'manual', structureKind = 'microintervals' }, metrics) {
   if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > 5000) throw new Error('Invalid repetition count');
   const values = phaseDurations || Array.from({ length: repetitions * 2 - (includeLastRecovery ? 0 : 1) }, (_, index) => index % 2 ? recoverySeconds : workSeconds);
   if (!Number.isInteger(repetitions) || repetitions < 1 || repetitions > 5000
@@ -75,7 +75,7 @@ export function buildMicroIntervalBlock({ start, workSeconds, recoverySeconds, r
     return phase;
   });
   return normalizeWorkoutSegmentStructure({ start_offset: start, end_offset: offset - 1, duration: offset - start,
-    segmenttype, structure_kind: 'microintervals', segmentname: name,
+    segmenttype, structure_kind: structureKind, segmentname: name,
     pattern_work_duration_seconds: workSeconds, pattern_recovery_duration_seconds: recoverySeconds,
     phases, ...metrics(start, offset) });
 }

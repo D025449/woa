@@ -8,6 +8,10 @@ export class WorkoutSegmentValidationError extends Error {
 
 const METRICS = ['avg_power', 'avg_heart_rate', 'avg_cadence', 'avg_speed', 'altimeters'];
 
+export function isIntervalBlock(segment) {
+  return segment?.structure_kind === 'microintervals' || segment?.structure_kind === 'intervals';
+}
+
 function requireInteger(value, minimum, field) {
   if (value == null || value === '' || typeof value === 'boolean') {
     throw new WorkoutSegmentValidationError(`Invalid ${field}`);
@@ -46,7 +50,7 @@ export function normalizeWorkoutSegmentStructure(segment) {
     throw new WorkoutSegmentValidationError('Invalid segment type');
   }
   const kind = segment.structure_kind ?? 'simple';
-  if (!['simple', 'microintervals'].includes(kind)) {
+  if (!['simple', 'microintervals', 'intervals'].includes(kind)) {
     throw new WorkoutSegmentValidationError('Invalid segment structure');
   }
   const normalized = {
@@ -111,7 +115,7 @@ export function mergeWorkoutSegmentStructure(existing, changes) {
   const structureChanged = changes.structure_kind !== undefined && changes.structure_kind !== existing.structure_kind;
   const boundsChanged = Number(changes.start_offset ?? existing.start_offset) !== Number(existing.start_offset)
     || Number(changes.end_offset ?? existing.end_offset) !== Number(existing.end_offset);
-  if (existing.structure_kind === 'microintervals' && boundsChanged
+  if (isIntervalBlock(existing) && boundsChanged
     && changes.phases === undefined && changes.structure_kind !== 'simple') {
     throw new WorkoutSegmentValidationError('Resizing a microinterval block requires updated phases', 409);
   }

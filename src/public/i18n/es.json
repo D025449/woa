@@ -877,6 +877,12 @@
       "failedLoadGroups": "No se pudieron cargar los grupos ({status})"
     },
     "microintervalTitle": "Microintervals",
+    "intervalBlockTitle": "Bloques de intervalos",
+    "intervalBlockScan": "Detectar bloques de intervalos",
+    "intervalBlockScanResult": "{count} bloques de intervalos detectados",
+    "intervalBlockNone": "No se detectó un bloque de intervalos regular en la selección.",
+    "intervalBlockEditorTitle": "Editar bloque de intervalos",
+    "segmentTypeIntervals": "Bloques de intervalos",
     "microintervalScan": "Detect microintervals",
     "microintervalOwnerOnly": "Only the workout owner can save detected blocks.",
     "microintervalScanResult": "{count} microinterval blocks detected",

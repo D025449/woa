@@ -1,5 +1,6 @@
 import {
   mergeWorkoutSegmentStructure,
+  isIntervalBlock,
   normalizeWorkoutSegmentStructure,
   WorkoutSegmentValidationError
 } from '../shared/WorkoutSegmentStructure.js';
@@ -25,7 +26,7 @@ function segmentId(value) {
 }
 
 export async function attachWorkoutSegmentPhases(queryable, rows) {
-  const blocks = rows.filter((segment) => segment.structure_kind === 'microintervals');
+  const blocks = rows.filter(isIntervalBlock);
   if (blocks.length === 0) return rows;
   const phases = await queryable.query(`
     SELECT * FROM workout_segment_phases
@@ -41,7 +42,7 @@ export async function attachWorkoutSegmentPhases(queryable, rows) {
 // all phases rather than issuing a write for every repetition or workout.
 export async function insertWorkoutMicrointervalBlocks(queryable, uid, entries) {
   const blocks = entries.flatMap((entry) => entry.segments
-    .filter((segment) => segment.structure_kind === 'microintervals')
+    .filter(isIntervalBlock)
     .map((segment, position) => ({ ...normalizeWorkoutSegmentStructure(segment),
       wid: entry.workoutId, position: segment.position ?? position, segmentname: segment.segmentname ?? '' })));
   if (!blocks.length) return { insertedCount: 0, statementCount: 0 };

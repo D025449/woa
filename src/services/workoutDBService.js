@@ -1099,7 +1099,7 @@ export default class WorkoutDBService {
         segmenttype
        FROM workout_segments
        WHERE uid = $1
-         AND (segmenttype = 'manual' OR structure_kind = 'microintervals')
+         AND (segmenttype = 'manual' OR structure_kind IN ('microintervals', 'intervals'))
          ${selectedIds ? "AND wid = ANY($2::bigint[])" : ""}
        ORDER BY wid ASC, start_offset ASC, end_offset ASC`,
       selectedIds ? [uid, selectedIds] : [uid]

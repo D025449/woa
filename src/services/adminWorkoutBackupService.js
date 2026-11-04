@@ -1,5 +1,5 @@
 import { attachWorkoutSegmentPhases, insertWorkoutMicrointervalBlocks } from './workoutSegmentStructureService.js';
-import { normalizeWorkoutSegmentStructure } from '../shared/WorkoutSegmentStructure.js';
+import { isIntervalBlock, normalizeWorkoutSegmentStructure } from '../shared/WorkoutSegmentStructure.js';
 import { strToU8, zipSync } from "fflate";
 import unzipper from "unzipper";
 import { createHash } from "node:crypto";
@@ -79,7 +79,7 @@ export function serializeAdminWorkout(row, ownerKey, segments, favoriteOwnerKeys
   }
   metadata.segments = segments.map((segment) => ({
     ...Object.fromEntries(ADMIN_WORKOUT_SEGMENT_COLUMNS.map((column) => [column, serializeValue(segment[column])])),
-    ...(segment.structure_kind === 'microintervals' ? { phases: normalizeWorkoutSegmentStructure(segment).phases } : {})
+    ...(isIntervalBlock(segment) ? { phases: normalizeWorkoutSegmentStructure(segment).phases } : {})
   }));
   metadata.favoriteOwnerKeys = favoriteOwnerKeys;
   return metadata;
@@ -227,7 +227,7 @@ export async function decodeAdminWorkoutBackup(buffer) {
     if (!streamEntry) throw new Error(`${entry.path} has no workout stream.`);
     const gpsEntry = byPath.get(`${base}.gps`);
     const segments = (Array.isArray(metadata.segments) ? metadata.segments : []).map((segment) =>
-      segment.structure_kind === 'microintervals' ? normalizeWorkoutSegmentStructure(segment) : segment);
+      isIntervalBlock(segment) ? normalizeWorkoutSegmentStructure(segment) : segment);
     const favoriteOwnerKeys = Array.isArray(metadata.favoriteOwnerKeys) ? metadata.favoriteOwnerKeys : [];
     if (favoriteOwnerKeys.some((key) => !ownerByKey.has(String(key)))) {
       throw new Error(`${entry.path} contains an unknown favorite owner.`);
@@ -492,7 +492,7 @@ async function insertWorkout(queryable, workout, uid) {
 
 async function insertSegments(queryable, workoutId, uid, segments) {
   await insertWorkoutMicrointervalBlocks(queryable, uid, [{ workoutId, segments }]);
-  for (const segment of segments.filter((item) => item.structure_kind !== 'microintervals')) {
+  for (const segment of segments.filter((item) => !isIntervalBlock(item))) {
     await queryable.query(`
       INSERT INTO workout_segments (${["wid", "uid", ...ADMIN_WORKOUT_SEGMENT_COLUMNS].join(", ")})
       VALUES (${Array.from({ length: ADMIN_WORKOUT_SEGMENT_COLUMNS.length + 2 }, (_, i) => `$${i + 1}`).join(", ")})
