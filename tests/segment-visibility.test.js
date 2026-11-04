@@ -119,6 +119,26 @@ test("chart segment headers own segment interaction while mark areas stay toolti
   assert.doesNotMatch(chartSource, /syncSegmentHoverFromPointer/u);
 });
 
+test("chart header hover updates the matching list card and map route, including mouseout", async () => {
+  const source = await fs.readFile(new URL("../src/public/js/dashboard-new-controller.js", import.meta.url), "utf8");
+  const chartSetup = source.slice(source.indexOf("this.chartView = new ChartView("));
+  const callbackBody = chartSetup.match(/onSegmentHoverChange: \(segment\) => \{([\s\S]*?)\n      \},/u)?.[1];
+  assert.ok(callbackBody);
+  const changes = [];
+  const controller = {
+    setHoveredWorkoutSegment: (segment) => changes.push(["list", segment]),
+    mapView: {
+      hoverSegmentOverlay: (segment) => changes.push(["map", segment]),
+      clearSegmentHover: () => changes.push(["clear"])
+    }
+  };
+  const handler = new Function("segment", callbackBody).bind(controller);
+  const segment = { id: 17, segmenttype: "manual" };
+  handler(segment);
+  handler(null);
+  assert.deepEqual(changes, [["list", segment], ["map", segment], ["list", null], ["clear"]]);
+});
+
 test("Leaflet segment interactions synchronize hover and selection with chart and cards", async () => {
   const [mapSource, controllerSource] = await Promise.all([
     fs.readFile(new URL("../src/public/js/map-view.js", import.meta.url), "utf8"),

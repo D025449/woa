@@ -35,6 +35,21 @@ Segment colors, hover, selection and the chart-position marker work in both
 views. Selected 3D segment popups use visible track points to avoid clipping
 outside the map on narrow viewports.
 
+Chart segment-header hover now updates both the workout segment list and the
+map's route highlight, matching the existing list-hover behavior in Leaflet and
+MapLibre. Mouseout removes only the temporary hover; an existing segment
+selection remains highlighted. The map hover methods do not emit another chart
+hover callback, avoiding feedback loops.
+
+Both renderers share short segment labels (`S-42`, `CP4`), type colors, CP color
+markers, optional names, minimum projected path length and overlap suppression.
+`MapView.getVisibleSegmentLabels` selects candidates using each renderer's own
+screen projection. Leaflet still uses its existing noninteractive label markers;
+MapLibre uses noninteractive DOM markers that follow the terrain. Labels are
+recomputed on render, camera move end and resize. Existing MapLibre label markers
+are reused, and stale labels are removed after visibility/workout changes or
+terrain failure. Labels themselves do not intercept route clicks or GPS editing.
+
 Switching keeps the center and approximately equivalent zoom (Leaflet and
 MapLibre use different base tile sizes). The 3D camera starts at a 60-degree
 pitch and can be rotated or tilted with MapLibre navigation. Map style choices
@@ -84,6 +99,10 @@ may finish.
 - Additional editing tests cover terrain click forwarding, draft geometry and
   colors, navigation restoration, common save/GPX handlers, failed-save draft
   preservation, clear/cancel behavior and workout-switch draft cleanup.
+- Hover/label regressions in the existing map-label and segment-visibility tests
+  cover the actual chart callback's enter/leave behavior, restoring selection,
+  shared overlap/short-path/offscreen filtering, terrain-projected CP labels and
+  marker reuse/removal. Existing CP chart-header tests remain unchanged.
 - An isolated local browser preview with the real map modules, public tile
   services and a synthetic Innsbruck track verified desktop/mobile rendering,
   screenshots, nonblank canvas pixels, terrain activation, position markers,
@@ -97,3 +116,8 @@ may finish.
   The shared browser tab was hidden; a preview-only timer-based animation-frame
   shim allowed rendering during this check. Application code was not changed
   for that workaround. No live routing, GPX upload or database save was run.
+- The hover/label preview verified `S-1` and `CP4`, camera changes, desktop/mobile
+  screenshots, nonblank canvas pixels and nonoverlapping labels in the checked
+  viewport. Invoking the actual chart callback body against the real map modules
+  highlighted the route in both renderers and preserved selection after mouseout.
+  This is not a full authenticated ECharts/list/map pointer round-trip test.

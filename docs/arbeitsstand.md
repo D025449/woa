@@ -3,6 +3,26 @@
 Stand: 2026-11-04. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Segment Hover and Terrain Labels (2026-11-04)
+
+- User approved fixing chart-header hover not highlighting the route and adding
+	the missing MapLibre segment labels. The chart callback now forwards enter/
+	leave to the existing map hover methods as well as the segment list. Hover
+	end retains existing selection; no extra map-to-chart callback is emitted.
+- Leaflet and MapLibre now share label text, colors, CP markers, path-length
+	thresholds and overlap selection. Terrain labels use MapLibre projection and
+	noninteractive DOM markers, updated after render/camera move/resize and removed
+	when no longer visible. GPS editing and the popup flyover are unchanged.
+- Details: `docs/workout-map.md`. Verification: all 30 focused map-label,
+	segment-visibility and CP-header tests passed. Targeted ESLint has no errors
+	and four existing warnings; syntax, editor diagnostics and `git diff --check`
+	passed. Isolated browser preview verified actual chart-callback forwarding
+	against Leaflet/MapLibre, selection restoration, S-1/CP4 labels, camera changes,
+	desktop/mobile screenshots, nonblank canvas pixels and no label overlap in the
+	tested viewport. Preview-only hidden-tab animation-frame workaround retained.
+	Full authenticated ECharts/list/map pointer interaction and full suite were
+	not run. No database access, migration, service restart or deployment.
+
 ## GPS Editing in MapLibre (2026-11-04)
 
 - User approved moving the existing workout GPS editing options into the

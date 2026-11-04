@@ -328,6 +328,11 @@ export default class Controller {
 
       onSegmentHoverChange: (segment) => {
         this.setHoveredWorkoutSegment(segment);
+        if (segment) {
+          this.mapView.hoverSegmentOverlay(segment);
+        } else {
+          this.mapView.clearSegmentHover();
+        }
       },
 
       onZoomSegment: (start, end) => {

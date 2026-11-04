@@ -190,7 +190,10 @@ test("inactive terrain does not update data or move its viewport", () => {
 test("terrain uses Terrarium height tiles and starts with MapLibre 4 without supported()", () => {
   const previousLibrary = globalThis.maplibregl;
   let options;
-  const owner = { renderer: "3d", currentTrackSegments: [], segmentOverlayEntries: [] };
+  const owner = {
+    renderer: "3d", currentTrackSegments: [], segmentOverlayEntries: [],
+    getVisibleSegmentLabels: () => []
+  };
   const view = new WorkoutTerrainView({}, owner);
   const events = new Map();
   globalThis.maplibregl = {
@@ -343,4 +346,99 @@ test("switching workouts discards manual GPS drafts before rendering the next wo
   discarded = false;
   assert.throws(() => view.renderTrack({ id: 2 }), /render boundary/);
   assert.equal(discarded, false);
+});
+
+test("shared map labels reject short, overlapping and offscreen segment paths", () => {
+  const view = Object.assign(createView(), {
+    segmentOverlayEntries: [
+      { key: "short", segment: { id: 1 }, coordinateSegments: [[{ length: 20, x: 100 }]] },
+      { key: "long", segment: { id: 2 }, coordinateSegments: [[{ length: 180, x: 100 }]] },
+      { key: "overlap", segment: { id: 3 }, coordinateSegments: [[{ length: 100, x: 105 }]] },
+      { key: "outside", segment: { id: 4 }, coordinateSegments: [[{ length: 120, x: 600 }]] }
+    ]
+  });
+  const labels = view.getVisibleSegmentLabels({ x: 400, y: 300 }, (points) => ({
+    length: points[0].length, point: { x: points[0].x, y: 100 }, latlng: [9, 48]
+  }));
+  assert.deepEqual(labels.map((label) => label.entry.key), ["long"]);
+  assert.equal(labels[0].text, "S-2");
+});
+
+test("terrain label placement measures its own projection and keeps shared CP text and color", () => {
+  const points = [{ lng: 9, lat: 48 }, { lng: 10, lat: 48 }, { lng: 11, lat: 48 }];
+  const entry = {
+    key: "criticalPower:17", segment: { id: 17, segmenttype: "crit", duration: 240 },
+    color: "#f59e0b", coordinateSegments: [points]
+  };
+  const owner = Object.assign(createView(), { segmentOverlayEntries: [entry] });
+  const view = new WorkoutTerrainView({}, owner);
+  view.map = { project: ([lng]) => ({ x: (lng - 9) * 100, y: 100 }) };
+  const measurement = view.measureCoordinatePath(points);
+  assert.equal(measurement.length, 200);
+  assert.deepEqual(measurement.latlng, [10, 48]);
+  const labels = owner.getVisibleSegmentLabels({ x: 400, y: 300 }, (path) => view.measureCoordinatePath(path));
+  assert.equal(labels[0].text, "CP4");
+  assert.equal(labels[0].markerColor, getCPSeriesColor(240));
+  assert.match(owner.getSegmentLabelHtml(labels[0]), /CP4/);
+  assert.equal(view.measureCoordinatePath([]), null);
+  assert.equal(view.measureCoordinatePath([points[0], points[0]]), null);
+});
+
+test("terrain labels reuse markers and remove stale labels after visibility or workout changes", () => {
+  const previousDocument = globalThis.document;
+  const previousLibrary = globalThis.maplibregl;
+  let candidates = [{
+    entry: { key: "manual:1" }, latlng: [9, 48], width: 42, height: 24
+  }];
+  let created = 0;
+  let removed = 0;
+  globalThis.document = { createElement: () => ({ style: {} }) };
+  globalThis.maplibregl = {
+    Marker: class {
+      constructor({ element }) { this.element = element; created += 1; }
+      getElement() { return this.element; }
+      setLngLat(position) { this.position = position; return this; }
+      addTo() { return this; }
+      remove() { removed += 1; }
+    }
+  };
+  const owner = { renderer: "3d", getVisibleSegmentLabels: () => candidates, getSegmentLabelHtml: () => "S-1" };
+  const view = new WorkoutTerrainView({}, owner);
+  view.ready = true;
+  view.map = { getCanvas: () => ({ clientWidth: 400, clientHeight: 300 }) };
+  try {
+    view.updateSegmentLabels();
+    const marker = view.labels.get("manual:1");
+    assert.equal(marker.getElement().innerHTML, "S-1");
+    assert.equal(marker.getElement().style.width, "42px");
+    candidates[0].latlng = [10, 49];
+    view.updateSegmentLabels();
+    assert.equal(created, 1);
+    assert.deepEqual(marker.position, [10, 49]);
+    candidates = [];
+    view.updateSegmentLabels();
+    assert.equal(view.labels.size, 0);
+    assert.equal(removed, 1);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+    if (previousLibrary === undefined) delete globalThis.maplibregl;
+    else globalThis.maplibregl = previousLibrary;
+  }
+});
+
+test("ending map hover restores the selected segment without clearing its selection", () => {
+  const selected = { key: "manual:1", coordinateSegments: [] };
+  const hovered = { key: "manual:2", coordinateSegments: [] };
+  const highlights = [];
+  const view = Object.assign(Object.create(MapView.prototype), {
+    selectedSegmentOverlay: selected,
+    hoveredSegmentOverlay: hovered,
+    segmentHighlightLayer: { clearLayers() {} },
+    terrainView: { render: () => highlights.push(view.hoveredSegmentOverlay || view.selectedSegmentOverlay) }
+  });
+  view.clearSegmentHover();
+  assert.equal(view.hoveredSegmentOverlay, null);
+  assert.equal(view.selectedSegmentOverlay, selected);
+  assert.deepEqual(highlights, [selected]);
 });

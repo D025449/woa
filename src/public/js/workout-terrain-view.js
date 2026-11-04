@@ -8,6 +8,7 @@ export default class WorkoutTerrainView {
     this.ready = false;
     this.marker = null;
     this.timeout = null;
+    this.labels = new Map();
   }
 
   open(center, zoom) {
@@ -132,6 +133,8 @@ export default class WorkoutTerrainView {
         });
         this.render();
         this.renderManualGpsSelection();
+        this.map.on("moveend", () => this.updateSegmentLabels());
+        this.map.on("resize", () => this.updateSegmentLabels());
       });
       this.map.getCanvas().addEventListener("webglcontextlost", () => this.fail());
     } catch {
@@ -149,6 +152,8 @@ export default class WorkoutTerrainView {
     this.map = null;
     this.ready = false;
     this.marker = null;
+    this.labels.forEach((marker) => marker.remove());
+    this.labels.clear();
     globalThis.setTimeout(() => map?.remove(), 0);
   }
 
@@ -195,6 +200,64 @@ export default class WorkoutTerrainView {
       }
     }
     this.moveMarker(this.owner.markerPosition);
+    this.updateSegmentLabels();
+  }
+
+  measureCoordinatePath(points = []) {
+    if (points.length < 2) return null;
+    const projected = points.map((point) => this.map.project([point.lng, point.lat]));
+    if (!projected.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))) return null;
+    const distances = projected.slice(1).map((point, index) => Math.hypot(
+      point.x - projected[index].x, point.y - projected[index].y
+    ));
+    const length = distances.reduce((total, distance) => total + distance, 0);
+    if (length <= 0) return null;
+    let traversed = 0;
+    for (let index = 0; index < distances.length; index += 1) {
+      const distance = distances[index];
+      if (distance > 0 && traversed + distance >= length / 2) {
+        const ratio = (length / 2 - traversed) / distance;
+        const start = points[index];
+        const end = points[index + 1];
+        const latlng = [start.lng + (end.lng - start.lng) * ratio, start.lat + (end.lat - start.lat) * ratio];
+        return { length, point: this.map.project(latlng), latlng };
+      }
+      traversed += distance;
+    }
+    return null;
+  }
+
+  updateSegmentLabels() {
+    if (!this.ready || !this.map || this.owner.renderer !== "3d") return;
+    const canvas = this.map.getCanvas();
+    const candidates = this.owner.getVisibleSegmentLabels(
+      { x: canvas.clientWidth, y: canvas.clientHeight },
+      (points) => this.measureCoordinatePath(points)
+    );
+    const visibleKeys = new Set();
+    for (const candidate of candidates) {
+      const key = candidate.entry.key;
+      visibleKeys.add(key);
+      let marker = this.labels.get(key);
+      if (!marker) {
+        const element = document.createElement("span");
+        element.className = "workout-map-segment-label-anchor";
+        marker = new globalThis.maplibregl.Marker({ element, anchor: "center" });
+        this.labels.set(key, marker);
+        marker.setLngLat(candidate.latlng).addTo(this.map);
+      }
+      const element = marker.getElement();
+      element.style.width = `${candidate.width}px`;
+      element.style.height = `${candidate.height}px`;
+      element.innerHTML = this.owner.getSegmentLabelHtml(candidate);
+      marker.setLngLat(candidate.latlng);
+    }
+    for (const [key, marker] of this.labels) {
+      if (!visibleKeys.has(key)) {
+        marker.remove();
+        this.labels.delete(key);
+      }
+    }
   }
 
   moveMarker(position) {

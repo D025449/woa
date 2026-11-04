@@ -536,10 +536,10 @@ export default class MapView {
     };
   }
 
-  getSegmentLabelCandidate(entry) {
+  getSegmentLabelCandidate(entry, measureCoordinatePath = (points) => this.measureCoordinatePath(points)) {
     let bestMeasurement = null;
     for (const coordinateSegment of entry.coordinateSegments) {
-      const measurement = this.measureCoordinatePath(coordinateSegment);
+      const measurement = measureCoordinatePath(coordinateSegment);
       if (!bestMeasurement || (measurement?.length ?? 0) > bestMeasurement.length) {
         bestMeasurement = measurement;
       }
@@ -593,16 +593,11 @@ export default class MapView {
     );
   }
 
-  updateSegmentLabels() {
-    if (!this.segmentLabelLayer || !this.map?._loaded) {
-      return;
-    }
-
-    this.segmentLabelLayer.clearLayers();
-    const mapSize = this.map.getSize();
+  getVisibleSegmentLabels(mapSize, measureCoordinatePath) {
     const occupied = [];
+    const labels = [];
     const candidates = this.segmentOverlayEntries
-      .map((entry) => this.getSegmentLabelCandidate(entry))
+      .map((entry) => this.getSegmentLabelCandidate(entry, measureCoordinatePath))
       .filter(Boolean)
       .sort((left, right) => right.length - left.length);
 
@@ -622,12 +617,28 @@ export default class MapView {
       }
 
       occupied.push(rect);
+      labels.push(candidate);
+    }
+    return labels;
+  }
+
+  getSegmentLabelHtml(candidate) {
+    return `<span class="workout-map-segment-label" style="--segment-color:${candidate.entry.color}">${candidate.markerColor ? `<span aria-hidden="true" style="display:inline-block;flex:0 0 auto;width:7px;height:7px;margin-right:4px;border:1px solid #ffffff;border-radius:50%;background:${candidate.markerColor}"></span>` : ""}${this.escapeHtml(candidate.text)}</span>`;
+  }
+
+  updateSegmentLabels() {
+    if (!this.segmentLabelLayer || !this.map?._loaded) {
+      return;
+    }
+
+    this.segmentLabelLayer.clearLayers();
+    for (const candidate of this.getVisibleSegmentLabels(this.map.getSize())) {
       L.marker(candidate.latlng, {
         interactive: false,
         pane: "segmentPane",
         icon: L.divIcon({
           className: "workout-map-segment-label-anchor",
-          html: `<span class="workout-map-segment-label" style="--segment-color:${candidate.entry.color}">${candidate.markerColor ? `<span aria-hidden="true" style="display:inline-block;flex:0 0 auto;width:7px;height:7px;margin-right:4px;border:1px solid #ffffff;border-radius:50%;background:${candidate.markerColor}"></span>` : ""}${this.escapeHtml(candidate.text)}</span>`,
+          html: this.getSegmentLabelHtml(candidate),
           iconAnchor: [candidate.width / 2, candidate.height / 2],
           iconSize: [candidate.width, candidate.height]
         })
