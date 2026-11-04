@@ -38,9 +38,36 @@ outside the map on narrow viewports.
 Switching keeps the center and approximately equivalent zoom (Leaflet and
 MapLibre use different base tile sizes). The 3D camera starts at a 60-degree
 pitch and can be rotated or tilted with MapLibre navigation. Map style choices
-are available only in 2D. Starting manual GPS editing switches to Leaflet;
-switching to 3D is disabled during editing and for workouts without valid GPS.
-The renderer selection is not persisted across page reloads.
+are available only in 2D. The renderer selection is not persisted across page reloads.
+
+## GPS Editing in Both Views
+
+The existing GPS menu is available under the same ownership/data restrictions:
+the current user must own the workout, and it must either lack valid GPS or use
+the `manual_lookup` GPS source. Imported valid GPS tracks are not made editable.
+The menu's GPX import (direct or routed) and copy-from-workout actions still use
+their existing handlers and APIs, independently of the active map renderer.
+
+Manual GPS editing now stays in the selected renderer. In MapLibre, clicks on
+the terrain append lookup points to the same `MapView.manualGpsPoints` draft
+used by Leaflet. A dashed line joins them; first, intermediate and last points
+are green, blue and red. This is a draft connecting lookup points, not a live
+routing preview. Existing routing/persistence remains in the shared save path;
+MapLibre does not introduce another routing service or elevation write path.
+
+The existing clear, cancel and save controls work in either view. Switching
+between 2D and 3D preserves the draft. Clear removes the draft points but keeps
+editing active; cancel discards the draft, and successful save ends editing.
+Failed saves keep the draft. Selecting another workout discards the previous
+unsaved draft. Moving or individually deleting points is not added here; this
+change reproduces the existing click-to-append and clear-all behavior.
+
+3D is also available for owned workouts without GPS so a new track can be drawn
+there. Workouts without valid GPS and without edit permission still cannot use
+3D. While editing in MapLibre, clicks take priority over segment selection,
+the cursor is a crosshair and double-click zoom is temporarily disabled. The
+previous double-click zoom state is restored when editing ends. A terrain
+failure can still fall back to Leaflet without discarding the active draft.
 
 Startup errors, source errors, WebGL context loss or a 20-second initial load
 timeout return to Leaflet and show a localized status message. 3D can be retried.
@@ -52,8 +79,11 @@ may finish.
 
 - Focused tests in `tests/map-segment-label.test.js` cover existing Leaflet labels,
   GPS gaps, coordinate order, shared route/segment/focus/marker state, WebGL
-  fallback, in-place switching, editing/no-GPS restrictions, inactive rendering,
+  fallback, in-place switching, edit permissions, inactive rendering,
   terrain configuration and compatibility with the current MapLibre version.
+- Additional editing tests cover terrain click forwarding, draft geometry and
+  colors, navigation restoration, common save/GPX handlers, failed-save draft
+  preservation, clear/cancel behavior and workout-switch draft cleanup.
 - An isolated local browser preview with the real map modules, public tile
   services and a synthetic Innsbruck track verified desktop/mobile rendering,
   screenshots, nonblank canvas pixels, terrain activation, position markers,
@@ -61,3 +91,9 @@ may finish.
 - This preview is not an authenticated end-to-end dashboard test. The complete
   dashboard layout, real workout data and real chart pointer interaction still
   need a user check in the running application.
+- The editing preview also verified simulated mouse events through the real
+  MapLibre canvas handlers, draft preservation across renderers, a simulated
+  save handler, and desktop/mobile screenshots and nonblank canvas pixels.
+  The shared browser tab was hidden; a preview-only timer-based animation-frame
+  shim allowed rendering during this check. Application code was not changed
+  for that workaround. No live routing, GPX upload or database save was run.

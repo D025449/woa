@@ -1,7 +1,32 @@
 # Arbeitsstand
 
-Stand: 2026-11-03. Diese Datei hält Absprachen für folgende Sitzungen fest.
+Stand: 2026-11-04. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
+
+## GPS Editing in MapLibre (2026-11-04)
+
+- User approved moving the existing workout GPS editing options into the
+	embedded MapLibre view as well as Leaflet. Existing ownership/GPS-source
+	restrictions, routing, save, GPX and copy handlers are unchanged; no new
+	routing service, backend endpoint, migration or elevation calculation.
+- Terrain clicks append shared draft points, rendered as colored circles and
+	a dashed line. Editing no longer forces 2D, and editable owned workouts
+	without GPS may open 3D. Renderer switches preserve the draft. Clear,
+	cancel, save and failed-save preservation reuse the existing controls;
+	switching workouts discards the previous draft. MapLibre double-click zoom
+	is disabled while editing and restored afterward. No point dragging or
+	individual deletion added; the existing append/clear-all workflow is retained.
+- Details and current restrictions: `docs/workout-map.md`. This supersedes
+	the initial 2D-only editing restriction documented in the previous entry.
+	The popup flyover and separate segment page remain untouched.
+- Verification: 14 focused tests passed; targeted ESLint has no errors and
+	one existing unused-variable warning. Browser preview verified terrain
+	click forwarding with simulated canvas mouse events, three-point geometry,
+	renderer-switch preservation, simulated save, desktop/mobile screenshots
+	and nonblank canvas pixels. Hidden-tab rendering required a preview-only
+	animation-frame shim, not a production code change. No authenticated
+	dashboard test, live routing/upload/save, database operation, migration,
+	deployment or full-suite run.
 
 ## In-Place Workout Terrain Map (2026-11-03)
 

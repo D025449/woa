@@ -16,6 +16,7 @@ export default class WorkoutTerrainView {
       this.map.resize();
       this.map.jumpTo({ center: [center.lng, center.lat], zoom: Math.max(0, zoom - 1) });
       this.render();
+      this.renderManualGpsSelection();
       return;
     }
     try {
@@ -87,7 +88,25 @@ export default class WorkoutTerrainView {
           filter: ["==", ["get", "kind"], "focus"],
           paint: { "line-color": "#2563eb", "line-width": 8 }
         });
+        this.map.addSource("manual-gps", { type: "geojson", data: this.collection([]) });
+        this.map.addLayer({
+          id: "manual-gps-line", type: "line", source: "manual-gps",
+          filter: ["==", ["geometry-type"], "LineString"],
+          paint: { "line-color": "#2563eb", "line-width": 3, "line-dasharray": [2, 2] }
+        });
+        this.map.addLayer({
+          id: "manual-gps-points", type: "circle", source: "manual-gps",
+          filter: ["==", ["geometry-type"], "Point"],
+          paint: {
+            "circle-radius": 6, "circle-stroke-width": 2,
+            "circle-stroke-color": "#ffffff", "circle-color": ["get", "color"]
+          }
+        });
         this.map.on("click", (event) => {
+          if (this.owner.manualGpsMode) {
+            this.owner.handleMapClick({ latlng: event.lngLat });
+            return;
+          }
           const feature = this.map.queryRenderedFeatures(event.point, { layers: ["segment-hit"] })[0];
           const entry = this.owner.segmentOverlayEntries.find((item) => item.key === feature?.properties?.key);
           if (entry) {
@@ -98,6 +117,7 @@ export default class WorkoutTerrainView {
           }
         });
         this.map.on("mousemove", "segment-hit", (event) => {
+          if (this.owner.manualGpsMode) return;
           const entry = this.owner.segmentOverlayEntries.find((item) => item.key === event.features?.[0]?.properties?.key);
           this.map.getCanvas().style.cursor = "pointer";
           if (entry) {
@@ -106,11 +126,12 @@ export default class WorkoutTerrainView {
           }
         });
         this.map.on("mouseleave", "segment-hit", () => {
-          this.map.getCanvas().style.cursor = "";
+          this.map.getCanvas().style.cursor = this.owner.manualGpsMode ? "crosshair" : "";
           this.owner.clearSegmentHover();
           this.owner.handlers.onSegmentHoverChange?.(null);
         });
         this.render();
+        this.renderManualGpsSelection();
       });
       this.map.getCanvas().addEventListener("webglcontextlost", () => this.fail());
     } catch {
@@ -190,6 +211,29 @@ export default class WorkoutTerrainView {
     } else {
       this.marker.setLngLat(position);
     }
+  }
+
+  renderManualGpsSelection() {
+    if (!this.ready || !this.map || !this.owner.manualGpsPoints) return;
+    const editing = !!this.owner.manualGpsMode;
+    this.map.getCanvas().style.cursor = editing ? "crosshair" : "";
+    if (editing && !this.editing) {
+      this.restoreDoubleClickZoom = this.map.doubleClickZoom.isEnabled();
+      this.map.doubleClickZoom.disable();
+    } else if (!editing && this.editing && this.restoreDoubleClickZoom) {
+      this.map.doubleClickZoom.enable();
+    }
+    this.editing = editing;
+    const points = editing ? this.owner.manualGpsPoints : [];
+    const features = this.lineFeatures([points], { kind: "manual" });
+    points.forEach((point, index) => {
+      features.push({
+        type: "Feature",
+        properties: { color: index === 0 ? "#16a34a" : (index === points.length - 1 ? "#dc2626" : "#2563eb") },
+        geometry: { type: "Point", coordinates: [point.lng, point.lat] }
+      });
+    });
+    this.map.getSource("manual-gps")?.setData(this.collection(features));
   }
 
   fit(points) {

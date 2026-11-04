@@ -174,6 +174,9 @@ export default class MapView {
   // TRACK RENDERING
   // -----------------------------
   renderTrack(workout) {
+    if (this.manualGpsMode && workout?.id !== this.currentWorkout?.id) {
+      this.disableManualGpsMode();
+    }
     this.currentWorkout = workout || null;
     this.trackLayer.clearLayers();
     this.segmentLayer.clearLayers();
@@ -810,7 +813,6 @@ export default class MapView {
       return;
     }
 
-    this.setRenderer("2d");
     this.manualGpsMode = true;
     this.map.getContainer().style.cursor = "crosshair";
     this.ensureInteractiveViewport();
@@ -829,6 +831,7 @@ export default class MapView {
     this.map.getContainer().style.cursor = "";
     this.manualGpsLayer.clearLayers();
     this.manualGpsPoints = [];
+    this.terrainView?.renderManualGpsSelection();
     this.syncManualGpsUi();
   }
 
@@ -851,6 +854,7 @@ export default class MapView {
 
   renderManualGpsSelection() {
     this.manualGpsLayer.clearLayers();
+    this.terrainView?.renderManualGpsSelection();
 
     if (!this.manualGpsPoints.length) {
       return;
@@ -905,9 +909,9 @@ export default class MapView {
     });
     this.rendererButtons?.forEach((button) => {
       button.disabled = button.dataset.workoutMapRenderer === "3d"
-        && (this.manualGpsMode || !this.currentWorkout?.validGps);
+        && !this.canShowTerrain();
     });
-    if (!this.currentWorkout?.validGps && this.renderer === "3d") this.setRenderer("2d");
+    if (!this.canShowTerrain() && this.renderer === "3d") this.setRenderer("2d");
   }
 
   handleMapClick(event) {
@@ -943,7 +947,7 @@ export default class MapView {
   setRenderer(mode) {
     const next = mode === "3d" ? "3d" : "2d";
     if (next === this.renderer || !this.terrainContainer) return;
-    if (next === "3d" && (this.manualGpsMode || !this.currentWorkout?.validGps)) return;
+    if (next === "3d" && !this.canShowTerrain()) return;
     const errorElement = document.getElementById("workout-map-renderer-error");
     if (errorElement) errorElement.hidden = true;
     if (next === "2d" && this.terrainView?.map) {
@@ -974,6 +978,10 @@ export default class MapView {
   showTerrainError() {
     const element = document.getElementById("workout-map-renderer-error");
     if (element) element.hidden = false;
+  }
+
+  canShowTerrain() {
+    return !!this.currentWorkout && (!!this.currentWorkout.validGps || this.canEditManualGps());
   }
 
   // -----------------------------

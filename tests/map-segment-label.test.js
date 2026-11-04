@@ -164,11 +164,15 @@ test("inplace switch preserves the center and toggles only the embedded map cont
     assert.equal(leafletContainer.hidden, false);
     view.manualGpsMode = true;
     view.setRenderer("3d");
-    assert.equal(view.renderer, "2d");
+    assert.equal(view.renderer, "3d");
+    view.setRenderer("2d");
     view.manualGpsMode = false;
     view.currentWorkout.validGps = false;
     view.setRenderer("3d");
     assert.equal(view.renderer, "2d");
+    view.currentWorkout.access = { isOwner: true };
+    view.setRenderer("3d");
+    assert.equal(view.renderer, "3d");
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;
@@ -212,9 +216,131 @@ test("terrain uses Terrarium height tiles and starts with MapLibre 4 without sup
     assert.ok(options.style.layers.some((layer) => layer.type === "hillshade"));
     events.get("load")();
     assert.equal(view.ready, true);
+    let clicked;
+    owner.manualGpsMode = true;
+    owner.handleMapClick = (event) => { clicked = event.latlng; };
+    events.get("click")({ lngLat: { lat: 48, lng: 9 } });
+    assert.deepEqual(clicked, { lat: 48, lng: 9 });
   } finally {
     clearTimeout(view.timeout);
     if (previousLibrary === undefined) delete globalThis.maplibregl;
     else globalThis.maplibregl = previousLibrary;
   }
+});
+
+test("terrain draft uses shared GPS points and restores navigation when editing ends", () => {
+  const points = [{ lat: 48, lng: 9 }, { lat: 49, lng: 10 }, { lat: 50, lng: 11 }];
+  const owner = { manualGpsMode: true, manualGpsPoints: points };
+  const view = new WorkoutTerrainView({}, owner);
+  let data;
+  let doubleClickEnabled = true;
+  const canvas = { style: {} };
+  view.ready = true;
+  view.map = {
+    getCanvas: () => canvas,
+    getSource: () => ({ setData(value) { data = value; } }),
+    doubleClickZoom: {
+      isEnabled: () => doubleClickEnabled,
+      disable() { doubleClickEnabled = false; },
+      enable() { doubleClickEnabled = true; }
+    }
+  };
+  view.renderManualGpsSelection();
+  assert.equal(canvas.style.cursor, "crosshair");
+  assert.equal(doubleClickEnabled, false);
+  assert.equal(data.features.length, 4);
+  assert.deepEqual(data.features[0].geometry.coordinates, [[9, 48], [10, 49], [11, 50]]);
+  assert.deepEqual(data.features.slice(1).map((feature) => feature.properties.color), ["#16a34a", "#2563eb", "#dc2626"]);
+  owner.manualGpsPoints = [];
+  view.renderManualGpsSelection();
+  assert.deepEqual(data.features, []);
+  assert.equal(doubleClickEnabled, false);
+  owner.manualGpsMode = false;
+  view.renderManualGpsSelection();
+  assert.equal(canvas.style.cursor, "");
+  assert.equal(doubleClickEnabled, true);
+  assert.deepEqual(points, [{ lat: 48, lng: 9 }, { lat: 49, lng: 10 }, { lat: 50, lng: 11 }]);
+});
+
+test("shared manual GPS clicks update both map renderers and reject invalid positions", () => {
+  let renders = 0;
+  let uiUpdates = 0;
+  const view = Object.assign(Object.create(MapView.prototype), {
+    manualGpsMode: true, manualGpsPoints: [],
+    renderManualGpsSelection() { renders += 1; },
+    syncManualGpsUi() { uiUpdates += 1; }
+  });
+  view.handleMapClick({ latlng: { lat: 48, lng: 9 } });
+  view.handleMapClick({ latlng: { lat: NaN, lng: 10 } });
+  assert.deepEqual(view.manualGpsPoints, [{ lat: 48, lng: 9 }]);
+  assert.equal(renders, 1);
+  assert.equal(uiUpdates, 1);
+});
+
+test("shared GPS controls preserve failed saves and use the same save and GPX handlers in 3D", async () => {
+  const callbacks = {};
+  const controls = {};
+  for (const name of ["manualGpsSaveButton", "manualGpsCancelButton", "manualGpsClearButton", "gpxFileInput"]) {
+    controls[name] = { addEventListener(_type, callback) { callbacks[name] = callback; } };
+  }
+  const points = [{ lat: 48, lng: 9 }, { lat: 49, lng: 10 }];
+  let saved;
+  let imported;
+  let rejectSave = true;
+  let terrainUpdates = 0;
+  const view = Object.assign(Object.create(MapView.prototype), controls, {
+    renderer: "3d", manualGpsMode: true, manualGpsPoints: points,
+    gpxImportButtons: [], pendingGpxImportMode: "routed",
+    map: { getContainer: () => ({ style: {} }) },
+    manualGpsLayer: { clearLayers() {} },
+    terrainView: { renderManualGpsSelection() { terrainUpdates += 1; } },
+    syncManualGpsUi() {},
+    handlers: {
+      async onManualGpsSave(value) {
+        if (rejectSave) throw new Error("save failed");
+        saved = value;
+      },
+      async onGpxImport(file, mode) { imported = { file, mode }; }
+    }
+  });
+  view.registerManualGpsControls();
+  await assert.rejects(callbacks.manualGpsSaveButton, /save failed/);
+  assert.equal(view.manualGpsMode, true);
+  assert.equal(view.manualGpsPoints, points);
+  rejectSave = false;
+  await callbacks.manualGpsSaveButton();
+  assert.equal(saved, points);
+  assert.equal(view.renderer, "3d");
+  assert.equal(view.manualGpsMode, false);
+  assert.deepEqual(view.manualGpsPoints, []);
+  const file = { name: "route.gpx" };
+  view.gpxFileInput.files = [file];
+  await callbacks.gpxFileInput();
+  assert.deepEqual(imported, { file, mode: "routed" });
+  assert.equal(view.gpxImportBusy, false);
+  assert.equal(view.gpxFileInput.value, "");
+  view.manualGpsMode = true;
+  view.manualGpsPoints = [...points];
+  callbacks.manualGpsClearButton();
+  assert.deepEqual(view.manualGpsPoints, []);
+  assert.equal(view.manualGpsMode, true);
+  view.manualGpsPoints = [...points];
+  callbacks.manualGpsCancelButton();
+  assert.deepEqual(view.manualGpsPoints, []);
+  assert.equal(view.manualGpsMode, false);
+  assert.equal(terrainUpdates, 3);
+});
+
+test("switching workouts discards manual GPS drafts before rendering the next workout", () => {
+  let discarded = false;
+  const view = Object.assign(Object.create(MapView.prototype), {
+    currentWorkout: { id: 1 }, manualGpsMode: true,
+    disableManualGpsMode() { discarded = true; },
+    trackLayer: { clearLayers() { throw new Error("render boundary"); } }
+  });
+  assert.throws(() => view.renderTrack({ id: 2 }), /render boundary/);
+  assert.equal(discarded, true);
+  discarded = false;
+  assert.throws(() => view.renderTrack({ id: 2 }), /render boundary/);
+  assert.equal(discarded, false);
 });
