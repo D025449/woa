@@ -42,6 +42,13 @@ dokumentieren die Werkzeuge; sie sind keine Ausführungsfreigabe.
 | `maps:prepare` | `npm run maps:prepare -- --env-file .env.production [--json]`: recompute the plan, download missing/invalid archives and verify actual viewport tiles. | Same read-only database access; writes only to configured `WOA_MAP_DATA_DIR` with an exclusive lock, checked `.part` downloads and atomic replacement. Needs download space plus 5%/256 MiB margin. Reuses valid archives; no DB writes, migrations, rasterization, service restart or env changes. Exit 2 for incomplete coverage; 1 for operational errors. [Production workflow](workout-map.md#production-planning-and-preparation-over-ssh). |
 | `account-deletion:sweep` | `npm run account-deletion:sweep` | Führt einen Batch fälliger endgültiger Kontolöschungen aus; kein Vorschau-Modus. |
 
+The map commands resolve the active production database through the same pointer
+resolver as PM2. `.env.production` implies production mode unless its `NODE_ENV`
+explicitly overrides it; custom production filenames need `NODE_ENV=production`.
+Failures include a safe `stage`/allowlisted `code`, not raw connection details.
+Internal `node --` argument separation prevents Node from consuming `--env-file`;
+the documented npm command remains unchanged. See the production workflow above.
+
 `deploy:prod` unterstützt `GIT_REMOTE`, `RELEASE_BRANCH`, `DEPLOY_SSH_TARGET`
 und `DEPLOY_APP_DIR`. `SKIP_RELEASE_CHECKS=1` überspringt Tests und Checks.
 Die Typprüfung gehört nicht zum Release-Check. Implementierung: [`release-prod.sh`](../release-prod.sh).

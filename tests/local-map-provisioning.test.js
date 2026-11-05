@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { PbfWriter } from "pbf";
 import { spawnSync } from "node:child_process";
+import { getMapDatabaseConfig, runMapCommand, formatMapCommandError } from "../src/scripts/prepare-local-maps.js";
 import { getLocalMapCoverageBounds, project } from "../src/shared/localThumbnailMapViewport.js";
 import { buildMapPlan, readMapWorkoutBounds, discoverMapArchive, inspectMapArchive,
   prepareMapArchives } from "../src/services/localMapProvisioningService.js";
@@ -220,11 +221,84 @@ test("changed download sizes cancel the body and leave no partial files", async 
 });
 
 test("CLI requires explicit environment selection before connecting or downloading", () => {
-  const result = spawnSync(process.execPath, ["src/scripts/prepare-local-maps.js", "plan"], { encoding: "utf8" });
+  const result = spawnSync(process.execPath, ["--", "src/scripts/prepare-local-maps.js", "plan"], { encoding: "utf8" });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /explicit --env-file/);
   assert.equal(result.stdout, "");
-  const help = spawnSync(process.execPath, ["src/scripts/prepare-local-maps.js", "prepare", "--help"], { encoding: "utf8" });
+  const help = spawnSync(process.execPath, ["--", "src/scripts/prepare-local-maps.js", "prepare", "--help"], { encoding: "utf8" });
   assert.equal(help.status, 0);
   assert.match(help.stdout, /Usage: npm run maps:plan/);
+});
+
+test("standalone production config uses the same active database pointer as PM2", async () => {
+  await temporary(async directory => {
+    const pointer = path.join(directory, "active-database.env");
+    await writeFile(pointer, "DB_NAME=cwa24_prod_restore_20261105_090000\n");
+    const environment = { DB_NAME: "cwa24_prod", DB_USER: "fixture_user", DB_PASSWORD: "fixture-secret",
+      BACKUP_ACTIVE_DATABASE_FILE: pointer };
+    const config = getMapDatabaseConfig(environment, path.join(directory, ".env.production"));
+    assert.equal(config.database, "cwa24_prod_restore_20261105_090000");
+    assert.equal(config.host, "localhost");
+    assert.equal(config.password, "fixture-secret");
+    assert.equal(getMapDatabaseConfig(environment, ".env.development").database, "cwa24_prod");
+    assert.equal(getMapDatabaseConfig({ ...environment, NODE_ENV: "production" }, "custom.env").database, config.database);
+    assert.equal(getMapDatabaseConfig({ ...environment, BACKUP_ACTIVE_DATABASE_FILE: path.join(directory, "absent") }, ".env.production").database, "cwa24_prod");
+  });
+});
+
+test("command resolves pointer before connect and exposes only safe stage/code on failure", async () => {
+  await temporary(async directory => {
+    const previous = { ...process.env };
+    try {
+      const pointer = path.join(directory, "active-database.env");
+      const envFile = path.join(directory, ".env.production");
+      await writeFile(pointer, "DB_NAME=cwa24_prod_restore_20261105_090000\n");
+      await writeFile(envFile, `DB_NAME=cwa24_prod\nDB_USER=fixture_user\nDB_PASSWORD=fixture-secret\nBACKUP_ACTIVE_DATABASE_FILE=${pointer}\n`);
+      let config;
+      let closed = false;
+      await assert.rejects(runMapCommand(["plan", "--env-file", envFile], { clientFactory: selected => {
+        config = selected;
+        return { async connect() { throw Object.assign(new Error("fixture-secret connection details"), { code: "3D000" }); },
+          async end() { closed = true; } };
+      } }), error => {
+        assert.match(formatMapCommandError(error), /stage=database-connect, code=3D000/);
+        assert.doesNotMatch(formatMapCommandError(error), /fixture-secret|connection details/);
+        return true;
+      });
+      assert.equal(config.database, "cwa24_prod_restore_20261105_090000");
+      assert.equal(closed, true);
+      await assert.rejects(runMapCommand(["plan", "--env-file", envFile], { clientFactory: () => ({
+        async connect() {}, async query() { throw Object.assign(new Error("fixture-secret"), { code: "42501" }); }, async end() {}
+      }) }), error => {
+        assert.match(formatMapCommandError(error), /stage=database-read, code=42501/);
+        assert.doesNotMatch(formatMapCommandError(error), /fixture-secret/);
+        return true;
+      });
+    } finally { process.env = previous; }
+  });
+});
+
+test("diagnostics do not print arbitrary error codes, stages, messages or nested causes", () => {
+  const result = formatMapCommandError({ stage: "fixture-secret", code: "fixture-secret", message: "fixture-secret" });
+  assert.equal(result, "Map command failed [stage=arguments, code=UNKNOWN]");
+  assert.equal(formatMapCommandError({ cause: { code: "ECONNREFUSED", message: "fixture-secret" } }),
+    "Map command failed [stage=arguments, code=ECONNREFUSED]");
+});
+
+test("CLI diagnoses missing environment files and invalid pointers without exposing contents", async () => {
+  await temporary(async directory => {
+    const envFile = path.join(directory, ".env.production");
+    const absent = spawnSync(process.execPath, ["--", "src/scripts/prepare-local-maps.js", "plan", "--env-file", envFile], { encoding: "utf8" });
+    assert.equal(absent.status, 1);
+    assert.match(absent.stderr, /stage=environment, code=ENOENT/);
+    assert.equal(absent.stdout, "");
+    const pointer = path.join(directory, "active-database.env");
+    await writeFile(pointer, "DB_NAME=fixture-secret;invalid\n");
+    await writeFile(envFile, `DB_NAME=cwa24_prod\nDB_USER=fixture_user\nDB_PASSWORD=fixture-secret\nBACKUP_ACTIVE_DATABASE_FILE=${pointer}\n`);
+    const invalid = spawnSync(process.execPath, ["--", "src/scripts/prepare-local-maps.js", "plan", "--env-file", envFile], { encoding: "utf8" });
+    assert.equal(invalid.status, 1);
+    assert.match(invalid.stderr, /stage=runtime-database, code=UNKNOWN/);
+    assert.doesNotMatch(invalid.stderr, /fixture-secret|fixture_user/);
+    assert.equal(invalid.stdout, "");
+  });
 });

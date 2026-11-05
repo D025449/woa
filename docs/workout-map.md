@@ -114,6 +114,32 @@ Only controlled error messages are exposed; raw connection errors/environment
 contents are not printed. Plans contain aggregate counts/region names rather than
 raw GPS tracks. Per-region workout counts overlap when routes span regions.
 
+The standalone commands use the same runtime database resolver as PM2, including
+the production active-database pointer (default `/etc/cwa24/active-database.env`,
+overridable with `BACKUP_ACTIVE_DATABASE_FILE`). Selecting `.env.production`
+enables production pointer resolution even when the SSH shell has no `NODE_ENV`;
+an explicit `NODE_ENV` in the selected file takes precedence. For differently
+named production files, include `NODE_ENV=production` in that file. Development
+files without `NODE_ENV` do not read the production pointer. If the pointer does
+not exist, the configured `DB_NAME` remains the fallback. No PM2 invocation or
+shell-sourcing of environment files is required.
+
+Failures include a controlled stage and allowlisted error code, for example
+`Map command failed [stage=database-connect, code=3D000]`. Stages distinguish
+`environment`, `runtime-database`, `database-connect`, `database-read`, `catalog`,
+`plan` and `prepare` (plus argument/runtime/close checks). Common codes include
+`3D000` (database absent), `28P01` (authentication), `42501` (permissions),
+`ECONNREFUSED`, `ENOTFOUND`, `EACCES` and `ENOSPC`. Unknown errors report `UNKNOWN`,
+not raw messages, stacks, credentials or URLs. The npm scripts use `node --` to
+keep the script's `--env-file` argument separate from Node's own option; the
+documented npm invocation is unchanged. The earlier generic production failure
+was not diagnosed remotely: retry after deploying this correction and use the
+new stage/code as evidence rather than assuming a database-pointer cause.
+Local verification: all 790 tests passed, including simulated production pointer,
+connect/read failures, missing file/invalid pointer and secret-redaction tests.
+Syntax/lint passed; only the three known `lastEnd` type errors remain. No production
+access, service restart, migration or deployment was performed by Copilot.
+
 The inventory uses one `BEGIN READ ONLY` transaction and only stored
 `workouts.gps_bounds` for valid GPS workouts, across all users. It counts existing
 thumbnails without reading their content. Mercator framing/padding is shared with

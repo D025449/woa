@@ -3,6 +3,25 @@
 Stand: 2026-11-05. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Map CLI Runtime Database And Diagnostics Fix (2026-11-05)
+
+- User reported a generic production `maps:plan` failure with the correct
+	`--env-file .env.production` invocation and approved a local-only correction.
+	The original production cause remains unconfirmed; no remote access/retry.
+- CLI now reuses PM2's active-database resolver. Production filename selects
+	production mode when no explicit NODE_ENV is in the file; custom filenames
+	require NODE_ENV=production. Development does not read the production pointer.
+- Failures expose controlled stage/allowlisted code, never raw connection messages,
+	stacks, credentials or URLs. Added internal `node --` argument separation after
+	reproducing Node 26 consuming a missing --env-file before the script ran.
+- All 790 tests passed, including 18 provisioning/CLI tests with temporary
+	pointers, simulated connect/read failures and real early-error subprocesses.
+	Syntax/lint passed (70 existing warnings); no editor errors in changed files.
+	Only three known `lastEnd` type errors remain. No deployment, production access,
+	service restart, real archive downloads or migrations by Copilot.
+- Updated `docs/workout-map.md` and `docs/npm-scripts.md` with runtime selection,
+	unchanged operator commands and safe stage/code troubleshooting.
+
 ## Manual Production Map Provisioning Commands (2026-11-05)
 
 - User approved `maps:plan` and `maps:prepare` for manual use after SSH login,
