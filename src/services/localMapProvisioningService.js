@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdir, readdir, stat, statfs, open, unlink, rename } from "node:fs/promises";
+import { mkdir, stat, statfs, open, unlink, rename } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { gunzipSync } from "node:zlib";
 import { load } from "cheerio";
@@ -13,6 +13,7 @@ import { PbfReader } from "pbf";
 import { getLocalMapCoverageBounds, project } from "../shared/localThumbnailMapViewport.js";
 import { getLocalThumbnailMapConfig } from "../config/storagePaths.js";
 import { MapStorageError, readMapStorageUsage, mapStorageCapacity, withMapStorageBudget } from "./localMapStorageService.js";
+import { readMapArchiveSet, mapArchivePath, mapArchiveSetIdentity, describeMapArchive, activateMapArchiveSet } from "./localMapArchiveSetService.js";
 
 /** @typedef {{phase: string, archive?: string, completed?: number, total?: number, bytes?: number, totalBytes?: number, attempt?: number}} MapProgress */
 /** @typedef {{fetchFn?: typeof fetch, signal?: AbortSignal, onProgress?: (progress: MapProgress) => void}} MapFetchOptions */
@@ -301,17 +302,17 @@ export async function buildMapPlan(workouts, catalog, { dataDirectory = getLocal
       parent = byId.get(parent).parent;
     }
   }
-  const filenames = (await readdir(dataDirectory).catch(error => { if (error.code === "ENOENT") return []; throw error; }))
-    .filter(name => name.endsWith(".mbtiles"));
+  const inventory = readMapArchiveSet(dataDirectory).active.archives;
+  const filenames = inventory.map(entry => entry.filename);
   const existing = new Map();
   for (const [index, filename] of filenames.entries()) {
     signal?.throwIfAborted();
-    onProgress({ phase: "inspect-existing", archive: filename.slice(0, -".mbtiles".length).replaceAll("--", "/"),
+    onProgress({ phase: "inspect-existing", archive: inventory.find(entry => entry.filename === filename)?.id || "unknown",
       completed: index + 1, total: filenames.length });
     existing.set(filename, await inspectArchive(path.join(dataDirectory, filename), { fullIntegrityCheck: inspectionMode === "full" }));
   }
   const archives = [...required.values()].sort((first, second) => first.id.localeCompare(second.id)).map(entry => {
-    const filename = `${entry.id.replaceAll("/", "--")}.mbtiles`;
+    const filename = inventory.find(existing => existing.id === entry.id)?.filename || `${entry.id.replaceAll("/", "--")}.mbtiles`;
     return { id: entry.id, name: entry.name, filename, url: entry.url, downloadBytes: entry.bytes,
       existingValid: existing.get(filename)?.valid === true, existingBytes: existing.get(filename)?.bytes || 0,
       integrityChecked: existing.get(filename)?.valid === true && inspectionMode === "full",
@@ -334,8 +335,9 @@ export async function buildMapPlan(workouts, catalog, { dataDirectory = getLocal
   return plan;
 }
 
-/** @param {any} plan @param {MapFetchOptions & {inspectArchive?: typeof inspectMapArchive}} options */
-export async function prepareMapArchives(plan, { fetchFn = fetch, signal, onProgress = () => {}, inspectArchive = inspectMapArchive } = {}) {
+/** @param {any} plan @param {MapFetchOptions & {inspectArchive?: typeof inspectMapArchive, versioned?: boolean, forceRegions?: string[], expectedIdentity?: string}} options */
+export async function prepareMapArchives(plan, { fetchFn = fetch, signal, onProgress = () => {}, inspectArchive = inspectMapArchive,
+  versioned = false, forceRegions = [], expectedIdentity = null } = {}) {
   const { report, coverage } = plan;
   if (!report.readyToPrepare) throw new MapSetupError("Incomplete map plan; resolve reported bounds/coverage/archive limits first");
   const directory = report.dataDirectory;
@@ -347,7 +349,13 @@ export async function prepareMapArchives(plan, { fetchFn = fetch, signal, onProg
   });
   const created = [];
   try {
-    const currentFiles = (await readdir(directory)).filter(name => name.endsWith(".mbtiles"));
+    const currentSet = readMapArchiveSet(directory);
+    const identity = mapArchiveSetIdentity(directory);
+    if (expectedIdentity && expectedIdentity !== identity) throw new MapSetupError("Active archive set changed; check again");
+    const managed = versioned || currentSet.managed;
+    const versionId = randomUUID();
+    const installed = new Map();
+    const currentFiles = currentSet.active.archives.map(entry => entry.filename);
     if (new Set([...currentFiles, ...report.archives.map(entry => entry.filename)]).size > ARCHIVE_LIMIT) {
       throw new MapSetupError("Map archive count changed beyond renderer limit; rerun maps:plan");
     }
@@ -364,7 +372,7 @@ export async function prepareMapArchives(plan, { fetchFn = fetch, signal, onProg
         onProgress({ phase: "inspect-required", archive: archive.id, completed: index + 1, total: report.archives.length });
         valid = (await inspectArchive(filename)).valid;
       }
-      if (!valid) missing.push(archive);
+      if (!valid || forceRegions.includes(archive.id)) missing.push(archive);
       else onProgress({ phase: "reuse", archive: archive.id });
     }
     const needed = missing.reduce((sum, entry) => sum + entry.downloadBytes, 0);
@@ -374,7 +382,9 @@ export async function prepareMapArchives(plan, { fetchFn = fetch, signal, onProg
     for (const [index, original] of missing.entries()) {
       const archive = { ...original };
       signal?.throwIfAborted();
-      const destination = path.join(directory, archive.filename);
+      const relative = managed ? `versions/${versionId}/${archive.id.replaceAll("/", "--")}.mbtiles` : archive.filename;
+      const destination = path.join(directory, relative);
+      if (managed) await mkdir(path.dirname(destination), { recursive: true });
       const temporary = `${destination}.${randomUUID()}.part`;
       const timeout = AbortSignal.timeout(2 * 60 * 60 * 1000);
       const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
@@ -405,6 +415,8 @@ export async function prepareMapArchives(plan, { fetchFn = fetch, signal, onProg
         onProgress({ phase: "verify-download", archive: archive.id });
         if (bytes !== archive.downloadBytes || !(await inspectArchive(temporary)).valid) throw new MapSetupError("Downloaded archive failed size/SQLite/Shortbread validation");
         await rename(temporary, destination);
+        if (managed) installed.set(archive.id, { id: archive.id, filename: relative, sha256: null,
+          source: { url: archive.url, bytes, ...mapArchiveMetadata(response.headers) } });
         created.push(archive.id);
         onProgress({ phase: "installed", archive: archive.id, completed: created.length, total: missing.length });
       } finally { await unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; }); }
@@ -413,12 +425,32 @@ export async function prepareMapArchives(plan, { fetchFn = fetch, signal, onProg
       if (error instanceof MapStorageError) throw new MapSetupError(error.message);
       throw error;
     });
+    const nextEntries = managed ? [...currentSet.active.archives.filter(entry => !installed.has(entry.id)), ...installed.values()]
+      : readMapArchiveSet(directory).active.archives;
+    const uncoveredWorkouts = await checkMapArchiveCoverage(directory, nextEntries, coverage, { signal, onProgress });
+    let activeSet = currentSet.active.id;
+    if (managed && created.length) {
+      if (uncoveredWorkouts.length) throw new MapSetupError("Updated archive coverage incomplete; active set unchanged");
+      const previous = { ...currentSet.active, archives: await Promise.all(currentSet.active.archives.map(entry => describeMapArchive(directory, entry))) };
+      const active = { id: versionId, archives: await Promise.all(nextEntries.map(entry => describeMapArchive(directory, entry))) };
+      onProgress({ phase: "activate-set" });
+      await activateMapArchiveSet({ dataDirectory: directory, cacheRoot: report.cacheRoot || getLocalThumbnailMapConfig().cacheRoot }, active, identity, previous);
+      activeSet = versionId;
+    }
+    const storage = mapStorageCapacity(await readMapStorageUsage({ dataDirectory: directory,
+      cacheRoot: report.cacheRoot || getLocalThumbnailMapConfig().cacheRoot }), 0);
+    return { storage, activeSet, created, reused: report.archives.filter(archive => !created.includes(archive.id)).map(archive => archive.id),
+      uncoveredWorkouts, readyToActivate: nextEntries.length > 0 && !uncoveredWorkouts.length };
+  } finally { await lock.close(); await unlink(lockPath); }
+}
+
+export async function checkMapArchiveCoverage(directory, entries, coverage, { signal = undefined, onProgress = (_progress) => {} } = {}) {
     const { DatabaseSync } = await import("node:sqlite");
     const databases = [];
     const uncoveredWorkouts = [];
     try {
-      for (const filename of (await readdir(directory)).filter(name => name.endsWith(".mbtiles"))) {
-        const database = new DatabaseSync(path.join(directory, filename), { readOnly: true });
+      for (const entry of entries) {
+        const database = new DatabaseSync(mapArchivePath(directory, entry), { readOnly: true });
         databases.push({ database, tile: database.prepare("SELECT 1 FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=?") });
       }
       onProgress({ phase: "coverage", completed: 0, total: coverage.length });
@@ -440,9 +472,5 @@ export async function prepareMapArchives(plan, { fetchFn = fetch, signal, onProg
         }
       }
     } finally { for (const source of databases) source.database.close(); }
-    const storage = mapStorageCapacity(await readMapStorageUsage({ dataDirectory: directory,
-      cacheRoot: report.cacheRoot || getLocalThumbnailMapConfig().cacheRoot }), 0);
-    return { storage, created, reused: report.archives.filter(archive => !created.includes(archive.id)).map(archive => archive.id),
-      uncoveredWorkouts, readyToActivate: databases.length > 0 && !uncoveredWorkouts.length };
-  } finally { await lock.close(); await unlink(lockPath); }
+    return uncoveredWorkouts;
 }

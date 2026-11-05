@@ -7,6 +7,7 @@ import { resolveRuntimeDatabaseEnvironment } from "../../ops/postgres-backup/run
 import { getLocalThumbnailMapConfig } from "../config/storagePaths.js";
 import { MapSetupError, fetchMapCatalog, readMapWorkoutBounds, buildMapPlan, prepareMapArchives } from "../services/localMapProvisioningService.js";
 import { validateMapApproval } from "../services/localMapAdminService.js";
+import { installMapArchiveUpdates, rollbackMapArchives } from "../services/localMapLifecycleService.js";
 
 const SAFE_ERROR_CODES = new Set(["28P01", "28000", "3D000", "42501", "42P01", "42703", "57014", "08001", "08006",
   "EACCES", "EPERM", "ENOENT", "ENOSPC", "EEXIST", "ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ETIMEDOUT",
@@ -14,7 +15,7 @@ const SAFE_ERROR_CODES = new Set(["28P01", "28000", "3D000", "42501", "42P01", "
   "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT",
   "ERR_PARSE_ARGS_UNKNOWN_OPTION", "ERR_PARSE_ARGS_UNEXPECTED_POSITIONAL", "ERR_PARSE_ARGS_INVALID_OPTION_VALUE", "ABORT_ERR"]);
 const MAP_STAGES = new Set(["arguments", "sqlite-runtime", "environment", "runtime-database", "database-connect",
-  "database-read", "database-close", "catalog", "plan", "prepare"]);
+  "database-read", "database-close", "catalog", "plan", "prepare", "request", "install", "rollback"]);
 
 function safeErrorCode(error) {
   return [error?.code, error?.cause?.code, error?.cause?.errors?.[0]?.code]
@@ -59,17 +60,28 @@ export function formatMapProgress(progress) {
   return fields.join(" ");
 }
 
+async function readLifecycleRequest() {
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of process.stdin) {
+    bytes += chunk.length;
+    if (bytes > 128 * 1024) throw new MapSetupError("Map lifecycle request too large");
+    chunks.push(Buffer.from(chunk));
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
 export async function runMapCommand(argv, { clientFactory = config => new Client(config), fetchFn = fetch,
-  progressWriter = message => console.error(message) } = {}) {
+  progressWriter = message => console.error(message), requestReader = readLifecycleRequest } = {}) {
   const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: {
     "env-file": { type: "string" }, "approved-regions": { type: "string" }, quick: { type: "boolean", default: false }, json: { type: "boolean", default: false }, help: { type: "boolean", default: false }
   } });
   if (values.help) {
-    console.log("Usage: npm run maps:plan|maps:prepare -- --env-file .env.production [--json] [--approved-regions id,...]\nPlan additionally accepts --quick for archive metadata/tile sampling without full SQLite integrity checks. Prepare does not accept --quick. Neither command writes database data or runs migrations.");
+    console.log("Usage: npm run maps:plan|maps:prepare -- --env-file .env.production [--json] [--approved-regions id,...]\nPlan additionally accepts --quick for archive metadata/tile sampling without full SQLite integrity checks. Prepare does not accept --quick. Internal Ops commands install|rollback require a bounded JSON approval request on stdin and an explicit --env-file. No command writes database data or runs migrations.");
     return;
   }
   const command = positionals[0];
-  if (!["plan", "prepare"].includes(command) || positionals.length !== 1 || !values["env-file"]) throw new MapSetupError("Specify plan|prepare and an explicit --env-file; see --help");
+  if (!["plan", "prepare", "install", "rollback"].includes(command) || positionals.length !== 1 || !values["env-file"]) throw new MapSetupError("Specify plan|prepare|install|rollback and an explicit --env-file; see --help");
   if (values.quick && command !== "plan") throw new MapSetupError("--quick is only supported for plan; prepare requires full archive checks");
   await mapStage("sqlite-runtime", async () => {
     try { await import("node:sqlite"); }
@@ -83,6 +95,7 @@ export async function runMapCommand(argv, { clientFactory = config => new Client
     }
     return loaded.parsed;
   });
+  const lifecycleRequest = ["install", "rollback"].includes(command) ? await mapStage("request", requestReader) : null;
   const client = await mapStage("runtime-database", () => clientFactory(getMapDatabaseConfig(environment, values["env-file"])));
   const cancellation = new AbortController();
   const abort = () => cancellation.abort(new MapSetupError("Map command interrupted"));
@@ -95,6 +108,14 @@ export async function runMapCommand(argv, { clientFactory = config => new Client
     onProgress({ phase: "database-read" });
     const workouts = await mapStage("database-read", () => readMapWorkoutBounds(client));
     await mapStage("database-close", () => client.end());
+    if (lifecycleRequest) {
+      const options = { config: getLocalThumbnailMapConfig(), fetchFn, signal: cancellation.signal, onProgress };
+      const lifecycle = await mapStage(command, () => command === "install"
+        ? installMapArchiveUpdates(lifecycleRequest.snapshot, lifecycleRequest.approvedRegions, workouts, options)
+        : rollbackMapArchives(lifecycleRequest, workouts, options));
+      console.log(values.json ? JSON.stringify({ lifecycle }) : `Active map set: ${lifecycle.activeSet}; rolled back: ${lifecycle.rolledBack}`);
+      return;
+    }
     onProgress({ phase: "catalog" });
     const catalog = await mapStage("catalog", () => fetchMapCatalog({ signal: cancellation.signal, fetchFn }));
     onProgress({ phase: "plan" });

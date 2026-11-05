@@ -2,6 +2,9 @@ import express from "express";
 import requireAdmin from "../middleware/requireAdmin.js";
 import { MAP_OPERATIONS } from "../services/localMapAdminService.js";
 import { mapUpdateStateKey, readMapUpdateState } from "../services/localMapUpdateService.js";
+import { getLocalThumbnailMapConfig } from "../config/storagePaths.js";
+import { readMapArchiveSet, mapArchiveSetIdentity } from "../services/localMapArchiveSetService.js";
+import { validateMapInstallation } from "../services/localMapLifecycleService.js";
 
 export function createLocalMapAdminRouter({ queue, authorize = requireAdmin }) {
   const router = express.Router();
@@ -23,12 +26,17 @@ export function createLocalMapAdminRouter({ queue, authorize = requireAdmin }) {
       const states = (await Promise.all(jobs.map(async job => ({ job, state: await job.getState() }))))
         .filter(entry => !(entry.job.name === "maps-updates" && entry.job.data?.scheduled === true && entry.state === "delayed"));
       const current = states.find(entry => ["active", "waiting", "delayed"].includes(entry.state)) || states[0];
-      const completed = states.filter(entry => entry.state === "completed" && entry.job.name !== "maps-updates")
+      const completed = states.filter(entry => entry.state === "completed" && ["maps-scan", "maps-prepare"].includes(entry.job.name))
         .sort((first, second) => second.job.finishedOn - first.job.finishedOn)[0]?.job;
       const updates = await readMapUpdateState(await queue.client, mapUpdateStateKey(queue.qualifiedName));
+      const directory = getLocalThumbnailMapConfig().dataDirectory;
+      const manifest = readMapArchiveSet(directory, { checkFiles: false });
+      const lifecycle = { identity: mapArchiveSetIdentity(directory), activeSet: manifest.active.id,
+        previousSet: manifest.previous?.id || null };
       const failureTag = String(current?.job.failedReason || "").match(/\[stage=[a-z-]+, code=[A-Z0-9_]+\]/)?.[0] || "";
       return res.json({ ok: true, report: completed?.returnvalue || null, reportJobId: completed ? String(completed.id) : null,
         updates: updates.report || null,
+        lifecycle,
         job: current ? { id: String(current.job.id), operation: current.job.name, state: current.state,
           progress: current.job.progress || null,
           error: current.state === "failed" ? `Kartenoperation fehlgeschlagen. ${failureTag} Server-Diagnose erforderlich.` : null } : null });
@@ -46,6 +54,36 @@ export function createLocalMapAdminRouter({ queue, authorize = requireAdmin }) {
   router.post("/updates", async (req, res, next) => {
     try {
       const job = await queue.add("maps-updates", { requestedBy: String(req.user.id) },
+        { deduplication: { id: "local-map-operation" } });
+      return res.status(202).json({ ok: true, jobId: String(job.id) });
+    } catch (error) { return next(error); }
+  });
+
+  router.post("/install", async (req, res, next) => {
+    try {
+      const { checkedAt, approvedRegions, confirmed } = req.body || {};
+      if (confirmed !== true) return res.status(400).json({ error: "Installationsfreigabe fehlt." });
+      const snapshot = await readMapUpdateState(await queue.client, mapUpdateStateKey(queue.qualifiedName));
+      try {
+        validateMapInstallation(snapshot, approvedRegions);
+        if (checkedAt !== snapshot.report.checkedAt || mapArchiveSetIdentity(getLocalThumbnailMapConfig().dataDirectory) !== snapshot.report.identity) throw new Error();
+      } catch { return res.status(409).json({ error: "Updates erneut prüfen und freigeben." }); }
+      const job = await queue.add("maps-install", { requestedBy: String(req.user.id), checkedAt, approvedRegions },
+        { deduplication: { id: "local-map-operation" } });
+      return res.status(202).json({ ok: true, jobId: String(job.id) });
+    } catch (error) { return next(error); }
+  });
+
+  router.post("/rollback", async (req, res, next) => {
+    try {
+      const { confirmed, expectedIdentity, previousSet } = req.body || {};
+      if (confirmed !== true) return res.status(400).json({ error: "Rollback-Freigabe fehlt." });
+      const directory = getLocalThumbnailMapConfig().dataDirectory;
+      const manifest = readMapArchiveSet(directory, { checkFiles: false });
+      if (!manifest.previous || previousSet !== manifest.previous.id || expectedIdentity !== mapArchiveSetIdentity(directory)) {
+        return res.status(409).json({ error: "Rollback-Ziel geändert; Ansicht aktualisieren." });
+      }
+      const job = await queue.add("maps-rollback", { requestedBy: String(req.user.id), expectedIdentity, previousSet },
         { deduplication: { id: "local-map-operation" } });
       return res.status(202).json({ ok: true, jobId: String(job.id) });
     } catch (error) { return next(error); }

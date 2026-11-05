@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { gunzipSync } from 'node:zlib';
-import { statSync, readdirSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import { mkdir, readFile, writeFile, rename, readdir, stat, unlink, utimes } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -11,6 +11,7 @@ import sharp from 'sharp';
 import simplify from 'simplify-js';
 import { getLocalThumbnailMapConfig } from '../config/storagePaths.js';
 import { MapStorageError, withMapStorageBudget } from './localMapStorageService.js';
+import { readMapArchiveSet, mapArchivePath } from './localMapArchiveSetService.js';
 import { WORKOUT_ROUTE_COLOR, WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION } from '../shared/SegmentAppearance.js';
 import { project, getLocalMapViewport } from '../shared/localThumbnailMapViewport.js';
 
@@ -28,10 +29,11 @@ export class LocalMapRenderer {
     cacheVersion = 'osm-raster-2', maxMemoryBytes = 16 * 1024 ** 2, maxDiskBytes = 128 * 1024 ** 2 } = {}) {
     this.archives = [];
     try {
-      const filenames = readdirSync(dataDirectory).filter(name => name.endsWith('.mbtiles')).sort();
-      if (!filenames.length || filenames.length > 16) throw new Error('Invalid local map archive count');
-      for (const filename of filenames) {
-      const archivePath = path.join(dataDirectory, filename);
+      const entries = readMapArchiveSet(dataDirectory).active.archives;
+      if (!entries.length || entries.length > 16) throw new Error('Invalid local map archive count');
+      for (const entry of entries) {
+      const filename = entry.filename;
+      const archivePath = mapArchivePath(dataDirectory, entry);
       const database = new DatabaseSync(archivePath, { readOnly: true });
       try {
       const metadata = Object.fromEntries(database.prepare('SELECT name, value FROM metadata').all()

@@ -12,6 +12,7 @@ import { buildMapPlan as buildServiceMapPlan, readMapWorkoutBounds, discoverMapA
   prepareMapArchives, mapArchiveMetadata, compareMapArchiveMetadata } from "../src/services/localMapProvisioningService.js";
 import { mapStorageLimit, MAP_STORAGE_MAX_BYTES, readMapStorageUsage, mapStorageCapacity,
   withMapStorageBudget } from "../src/services/localMapStorageService.js";
+import { readMapArchiveSet, mapArchiveSetIdentity } from "../src/services/localMapArchiveSetService.js";
 
 test("archive metadata uses only strong bounded ETags and valid HTTP modification dates", () => {
   assert.deepEqual(mapArchiveMetadata(new Headers({ etag: '"version-1"', "last-modified": "Thu, 05 Nov 2026 10:00:00 GMT" })),
@@ -734,6 +735,39 @@ test("CLI prepare keeps JSON on stdout and emits all progress on stderr without 
     assert.match(blocked.stderr, /Map demand changed or approval invalid/);
     assert.equal(blocked.stdout, "");
     assert.doesNotMatch(blocked.stderr, /\[maps\] download-request/);
+  });
+});
+
+test("lifecycle CLI consumes real bounded stdin and installs then rolls back without live services", async () => {
+  await temporary(async directory => {
+    const maps = path.join(directory, "maps");
+    await mkdir(maps);
+    const filename = path.join(maps, "west.mbtiles");
+    const body = await tinyArchive(filename, true);
+    const envFile = path.join(directory, ".env.development");
+    await writeFile(envFile, `DB_NAME=fixture_db\nDB_USER=fixture_user\nWOA_MAP_DATA_DIR=${maps}\nWOA_MAP_CACHE_DIR=${path.join(directory, "cache")}\n`);
+    const snapshot = { version: 1, report: { checkedAt: new Date().toISOString(), identity: mapArchiveSetIdentity(maps),
+      regions: [{ id: "west", canInstall: true }] }, entries: { west: { current: {
+      url: "https://download.geofabrik.de/west-shortbread-1.0.mbtiles", bytes: body.length, etag: '"approved"', lastModified: null } } } };
+    const script = `import {readFile} from "node:fs/promises";
+      import {runMapCommand} from "./src/scripts/prepare-local-maps.js";
+      const body = await readFile(${JSON.stringify(filename)});
+      await runMapCommand([process.env.TEST_MAP_ROLLBACK ? "rollback" : "install", "--env-file", ${JSON.stringify(envFile)}, "--json"], {
+        clientFactory: () => ({async connect(){},async end(){},async query(){return {rows:[]};}}),
+        fetchFn: async () => {if(process.env.TEST_MAP_ROLLBACK)throw new Error("rollback must not fetch");
+          return new Response(body,{headers:{"content-length":String(body.length),etag:'"approved"'}});}
+      });`;
+    const installed = spawnSync(process.execPath, ["--input-type=module", "-e", script],
+      { encoding: "utf8", input: JSON.stringify({ snapshot, approvedRegions: ["west"] }) });
+    assert.equal(installed.status, 0, installed.stderr);
+    assert.deepEqual(JSON.parse(installed.stdout).lifecycle.installed, ["west"]);
+    assert.match(installed.stderr, /activate-set/);
+    const manifest = readMapArchiveSet(maps);
+    const rolledBack = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8",
+      env: { ...process.env, TEST_MAP_ROLLBACK: "1" }, input: JSON.stringify({ expectedIdentity: mapArchiveSetIdentity(maps), previousSet: manifest.previous.id }) });
+    assert.equal(rolledBack.status, 0, rolledBack.stderr);
+    assert.equal(JSON.parse(rolledBack.stdout).lifecycle.rolledBack, true);
+    assert.equal(readMapArchiveSet(maps).active.id, manifest.previous.id);
   });
 });
 

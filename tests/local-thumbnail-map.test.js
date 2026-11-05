@@ -10,9 +10,110 @@ import { PbfWriter } from "pbf";
 import sharp from "sharp";
 import { LocalMapRenderer, project } from "../src/services/localThumbnailMapRenderer.js";
 import { LocalThumbnailMapClient } from "../src/services/localThumbnailMapService.js";
+import { readMapArchiveSet, MAP_ARCHIVE_MANIFEST, activateMapArchiveSet, mapArchiveSetIdentity } from "../src/services/localMapArchiveSetService.js";
 import { getLocalMapViewport, getLocalMapCoverageBounds } from "../src/shared/localThumbnailMapViewport.js";
+import { prepareMapArchives } from "../src/services/localMapProvisioningService.js";
+import { rollbackMapArchives, installMapArchiveUpdates, validateMapInstallation } from "../src/services/localMapLifecycleService.js";
+import { checkLocalMapUpdates } from "../src/services/localMapUpdateService.js";
 
 const example = { segments: [[[9.1, 48.72], [9.2, 48.78], [9.3, 48.8]]] };
+
+test("installations require fresh exact approval and matching GET metadata before activation", async () => {
+  await fixture(async config => {
+    const body = await readFile(path.join(config.dataDirectory, "fixture.mbtiles"));
+    const snapshot = { report: { checkedAt: new Date().toISOString(), identity: mapArchiveSetIdentity(config.dataDirectory),
+      regions: [{ id: "fixture", canInstall: true }] }, entries: { fixture: { current: {
+      url: "https://download.geofabrik.de/fixture-shortbread-1.0.mbtiles", bytes: body.length, etag: '"approved"', lastModified: null } } } };
+    assert.throws(() => validateMapInstallation(snapshot, ["other"]), /approval/);
+    assert.throws(() => validateMapInstallation(snapshot, ["fixture"], Date.now() + 3600001), /approval/);
+    await assert.rejects(installMapArchiveUpdates(snapshot, ["fixture"], [], { config,
+      fetchFn: async () => new Response(body, { headers: { "content-length": String(body.length), etag: '"changed"' } }) }), /differs/);
+    assert.equal(readMapArchiveSet(config.dataDirectory).managed, false);
+    await assert.rejects(installMapArchiveUpdates(snapshot, ["fixture"], [{ id: 1,
+      bounds: { minLat: 0, maxLat: 0.1, minLng: 0, maxLng: 0.1 } }], { config,
+      fetchFn: async () => new Response(body, { headers: { "content-length": String(body.length), etag: '"approved"' } }) }), /coverage/);
+    assert.equal(readMapArchiveSet(config.dataDirectory).managed, false);
+    const installed = await installMapArchiveUpdates(snapshot, ["fixture"], [], { config,
+      fetchFn: async () => new Response(body, { headers: { "content-length": String(body.length), etag: '"approved"' } }) });
+    assert.deepEqual(installed.installed, ["fixture"]);
+    assert.equal(readMapArchiveSet(config.dataDirectory).active.id, installed.activeSet);
+    const observed = await checkLocalMapUpdates(undefined, { dataDirectory: config.dataDirectory,
+      catalogLoader: async () => ({ features: [{ properties: { id: "fixture", name: "Fixture" } }] }),
+      resolveArchive: async () => snapshot.entries.fixture.current });
+    assert.equal(observed.report.regions[0].installedVersion, "recorded");
+    assert.equal(observed.report.regions[0].status, "unchanged");
+    assert.equal(observed.report.regions[0].canInstall, false);
+    await assert.rejects(installMapArchiveUpdates(snapshot, ["fixture"], [], { config,
+      fetchFn: async () => assert.fail("stale set must not download") }), /changed/);
+  });
+});
+
+test("versioned preparation retains active bytes on failure and records a validated replacement separately", async () => {
+  await fixture(async config => {
+    const original = await readFile(path.join(config.dataDirectory, "fixture.mbtiles"));
+    const plan = { report: { ...config, readyToPrepare: true, archives: [{ id: "fixture", filename: "fixture.mbtiles",
+      url: "https://download.geofabrik.de/fixture-shortbread-1.0.mbtiles", downloadBytes: original.length }] }, coverage: [] };
+    await assert.rejects(prepareMapArchives(plan, { versioned: true, forceRegions: ["fixture"],
+      fetchFn: async () => new Response(Buffer.alloc(original.length), { headers: { "content-length": String(original.length) } }) }), /validation/);
+    assert.deepEqual(await readFile(path.join(config.dataDirectory, "fixture.mbtiles")), original);
+    assert.equal(readMapArchiveSet(config.dataDirectory).managed, false);
+    const result = await prepareMapArchives(plan, { versioned: true, forceRegions: ["fixture"],
+      fetchFn: async () => new Response(original, { headers: { "content-length": String(original.length), etag: '"installed"' } }) });
+    assert.equal(result.readyToActivate, true);
+    const manifest = readMapArchiveSet(config.dataDirectory);
+    assert.equal(manifest.active.id, result.activeSet);
+    assert.match(manifest.active.archives[0].filename, /^versions\//);
+    assert.match(manifest.active.archives[0].sha256, /^[a-f0-9]{64}$/);
+    assert.equal(manifest.active.archives[0].source.etag, '"installed"');
+    assert.equal(manifest.previous.archives[0].filename, "fixture.mbtiles");
+    assert.deepEqual(await readFile(path.join(config.dataDirectory, "fixture.mbtiles")), original);
+    const renderer = new LocalMapRenderer(config);
+    try { assert.equal(renderer.archives.length, 1); } finally { renderer.close(); }
+    let request = { expectedIdentity: mapArchiveSetIdentity(config.dataDirectory), previousSet: manifest.previous.id };
+    await assert.rejects(rollbackMapArchives(request, [{ id: 1,
+      bounds: { minLat: 0, maxLat: 0.1, minLng: 0, maxLng: 0.1 } }], { config }), /coverage/);
+    assert.equal(readMapArchiveSet(config.dataDirectory).active.id, manifest.active.id);
+    await rm(path.join(config.dataDirectory, manifest.active.archives[0].filename));
+    assert.throws(() => new LocalMapRenderer(config), /ENOENT/);
+    request = { ...request, expectedIdentity: mapArchiveSetIdentity(config.dataDirectory) };
+    const rolledBack = await rollbackMapArchives(request, [], { config });
+    assert.equal(rolledBack.rolledBack, true);
+    assert.equal(readMapArchiveSet(config.dataDirectory).active.id, manifest.previous.id);
+    await assert.rejects(rollbackMapArchives(request, [], { config }), /changed/);
+    await writeFile(path.join(config.dataDirectory, manifest.active.archives[0].filename), "corrupt retired target");
+    await assert.rejects(rollbackMapArchives({ expectedIdentity: mapArchiveSetIdentity(config.dataDirectory),
+      previousSet: manifest.active.id }, [], { config }), /changed|checksum/);
+    assert.equal(readMapArchiveSet(config.dataDirectory).active.id, manifest.previous.id);
+  });
+});
+
+test("atomic activation changes the worker revision and rejects a stale active-set identity", async () => {
+  await fixture(async config => {
+    const original = readMapArchiveSet(config.dataDirectory);
+    const identity = mapArchiveSetIdentity(config.dataDirectory);
+    await activateMapArchiveSet(config, { ...original.active, id: "activated-set" }, identity);
+    assert.notEqual(mapArchiveSetIdentity(config.dataDirectory), identity);
+    assert.equal(readMapArchiveSet(config.dataDirectory).previous.id, original.active.id);
+    await assert.rejects(activateMapArchiveSet(config, original.active, identity), /changed/);
+    assert.equal(readMapArchiveSet(config.dataDirectory).active.id, "activated-set");
+    assert.ok(!(await readdir(config.dataDirectory)).some(name => name.endsWith(".part") || name.endsWith(".lock")));
+  });
+});
+
+test("archive manifests select one complete set and fail closed without mixing legacy files", async () => {
+  await fixture(async config => {
+    const legacy = readMapArchiveSet(config.dataDirectory);
+    assert.match(legacy.active.id, /^legacy-/);
+    const manifest = { version: 1, active: { ...legacy.active, id: "test-set" }, previous: legacy.active };
+    await writeFile(path.join(config.dataDirectory, MAP_ARCHIVE_MANIFEST), JSON.stringify(manifest));
+    await writeFile(path.join(config.dataDirectory, "unrelated.mbtiles"), "not an active archive");
+    const renderer = new LocalMapRenderer(config);
+    try { assert.equal(renderer.archives.length, 1); } finally { renderer.close(); }
+    manifest.active.archives[0].filename = "../escape.mbtiles";
+    await writeFile(path.join(config.dataDirectory, MAP_ARCHIVE_MANIFEST), JSON.stringify(manifest));
+    assert.throws(() => new LocalMapRenderer(config), /Invalid archive set path/);
+  });
+});
 
 test("stored bounding boxes reproduce renderer viewports and include all edge tiles", () => {
   const bounds = { minLat: 48.72, maxLat: 48.8, minLng: 9.1, maxLng: 9.3 };

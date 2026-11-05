@@ -2,9 +2,10 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkLocalMapUpdates, readMapUpdateState, mapUpdateStateKey } from "./localMapUpdateService.js";
+import { validateMapInstallation } from "./localMapLifecycleService.js";
 
 const projectRoot = fileURLToPath(new URL("../../", import.meta.url));
-export const MAP_OPERATIONS = new Set(["maps-scan", "maps-prepare", "maps-updates"]);
+export const MAP_OPERATIONS = new Set(["maps-scan", "maps-prepare", "maps-updates", "maps-install", "maps-rollback"]);
 
 export function validateMapApproval(report, approvedRegions) {
   if (!Array.isArray(approvedRegions) || !approvedRegions.length || approvedRegions.length > 16
@@ -32,13 +33,22 @@ export async function executeMapOperation(job, { spawnFn = spawn, checkUpdates =
     } catch { throw new Error("Map update check failed; server diagnostics required"); }
   }
   if (job.name === "maps-prepare") validateMapApproval({ archives: [] }, job.data.approvedRegions);
-  const command = job.name === "maps-scan" ? "plan" : "prepare";
+  const command = { "maps-scan": "plan", "maps-prepare": "prepare", "maps-install": "install", "maps-rollback": "rollback" }[job.name];
+  const lifecycle = command === "install" || command === "rollback";
+  let request;
+  if (command === "install") {
+    const snapshot = await readMapUpdateState(await job.queue.client, mapUpdateStateKey(job.queueQualifiedName));
+    if (snapshot.report?.checkedAt !== job.data.checkedAt) throw new Error("Update snapshot changed; check again");
+    validateMapInstallation(snapshot, job.data.approvedRegions);
+    request = JSON.stringify({ snapshot, approvedRegions: job.data.approvedRegions });
+  } else if (command === "rollback") request = JSON.stringify({ expectedIdentity: job.data.expectedIdentity, previousSet: job.data.previousSet });
+  if (request && Buffer.byteLength(request) > 128 * 1024) throw new Error("Map lifecycle request too large");
   const args = ["--", path.join(projectRoot, "src/scripts/prepare-local-maps.js"), command,
     "--env-file", path.join(projectRoot, `.env.${process.env.NODE_ENV || "development"}`), "--json"];
   if (command === "plan") args.push("--quick");
   if (command === "prepare") args.push("--approved-regions", job.data.approvedRegions.join(","));
   await job.updateProgress({ phase: "starting" });
-  const child = spawnFn(process.execPath, args, { cwd: projectRoot, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawnFn(process.execPath, args, { cwd: projectRoot, env: process.env, stdio: [lifecycle ? "pipe" : "ignore", "pipe", "pipe"] });
   let output = "";
   let pending = "";
   let updates = Promise.resolve();
@@ -71,6 +81,7 @@ export async function executeMapOperation(job, { spawnFn = spawn, checkUpdates =
       }
     }
   });
+  if (lifecycle) { child.stdin.on("error", () => {}); child.stdin.end(request); }
   const exitCode = await new Promise((resolve, reject) => {
     child.once("error", () => reject(new Error("Map command could not be started")));
     child.once("close", code => resolve(code));
@@ -80,7 +91,8 @@ export async function executeMapOperation(job, { spawnFn = spawn, checkUpdates =
   let report;
   try { report = JSON.parse(output); }
   catch { throw new Error("Map command returned an invalid report"); }
-  const summary = summarizeMapDemand(report);
+  const summary = lifecycle ? report.lifecycle : summarizeMapDemand(report);
+  if (!summary || lifecycle && typeof summary.activeSet !== "string") throw new Error("Invalid map lifecycle report");
   await job.updateProgress({ phase: "completed", percent: 100 });
   return summary;
 }

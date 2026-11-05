@@ -1,8 +1,7 @@
 import { Worker } from "node:worker_threads";
-import { readdirSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
-import path from "node:path";
 import { getLocalThumbnailMapConfig } from "../config/storagePaths.js";
+import { mapArchiveSetIdentity } from "./localMapArchiveSetService.js";
 
 export class LocalThumbnailMapClient {
   constructor({ workerFactory = (config) => new Worker(new URL("../workers/local-thumbnail-map-worker.js", import.meta.url),
@@ -23,10 +22,7 @@ export class LocalThumbnailMapClient {
       && now - this.revisionCache.checkedAt < 5000) return this.revisionCache.revision;
     let files;
     try {
-      files = readdirSync(config.dataDirectory).filter(name => name.endsWith(".mbtiles")).sort().map(name => {
-        const details = statSync(path.join(config.dataDirectory, name), { bigint: true });
-        return [name, details.dev, details.ino, details.size, details.mtimeNs, details.ctimeNs].join(":");
-      });
+      files = mapArchiveSetIdentity(config.dataDirectory);
     } catch { files = ["unavailable"]; }
     const revision = createHash("sha256").update(JSON.stringify([config.dataDirectory, files])).digest("hex");
     this.revisionCache = { directory: config.dataDirectory, checkedAt: now, revision };

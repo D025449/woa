@@ -3,6 +3,38 @@
 Stand: 2026-11-05. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Versioned Map Installation And Rollback (2026-11-05)
+
+- User confirmed the metadata check now runs in operation and approved manual
+	versioned installation, atomic activation and one rollback target. Added
+	`map-archive-set.json` with active/previous sets and immutable version paths;
+	legacy root archives remain readable until the first versioned installation.
+- Downloads preserve active files, validate exact approved GET metadata/length,
+	SQLite/Shortbread and current workout viewport coverage, then record SHA-256,
+	file identity and source metadata before atomic synced manifest activation.
+	Worker revisions follow the active set; active work finishes and successful
+	stored thumbnails remain unchanged. No unattended update installation.
+- Rollback verifies stored hashes/file identity, full SQLite validation and current
+	coverage before switching the pointer. Both actions need explicit same-origin
+	admin approval and the expected active identity. Install approvals expire after
+	one hour; private snapshots use bounded stdin to the existing isolated CLI.
+	Pointer/status reads remain available with a missing active version file so a
+	verified previous set can recover it; the renderer still rejects that bad set.
+- All versions, staging files and manifests share the 50%/100 GiB budget and
+	prepare/storage locks. One previous set is referenced; older/orphaned files are
+	protected, not automatically deleted, and continue counting toward the budget.
+	Durable regional demand tracking and verified archive retirement remain open.
+- All 861 tests passed, including 94 focused map/admin/EJS/CLI tests; full types
+	and editor checks clean. Touched code is lint-clean after removing one obsolete
+	import; the initial full lint run otherwise had the 70 pre-existing warnings.
+	Tests include real BullMQ Jobs and real offline CLI subprocess stdin, stale
+	approval, changed GET validators, invalid SQLite, missing coverage, stale
+	activation and corrupted rollback targets. Desktop1365/mobile390 browser checks
+	with simulated APIs verified explicit actions, busy/reset states, icons, long
+	IDs and no page overflow; screenshots inspected. Isolated preview at port60511
+	retained. No live Redis job, upstream download, production archive activation,
+	deployment, normal service restart, schema change or migration was performed.
+
 ## Map Update Job Redis Access Fix (2026-11-05)
 
 - User reported a failed manual update check and approved the fix. Reproduced

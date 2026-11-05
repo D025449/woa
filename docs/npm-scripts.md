@@ -96,6 +96,28 @@ changes, not a proven installed version; first/weak/missing/size-only metadata
 remain inconclusive. No new npm script/flag, environment variable, dependency or
 migration is needed. See [monitoring and limits](workout-map.md#map-update-metadata-monitoring).
 
+Manual admin `maps-install`/`maps-rollback` jobs now use the same CLI child with
+internal `install`/`rollback` commands, an explicit environment file, JSON output
+and a private approval request on stdin (maximum 128 KiB). They are not new public
+npm scripts. Both read current workout bounds through the active DB pointer in a
+read-only transaction; they never run migrations. Installation validates fresh
+snapshot/region/active identity and exact approved GET metadata, SQLite/Shortbread,
+SHA-256 and actual viewport coverage. Rollback validates stored hashes, SQLite and
+current coverage without network downloads. Their public results contain no private
+source metadata. Long validation still delays other serial Ops jobs.
+
+Versioned writes use `WOA_MAP_DATA_DIR/versions/<UUID>/` and atomically replace
+`map-archive-set.json` only after successful checks. Once managed, ordinary
+`maps:plan`/`maps:prepare` use the active set too; prepare stages additions separately
+instead of overwriting referenced files. Damaged active entries fail closed and
+require verified rollback/recovery, not an in-place managed repair. Legacy root-only
+prepare remains compatible. Exactly one previous set is referenced, but no older
+archive or crash-left file is automatically deleted; every version still counts
+toward the existing storage budget. Deploy all cooperating app/worker processes
+together before use; old binaries ignore the manifest. No new environment variable,
+dependency, public npm command or schema migration. See
+[versioned installation and rollback](workout-map.md#versioned-installation-and-rollback).
+
 Both map commands additionally inventory file lengths in the data/cache roots and
 report the combined storage budget: 50% of total volume capacity, capped globally
 at 100 GiB; separate devices each retain their 50% limit. Plans are advisory and

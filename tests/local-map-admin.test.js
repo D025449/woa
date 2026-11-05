@@ -10,6 +10,7 @@ import { checkLocalMapUpdates, mapUpdateStateKey, registerMapUpdateSchedule } fr
 import { mkdtemp, writeFile, readFile, readdir, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { mapArchiveSetIdentity } from "../src/services/localMapArchiveSetService.js";
 
 test("monthly map schedule is stable, UTC and metadata-only", async () => {
   const calls = [];
@@ -89,11 +90,13 @@ test("empty inventories make no network calls, unsupported archives stay unknown
     assert.deepEqual(empty.report.regions, []);
     await writeFile(path.join(directory, "hessen.mbtiles"), "protected");
     await writeFile(path.join(directory, "download.part"), "protected partial");
-    await symlink(path.join(directory, "hessen.mbtiles"), path.join(directory, "alias.mbtiles"));
     const result = await checkLocalMapUpdates(undefined, { dataDirectory: directory,
       catalogLoader: async () => ({ features: ["hessen", "alias"].map(id => ({ properties: { id, name: id } })) }),
       resolveArchive: async feature => { assert.equal(feature.properties.id, "hessen"); return null; } });
-    assert.deepEqual(result.report.regions.map(region => [region.id, region.status]), [["alias", "unknown"], ["hessen", "unavailable"]]);
+    assert.deepEqual(result.report.regions.map(region => [region.id, region.status]), [["hessen", "unavailable"]]);
+    await symlink(path.join(directory, "hessen.mbtiles"), path.join(directory, "alias.mbtiles"));
+    await assert.rejects(checkLocalMapUpdates(undefined, { dataDirectory: directory,
+      catalogLoader: async () => assert.fail("symlink inventory must fail before network") }), /regular file|symlink/);
     assert.deepEqual((await readdir(directory)).sort(), ["alias.mbtiles", "download.part", "hessen.mbtiles"]);
     assert.equal(await readFile(path.join(directory, "hessen.mbtiles"), "utf8"), "protected");
   } finally { await rm(directory, { recursive: true, force: true }); }
@@ -140,6 +143,70 @@ test("map approval cannot add unapproved regions or inject command arguments", (
   assert.doesNotThrow(() => validateMapApproval(report, ["alsace"]));
   for (const ids of [[], ["hessen"], ["--env-file"], ["../alsace"], ["https://evil.invalid"]]) {
     assert.throws(() => validateMapApproval(report, ids), /approval|demand changed/);
+  }
+});
+
+test("install jobs send private snapshots over bounded stdin to the CLI using a real BullMQ Job", async () => {
+  const snapshot = { version: 1, report: { checkedAt: new Date().toISOString(), identity: "a".repeat(64),
+    regions: [{ id: "hessen", canInstall: true }] }, entries: { hessen: { current: {
+    url: "https://download.geofabrik.de/hessen-shortbread-1.0.mbtiles", bytes: 100, etag: '"private-validator"' } } } };
+  const queue = { name: "ops", qualifiedName: "test:ops", keys: {}, opts: {}, toKey: key => `test:ops:${key}`,
+    client: Promise.resolve({ async get() { return JSON.stringify(snapshot); } }) };
+  const job = new Job(queue, "maps-install", { checkedAt: snapshot.report.checkedAt, approvedRegions: ["hessen"] }, {}, "install");
+  job.updateProgress = async () => {};
+  let input;
+  const result = await executeMapOperation(job, { spawnFn: (_executable, args, options) => {
+    assert.equal(args[2], "install");
+    assert.equal(options.stdio[0], "pipe");
+    assert.doesNotMatch(args.join(" "), /private-validator|https:/);
+    const child = new EventEmitter();
+    const stdin = Object.assign(new EventEmitter(), { end(value) {
+      input = JSON.parse(value);
+      setImmediate(() => {
+        child.stdout.emit("data", Buffer.from(JSON.stringify({ lifecycle: { activeSet: "installed", installed: ["hessen"] } })));
+        child.emit("close", 0);
+      });
+    } });
+    Object.assign(child, { stdin, stdout: new EventEmitter(), stderr: new EventEmitter(), kill() {} });
+    return child;
+  } });
+  assert.deepEqual(input.snapshot, snapshot);
+  assert.deepEqual(input.approvedRegions, ["hessen"]);
+  assert.equal(result.activeSet, "installed");
+  assert.doesNotMatch(JSON.stringify(result), /private-validator|https:/);
+});
+
+test("install API requires explicit fresh exact approval and never exposes private validators", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "woa-map-install-api-"));
+  const previousDirectory = process.env.WOA_MAP_DATA_DIR;
+  process.env.WOA_MAP_DATA_DIR = directory;
+  try {
+    await writeFile(path.join(directory, "hessen.mbtiles"), "local inventory only");
+    const snapshot = { version: 1, report: { checkedAt: new Date().toISOString(), identity: mapArchiveSetIdentity(directory),
+      regions: [{ id: "hessen", canInstall: true }] }, entries: { hessen: { current: { bytes: 100, etag: '"private"' } } } };
+    const added = [];
+    const queue = { client: Promise.resolve({ async get() { return JSON.stringify(snapshot); } }), async getJobs() { return []; },
+      async add(...args) { added.push(args); return { id: 2 }; } };
+    await withMapApi(queue, async url => {
+      const headers = { "x-admin": "yes", "content-type": "application/json", origin: new URL(url).origin };
+      const payload = { checkedAt: snapshot.report.checkedAt, approvedRegions: ["hessen"], confirmed: true };
+      for (const body of [{ ...payload, confirmed: false }, { ...payload, approvedRegions: ["other"] },
+        { ...payload, checkedAt: "old" }, { ...payload, approvedRegions: ["hessen", "hessen"] }]) {
+        assert.ok((await fetch(`${url}/install`, { method: "POST", headers, body: JSON.stringify(body) })).status >= 400);
+      }
+      assert.equal((await fetch(`${url}/install`, { method: "POST", headers: { ...headers, origin: "https://evil.invalid" },
+        body: JSON.stringify(payload) })).status, 403);
+      assert.equal(added.length, 0);
+      assert.equal((await fetch(`${url}/install`, { method: "POST", headers, body: JSON.stringify(payload) })).status, 202);
+      assert.equal(added[0][0], "maps-install");
+      assert.doesNotMatch(JSON.stringify(added), /private/);
+      assert.equal((await fetch(`${url}/rollback`, { method: "POST", headers,
+        body: JSON.stringify({ confirmed: true, previousSet: "missing", expectedIdentity: snapshot.report.identity }) })).status, 409);
+    });
+  } finally {
+    if (previousDirectory === undefined) delete process.env.WOA_MAP_DATA_DIR;
+    else process.env.WOA_MAP_DATA_DIR = previousDirectory;
+    await rm(directory, { recursive: true, force: true });
   }
 });
 
@@ -302,6 +369,22 @@ test("admin map controls require explicit approval, capacity and a completed pla
   controller.report.readyToPrepare = false;
   controller.controls();
   assert.equal(controller.element("prepare").disabled, true);
+  controller.updates = { checkedAt: new Date().toISOString(), identity: "current", regions: [{ id: "hessen", canInstall: true, bytes: 100 }] };
+  controller.lifecycle = { identity: "current", previousSet: "prior" };
+  controller.controls();
+  assert.equal(controller.element("install-confirm").disabled, false);
+  assert.equal(controller.element("install").disabled, true);
+  controller.element("install-confirm").checked = true;
+  controller.element("rollback-confirm").checked = true;
+  controller.controls();
+  assert.equal(controller.element("install").disabled, false);
+  assert.equal(controller.element("rollback").disabled, false);
+  controller.lifecycle.identity = "changed";
+  controller.controls();
+  assert.equal(controller.element("install").disabled, true);
+  controller.lifecycle.previousSet = null;
+  controller.controls();
+  assert.equal(controller.element("rollback").disabled, true);
   assert.equal(formatMapBytes(1024 ** 3), "1,00 GiB");
 });
 

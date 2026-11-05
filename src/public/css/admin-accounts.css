@@ -100,6 +100,9 @@
 .admin-map-state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #ad6d19; }
 .admin-map-state.is-available::before { background: #238263; }
 .admin-map-empty { color: #607888; padding: 0.6rem 0; }
+.admin-map-sets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.admin-map-sets dd { margin: 0.3rem 0 0; font-size: 0.8rem; overflow-wrap: anywhere; }
+.admin-map-sets dt { font-size: 0.8rem; font-weight: 500; color: #587083; }
 .admin-map-actions { border-top: 1px solid #cddce3; padding-top: 1rem; }
 .admin-map-actions time { font-size: 0.78rem; color: #607888; }
 .admin-map-job { display: grid; gap: 0.45rem; margin-bottom: 1rem; font-size: 0.85rem; }

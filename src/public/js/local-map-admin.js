@@ -4,6 +4,7 @@ const phases = {
   "inspect-existing": "Vorhandenes Archiv prüfen", "check-file-state": "Dateistand prüfen", "inspect-required": "Archiv validieren",
   "storage-budget": "Speicherbudget prüfen", "cleanup-cache": "Rastercache bereinigen",
   "check-updates": "Upstream-Metadaten prüfen",
+  "activate-set": "Archivsatz aktivieren", "verify-rollback": "Rollback-Archiv prüfen",
   reuse: "Archiv wiederverwenden", "download-request": "Download anfordern", "refresh-size": "Dateigröße neu abgleichen",
   download: "Download", "verify-download": "Download prüfen", installed: "Archiv installiert", coverage: "Kachelabdeckung prüfen",
   completed: "Abgeschlossen"
@@ -17,6 +18,8 @@ export class LocalMapAdminController {
   constructor(root) {
     this.root = root;
     this.report = null;
+    this.updates = null;
+    this.lifecycle = null;
     this.reportJobId = null;
     this.busy = false;
     this.timer = null;
@@ -42,6 +45,17 @@ export class LocalMapAdminController {
     const allowed = !this.busy && this.report?.readyToPrepare && missing.length > 0 && space && budget;
     this.element("scan").disabled = this.busy;
     this.element("updates").disabled = this.busy;
+    const candidates = this.updates?.regions.filter(region => region.canInstall) || [];
+    const installable = !this.busy && candidates.length > 0 && this.lifecycle?.identity === this.updates?.identity
+      && Date.now() - Date.parse(this.updates.checkedAt) <= 3600000;
+    this.element("install-confirm").disabled = !installable;
+    this.element("install").disabled = !installable || !this.element("install-confirm").checked;
+    this.element("install-label").textContent = candidates.length
+      ? `${candidates.length} ${candidates.length === 1 ? "Region" : "Regionen"} · ${formatMapBytes(candidates.reduce((sum, region) => sum + region.bytes, 0))} zur Installation freigeben`
+      : "Installation freigeben";
+    const rollback = !this.busy && Boolean(this.lifecycle?.previousSet);
+    this.element("rollback-confirm").disabled = !rollback;
+    this.element("rollback").disabled = !rollback || !this.element("rollback-confirm").checked;
     this.element("confirm").disabled = !allowed;
     this.element("prepare").disabled = !allowed || !this.element("confirm").checked;
     this.element("confirm-label").textContent = missing.length
@@ -91,12 +105,14 @@ export class LocalMapAdminController {
   }
 
   renderUpdates(report) {
+    this.updates = report;
     const labels = { changed: "Upstream geändert", unchanged: "Metadaten unverändert", unknown: "Versionsstand unklar",
       unavailable: "Upstream nicht verfügbar", error: "Prüfung fehlgeschlagen" };
     this.element("update-regions").replaceChildren();
     for (const region of report?.regions || []) {
       const row = document.createElement("tr");
-      const values = [region.name, labels[region.status] || labels.unknown, "Nicht belegt", formatMapBytes(region.bytes),
+      const values = [region.name, labels[region.status] || labels.unknown,
+        region.installedVersion === "recorded" ? "Stand erfasst" : "Nicht belegt", formatMapBytes(region.bytes),
         region.lastModified ? new Date(region.lastModified).toLocaleString("de-DE") : "–"];
       for (const [index, value] of values.entries()) {
         const cell = document.createElement("td");
@@ -120,6 +136,13 @@ export class LocalMapAdminController {
       this.reportJobId = value.reportJobId;
       this.renderReport(value.report);
       this.renderUpdates(value.updates);
+      if (this.lifecycle?.identity !== value.lifecycle?.identity) {
+        this.element("install-confirm").checked = false;
+        this.element("rollback-confirm").checked = false;
+      }
+      this.lifecycle = value.lifecycle || null;
+      this.element("active-set").textContent = this.lifecycle?.activeSet || "–";
+      this.element("previous-set").textContent = this.lifecycle?.previousSet || "–";
       const job = value.job;
       this.busy = Boolean(job && ["active", "waiting", "delayed"].includes(job.state));
       this.element("job").classList.toggle("d-none", !this.busy);
@@ -130,6 +153,8 @@ export class LocalMapAdminController {
         if (Number.isFinite(progress.percent)) this.element("progress").value = progress.percent;
         else this.element("progress").removeAttribute("value");
         this.status(job.operation === "maps-updates" ? "Kartenupdates werden geprüft."
+          : job.operation === "maps-install" ? "Kartenupdate wird installiert."
+            : job.operation === "maps-rollback" ? "Rollback wird geprüft."
           : job.operation === "maps-scan" ? "Kartenbedarf wird geprüft." : "Kartenmaterial wird bereitgestellt.");
       } else if (job?.state === "failed") this.status(job.error, true);
       else if (!value.report) this.status("Noch nicht geprüft.");
@@ -157,11 +182,19 @@ export class LocalMapAdminController {
   async start(operation) {
     const approvedRegions = this.report?.regions.filter(region => region.status === "missing").map(region => region.id) || [];
     if (this.busy || operation === "prepare" && !this.element("confirm").checked) return;
+    if (operation === "install" && !this.element("install-confirm").checked
+      || operation === "rollback" && !this.element("rollback-confirm").checked) return;
     this.busy = true;
     this.controls();
     try {
-      await this.request(`/${operation}`, operation === "prepare" ? { reportJobId: this.reportJobId, approvedRegions, confirmed: true } : {});
+      const body = operation === "prepare" ? { reportJobId: this.reportJobId, approvedRegions, confirmed: true }
+        : operation === "install" ? { checkedAt: this.updates.checkedAt,
+          approvedRegions: this.updates.regions.filter(region => region.canInstall).map(region => region.id), confirmed: true }
+          : operation === "rollback" ? { expectedIdentity: this.lifecycle.identity, previousSet: this.lifecycle.previousSet, confirmed: true } : {};
+      await this.request(`/${operation}`, body);
       this.element("confirm").checked = false;
+      this.element("install-confirm").checked = false;
+      this.element("rollback-confirm").checked = false;
       await this.refresh();
     } catch (error) {
       this.status(error.message, true);
@@ -173,6 +206,10 @@ export class LocalMapAdminController {
   init() {
     this.element("scan").addEventListener("click", () => this.start("scan"));
     this.element("updates").addEventListener("click", () => this.start("updates"));
+    this.element("install").addEventListener("click", () => this.start("install"));
+    this.element("rollback").addEventListener("click", () => this.start("rollback"));
+    this.element("install-confirm").addEventListener("change", () => this.controls());
+    this.element("rollback-confirm").addEventListener("change", () => this.controls());
     this.element("prepare").addEventListener("click", () => this.start("prepare"));
     this.element("confirm").addEventListener("change", () => this.controls());
     window.addEventListener("pagehide", () => clearTimeout(this.timer));

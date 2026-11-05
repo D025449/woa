@@ -349,8 +349,8 @@ Admin shows `Kartenbudget · Belegt / Limit`, disables download approval when ev
 safe cache cleanup cannot satisfy budget/reserve, and reports storage/cleanup
 phases. CLI text/JSON reports the same budget; completed preparation reports the
 new usage rather than its initial estimate. Archive validation and actual viewport
-coverage checks remain unchanged. Versioned archive updates/retirement remain a
-separate follow-up, not implemented by this storage policy.
+coverage checks remain unchanged. Versioned installation/rollback is described
+below; automatic retirement/deletion remains a separate follow-up.
 
 The follow-up increase from 30% to 50% passed all 57 provisioning/storage tests,
 including rounding, the cap threshold and independent split-volume limits.
@@ -370,8 +370,8 @@ performed. Real production volume capacity and timing have not been measured.
 
 The user approved a staged lifecycle design. Fallback state/targeted recovery and
 the manual admin demand/provisioning workflow below are implemented locally.
-Monthly metadata monitoring is also implemented below; automatic archive
-installation, versioned activation and rollback remain follow-up requirements.
+Monthly metadata monitoring and manually approved versioned installation,
+activation and rollback are implemented below. Unattended installation is disabled.
 
 New local fallback SVGs carry `data-local-map-state`, a 64-hex-character
 `data-local-map-revision`, `data-local-map-attempt` and the existing safe
@@ -386,8 +386,9 @@ Raw exception messages, paths or credentials are not embedded.
 | `temporary-failure` | Keep the route visible. Maximum three rendering attempts per revision: wait five minutes after the first, fifteen after the second, then hold after the third. Requests before deadlines only reuse the saved fallback. A changed revision or explicit replacement resets the sequence. No retry timer/background task is started. |
 | `unsupported-route` | Keep the route-only image without automatic retry, even after map changes. Explicit GPS edits/replacement may rebuild it. This means unsupported route geometry; catalog-level unsupported regions belong to future demand management. |
 
-The revision fingerprints sorted local `.mbtiles` names, source directory, device,
-inode, size and nanosecond mtime/ctime. It is an inventory identity, not an upstream
+The revision fingerprints the active set ID, selected relative archive paths,
+source directory, device, inode, size and nanosecond mtime/ctime. Without a manifest,
+it uses the legacy root inventory. It is an inventory identity, not an upstream
 version/checksum or coverage guarantee. The synchronous directory/stat lookup is
 memoized for five seconds and does not open SQLite or contact a provider. `.part`
 files are excluded. A changed unrelated archive can allow a missing-coverage
@@ -398,8 +399,8 @@ reuse its cached image. Recovery is on demand, not an immediate bulk regeneratio
 At the next queued render after a detected inventory change, the client retires
 the idle worker and opens the new archive set. Active work is not interrupted.
 The existing source-identity/style raster namespace separates new tiles from old
-ones. This adds no validated set activation or archive deletion; old raster entries
-are now eligible under the shared storage policy above. Existing per-namespace
+ones. Set activation is implemented below; archive deletion remains disabled.
+Old raster entries are eligible under the shared storage policy above. Existing per-namespace
 cache limits and the 16-archive cap remain in force.
 
 Verification: all 827 tests passed, including 40 focused thumbnail/worker cases
@@ -426,15 +427,15 @@ Accepted follow-up requirements:
   need a durable status, not endless attempts.
 - Monthly upstream metadata monitoring is implemented below, without automatic
   installation. Length alone is not a version identifier.
-- Download/validate changed files separately, activate a versioned archive set
-  atomically, reopen handles and retain one prior set for rollback. Do not disturb
-  working maps during download/failure or mass-regenerate successful thumbnails.
+- Versioned downloads, atomic activation and one previous rollback target are
+  implemented below. Working maps survive download failures; successful thumbnails
+  are not mass-regenerated.
 - Global storage accounting and raster cleanup are implemented above. Automatic
-  archive-set retirement still requires the future versioned updater and rollback
-  metadata; the storage policy currently protects all archives and rollback files.
+  archive-set retirement remains deferred; the storage policy currently protects
+  all archives and rollback files, including unreferenced older versions.
 
 There is currently no dedicated regional demand table, import-triggered demand
-scan, archive update installer or manifest-based activation/rollback.
+scan or automatic archive retirement.
 Global raster cleanup now runs on write-capacity pressure, not on a timer.
 The manual workflow derives demand from PostgreSQL GPS bounds
 and stores job snapshots in the existing Redis-backed Ops queue instead.
@@ -454,13 +455,14 @@ A manual check near a monthly run can result in two sequential metadata checks.
 Long backup jobs can delay
 the check; both Redis and the Ops worker must be available.
 
-The async check reads regular top-level `.mbtiles` file identities from the
-configured data directory (maximum 16), fetches the official Geofabrik catalog and
+The async check reads the selected active set (legacy top-level `.mbtiles` files
+without a manifest; maximum 16), fetches the official Geofabrik catalog and
 region HTML pages, and issues archive HEAD requests with redirects rejected.
 An empty inventory makes no network request. No archive GET, SQLite opening,
 PostgreSQL connection, file write, cleanup, service restart or activation occurs.
-Unknown filenames, symlinks, unavailable regions and failed queries cannot become
-verified versions. Local file identity is checked before/after each query; an
+Unknown filenames, unavailable regions and failed queries cannot become verified
+versions. Symlinks/invalid active entries fail closed before network access.
+Local file identity is checked before/after each query; an
 overall ten-minute deadline bounds a run in addition to the request deadlines.
 
 The service accepts bounded strong ETags and valid HTTP Last-Modified dates. Weak
@@ -480,13 +482,17 @@ per-region errors preserve the anchor. Replacing/rewriting a local file resets i
 anchor instead of inheriting old conclusions. Removed archives are pruned from
 observation state only, never removed from disk by this feature.
 
-Existing downloads have no trusted recorded upstream provenance. Therefore every
-installed version is explicitly **unverified**, including after matching repeated
+Existing legacy downloads have no trusted recorded upstream provenance. Their
+installed version remains explicitly **unverified**, including after matching repeated
 metadata checks. The admin labels are `Upstream geändert`, `Metadaten unverändert`,
 `Versionsstand unklar`, `Upstream nicht verfügbar` and `Prüfung fehlgeschlagen`;
 the separate installed-version column says `Nicht belegt`. First observations
-are inconclusive. Proving installed versions and updating them belongs to the
-future versioned installation/manifest stage, not to this observation baseline.
+are inconclusive. Versioned downloads now record actual GET metadata, local hash
+and file identity; unchanged matching files show `Stand erfasst`, and checks compare
+against that installed source rather than a first-observation baseline. This is
+recorded download provenance, not a signed upstream checksum or eternal freshness
+guarantee. A fresh usable validator also permits explicitly approved replacement
+of an unverified legacy region; size-only/weak-only metadata cannot authorize it.
 No automatic download approval is created. The 50%-volume/100-GiB disk policy
 remains unchanged because this check writes only bounded Redis state.
 
@@ -518,6 +524,91 @@ unrelated navigation translations/vendor-backed admin controls were not verified
 there. No live Redis scheduler, real upstream requests, production operations,
 normal Dev restart or migration were executed. Preview retained at
 `http://127.0.0.1:59197/admin/accounts#maps` with simulated data only.
+
+### Versioned Installation And Rollback
+
+After `Updates prüfen`, explicitly confirm the listed eligible regions and select
+`Updates installieren`. The confirmation covers all eligible rows in that snapshot.
+The API and worker revalidate the exact region IDs, a maximum one-hour snapshot
+age and the expected active-set identity; queue delays can require another check.
+No arbitrary source URL comes from the browser. The separate `Rollback freigeben`
+confirmation and `Vorherigen Satz aktivieren` action target the currently displayed
+previous set, not any user-supplied path. Opening the page starts no job.
+
+`map-archive-set.json` in `WOA_MAP_DATA_DIR` is the authoritative version-1 pointer
+to active/previous sets. Version files live at `versions/<UUID>/<region>.mbtiles`;
+existing root archives remain valid legacy entries. Paths, regular-file identity,
+symlinks, set size and duplicate regions are checked. Invalid manifests fail closed
+rather than mixing root/staged files. Without a manifest, legacy behavior remains
+unchanged. An over-limit legacy plan remains diagnosable but cannot activate.
+
+New files are downloaded under the existing prepare/storage locks into a new
+version directory. The GET must still match approved strong ETag/HTTP-date and
+length; changed metadata refuses installation instead of silently adopting a newer
+version. Full SQLite/Shortbread checks and all current stored workout viewport
+tiles must pass before activation. Missing/unsupported bounds block activation.
+The existing runtime DB pointer resolver supplies a read-only inventory. Active
+files are never overwritten by versioned installation, including managed
+`maps:prepare` additions. Legacy `maps:prepare` remains compatible. Damaged
+manifest-selected files fail planning/rendering closed; use the verified rollback
+path rather than overwriting them in place.
+
+Each activated entry records streamed SHA-256, bytes, nanosecond file fingerprint
+and actual GET source metadata where available. Inherited legacy entries receive
+local hashes but no invented upstream provenance. The first activation records
+the previous legacy files as a hashed rollback target. Manifest output is synced,
+atomically renamed and the containing directory synced under the shared budget
+lock, after rechecking the expected active identity. Existing valid files remain
+available after a failed download, validation, coverage or stale-identity check.
+
+Readers use one selected manifest snapshot. The existing five-second revision memo
+detects set changes; the next queued render retires an idle worker and opens the
+new set only after active work finishes. Version/source identities isolate raster
+namespaces. Successful stored thumbnails are preserved; only marked recoverable
+fallbacks can retry on demand as before. No bulk rerender or application restart
+is triggered by installation or rollback.
+
+Rollback verifies every target's stored fingerprint/hash and full SQLite format,
+then checks current workout coverage before swapping active/previous pointers.
+New workouts may therefore prevent rollback to an older incomplete set. No archive
+download occurs during rollback. The current active set becomes the new previous
+target, allowing a checked reversal; no unchecked pointer swap is offered.
+Admin pointer/status reads remain available even if a current version file is
+missing or has changed; this enables recovery to the verified previous set while
+the renderer still refuses the damaged current set. A structurally invalid
+manifest is not silently repaired or ignored. A failed prior target cannot be
+reactivated merely because it remains referenced after a recovery rollback.
+
+All live/previous/staged files, manifest output and older orphaned versions count
+against the unchanged 50%-volume/100-GiB limit plus free-space reserve. Cache-only
+eviction is permitted, archive deletion is not. Exactly one prior set is referenced,
+but older files remain protected on disk to avoid deleting archives still open in
+another process. Repeated updates can eventually exhaust the budget. Automatic
+verified retirement and safe orphan cleanup remain follow-ups; never manually
+delete active/previous entries or remove locks without checking process ownership.
+Crash-left files count toward the budget and are not automatically trusted.
+
+Deploy/restart all cooperating app/worker processes with the same data/cache
+configuration before use; old binaries do not understand the manifest. Existing
+top-level files are not moved/deleted during adoption. The manual installer uses
+the existing serial Ops queue/CLI child, not a new daemon. Private approval state
+is transferred over stdin with a 128 KiB bound, not command-line arguments; public
+reports expose set IDs/opaque identities, never hashes, source URLs or file paths.
+New protected endpoints are `POST /install` and `POST /rollback` under the map API.
+Neither job can become a demand-plan snapshot or authorize missing-region prepare.
+
+Verification: all 861 tests passed, including 94 focused renderer, provisioning,
+admin, EJS and real offline CLI-subprocess cases. Full typecheck/editor checks are
+clean; touched code is lint-clean. Tests cover legacy/managed selection, path
+rejection, stale activation/approval, GET changes, invalid SQLite, missing install/
+rollback coverage, corrupt rollback files, recorded provenance and real BullMQ Job
+stdin transport. Actual EJS/CSS/controller browser checks with simulated jobs at
+1365 px and 390 px confirmed no page-load mutation, explicit install/rollback
+requests, busy/reset states, icons and nonoverflowing long IDs; screenshots inspected.
+Preview retained at `http://127.0.0.1:60511/admin/accounts#maps`, simulated data only.
+Its unrelated i18n/ZIP-vendor middleware is not loaded. No live Redis job, upstream
+download, production activation/rollback, deploy, normal restart or migration was
+performed. The user had separately confirmed the preceding metadata check works.
 
 ### Admin Map Demand And Provisioning
 
@@ -572,6 +663,8 @@ API routes under `/admin/accounts/maps`:
   update report, no-store.
 - `POST /scan`: explicitly queue a read-only scan.
 - `POST /updates`: explicitly queue metadata monitoring, without downloads.
+- `POST /install`: explicitly approve a fresh update snapshot and its eligible regions.
+- `POST /rollback`: explicitly approve the expected previous set and active identity.
 - `POST /prepare`: confirm a fresh snapshot and its missing region IDs.
 
 Map operations share the existing `postgres-backup-ops` queue and its single
