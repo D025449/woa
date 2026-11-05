@@ -25,7 +25,7 @@ The script installs the production-compatible stack:
 - a persistent 2 GiB swap file.
 
 It also initializes the empty PostgreSQL cluster and enables SCRAM password
-authentication for local TCP connections. It does not execute SQL.
+authentication for local TCP connections. It does not execute SQL..
 
 Verify the result:
 
