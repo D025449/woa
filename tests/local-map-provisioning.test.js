@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, readdir, readFile, writeFile, rename, chmod, stat } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
@@ -149,6 +149,92 @@ test("prepare validates and atomically installs archives, then reuses without GE
     const repeated = await prepareMapArchives(result, { fetchFn: async () => assert.fail("must reuse valid archive") });
     assert.deepEqual(repeated.reused, ["east", "west"]);
     assert.deepEqual((await readdir(dataDirectory)).sort(), ["east.mbtiles", "west.mbtiles"]);
+  });
+});
+
+test("unchanged valid planned archives are fully inspected once and only stat-checked under the lock", async () => {
+  await temporary(async dataDirectory => {
+    await tinyArchive(path.join(dataDirectory, "east.mbtiles"), true);
+    await tinyArchive(path.join(dataDirectory, "west.mbtiles"), true);
+    const inspected = [];
+    const inspectArchive = async filename => {
+      inspected.push(filename);
+      return inspectMapArchive(filename);
+    };
+    const plan = await buildMapPlan([workout], catalog, { dataDirectory, inspectArchive,
+      resolveArchive: async feature => archive(feature) });
+    assert.equal(inspected.length, 2);
+    const progress = [];
+    const result = await prepareMapArchives(plan, { inspectArchive, onProgress: event => progress.push(event),
+      fetchFn: async () => assert.fail("must reuse valid archives") });
+    assert.equal(inspected.length, 2);
+    assert.deepEqual(result.reused, ["east", "west"]);
+    assert.equal(result.readyToActivate, true);
+    assert.equal(progress.filter(event => event.phase === "check-file-state").length, 2);
+    assert.equal(progress.some(event => event.phase === "inspect-required"), false);
+  });
+});
+
+test("changed, replaced or removed planned files are fully rechecked before reuse or repair", async context => {
+  for (const kind of ["rewrite", "replace", "remove", "corrupt", "metadata"]) await context.test(kind, async () => {
+    await temporary(async dataDirectory => {
+      const filename = path.join(dataDirectory, "east.mbtiles");
+      const body = await tinyArchive(filename, true);
+      await tinyArchive(path.join(dataDirectory, "west.mbtiles"), true);
+      const plan = await buildMapPlan([workout], catalog, { dataDirectory,
+        resolveArchive: async feature => ({ ...archive(feature), bytes: body.length }) });
+      if (kind === "rewrite") await writeFile(filename, body);
+      else if (kind === "replace") {
+        const replacement = path.join(dataDirectory, "replacement");
+        await writeFile(replacement, body);
+        await rename(replacement, filename);
+      } else if (kind === "remove") await rm(filename);
+      else if (kind === "corrupt") await writeFile(filename, Buffer.alloc(body.length));
+      else {
+        const before = await stat(filename, { bigint: true });
+        await chmod(filename, Number(before.mode & 0o777n) ^ 0o100);
+        const after = await stat(filename, { bigint: true });
+        assert.equal(after.mtimeNs, before.mtimeNs);
+        assert.notEqual(after.ctimeNs, before.ctimeNs);
+      }
+      const inspected = [];
+      let gets = 0;
+      const result = await prepareMapArchives(plan, { inspectArchive: async current => {
+        inspected.push(current);
+        return inspectMapArchive(current);
+      }, fetchFn: async () => {
+        gets++;
+        return new Response(body, { headers: { "content-length": String(body.length) } });
+      } });
+      const repaired = kind === "remove" || kind === "corrupt";
+      assert.equal(inspected[0], filename);
+      assert.equal(inspected.length, repaired ? 2 : 1);
+      if (repaired) assert.match(inspected[1], /east\.mbtiles\..+\.part$/);
+      assert.equal(gets, repaired ? 1 : 0);
+      assert.deepEqual(result.created, repaired ? ["east"] : []);
+      assert.deepEqual(result.reused, repaired ? ["west"] : ["east", "west"]);
+      assert.equal(result.readyToActivate, true);
+      assert.deepEqual(await readFile(filename), body);
+      assert.deepEqual((await readdir(dataDirectory)).sort(), ["east.mbtiles", "west.mbtiles"]);
+    });
+  });
+});
+
+test("serialized plans cannot reuse private in-process inspection results", async () => {
+  await temporary(async dataDirectory => {
+    await tinyArchive(path.join(dataDirectory, "east.mbtiles"), true);
+    await tinyArchive(path.join(dataDirectory, "west.mbtiles"), true);
+    const plan = await buildMapPlan([workout], catalog, { dataDirectory,
+      resolveArchive: async feature => archive(feature) });
+    const serialized = JSON.stringify(plan);
+    assert.doesNotMatch(serialized, /fingerprint/);
+    const inspected = [];
+    const result = await prepareMapArchives(JSON.parse(serialized), { inspectArchive: async filename => {
+      inspected.push(filename);
+      return inspectMapArchive(filename);
+    }, fetchFn: async () => assert.fail("must reuse valid archives after full check") });
+    assert.deepEqual(inspected.map(filename => path.basename(filename)), ["east.mbtiles", "west.mbtiles"]);
+    assert.equal(result.readyToActivate, true);
   });
 });
 

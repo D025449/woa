@@ -164,28 +164,40 @@ Keep the local provider disabled until preparation reports ready. Completed vali
 archives remain reusable; do not remove a live preparation lock or start another
 preparation process while one is running. New code only affects subsequent runs
 after deployment; it cannot change an already running process.
-All 812 tests passed, including 40 focused provisioning/CLI cases covering refresh,
+All 820 tests passed, including 48 focused provisioning/CLI cases covering refresh,
 retry exhaustion, HTTP/length/body/encoding, disk safety, cancellation, damaged
-downloads, progress and JSON/stderr separation;
+downloads, progress, JSON/stderr separation and file-state-based inspection reuse;
 syntax/lint passed, with only the existing `lastEnd` type errors. No production
 access, service restart, migration or real archive download was performed here.
 
 Both commands emit `[maps]` phase updates to stderr, including database/catalog,
 region discovery, bounds planning and each existing-archive inspection.
-Preparation additionally reports the locked recheck of each required archive,
+Preparation additionally reports the locked file-state check of each required archive,
 reuse, download requests/attempts, bytes and percentages, downloaded-file
 verification, installation and coverage counters (every 100 workouts and at the
 end). Download byte updates are throttled to at most one per second, plus initial
 and final updates; they require incoming chunks, so waiting for a network response
 does not produce a heartbeat. SQLite `quick_check` is synchronous and reports the
-current archive before starting, not a percentage within that check. Both archive
-inspection passes remain intentional. These messages are visible without a TTY;
+current archive before starting, not a percentage within that check. Existing
+archives are fully inspected during planning. Under the prepare lock,
+`check-file-state` compares device, inode, size, nanosecond mtime and ctime against
+the successful inspection; unchanged archives go straight to `reuse` without a
+second `quick_check`. Changed, missing or untrusted results take the
+`inspect-required` full-check path. A file changing during inspection is not
+accepted as valid. The inspection cache is private to the in-memory plan: it is
+not persisted or included in JSON, and a new command invocation (or deserialized
+plan) performs full checks again. New downloads still receive full validation.
+This removes duplicate archive scans, not the first scan or final tile coverage
+checks; no production timing improvement has been measured. These messages are
+visible without a TTY;
 `--json` keeps the script's stdout exclusively for its final JSON report.
 
 Example progress (illustrative, not captured production output):
 
 ```text
-[maps] inspect-existing archive=lorraine 7/8
+[maps] inspect-existing archive=alsace 1/7
+[maps] check-file-state archive=alsace 1/8
+[maps] reuse archive=alsace
 [maps] download-request archive=lorraine attempt=1/3
 [maps] refresh-size archive=lorraine attempt=2/3
 [maps] download-request archive=lorraine attempt=2/3

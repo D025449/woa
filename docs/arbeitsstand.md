@@ -3,6 +3,28 @@
 Stand: 2026-11-05. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Reuse Unchanged Archive Inspections (2026-11-05)
+
+- User confirmed deploying the progress/retry version and supplied planning output
+	for 3,236 GPS workouts with seven existing archives; full SQLite inspection was
+	visibly slow at Austria. No final production readiness output was supplied.
+- User approved removing duplicate full checks for unchanged files within one
+	run. Successful inspections now record device, inode, size, nanosecond mtime
+	and ctime and verify stability across validation. A private WeakMap associates
+	these results with the exact in-memory plan; no disk marker or JSON trust.
+- Under the prepare lock, `check-file-state` skips the second `quick_check` only
+	for an unchanged successfully inspected file. Changed/replaced/missing files
+	and uncached/deserialized plans retain full checks. New downloads remain fully
+	validated; coverage, locking, retries and cleanup are unchanged. First scans
+	still run on each invocation; no production timing improvement was measured.
+- All 820 tests passed, including 48 focused provisioning/CLI cases. Call-count
+	tests confirm two unchanged archives receive two rather than four full checks;
+	same-size rewrite/replacement, corruption, deletion, ctime-only change and
+	serialized-plan fallback are covered. Syntax/lint passed (70 existing warnings),
+	editor diagnostics clean; only the three known `lastEnd` type errors remain.
+	Updated map/npm documentation. No production access, deployment, restart,
+	actual map download or migration by Copilot. User deployment/new run required.
+
 ## Map Preparation Progress And Bounded Size Refresh (2026-11-05)
 
 - User supplied production rejection for Lorraine: HTTP 200, planned/HEAD

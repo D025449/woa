@@ -54,6 +54,12 @@ each with a new space check; HTTP, encoding, final length and SQLite/format chec
 remain mandatory. The per-archive two-hour deadline includes retries. Existing
 valid archives are reused; the plan retains its initial size estimates. Progress
 does not update an already running process or provide an idle-network heartbeat.
+Within one invocation, successful full inspections are remembered privately in
+the plan. Under the prepare lock, `check-file-state` compares device/inode, size
+and nanosecond mtime/ctime; unchanged files skip the second full scan. Changed,
+missing or uncached files take `inspect-required`; new downloads remain fully
+validated. No persistent inspection cache is created or exported in JSON, so a
+new invocation still performs the first full inspection and coverage checks.
 Internal `node --` argument separation prevents Node from consuming `--env-file`;
 the documented npm command remains unchanged. See the production workflow above.
 

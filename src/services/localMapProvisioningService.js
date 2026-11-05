@@ -18,6 +18,7 @@ import { getLocalThumbnailMapConfig } from "../config/storagePaths.js";
 
 const CATALOG_URL = "https://download.geofabrik.de/index-v1.json";
 const ARCHIVE_LIMIT = 16;
+const planArchiveInspections = new WeakMap();
 
 export class MapSetupError extends Error {}
 
@@ -126,8 +127,14 @@ export async function discoverMapArchive(region, { fetchFn = fetch, signal } = {
   return { url, bytes };
 }
 
+async function archiveFileState(filename) {
+  const details = await stat(filename, { bigint: true }).catch(error => { if (error.code === "ENOENT") return null; throw error; });
+  if (!details) return null;
+  return { bytes: Number(details.size), fingerprint: [details.dev, details.ino, details.size, details.mtimeNs, details.ctimeNs].join(":") };
+}
+
 export async function inspectMapArchive(filename) {
-  const details = await stat(filename).catch(error => { if (error.code === "ENOENT") return null; throw error; });
+  const details = await archiveFileState(filename);
   if (!details) return { valid: false, bytes: 0 };
   let database;
   try {
@@ -142,8 +149,10 @@ export async function inspectMapArchive(filename) {
     const raw = Buffer.from(row.tile_data);
     const tile = new VectorTile(new PbfReader(raw[0] === 0x1f && raw[1] === 0x8b ? gunzipSync(raw) : raw));
     if (!Object.keys(tile.layers).some(name => ["land", "streets", "water_polygons"].includes(name))) throw new Error("Expected Shortbread layers");
-    return { valid: true, bytes: details.size };
-  } catch { return { valid: false, bytes: details.size }; }
+    const after = await archiveFileState(filename);
+    if (after?.fingerprint !== details.fingerprint) throw new Error("Archive changed during validation");
+    return { valid: true, bytes: details.bytes, fingerprint: details.fingerprint };
+  } catch { return { valid: false, bytes: details.bytes }; }
   finally { database?.close(); }
 }
 
@@ -290,11 +299,14 @@ export async function buildMapPlan(workouts, catalog, { dataDirectory = getLocal
     downloadBytes: archives.filter(entry => !entry.existingValid).reduce((sum, entry) => sum + entry.downloadBytes, 0),
     freeDiskBytes: await freeDiskBytes(dataDirectory), readyToPrepare: !missingBounds.length && !unsupportedBounds.length
       && !unmapped.length && !invalidUnneededArchives.length && finalFiles.size <= ARCHIVE_LIMIT };
-  return { report, coverage };
+  const plan = { report, coverage };
+  planArchiveInspections.set(plan, existing);
+  return plan;
 }
 
-/** @param {any} plan @param {MapFetchOptions} options */
-export async function prepareMapArchives({ report, coverage }, { fetchFn = fetch, signal, onProgress = () => {} } = {}) {
+/** @param {any} plan @param {MapFetchOptions & {inspectArchive?: typeof inspectMapArchive}} options */
+export async function prepareMapArchives(plan, { fetchFn = fetch, signal, onProgress = () => {}, inspectArchive = inspectMapArchive } = {}) {
+  const { report, coverage } = plan;
   if (!report.readyToPrepare) throw new MapSetupError("Incomplete map plan; resolve reported bounds/coverage/archive limits first");
   const directory = report.dataDirectory;
   await mkdir(directory, { recursive: true });
@@ -312,8 +324,17 @@ export async function prepareMapArchives({ report, coverage }, { fetchFn = fetch
     const missing = [];
     for (const [index, archive] of report.archives.entries()) {
       signal?.throwIfAborted();
-      onProgress({ phase: "inspect-required", archive: archive.id, completed: index + 1, total: report.archives.length });
-      if (!(await inspectMapArchive(path.join(directory, archive.filename))).valid) missing.push(archive);
+      onProgress({ phase: "check-file-state", archive: archive.id, completed: index + 1, total: report.archives.length });
+      const filename = path.join(directory, archive.filename);
+      const inspected = planArchiveInspections.get(plan)?.get(archive.filename);
+      const current = await archiveFileState(filename);
+      let valid = inspected?.valid === true && typeof inspected.fingerprint === "string"
+        && inspected.fingerprint === current?.fingerprint;
+      if (!valid) {
+        onProgress({ phase: "inspect-required", archive: archive.id, completed: index + 1, total: report.archives.length });
+        valid = (await inspectArchive(filename)).valid;
+      }
+      if (!valid) missing.push(archive);
       else onProgress({ phase: "reuse", archive: archive.id });
     }
     const needed = missing.reduce((sum, entry) => sum + entry.downloadBytes, 0);
@@ -349,7 +370,7 @@ export async function prepareMapArchives({ report, coverage }, { fetchFn = fetch
         } finally { await output.close(); }
         onProgress({ phase: "download", archive: archive.id, bytes, totalBytes: archive.downloadBytes });
         onProgress({ phase: "verify-download", archive: archive.id });
-        if (bytes !== archive.downloadBytes || !(await inspectMapArchive(temporary)).valid) throw new MapSetupError("Downloaded archive failed size/SQLite/Shortbread validation");
+        if (bytes !== archive.downloadBytes || !(await inspectArchive(temporary)).valid) throw new MapSetupError("Downloaded archive failed size/SQLite/Shortbread validation");
         await rename(temporary, destination);
         created.push(archive.id);
         onProgress({ phase: "installed", archive: archive.id, completed: created.length, total: missing.length });
