@@ -20,6 +20,7 @@ import LogicalBackupService from "../services/logicalBackupService.js";
 import AdminUserRoleService, {
   AdminUserRoleError
 } from "../services/adminUserRoleService.js";
+import { createLocalMapAdminRouter } from "./localMapAdminRoutes.js";
 
 const router = express.Router();
 const upload = multer({
@@ -36,6 +37,7 @@ const workoutUpload = multer({
 });
 
 router.use(requireAdmin);
+router.use("/maps", createLocalMapAdminRouter({ queue: postgresBackupOpsQueue }));
 
 router.get("/", (req, res) => {
   res.render("admin-accounts", {

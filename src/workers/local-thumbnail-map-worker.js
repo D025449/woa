@@ -3,6 +3,11 @@ import { LocalMapRenderer } from "../services/localThumbnailMapRenderer.js";
 
 const renderer = new LocalMapRenderer(workerData);
 parentPort.on("message", async ({ id, example }) => {
+  try { renderer.viewport(example); }
+  catch {
+    parentPort.postMessage({ id, error: "unsupported-route" });
+    return;
+  }
   try {
     const result = await renderer.render(example);
     parentPort.postMessage({ id, result: { svg: result.svg, stats: result.stats } });

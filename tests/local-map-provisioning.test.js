@@ -465,7 +465,8 @@ test("CLI prepare keeps JSON on stdout and emits all progress on stderr without 
     const script = `import { readFile } from "node:fs/promises";
       import { runMapCommand } from "./src/scripts/prepare-local-maps.js";
       const body = await readFile(${JSON.stringify(filename)});
-      await runMapCommand(["prepare", "--env-file", ${JSON.stringify(envFile)}, "--json"], {
+      await runMapCommand(["prepare", "--env-file", ${JSON.stringify(envFile)}, "--json",
+        ...(process.env.TEST_MAP_APPROVAL ? ["--approved-regions", process.env.TEST_MAP_APPROVAL] : [])], {
         clientFactory: () => ({ async connect() {}, async end() {}, async query() { return { rows: [${JSON.stringify(workout)}] }; } }),
         fetchFn: async (url, options) => {
           if (options.method === "HEAD") return new Response(null, { headers: { "content-length": "${body.length}" } });
@@ -484,6 +485,16 @@ test("CLI prepare keeps JSON on stdout and emits all progress on stderr without 
       assert.match(result.stderr, new RegExp(`\\[maps\\] ${phase}`));
     }
     assert.match(result.stderr, /100\.0%/);
+    const rejected = spawnSync(process.execPath, ["--input-type=module", "-e", script],
+      { encoding: "utf8", env: { ...process.env, TEST_MAP_APPROVAL: "unapproved-region" } });
+    assert.equal(rejected.status, 0, rejected.stderr);
+    await rm(path.join(directory, "maps"), { recursive: true });
+    const blocked = spawnSync(process.execPath, ["--input-type=module", "-e", script],
+      { encoding: "utf8", env: { ...process.env, TEST_MAP_APPROVAL: "west" } });
+    assert.equal(blocked.status, 1);
+    assert.match(blocked.stderr, /Map demand changed or approval invalid/);
+    assert.equal(blocked.stdout, "");
+    assert.doesNotMatch(blocked.stderr, /\[maps\] download-request/);
   });
 });
 

@@ -250,8 +250,10 @@ After downloads, every required tile at each thumbnail zoom is checked in the
 read-only archive set. No raster prewarming is necessary. For more than 16 regions,
 an explicit larger-extract/consolidation strategy is needed before proceeding;
 the commands do not change the renderer limit or silently remove archives.
-Stop provisioning/restart rendering workers when replacing files already open by
-running processes; existing workers do not automatically reopen archives.
+Do not overwrite open archives in place. Rendering workers detect local inventory
+changes and reopen between jobs; an active job completes on its existing handles.
+This is not a validated versioned activation/rollback mechanism: prepare replacement
+files separately, use atomic installation and coordinate changes to live datasets.
 
 Local verification on 2026-11-05: 3,225 GPS workouts, 2,986 missing thumbnails,
 zero missing/unsupported bounds and zero unmapped workouts. The complete plan
@@ -273,10 +275,11 @@ only the three known `lastEnd` errors. Linux ARM64 was not exercised.
   on-demand generation is enabled. Setting `FEATURE_THUMBNAILS_ON_DEMAND=0`
   preserves existing-image-only behavior. Placeholders remain visible until a
   successful image load, without removing the observable image footprint.
-- Local mode reuses every existing nonempty thumbnail, including old styles,
-  Geoapify backgrounds and route-only fallbacks. There is no bulk generation,
-  style upgrade or automatic fallback retry. Explicit manual/copied GPS edits
-  still replace thumbnails because the route itself has changed.
+- Local mode reuses existing successful thumbnails and all unmarked legacy images,
+  including old styles, Geoapify backgrounds and old route-only fallbacks. Only
+  newly marked local fallbacks participate in the lifecycle below. There is no
+  bulk generation or style upgrade. Explicit manual/copied GPS edits still replace
+  thumbnails because the route itself has changed.
 - Missing images use the existing authenticated route and `workout_thumbnails`
   storage: per-workout advisory locking, recheck after locking and commit before
   returning. The full self-contained SVG is durable across restarts. No migration.
@@ -293,8 +296,145 @@ only the three known `lastEnd` errors. Linux ARM64 was not exercised.
   or global cache-root limit.
 - Local mode makes no external map calls. Missing/incomplete coverage, invalid
   archives, worker errors, overload or timeout use the persisted route-only
-  fallback, without automatic retry. Enlarging coverage does not replace saved
-  images. Indoor/non-GPS profile thumbnails retain their existing path.
+  fallback. New fallbacks distinguish missing coverage, unsupported routes and
+  temporary failure; only these marked images can be retried. Enlarging coverage
+  never replaces successful maps or unmarked old images. Indoor/non-GPS profile
+  thumbnails retain their existing path.
+
+### Local Map Lifecycle
+
+The user approved a staged lifecycle design. Fallback state/targeted recovery and
+the manual admin demand/provisioning workflow below are implemented locally.
+Automatic update operations remain accepted follow-up requirements.
+
+New local fallback SVGs carry `data-local-map-state`, a 64-hex-character
+`data-local-map-revision`, `data-local-map-attempt` and the existing safe
+`data-map-fallback`/`data-map-retry-at` attributes. They are persisted in the
+existing PostgreSQL thumbnail row; no schema change or migration is required.
+Raw exception messages, paths or credentials are not embedded.
+
+| State | Implemented behavior |
+| --- | --- |
+| Successful map or unmarked legacy image | Reuse unchanged, including across future map revisions. |
+| `missing-coverage` | Show the route-only image; retry on the next actual thumbnail request only after the local inventory revision changes. No repeated render with the same revision. |
+| `temporary-failure` | Keep the route visible. Maximum three rendering attempts per revision: wait five minutes after the first, fifteen after the second, then hold after the third. Requests before deadlines only reuse the saved fallback. A changed revision or explicit replacement resets the sequence. No retry timer/background task is started. |
+| `unsupported-route` | Keep the route-only image without automatic retry, even after map changes. Explicit GPS edits/replacement may rebuild it. This means unsupported route geometry; catalog-level unsupported regions belong to future demand management. |
+
+The revision fingerprints sorted local `.mbtiles` names, source directory, device,
+inode, size and nanosecond mtime/ctime. It is an inventory identity, not an upstream
+version/checksum or coverage guarantee. The synchronous directory/stat lookup is
+memoized for five seconds and does not open SQLite or contact a provider. `.part`
+files are excluded. A changed unrelated archive can allow a missing-coverage
+fallback one new attempt; the renderer still verifies actual viewport coverage.
+Fallback browser responses retain `private, max-age=60`, so a browser may first
+reuse its cached image. Recovery is on demand, not an immediate bulk regeneration.
+
+At the next queued render after a detected inventory change, the client retires
+the idle worker and opens the new archive set. Active work is not interrupted.
+The existing source-identity/style raster namespace separates new tiles from old
+ones. This adds neither validated set activation nor deletion of old namespaces;
+existing disk/cache limits and the 16-archive cap remain in force.
+
+Verification: all 827 tests passed, including 40 focused thumbnail/worker cases
+covering states, legacy protection, safe annotation, persisted retry counters,
+backoff/hold/reset, concurrent one-time replacement, real worker geometry errors,
+inventory changes and raster namespace separation after atomic replacement.
+Syntax/lint passed (70 existing warnings); only the three known `lastEnd` type
+errors remain. No production access, deployment, actual archive download, schema
+migration or service restart was performed for this stage. The user had separately
+reported production preparation success: eight archives, 3,236 GPS workouts,
+2,704 missing thumbnails and zero uncovered workouts, `ready to activate: true`.
+Provider activation and live production rendering have not been independently
+verified here.
+
+Accepted follow-up requirements:
+
+- Imports remain successful without map coverage; no upload or image request may
+  trigger a multi-GiB regional download or external-provider fallback.
+- Aggregate and deduplicate regional demand across workouts; expose region,
+  estimated download size, status and available disk in an admin view. Initially
+  require manual approval; automatic downloads may later use explicit quotas.
+- Provision missing regions in background work and permit targeted recovery of
+  only marked fallbacks after successful activation. Unsupported catalog regions
+  need a durable status, not endless attempts.
+- Check upstream metadata monthly, initially reporting available updates rather
+  than installing them automatically. Length alone is not a version identifier.
+- Download/validate changed files separately, activate a versioned archive set
+  atomically, reopen handles and retain one prior set for rollback. Do not disturb
+  working maps during download/failure or mass-regenerate successful thumbnails.
+- Add global storage accounting and safe cleanup for retired sets/raster namespaces,
+  respecting live handles, rollback retention, app/database reserve and the archive
+  cap. The present 128 MiB raster limit is per namespace/worker, not global.
+
+There is currently no dedicated regional demand table, import-triggered demand
+scan, monthly scheduler, upstream update manager, manifest-based activation/rollback
+or global cache GC. The manual workflow derives demand from PostgreSQL GPS bounds
+and stores job snapshots in the existing Redis-backed Ops queue instead.
+
+### Admin Map Demand And Provisioning
+
+Open `/admin/accounts#local-map-management` as an administrator. The map section
+shows region status/size, overlapping workout counts, missing thumbnail counts,
+planned archive count, download total and free disk at planning time. Counts across
+regions are not additive because a workout may intersect several regions.
+Opening the page only reads stored job results; it starts neither metadata checks
+nor downloads. There is no automatic scan on upload or page load.
+
+`Bedarf prüfen` explicitly queues `maps-scan`. The existing backup Ops worker runs
+the map CLI in a separate Node process with the standard environment file for its
+`NODE_ENV`; production still uses the shared runtime database pointer resolver.
+Read-only PostgreSQL inventory, regional deduplication, official metadata, archive
+validation and space/archive limits reuse the CLI implementation. SQLite full
+checks block that child, not Express or the Ops worker event loop. This does not
+make an individual SQLite call interruptible.
+
+After a complete scan, the admin confirms the listed missing regions/total and
+chooses `Fehlende Regionen laden`. Approval covers all missing regions in that
+snapshot, not arbitrary supplied URLs or individually selected regions. The API
+requires a completed result no older than one hour, exact matching approved IDs,
+an explicit confirmation, admin access and an Origin matching the request host.
+The prepare subprocess replans and checks `--approved-regions id,...` before any
+download: if another missing region appeared meanwhile, it stops for a fresh
+scan/approval. Existing valid files are reused; updated HEAD sizes and disk space
+still undergo the existing strict checks. No schema migration is required.
+
+API routes under `/admin/accounts/maps`:
+
+- `GET /`: latest map job and last completed demand snapshot, no-store.
+- `POST /scan`: explicitly queue a read-only scan.
+- `POST /prepare`: confirm a fresh snapshot and its missing region IDs.
+
+Map operations share the existing `postgres-backup-ops` queue and its single
+`backup:worker` slot (`start:all` starts it in development). A fixed BullMQ
+deduplication key prevents concurrent admin scan/prepare requests from creating
+duplicate map operations. Backups and map jobs therefore run serially; a long map
+scan/download delays other Ops jobs. Without the worker, the UI remains waiting.
+The browser polls active jobs every two seconds and displays safe structured
+phases, region, counters, download percentages and final coverage problems.
+Failures expose only safe stage/code tags, not raw process output. No UI cancel
+action is implemented; killing the Ops worker alone may leave its CLI child
+running. Verify processes and lock ownership before manual cleanup/retry.
+
+Snapshots are derived views, not a durable per-region demand ledger: they share
+the existing queue retention (up to 24h/50 completed and 7d/100 failed Ops jobs).
+They may be evicted earlier by other operations. With no result, run a new scan;
+the durable source remains stored workout bounds. Incomplete bounds/coverage or
+archive-limit problems block prepare, as in the CLI. Existing-image preservation
+and on-demand recovery of marked fallbacks are unchanged. This provisions missing
+regions, not replacement updates to valid existing archives, and does not change
+provider flags or restart application processes.
+
+Verification: all 833 tests passed, including 54 focused admin/provisioning cases.
+Tests cover summaries/privacy, admin/Origin guards, fresh approval, deduplication,
+UI capacity/confirmation controls, safe child progress/failures and a real isolated
+CLI subprocess refusing new unapproved demand before GET. Syntax/lint passed
+(70 existing warnings); only the three known `lastEnd` type errors remain; editor
+diagnostics are clean. The actual EJS section was checked at 1365px desktop and
+390px mobile with simulated API jobs: no auto-start, gated approval, scan/download
+progress/completion, working icons, contained mobile table scrolling and no page
+overflow. No production/Redis operation, real archive download, migration or
+normal Dev backend restart was performed by Copilot. The isolated UI test server
+was stopped after verification; live authenticated Ops execution remains untested.
 
 ### Integration Verification
 

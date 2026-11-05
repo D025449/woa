@@ -3,6 +3,67 @@
 Stand: 2026-11-05. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## lastEnd Type Errors Resolved (2026-11-05)
+
+- User approved a minimal fix in `MicroIntervalDetector`: snapshot closure-mutated
+	`lastEnd` as `const previousEnd` for the null guard and arithmetic. No threshold
+	or detector behavior changes; prior uncommitted lifecycle/admin work preserved.
+- Full `npm run check:types` now passes without errors. All 23 microinterval tests,
+	detector syntax, targeted ESLint and editor diagnostics pass. Full test suite
+	not rerun for this fix. Updated microinterval guide; older type-error notes
+	below describe historical verification. No DB write, migration, deploy/restart.
+
+## Local Map Administration: Demand And Manual Provisioning (2026-11-05)
+
+- User approved continuing with the next lifecycle stage. Added map management
+	to `/admin/accounts#local-map-management`: region status/size/workout counts,
+	download/free-space summary, explicit scan, confirmation and missing-region
+	provisioning, job phases/percentages and safe errors. Page load starts no job.
+- Jobs reuse the Redis-backed backup Ops queue/worker, serially with backups.
+	Map CLI runs in a separate process, preserving read-only inventory, validations,
+	runtime DB pointer and download limits. Approval is bound to a <=1h completed
+	snapshot and exact region IDs; CLI `--approved-regions` refuses newly missing
+	unapproved regions before GET. No schema migration or new worker process needed.
+- New protected map endpoints require admin access, matching Origin host for
+	mutations, no-store results and shared BullMQ deduplication. Snapshots follow
+	existing Ops result retention, not a permanent per-region ledger. No automatic
+	import/page-load scan, monthly updater, versioned rollback or global GC yet.
+	Downloads need a running Ops worker; no UI cancel implemented and an orphaned
+	CLI child is possible if its parent is killed. See map operations docs.
+- All 833 tests passed (54 focused admin/provisioning cases), syntax/lint passed
+	with 70 existing warnings, editor checks clean; only three known `lastEnd`
+	type errors remain. Actual EJS/browser flow checked at desktop1365/mobile390
+	using simulated API jobs: gated commands, progress, completed status, icons,
+	no automatic jobs or page overflow. Isolated test server stopped afterwards.
+	No normal Dev backend restart, production/Redis operation, real map download,
+	deployment or migration by Copilot; live authenticated Ops job remains untested.
+
+## Local Map Lifecycle: Fallback Recovery Foundation (2026-11-05)
+
+- User reported successful production preparation: eight archives, 3,236 GPS
+	workouts, 2,704 missing thumbnails, zero missing tiles and ready to activate.
+	Provider activation/live rendering remain unverified; Copilot did not access
+	production. Earlier unknown-preparation entries below are historical.
+- User approved staged lifecycle design: nonblocking imports/route fallback,
+	deduplicated regional demand and initial admin approval, monthly update checks,
+	staged/versioned activation with one rollback set, global storage cleanup and
+	preservation of successful/legacy images. See `docs/workout-map.md` for the
+	distinction between implemented behavior and accepted follow-up requirements.
+- Implemented first stage only: new local SVG fallbacks persist state, inventory
+	revision and retry count in the existing thumbnail row. Missing coverage waits
+	for a revision change; temporary failures get three attempts (5m/15m waits,
+	then hold) until revision change/explicit replacement; unsupported geometry
+	does not auto-retry. Successful and unmarked legacy images remain unchanged.
+- Inventory identity uses local file metadata, memoized for 5s, with no network
+	or SQLite scan. Workers reopen between jobs after changes; active work finishes.
+	Existing source-versioned raster cache avoids stale reuse. No upload/view
+	downloads, schema change, migration, background retry or legacy backfill.
+- All 827 tests passed, including 40 focused thumbnail/worker cases; syntax/lint
+	passed with 70 existing warnings; editor checks clean. Typecheck retains only
+	three known `lastEnd` errors. No deployment, production write, archive download
+	or service restart by Copilot. Regional demand/admin UI, monthly scheduler,
+	versioned updater/rollback and global cleanup are NOT implemented in this stage.
+
 ## Reuse Unchanged Archive Inspections (2026-11-05)
 
 - User confirmed deploying the progress/retry version and supplied planning output

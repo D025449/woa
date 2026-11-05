@@ -12,6 +12,7 @@ import { redisConnection } from "../queue/connection.js";
 import { POSTGRES_BACKUP_OPS_QUEUE } from "../queue/postgres-backup-ops-queue.js";
 import PostgresBackupCatalogService from "../services/postgresBackupCatalogService.js";
 import LogicalBackupService from "../services/logicalBackupService.js";
+import { MAP_OPERATIONS, executeMapOperation } from "../services/localMapAdminService.js";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDirectory, "../..");
@@ -92,6 +93,7 @@ async function executeDatabaseSwitch(job, operation) {
 const worker = new Worker(
   POSTGRES_BACKUP_OPS_QUEUE,
   async (job) => {
+    if (MAP_OPERATIONS.has(job.name)) return executeMapOperation(job);
     const logicalProgress = async (percent, phase, details = {}) => job.updateProgress({
       percent,
       phase,

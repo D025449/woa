@@ -35,7 +35,7 @@ dokumentieren die Werkzeuge; sie sind keine Ausführungsfreigabe.
 | `start:all` | `npm run start:all`: start the app, import worker, and backup worker together. | Same prerequisites and data changes as the individual services. Logs use `[app]`, `[worker]`, and `[backup]`. In development, sets child-process app/Cognito URLs to localhost using `PORT` (default 3000). Other environment values are inherited. `Ctrl+C`/SIGTERM stops all services; after ten seconds remaining processes are forcibly stopped. Core service failures stop the other processes with an error status. |
 | `start:tunnel` | `npm run start:tunnel`: start the app, both workers, and ngrok using the fixed public URL. | Same service prerequisites and data changes as `start:all`, plus public access to the local app. Requires an installed, authenticated ngrok agent. Uses the app's `PORT` (default 3000); waits for local HTTP readiness. Tunnel failures leave local services running. `Ctrl+C` stops all processes. [Setup and details](#local-development-with-ngrok). |
 | `worker` | `npm run worker`: Import-Worker starten. | Verarbeitet Import-Jobs und den dauerhaften Wahoo-Webhook-Eingang; schreibt Trainings und Folgeaufträge. Benötigt die konfigurierte Datenbank und Queue-Infrastruktur, für Wahoo zusätzlich Migration 092 und die [Wahoo-Konfiguration](WAHOO_CONNECT.md#webhooks-und-automatischer-import). |
-| `backup:worker` | `npm run backup:worker`: Backup-/Restore-Worker für den Admin-Wizard. | Führt eingereihte Betriebsaufträge aus. [Betriebsanleitung](../ops/postgres-backup/README.md). |
+| `backup:worker` | `npm run backup:worker`: Ops worker for admin backup/restore and local-map jobs. | Runs queued operations serially, including explicit map scans/download approvals via a separate map CLI process. Requires Redis and the underlying operation prerequisites; a long map job delays backup operations. No automatic map scan/download on startup. [Backup operations](../ops/postgres-backup/README.md), [map administration](workout-map.md#admin-map-demand-and-provisioning). |
 | `deploy:prod` | `npm run deploy:prod -- "Commit-Nachricht"` | Führt `npm test` und `npm run check` aus, nimmt **alle Repository-Änderungen** mit `git add --all` auf, erstellt Commit und Push und ruft per SSH `./deploy.sh code-only` auf. Erwartet den Release-Branch, standardmäßig `main`. |
 | `env:prod` | `npm run env:prod`: open `~/woa/.env.production` on `cwa24-ec2` directly in Nano over SSH. | Requires a local interactive terminal, working SSH access to the `cwa24-ec2` alias, and Nano plus file access on the server. Saving changes the production environment file; no automatic restart or deployment. [Editing details](#edit-the-production-environment). |
 | `maps:plan` | `npm run maps:plan -- --env-file .env.production [--json]`: inventory required Shortbread regions from stored workout GPS boxes. | Explicit environment file, database read access, Node with `node:sqlite`, outbound Geofabrik metadata/HEAD access. Read-only transaction; reads existing map files, creates none, downloads no archives. Phase/inspection progress on stderr; `--json` keeps script stdout machine-readable. Exit 2 for incomplete plans. [Production workflow](workout-map.md#production-planning-and-preparation-over-ssh). |
@@ -62,6 +62,15 @@ validated. No persistent inspection cache is created or exported in JSON, so a
 new invocation still performs the first full inspection and coverage checks.
 Internal `node --` argument separation prevents Node from consuming `--env-file`;
 the documented npm command remains unchanged. See the production workflow above.
+
+The admin map workflow uses the same scripts out of process through `backup:worker`.
+`maps:prepare` additionally accepts optional `--approved-regions id,...`: all
+currently missing required regions must be in that list before downloads start.
+This guards an explicit admin approval against new demand discovered during a
+fresh plan; it does not select arbitrary download URLs or update existing valid
+archives. Without this option, existing manual CLI behavior is unchanged.
+The admin panel needs app and Ops worker running; `start:all` starts both in Dev.
+Its standard environment filename follows the Ops worker's `NODE_ENV`.
 
 `deploy:prod` unterstützt `GIT_REMOTE`, `RELEASE_BRANCH`, `DEPLOY_SSH_TARGET`
 und `DEPLOY_APP_DIR`. `SKIP_RELEASE_CHECKS=1` überspringt Tests und Checks.

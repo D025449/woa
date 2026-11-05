@@ -137,8 +137,9 @@ export function detectMicroIntervalBlocks({ recordCount, powerAtIndex, metrics,
         activeStart = previousIndex;
       }
       // Keep very brief power dips within one work phase, but never bridge missing samples.
-      if (lastEnd != null && !invalidSinceEnd && runs.length
-        && (index - lastEnd <= 3 || (index - lastEnd <= 5 && lastEnd - runs.at(-1).start >= 15))) {
+      const previousEnd = lastEnd;
+      if (previousEnd != null && !invalidSinceEnd && runs.length
+        && (index - previousEnd <= 3 || (index - previousEnd <= 5 && previousEnd - runs.at(-1).start >= 15))) {
         activeStart = runs.pop().start;
       }
     } else if (activeStart != null && smooth < exit) close(index);

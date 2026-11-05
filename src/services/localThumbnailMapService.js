@@ -1,4 +1,7 @@
 import { Worker } from "node:worker_threads";
+import { readdirSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import path from "node:path";
 import { getLocalThumbnailMapConfig } from "../config/storagePaths.js";
 
 export class LocalThumbnailMapClient {
@@ -11,6 +14,23 @@ export class LocalThumbnailMapClient {
     this.active = null;
     this.queue = [];
     this.nextId = 0;
+    this.revisionCache = null;
+    this.workerRevision = null;
+  }
+
+  getRevision(config = getLocalThumbnailMapConfig(), now = Date.now()) {
+    if (this.revisionCache?.directory === config.dataDirectory && now >= this.revisionCache.checkedAt
+      && now - this.revisionCache.checkedAt < 5000) return this.revisionCache.revision;
+    let files;
+    try {
+      files = readdirSync(config.dataDirectory).filter(name => name.endsWith(".mbtiles")).sort().map(name => {
+        const details = statSync(path.join(config.dataDirectory, name), { bigint: true });
+        return [name, details.dev, details.ino, details.size, details.mtimeNs, details.ctimeNs].join(":");
+      });
+    } catch { files = ["unavailable"]; }
+    const revision = createHash("sha256").update(JSON.stringify([config.dataDirectory, files])).digest("hex");
+    this.revisionCache = { directory: config.dataDirectory, checkedAt: now, revision };
+    return revision;
   }
 
   render(example, config = getLocalThumbnailMapConfig()) {
@@ -31,9 +51,16 @@ export class LocalThumbnailMapClient {
     const job = this.queue.shift();
     this.active = job;
     try {
+      const revision = `${job.config.cacheRoot}:${this.getRevision(job.config)}`;
+      if (this.worker && this.workerRevision !== revision) {
+        const previous = this.worker;
+        this.worker = null;
+        void previous.terminate();
+      }
       if (!this.worker) {
         const worker = this.workerFactory(job.config);
         this.worker = worker;
+        this.workerRevision = revision;
         worker.on("message", (message) => {
           if (this.worker !== worker || this.active?.id !== message.id) return;
           const current = this.active;

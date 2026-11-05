@@ -49,10 +49,115 @@ test("local maps reuse every existing thumbnail without style upgrades or fallba
   const previous = process.env.WOA_THUMBNAIL_MAP_PROVIDER;
   process.env.WOA_THUMBNAIL_MAP_PROVIDER = "local";
   try {
-    for (const content of ['<svg/>', '<svg data-map-fallback="outside-coverage"/>', '<svg data-thumbnail-style="1"/>']) {
+    for (const content of ['<svg/>', '<svg data-map-fallback="outside-coverage"/>', '<svg data-thumbnail-style="1"/>',
+      '<svg data-local-map-state="temporary-failure"/>', '<svg data-local-map-state="unknown"/>']) {
       assert.equal(WorkoutThumbnailService.isCurrentRouteThumbnail({ kind: "route", content }, Date.now()), true);
     }
     assert.equal(WorkoutThumbnailService.hasMapBackground({ kind: "route", content: '<svg data-map-provider="local"/>' }), true);
+  } finally {
+    if (previous === undefined) delete process.env.WOA_THUMBNAIL_MAP_PROVIDER;
+    else process.env.WOA_THUMBNAIL_MAP_PROVIDER = previous;
+  }
+});
+
+test("new local fallbacks distinguish coverage, temporary failures and unsupported routes", async context => {
+  const previous = process.env.WOA_THUMBNAIL_MAP_PROVIDER;
+  process.env.WOA_THUMBNAIL_MAP_PROVIDER = "local";
+  let revision = "a".repeat(64);
+  context.mock.method(LocalThumbnailMapService, "getRevision", () => revision);
+  try {
+    for (const [reason, state] of [["outside-coverage", "missing-coverage"], ["local-map-timeout", "temporary-failure"],
+      ["unsupported-route", "unsupported-route"], ["private-value?token=secret", "temporary-failure"]]) {
+      context.mock.method(LocalThumbnailMapService, "render", async () => { throw new Error(reason); });
+      const payload = await WorkoutThumbnailService.createThumbnailPayloadAsync({ gpsTrack: [[49, 8], [49.1, 8.1]] });
+      assert.match(payload.content, new RegExp(`data-local-map-state="${state}"`));
+      assert.doesNotMatch(payload.content, /private-value|token=secret/);
+      assert.equal(WorkoutThumbnailService.isCurrentRouteThumbnail(payload), true);
+      const retryAt = payload.renderStats.mapRetryAt;
+      assert.equal(WorkoutThumbnailService.isCurrentRouteThumbnail(payload, Date.now() + 3600000), state !== "temporary-failure");
+      if (state === "temporary-failure") assert.equal(WorkoutThumbnailService.isCurrentRouteThumbnail(payload, retryAt), false);
+      revision = "b".repeat(64);
+      assert.equal(WorkoutThumbnailService.isCurrentRouteThumbnail(payload), state === "unsupported-route");
+      revision = "a".repeat(64);
+    }
+  } finally {
+    if (previous === undefined) delete process.env.WOA_THUMBNAIL_MAP_PROVIDER;
+    else process.env.WOA_THUMBNAIL_MAP_PROVIDER = previous;
+  }
+});
+
+test("persisted local temporary failures back off, stop after three attempts and reset on explicit replacement", async context => {
+  const previous = process.env.WOA_THUMBNAIL_MAP_PROVIDER;
+  process.env.WOA_THUMBNAIL_MAP_PROVIDER = "local";
+  let now = Date.now();
+  let revision = "a".repeat(64);
+  let stored = null;
+  let renders = 0;
+  context.mock.method(Date, "now", () => now);
+  context.mock.method(LocalThumbnailMapService, "getRevision", () => revision);
+  context.mock.method(LocalThumbnailMapService, "render", async () => { renders++; throw new Error("local-map-timeout"); });
+  context.mock.method(pool, "connect", async () => ({ async query() { return { rows: [] }; }, release() {} }));
+  context.mock.method(WorkoutThumbnailService, "getThumbnail", async () => stored);
+  context.mock.method(WorkoutThumbnailService, "upsertThumbnail", async (_id, payload) => { stored = { ...payload }; return stored; });
+  const create = () => WorkoutThumbnailService.createThumbnailPayloadAsync({ gpsTrack: [[49, 8], [49.1, 8.1]] });
+  try {
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await Promise.all([WorkoutThumbnailService.getOrCreateThumbnail(776, create), WorkoutThumbnailService.getOrCreateThumbnail(776, create)]);
+      assert.equal(renders, attempt);
+      assert.equal(stored.renderStats.localMapAttempt, attempt);
+      assert.match(stored.content, new RegExp(`data-local-map-attempt="${attempt}"`));
+      await WorkoutThumbnailService.getOrCreateThumbnail(776, () => assert.fail("must wait before retry"));
+      if (attempt < 3) {
+        assert.equal(stored.renderStats.mapRetryAt - now, attempt === 1 ? 300000 : 900000);
+        now = stored.renderStats.mapRetryAt;
+      }
+    }
+    now += 86400000;
+    await WorkoutThumbnailService.getOrCreateThumbnail(776, () => assert.fail("retry limit must remain bounded"));
+    assert.equal(stored.renderStats.mapRetryAt, 0);
+    await WorkoutThumbnailService.getOrCreateThumbnail(776, create, { replaceExisting: true });
+    assert.equal(renders, 4);
+    assert.equal(stored.renderStats.localMapAttempt, 1);
+    revision = "b".repeat(64);
+    await WorkoutThumbnailService.getOrCreateThumbnail(776, create);
+    assert.equal(renders, 5);
+    assert.equal(stored.renderStats.localMapAttempt, 1);
+    assert.equal(stored.renderStats.localMapRevision, revision);
+  } finally {
+    if (previous === undefined) delete process.env.WOA_THUMBNAIL_MAP_PROVIDER;
+    else process.env.WOA_THUMBNAIL_MAP_PROVIDER = previous;
+  }
+});
+
+test("persisted missing-coverage fallbacks are replaced once after local coverage changes", async context => {
+  const previous = process.env.WOA_THUMBNAIL_MAP_PROVIDER;
+  process.env.WOA_THUMBNAIL_MAP_PROVIDER = "local";
+  let revision = "a".repeat(64);
+  let stored = null;
+  let renders = 0;
+  context.mock.method(LocalThumbnailMapService, "getRevision", () => revision);
+  context.mock.method(LocalThumbnailMapService, "render", async () => {
+    renders++;
+    if (revision.startsWith("a")) throw new Error("outside-coverage");
+    return { svg: '<svg data-map-provider="local"/>', stats: {} };
+  });
+  context.mock.method(pool, "connect", async () => ({ async query() { return { rows: [] }; }, release() {} }));
+  context.mock.method(WorkoutThumbnailService, "getThumbnail", async () => stored);
+  context.mock.method(WorkoutThumbnailService, "upsertThumbnail", async (_id, payload) => { stored = { ...payload }; return stored; });
+  const create = () => WorkoutThumbnailService.createThumbnailPayloadAsync({ gpsTrack: [[49, 8], [49.1, 8.1]] });
+  try {
+    await WorkoutThumbnailService.getOrCreateThumbnail(777, create);
+    assert.equal(stored.renderStats.localMapState, "missing-coverage");
+    await WorkoutThumbnailService.getOrCreateThumbnail(777, () => assert.fail("unchanged coverage must not retry"));
+    assert.equal(renders, 1);
+    assert.equal(WorkoutThumbnailService.getThumbnailCacheControl(stored), "private, max-age=60");
+    revision = "b".repeat(64);
+    await Promise.all([WorkoutThumbnailService.getOrCreateThumbnail(777, create), WorkoutThumbnailService.getOrCreateThumbnail(777, create)]);
+    assert.equal(renders, 2);
+    assert.equal(WorkoutThumbnailService.hasMapBackground(stored), true);
+    revision = "c".repeat(64);
+    await WorkoutThumbnailService.getOrCreateThumbnail(777, () => assert.fail("successful images must survive future revisions"));
+    assert.equal(renders, 2);
   } finally {
     if (previous === undefined) delete process.env.WOA_THUMBNAIL_MAP_PROVIDER;
     else process.env.WOA_THUMBNAIL_MAP_PROVIDER = previous;

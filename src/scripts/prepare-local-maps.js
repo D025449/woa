@@ -6,6 +6,7 @@ import { Client } from "pg";
 import { resolveRuntimeDatabaseEnvironment } from "../../ops/postgres-backup/runtime-database.mjs";
 import { getLocalThumbnailMapConfig } from "../config/storagePaths.js";
 import { MapSetupError, fetchMapCatalog, readMapWorkoutBounds, buildMapPlan, prepareMapArchives } from "../services/localMapProvisioningService.js";
+import { validateMapApproval } from "../services/localMapAdminService.js";
 
 const SAFE_ERROR_CODES = new Set(["28P01", "28000", "3D000", "42501", "42P01", "42703", "57014", "08001", "08006",
   "EACCES", "EPERM", "ENOENT", "ENOSPC", "EEXIST", "ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ETIMEDOUT",
@@ -61,10 +62,10 @@ export function formatMapProgress(progress) {
 export async function runMapCommand(argv, { clientFactory = config => new Client(config), fetchFn = fetch,
   progressWriter = message => console.error(message) } = {}) {
   const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: {
-    "env-file": { type: "string" }, json: { type: "boolean", default: false }, help: { type: "boolean", default: false }
+    "env-file": { type: "string" }, "approved-regions": { type: "string" }, json: { type: "boolean", default: false }, help: { type: "boolean", default: false }
   } });
   if (values.help) {
-    console.log("Usage: npm run maps:plan|maps:prepare -- --env-file .env.production [--json]\nPlan reads GPS bounds and public metadata only. Prepare downloads validated archives; neither command writes database data or runs migrations.");
+    console.log("Usage: npm run maps:plan|maps:prepare -- --env-file .env.production [--json] [--approved-regions id,...]\nPlan reads GPS bounds and public metadata only. Prepare downloads validated archives; neither command writes database data or runs migrations.");
     return;
   }
   const command = positionals[0];
@@ -99,6 +100,10 @@ export async function runMapCommand(argv, { clientFactory = config => new Client
     const plan = await mapStage("plan", () => buildMapPlan(workouts, catalog, { dataDirectory: getLocalThumbnailMapConfig().dataDirectory,
       signal: cancellation.signal, fetchFn, onProgress }));
     let preparation;
+    if (values["approved-regions"] !== undefined) await mapStage("prepare", () => {
+      try { validateMapApproval(plan.report, values["approved-regions"].split(",")); }
+      catch { throw new MapSetupError("Map demand changed or approval invalid; check and approve the regions again"); }
+    });
     if (command === "prepare" && plan.report.readyToPrepare) preparation = await mapStage("prepare", () => prepareMapArchives(plan,
       { signal: cancellation.signal, fetchFn, onProgress }));
     if (values.json) console.log(JSON.stringify({ ...plan.report, preparation }, null, 2));

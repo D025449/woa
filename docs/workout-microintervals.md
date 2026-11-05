@@ -165,13 +165,12 @@ alone still does not preserve the application-specific parent hierarchy.
 
 ## Interval Block Verification
 
-- The complete test suite passes 742 tests, including flexible 1/2/4/8-minute
+- Earlier full-suite verification passed 742 tests, including flexible 1/2/4/8-minute
   efforts, independent 3/4-repetition sets, 5% duration variation, irregular
   pauses, brief dips, missing samples, selected ranges, manual scan protection,
   WPP import, phase persistence/rename/resize, backup, visibility and phase areas.
-- Syntax and targeted ESLint pass; the touched code retains 15 existing warnings.
-  Type checking still reports the three previously known nullable `lastEnd`
-  errors in `MicroIntervalDetector.js:141`, with no new type errors.
+- At that verification, syntax and targeted ESLint passed with 15 existing warnings.
+  Type checking reported three nullable `lastEnd` errors, subsequently fixed below.
 - A browser preview exercised the actual module worker, extracted unchanged
   controller scan method, editor and simulated segment API. It detected separate
   3/4-repetition sets, saved a manual phase correction and retained block kind.
@@ -182,3 +181,13 @@ alone still does not preserve the application-specific parent hierarchy.
   dashboard controller could not be imported in the static preview because it
   does not serve the application's vendor URL. Migration 094 was prepared only;
   no migration, backfill, real segment save, deployment or restart was performed.
+
+## Detector Type-Check Fix (2026-11-05)
+
+The brief-dip merge condition now snapshots the closure-mutated `lastEnd` in
+`const previousEnd` before its null guard and arithmetic. Detection thresholds,
+missing-sample boundaries and runtime decisions are unchanged. The full
+`npm run check:types` passes without errors; all 23 tests in
+`tests/microinterval-detector.test.js`, detector syntax, targeted ESLint and editor
+diagnostics pass. The full test suite was not rerun for this type-only fix.
+No migration, database write, deployment or restart was performed.

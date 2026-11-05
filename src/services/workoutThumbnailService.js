@@ -308,6 +308,30 @@ function annotateRouteFallback(fallback, { reason, retryAt }) {
   };
 }
 
+function localFallbackMetadata(thumbnail) {
+  const content = String(thumbnail?.content || "");
+  const state = content.match(/\bdata-local-map-state="(missing-coverage|temporary-failure|unsupported-route)"/)?.[1];
+  const revision = content.match(/\bdata-local-map-revision="([a-f0-9]{64})"/)?.[1];
+  const attempt = Number(content.match(/\bdata-local-map-attempt="([1-3])"/)?.[1]);
+  const retryAt = Number(content.match(/\bdata-map-retry-at="(\d+)"/)?.[1]);
+  return state && revision && Number.isSafeInteger(attempt) && Number.isSafeInteger(retryAt)
+    ? { state, revision, attempt, retryAt } : null;
+}
+
+function localRetryDeadline(attempt) {
+  return attempt < 3 ? Date.now() + FALLBACK_RETRY_MS * 3 ** (attempt - 1) : 0;
+}
+
+function annotateLocalRouteFallback(fallback, error, revision) {
+  const state = error?.message === "outside-coverage" ? "missing-coverage"
+    : error?.message === "unsupported-route" ? "unsupported-route" : "temporary-failure";
+  const tagged = annotateRouteFallback(fallback, { reason: `local-${state}`,
+    retryAt: state === "temporary-failure" ? localRetryDeadline(1) : 0 });
+  return { ...tagged,
+    content: tagged.content.replace("<svg ", `<svg data-local-map-state="${state}" data-local-map-revision="${revision}" data-local-map-attempt="1" `),
+    renderStats: { ...tagged.renderStats, localMapState: state, localMapRevision: revision, localMapAttempt: 1 } };
+}
+
 async function renderGeoapifyRouteThumbnail(options, fallback = null) {
   const segments = normalizeRouteSegments(options.gpsTrackSegments, options.gpsTrack);
   const track = segments.flat();
@@ -766,11 +790,12 @@ export default class WorkoutThumbnailService {
     if (fallback?.kind !== "route") {
       return fallback;
     }
+    const revision = getLocalThumbnailMapConfig().enabled ? LocalThumbnailMapService.getRevision() : null;
     try {
       return await renderRoute(options, fallback) || fallback;
-    } catch {
+    } catch (error) {
       console.warn("[thumbnail] map.render.failed", { reason: "render-error" });
-      return fallback;
+      return revision ? annotateLocalRouteFallback(fallback, error, revision) : fallback;
     }
   }
 
@@ -792,7 +817,18 @@ export default class WorkoutThumbnailService {
           await query("COMMIT");
           return existing;
         }
-        const payload = await createPayload();
+        let payload = await createPayload();
+        const failure = getLocalThumbnailMapConfig().enabled ? localFallbackMetadata(payload) : null;
+        const previousFailure = failure ? localFallbackMetadata(existing) : null;
+        if (!replaceExisting && failure?.state === "temporary-failure" && previousFailure?.state === "temporary-failure"
+          && failure.revision === previousFailure.revision) {
+          const attempt = Math.min(3, previousFailure.attempt + 1);
+          const retryAt = localRetryDeadline(attempt);
+          payload = { ...payload,
+            content: payload.content.replace(/\bdata-local-map-attempt="[1-3]"/, `data-local-map-attempt="${attempt}"`)
+              .replace(/\bdata-map-retry-at="\d+"/, `data-map-retry-at="${retryAt}"`),
+            renderStats: { ...payload.renderStats, localMapAttempt: attempt, mapRetryAt: retryAt } };
+        }
         if (!payload?.content) {
           await query("COMMIT");
           return null;
@@ -895,7 +931,13 @@ export default class WorkoutThumbnailService {
   }
 
   static isCurrentRouteThumbnail(thumbnail, now = Date.now()) {
-    if (getLocalThumbnailMapConfig().enabled && thumbnail?.content) return true;
+    if (getLocalThumbnailMapConfig().enabled && thumbnail?.content) {
+      if (thumbnail.kind !== "route" || WorkoutThumbnailService.hasMapBackground(thumbnail)) return true;
+      const failure = localFallbackMetadata(thumbnail);
+      if (!failure || failure.state === "unsupported-route") return true;
+      if (failure.revision !== LocalThumbnailMapService.getRevision()) return false;
+      return failure.state === "missing-coverage" || failure.attempt >= 3 || now < failure.retryAt;
+    }
     if (thumbnail?.kind !== "route") {
       return true;
     }

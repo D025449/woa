@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, readdir, readFile, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, writeFile, rm, rename, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -133,6 +133,95 @@ test("local map worker renders offline and survives idle reuse without database 
       assert.match(first.svg, /data-map-provider="local"/);
       assert.equal(second.stats.cache.built, 0);
       assert.ok(second.stats.cache.memory > 0);
+    } finally { client.close(); }
+  });
+});
+
+test("local archive revisions ignore partials and detect additions, rewrites and removals", async () => {
+  await fixture(async config => {
+    const client = new LocalThumbnailMapClient();
+    try {
+      const initial = client.getRevision(config, 0);
+      assert.match(initial, /^[a-f0-9]{64}$/);
+      const filename = path.join(config.dataDirectory, "new.mbtiles");
+      await writeFile(`${filename}.part`, "partial");
+      assert.equal(client.getRevision(config, 5000), initial);
+      await writeFile(filename, "first");
+      assert.equal(client.getRevision(config, 5001), initial);
+      const added = client.getRevision(config, 10000);
+      assert.notEqual(added, initial);
+      await writeFile(filename, "other");
+      const changed = client.getRevision(config, 15000);
+      assert.notEqual(changed, added);
+      await rm(filename);
+      assert.equal(client.getRevision(config, 20000), initial);
+      const unavailable = client.getRevision({ ...config, dataDirectory: path.join(config.dataDirectory, "missing") }, 25000);
+      assert.match(unavailable, /^[a-f0-9]{64}$/);
+      assert.notEqual(unavailable, initial);
+    } finally { client.close(); }
+  });
+});
+
+test("atomic archive replacement starts a new raster namespace even with the same size and mtime", async () => {
+  await fixture(async config => {
+    const filename = path.join(config.dataDirectory, "fixture.mbtiles");
+    const details = await stat(filename);
+    const initial = new LocalMapRenderer(config);
+    let cacheId;
+    try { await initial.render(example); cacheId = initial.cacheId; }
+    finally { initial.close(); }
+    const replacement = `${filename}.replacement`;
+    await writeFile(replacement, await readFile(filename));
+    await utimes(replacement, details.atime, details.mtime);
+    await rename(replacement, filename);
+    const updated = new LocalMapRenderer(config);
+    try {
+      assert.notEqual(updated.cacheId, cacheId);
+      const rendered = await updated.render(example);
+      assert.ok(rendered.stats.cache.built > 0);
+      assert.equal(rendered.stats.cache.disk, 0);
+    } finally { updated.close(); }
+  });
+});
+
+test("archive changes reopen an idle worker after completing the active job", async context => {
+  const workers = [];
+  let revision = "first";
+  const client = new LocalThumbnailMapClient({ workerFactory: () => {
+    const worker = new EventEmitter();
+    Object.assign(worker, { terminated: false, ref() {}, unref() {}, terminate() { this.terminated = true; },
+      postMessage(message) { this.message = message; } });
+    workers.push(worker);
+    return worker;
+  } });
+  context.mock.method(client, "getRevision", () => revision);
+  try {
+    const active = client.render(example);
+    revision = "second";
+    const queued = client.render(example);
+    assert.equal(workers.length, 1);
+    assert.equal(workers[0].terminated, false);
+    workers[0].emit("message", { id: workers[0].message.id, result: { svg: "old-completed" } });
+    assert.equal((await active).svg, "old-completed");
+    assert.equal(workers[0].terminated, true);
+    assert.equal(workers.length, 2);
+    workers[0].emit("exit", 0);
+    workers[1].emit("message", { id: workers[1].message.id, result: { svg: "new" } });
+    assert.equal((await queued).svg, "new");
+    const reused = client.render(example);
+    assert.equal(workers.length, 2);
+    workers[1].emit("message", { id: workers[1].message.id, result: { svg: "reused" } });
+    assert.equal((await reused).svg, "reused");
+  } finally { client.close(); }
+});
+
+test("worker distinguishes unsupported routes from missing tile coverage", async () => {
+  await fixture(async config => {
+    const client = new LocalThumbnailMapClient();
+    try {
+      await assert.rejects(client.render({ segments: [[[9, 86], [9.1, 86.1]]] }, config), /^Error: unsupported-route$/);
+      await assert.rejects(client.render({ segments: [[[140, 35], [140.1, 35.1]]] }, config), /^Error: outside-coverage$/);
+      assert.match((await client.render(example, config)).svg, /data-map-provider="local"/);
     } finally { client.close(); }
   });
 });
