@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { EventEmitter } from "node:events";
 import express from "express";
+import { Job } from "bullmq";
 import { createLocalMapAdminRouter } from "../src/routes/localMapAdminRoutes.js";
 import { LocalMapAdminController, formatMapBytes } from "../src/public/js/local-map-admin.js";
 import { summarizeMapDemand, validateMapApproval, executeMapOperation } from "../src/services/localMapAdminService.js";
@@ -23,16 +24,22 @@ test("monthly map schedule is stable, UTC and metadata-only", async () => {
   assert.equal(removed, "local-map-monthly-updates");
 });
 
-test("map updates persist outside job retention, never spawn downloads and keep private state out of reports", async () => {
+test("real BullMQ jobs persist map updates through the queue client without downloads or private report data", async () => {
   let stored;
   const state = { version: 1, entries: { private: { baseline: "private-url" } }, report: { checkedAt: "now", regions: [] } };
   const client = { async get() { return null; }, async set(key, value) { stored = { key, value }; } };
-  const result = await executeMapOperation({ name: "maps-updates", queueQualifiedName: "test:ops", client: Promise.resolve(client),
-    async updateProgress() {} }, { spawnFn: () => assert.fail("metadata checks must not spawn downloads"),
+  const queue = { name: "ops", qualifiedName: "test:ops", keys: {}, opts: {},
+    toKey: key => `test:ops:${key}`, client: Promise.resolve(client) };
+  const job = new Job(queue, "maps-updates", {}, {}, "test-update");
+  const progress = [];
+  job.updateProgress = async value => { progress.push(value); };
+  assert.equal(job.client, undefined);
+  const result = await executeMapOperation(job, { spawnFn: () => assert.fail("metadata checks must not spawn downloads"),
     checkUpdates: async previous => { assert.deepEqual(previous.entries, {}); return state; } });
   assert.deepEqual(result, state.report);
   assert.equal(stored.key, mapUpdateStateKey("test:ops"));
   assert.deepEqual(JSON.parse(stored.value), state);
+  assert.deepEqual(progress, [{ phase: "check-updates" }, { phase: "completed", percent: 100 }]);
   assert.doesNotMatch(JSON.stringify(result), /private/);
 });
 

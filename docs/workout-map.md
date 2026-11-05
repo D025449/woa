@@ -496,7 +496,16 @@ matching Origin host. Results contain no source URL, local path, fingerprint,
 raw ETag, raw error or workout identity. Update jobs cannot replace a demand
 snapshot or authorize `prepare`; normal snapshot expiry and approvals remain.
 
-Verification: all 854 tests passed; syntax/lint passed with 70 existing warnings,
+Integration correction (2026-11-05): a real BullMQ Job exposes its Redis connection
+through `job.queue.client`, not `job.client`. The original plain-object mock
+invented the latter and hid an immediate runtime failure. The service now uses
+the queue connection, and the regression test constructs the installed BullMQ Job
+class with an offline queue/client stub. All 854 tests, including 12 focused
+admin/update tests, full typecheck and touched-file syntax/lint/editor checks
+passed after this fix. Deploy the updated Ops worker before retrying the manual
+check; no live Redis/upstream run, deployment or restart was performed here.
+
+Initial feature verification: all 854 tests passed; syntax/lint passed with 70 existing warnings,
 full typecheck and relevant editor diagnostics clean. Tests cover strict headers,
 size-only ambiguity, real discovery method selection without archive GET,
 latched/reset/error states, empty inventories, symlinks, protected files, schedule

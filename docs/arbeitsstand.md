@@ -3,6 +3,19 @@
 Stand: 2026-11-05. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Map Update Job Redis Access Fix (2026-11-05)
+
+- User reported a failed manual update check and approved the fix. Reproduced
+	locally with a real BullMQ Job: `job.client` does not exist, causing failure
+	before metadata access. Corrected the service to use `job.queue.client`.
+- Replaced the misleading plain-object Job mock with the installed BullMQ Job
+	class and an offline queue/client stub; checks now cover report persistence and
+	progress without inventing a Job client property or opening real connections.
+- All 854 tests passed, including 12 focused admin/update cases. Full typecheck,
+	touched-file syntax/lint, editor diagnostics and diff checks passed. No live
+	Redis/upstream/server test, deployment, restart or migration was performed.
+	The updated Ops worker must be deployed before retrying the manual check.
+
 ## Map Update Metadata Monitoring (2026-11-05)
 
 - User approved monthly metadata checks plus an explicit admin action, without

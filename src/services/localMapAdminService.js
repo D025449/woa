@@ -20,7 +20,7 @@ export async function executeMapOperation(job, { spawnFn = spawn, checkUpdates =
   if (!MAP_OPERATIONS.has(job.name)) throw new Error("Unsupported map operation");
   if (job.name === "maps-updates") {
     try {
-      const client = await job.client;
+      const client = await job.queue.client;
       const key = mapUpdateStateKey(job.queueQualifiedName);
       await job.updateProgress({ phase: "check-updates" });
       const state = await checkUpdates(await readMapUpdateState(client, key), {
