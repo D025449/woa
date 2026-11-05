@@ -304,11 +304,12 @@ only the three known `lastEnd` errors. Linux ARM64 was not exercised.
 
 ### Global Map Storage Budget
 
-Approved policy: archives and persistent raster cache share at most **30% of total
+Approved policy: archives and persistent raster cache share at most **50% of total
 filesystem capacity, capped at 100 GiB**. This uses total volume size, not the
 changing amount of free space. If the configured roots are on different devices,
-each device must stay within its own 30% limit and their combined map storage must
+each device must stay within its own 50% limit and their combined map storage must
 stay below 100 GiB. Processes must use the same canonical data/cache configuration.
+The fixed cap takes effect at a total volume capacity of 200 GiB.
 
 `localMapStorageService.js` recursively counts regular file lengths beneath
 `WOA_MAP_DATA_DIR` and `WOA_MAP_CACHE_DIR`, including partial downloads, protected
@@ -351,7 +352,9 @@ new usage rather than its initial estimate. Archive validation and actual viewpo
 coverage checks remain unchanged. Versioned archive updates/retirement remain a
 separate follow-up, not implemented by this storage policy.
 
-Verification: all 846 tests passed, including 79 focused provisioning, renderer,
+The follow-up increase from 30% to 50% passed all 57 provisioning/storage tests,
+including rounding, the cap threshold and independent split-volume limits.
+Initial implementation verification: all 846 tests passed, including 79 focused provisioning, renderer,
 admin and navigation checks. Tests cover both budget thresholds, split volumes,
 overlapping roots, protected partial/rollback data, global raster LRU, lock
 serialization/release, rejection before GET, budget enforcement after a HEAD size
@@ -367,7 +370,8 @@ performed. Real production volume capacity and timing have not been measured.
 
 The user approved a staged lifecycle design. Fallback state/targeted recovery and
 the manual admin demand/provisioning workflow below are implemented locally.
-Automatic update operations remain accepted follow-up requirements.
+Monthly metadata monitoring is also implemented below; automatic archive
+installation, versioned activation and rollback remain follow-up requirements.
 
 New local fallback SVGs carry `data-local-map-state`, a 64-hex-character
 `data-local-map-revision`, `data-local-map-attempt` and the existing safe
@@ -420,8 +424,8 @@ Accepted follow-up requirements:
 - Provision missing regions in background work and permit targeted recovery of
   only marked fallbacks after successful activation. Unsupported catalog regions
   need a durable status, not endless attempts.
-- Check upstream metadata monthly, initially reporting available updates rather
-  than installing them automatically. Length alone is not a version identifier.
+- Monthly upstream metadata monitoring is implemented below, without automatic
+  installation. Length alone is not a version identifier.
 - Download/validate changed files separately, activate a versioned archive set
   atomically, reopen handles and retain one prior set for rollback. Do not disturb
   working maps during download/failure or mass-regenerate successful thumbnails.
@@ -430,10 +434,81 @@ Accepted follow-up requirements:
   metadata; the storage policy currently protects all archives and rollback files.
 
 There is currently no dedicated regional demand table, import-triggered demand
-scan, monthly scheduler, upstream update manager or manifest-based activation/rollback.
+scan, archive update installer or manifest-based activation/rollback.
 Global raster cleanup now runs on write-capacity pressure, not on a timer.
 The manual workflow derives demand from PostgreSQL GPS bounds
 and stores job snapshots in the existing Redis-backed Ops queue instead.
+
+### Map Update Metadata Monitoring
+
+`Updates prüfen` explicitly queues `maps-updates` in the same serial Ops queue.
+Page loads and workout uploads do not enqueue it. When
+`WOA_THUMBNAIL_MAP_PROVIDER=local`, the Ops worker registers the stable BullMQ job
+scheduler `local-map-monthly-updates`: **03:00 UTC on the first of each month**.
+This registration is idempotent and does not immediately check or download data.
+With another provider, worker startup removes that scheduler. Registration failure
+logs a safe message; restart/reconnect the worker to retry. Manual map operations
+use the existing shared deduplication ID. Future monthly jobs do not hold that ID
+or count as active UI work while delayed; once due, they share the serial worker.
+A manual check near a monthly run can result in two sequential metadata checks.
+Long backup jobs can delay
+the check; both Redis and the Ops worker must be available.
+
+The async check reads regular top-level `.mbtiles` file identities from the
+configured data directory (maximum 16), fetches the official Geofabrik catalog and
+region HTML pages, and issues archive HEAD requests with redirects rejected.
+An empty inventory makes no network request. No archive GET, SQLite opening,
+PostgreSQL connection, file write, cleanup, service restart or activation occurs.
+Unknown filenames, symlinks, unavailable regions and failed queries cannot become
+verified versions. Local file identity is checked before/after each query; an
+overall ten-minute deadline bounds a run in addition to the request deadlines.
+
+The service accepts bounded strong ETags and valid HTTP Last-Modified dates. Weak
+ETags alone, missing validators, changed URLs and size-only differences are
+inconclusive. A size change with unchanged validators is also inconclusive.
+Comparable validator differences indicate an upstream change; no size change is
+required. Matching metadata means only that the observed metadata is unchanged,
+not that the installed archive is current, valid or byte-identical.
+
+Redis key `<qualified Ops queue name>:map-update-state-v1` holds private comparison
+anchors plus the latest public report, independently of completed-job expiry and
+without an application TTL. Redis persistence/retention still determines actual
+durability: losing/flushing this key starts new observations. The first usable
+observation anchors the current local file fingerprint (device/inode/size and
+nanosecond mtime/ctime). A detected change remains visible across repeated checks;
+per-region errors preserve the anchor. Replacing/rewriting a local file resets its
+anchor instead of inheriting old conclusions. Removed archives are pruned from
+observation state only, never removed from disk by this feature.
+
+Existing downloads have no trusted recorded upstream provenance. Therefore every
+installed version is explicitly **unverified**, including after matching repeated
+metadata checks. The admin labels are `Upstream geändert`, `Metadaten unverändert`,
+`Versionsstand unklar`, `Upstream nicht verfügbar` and `Prüfung fehlgeschlagen`;
+the separate installed-version column says `Nicht belegt`. First observations
+are inconclusive. Proving installed versions and updating them belongs to the
+future versioned installation/manifest stage, not to this observation baseline.
+No automatic download approval is created. The 50%-volume/100-GiB disk policy
+remains unchanged because this check writes only bounded Redis state.
+
+Admin `GET /admin/accounts/maps` returns `updates` separately from the demand
+snapshot. The new `POST /admin/accounts/maps/updates` requires admin access and a
+matching Origin host. Results contain no source URL, local path, fingerprint,
+raw ETag, raw error or workout identity. Update jobs cannot replace a demand
+snapshot or authorize `prepare`; normal snapshot expiry and approvals remain.
+
+Verification: all 854 tests passed; syntax/lint passed with 70 existing warnings,
+full typecheck and relevant editor diagnostics clean. Tests cover strict headers,
+size-only ambiguity, real discovery method selection without archive GET,
+latched/reset/error states, empty inventories, symlinks, protected files, schedule
+registration/removal, Redis result retention and API approval isolation. Actual
+EJS/map-controller browser preview with simulated reports at 1365 px and 390 px
+verified all five labels, icon rendering, zero jobs on initial load, one job after
+a click, busy/progress behavior and no page overflow; screenshots inspected.
+The isolated preview does not load the real app's i18n or ZIP-vendor middleware;
+unrelated navigation translations/vendor-backed admin controls were not verified
+there. No live Redis scheduler, real upstream requests, production operations,
+normal Dev restart or migration were executed. Preview retained at
+`http://127.0.0.1:59197/admin/accounts#maps` with simulated data only.
 
 ### Admin Map Demand And Provisioning
 
@@ -484,13 +559,15 @@ still undergo the existing strict checks. No schema migration is required.
 
 API routes under `/admin/accounts/maps`:
 
-- `GET /`: latest map job and last completed demand snapshot, no-store.
+- `GET /`: latest map job, last completed demand snapshot and separate persisted
+  update report, no-store.
 - `POST /scan`: explicitly queue a read-only scan.
+- `POST /updates`: explicitly queue metadata monitoring, without downloads.
 - `POST /prepare`: confirm a fresh snapshot and its missing region IDs.
 
 Map operations share the existing `postgres-backup-ops` queue and its single
 `backup:worker` slot (`start:all` starts it in development). A fixed BullMQ
-deduplication key prevents concurrent admin scan/prepare requests from creating
+deduplication key prevents concurrent admin scan/prepare/update requests from creating
 duplicate map operations. Backups and map jobs therefore run serially; a long map
 scan/download delays other Ops jobs. Without the worker, the UI remains waiting.
 The browser polls active jobs every two seconds and displays safe structured

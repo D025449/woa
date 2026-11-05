@@ -3,10 +3,39 @@
 Stand: 2026-11-05. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Map Update Metadata Monitoring (2026-11-05)
+
+- User approved monthly metadata checks plus an explicit admin action, without
+	automatic archive download/replacement. Ops worker registers one BullMQ schedule
+	for the first of each month at 03:00 UTC when the local provider is enabled;
+	when disabled it removes that scheduler. Startup only registers the schedule.
+- Added read-only local archive inventory and official catalog/page/HEAD checks,
+	strong ETag/valid HTTP-date comparison, ten-minute overall deadline and a maximum
+	of 16 archives. No SQLite scan, workout DB access, cache cleanup or file writes.
+	Size alone, contradictory size/tag signals, weak-only tags and absent metadata
+	are inconclusive. Per-region failures are safe and preserve comparison anchors.
+- Redis stores the first usable observation per unchanged local file beyond job
+	result retention; changes stay latched until the local fingerprint changes.
+	This is upstream observation, not installed-version proof: existing local archive
+	versions remain explicitly unverified. Redis loss resets observation history.
+	Versioned installation/activation/rollback remains the next separate stage.
+- Added same-origin admin `POST /updates` and a separate updates table; update jobs
+	cannot become demand snapshots or download approvals. Both use the serial Ops
+	queue; only manual jobs use the shared map deduplication key. Future delayed
+	monthly jobs neither hold that key nor mark the Admin UI busy. No new npm script, dependency,
+	environment variable or migration. Updated map and npm operations documentation.
+- All 854 tests passed, syntax/lint passed with 70 existing warnings, typecheck
+	and relevant editor diagnostics clean. Actual EJS/map controller preview checked
+	at desktop1365/mobile390 with mocked reports: five states, icons, no page-load
+	job, one explicit request, busy lockout/progress and no page overflow; screenshots
+	inspected. New isolated preview on port59197 retained; normal Dev untouched.
+	No live Redis scheduler, upstream requests, production archive modification,
+	deployment, normal service restart or migration was performed by Copilot.
+
 ## Shared Map Storage Budget (2026-11-05)
 
-- User approved a shared archive/raster budget: at most 30% of total volume size,
-	capped at 100 GiB. Split volumes each retain the 30% ceiling with 100 GiB combined.
+- User approved a shared archive/raster budget: at most 50% of total volume size,
+	capped at 100 GiB. Split volumes each retain the 50% ceiling with 100 GiB combined.
 	New central service counts configured roots once, including partials/rollback
 	files; unknown capacity/internal symlinks fail closed. Dedicated private roots
 	and matching configuration are required across cooperating processes.
@@ -20,7 +49,11 @@ Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 	room; completed prepare reports refreshed usage. No new script, dependency, env
 	setting or schema change. Updated map/npm docs; future versioned updater/rollback
 	and permanent/import-triggered regional demand remain separate follow-ups.
-- All 846 tests passed (79 focused), syntax/lint passed with 70 existing warnings,
+- Follow-up increased the approved volume share from 30% to 50%, retaining the
+	100 GiB cap and free-space reserve. All 57 provisioning/storage tests passed,
+	including rounding, the 200 GiB cap threshold and split-volume enforcement.
+	No deployment or production cleanup was performed.
+- Initial implementation verification: all 846 tests passed (79 focused), syntax/lint passed with 70 existing warnings,
 	typecheck/editor checks clean. Tests cover protected data, split/nested roots,
 	global cache LRU, locks, pre-GET rejection, HEAD growth and RAM-only rendering.
 	Actual EJS/module browser checks with mocked reports at desktop1365/mobile390

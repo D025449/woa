@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkLocalMapUpdates, readMapUpdateState, mapUpdateStateKey } from "./localMapUpdateService.js";
 
 const projectRoot = fileURLToPath(new URL("../../", import.meta.url));
-export const MAP_OPERATIONS = new Set(["maps-scan", "maps-prepare"]);
+export const MAP_OPERATIONS = new Set(["maps-scan", "maps-prepare", "maps-updates"]);
 
 export function validateMapApproval(report, approvedRegions) {
   if (!Array.isArray(approvedRegions) || !approvedRegions.length || approvedRegions.length > 16
@@ -15,8 +16,21 @@ export function validateMapApproval(report, approvedRegions) {
   }
 }
 
-export async function executeMapOperation(job, { spawnFn = spawn } = {}) {
+export async function executeMapOperation(job, { spawnFn = spawn, checkUpdates = checkLocalMapUpdates } = {}) {
   if (!MAP_OPERATIONS.has(job.name)) throw new Error("Unsupported map operation");
+  if (job.name === "maps-updates") {
+    try {
+      const client = await job.client;
+      const key = mapUpdateStateKey(job.queueQualifiedName);
+      await job.updateProgress({ phase: "check-updates" });
+      const state = await checkUpdates(await readMapUpdateState(client, key), {
+        onProgress: progress => job.updateProgress(progress)
+      });
+      await client.set(key, JSON.stringify(state));
+      await job.updateProgress({ phase: "completed", percent: 100 });
+      return state.report;
+    } catch { throw new Error("Map update check failed; server diagnostics required"); }
+  }
   if (job.name === "maps-prepare") validateMapApproval({ archives: [] }, job.data.approvedRegions);
   const command = job.name === "maps-scan" ? "plan" : "prepare";
   const args = ["--", path.join(projectRoot, "src/scripts/prepare-local-maps.js"), command,

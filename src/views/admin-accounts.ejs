@@ -95,6 +95,23 @@
                     </button>
                     <time id="local-map-checked"></time>
                 </div>
+                <div class="admin-map-heading mt-4">
+                    <div>
+                        <p class="admin-accounts-step">Monatlich · 1. des Monats, 03:00 UTC</p>
+                        <h3 class="h5 mb-0" id="local-map-updates-title">Kartenupdates</h3>
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm" id="local-map-updates" type="button">
+                        <i data-lucide="list-restart" aria-hidden="true"></i> Updates prüfen
+                    </button>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle admin-map-table" aria-labelledby="local-map-updates-title">
+                        <thead><tr><th>Region</th><th>Upstream-Status</th><th>Installierter Stand</th><th class="text-end">Größe</th><th>Upstream-Datum</th></tr></thead>
+                        <tbody id="local-map-update-regions"></tbody>
+                    </table>
+                </div>
+                <div class="admin-map-empty" id="local-map-update-empty">Kein Update-Prüfergebnis vorhanden.</div>
+                <time id="local-map-update-checked"></time>
             </section>
 
             </div>
@@ -434,7 +451,7 @@
 
     <script type="module" src="/js/admin-facets.js?v=1"></script>
     <script src="https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
-    <script type="module" src="/js/local-map-admin.js?v=3"></script>
+    <script type="module" src="/js/local-map-admin.js?v=4"></script>
     <script type="module" src="/js/admin-accounts.js?v=admin-role-management-1"></script>
 </body>
 </html>

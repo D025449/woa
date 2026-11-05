@@ -9,10 +9,11 @@ import { Worker } from "bullmq";
 
 import { runCommand } from "../../ops/postgres-backup/backup-common.mjs";
 import { redisConnection } from "../queue/connection.js";
-import { POSTGRES_BACKUP_OPS_QUEUE } from "../queue/postgres-backup-ops-queue.js";
+import { POSTGRES_BACKUP_OPS_QUEUE, postgresBackupOpsQueue } from "../queue/postgres-backup-ops-queue.js";
 import PostgresBackupCatalogService from "../services/postgresBackupCatalogService.js";
 import LogicalBackupService from "../services/logicalBackupService.js";
 import { MAP_OPERATIONS, executeMapOperation } from "../services/localMapAdminService.js";
+import { registerMapUpdateSchedule } from "../services/localMapUpdateService.js";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDirectory, "../..");
@@ -164,6 +165,9 @@ const worker = new Worker(
 
 worker.on("ready", () => {
   console.log("PostgreSQL backup ops worker is ready");
+  void registerMapUpdateSchedule(postgresBackupOpsQueue).catch(() => {
+    console.error("Monthly map update schedule could not be registered; restart the Ops worker to retry");
+  });
 });
 
 worker.on("completed", (job, result) => {

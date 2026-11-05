@@ -3,6 +3,7 @@ const phases = {
   catalog: "Regionskatalog", plan: "Planung", "plan-bounds": "GPS-Abdeckung planen", "discover-archive": "Region prüfen",
   "inspect-existing": "Vorhandenes Archiv prüfen", "check-file-state": "Dateistand prüfen", "inspect-required": "Archiv validieren",
   "storage-budget": "Speicherbudget prüfen", "cleanup-cache": "Rastercache bereinigen",
+  "check-updates": "Upstream-Metadaten prüfen",
   reuse: "Archiv wiederverwenden", "download-request": "Download anfordern", "refresh-size": "Dateigröße neu abgleichen",
   download: "Download", "verify-download": "Download prüfen", installed: "Archiv installiert", coverage: "Kachelabdeckung prüfen",
   completed: "Abgeschlossen"
@@ -40,6 +41,7 @@ export class LocalMapAdminController {
     const budget = !this.report?.storage || this.report.storage.fitsAfterCleanup;
     const allowed = !this.busy && this.report?.readyToPrepare && missing.length > 0 && space && budget;
     this.element("scan").disabled = this.busy;
+    this.element("updates").disabled = this.busy;
     this.element("confirm").disabled = !allowed;
     this.element("prepare").disabled = !allowed || !this.element("confirm").checked;
     this.element("confirm-label").textContent = missing.length
@@ -88,6 +90,28 @@ export class LocalMapAdminController {
     this.element("status").classList.toggle("is-error", error);
   }
 
+  renderUpdates(report) {
+    const labels = { changed: "Upstream geändert", unchanged: "Metadaten unverändert", unknown: "Versionsstand unklar",
+      unavailable: "Upstream nicht verfügbar", error: "Prüfung fehlgeschlagen" };
+    this.element("update-regions").replaceChildren();
+    for (const region of report?.regions || []) {
+      const row = document.createElement("tr");
+      const values = [region.name, labels[region.status] || labels.unknown, "Nicht belegt", formatMapBytes(region.bytes),
+        region.lastModified ? new Date(region.lastModified).toLocaleString("de-DE") : "–"];
+      for (const [index, value] of values.entries()) {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        if (index === 3) cell.className = "text-end";
+        row.append(cell);
+      }
+      this.element("update-regions").append(row);
+    }
+    this.element("update-empty").classList.toggle("d-none", Boolean(report?.regions.length));
+    this.element("update-empty").textContent = report ? "Keine lokalen Archive vorhanden." : "Kein Update-Prüfergebnis vorhanden.";
+    this.element("update-checked").textContent = report ? new Date(report.checkedAt).toLocaleString("de-DE") : "";
+    this.element("update-checked").dateTime = report?.checkedAt || "";
+  }
+
   async refresh() {
     clearTimeout(this.timer);
     try {
@@ -95,6 +119,7 @@ export class LocalMapAdminController {
       if (this.reportJobId !== value.reportJobId) this.element("confirm").checked = false;
       this.reportJobId = value.reportJobId;
       this.renderReport(value.report);
+      this.renderUpdates(value.updates);
       const job = value.job;
       this.busy = Boolean(job && ["active", "waiting", "delayed"].includes(job.state));
       this.element("job").classList.toggle("d-none", !this.busy);
@@ -104,7 +129,8 @@ export class LocalMapAdminController {
         this.element("phase").textContent = `${phase}${progress.archive ? ` · ${progress.archive}` : ""}${progress.completed !== null && progress.completed !== undefined ? ` · ${progress.completed}/${progress.total}` : ""}`;
         if (Number.isFinite(progress.percent)) this.element("progress").value = progress.percent;
         else this.element("progress").removeAttribute("value");
-        this.status(job.operation === "maps-scan" ? "Kartenbedarf wird geprüft." : "Kartenmaterial wird bereitgestellt.");
+        this.status(job.operation === "maps-updates" ? "Kartenupdates werden geprüft."
+          : job.operation === "maps-scan" ? "Kartenbedarf wird geprüft." : "Kartenmaterial wird bereitgestellt.");
       } else if (job?.state === "failed") this.status(job.error, true);
       else if (!value.report) this.status("Noch nicht geprüft.");
       else {
@@ -134,7 +160,7 @@ export class LocalMapAdminController {
     this.busy = true;
     this.controls();
     try {
-      await this.request(`/${operation}`, operation === "scan" ? {} : { reportJobId: this.reportJobId, approvedRegions, confirmed: true });
+      await this.request(`/${operation}`, operation === "prepare" ? { reportJobId: this.reportJobId, approvedRegions, confirmed: true } : {});
       this.element("confirm").checked = false;
       await this.refresh();
     } catch (error) {
@@ -146,6 +172,7 @@ export class LocalMapAdminController {
 
   init() {
     this.element("scan").addEventListener("click", () => this.start("scan"));
+    this.element("updates").addEventListener("click", () => this.start("updates"));
     this.element("prepare").addEventListener("click", () => this.start("prepare"));
     this.element("confirm").addEventListener("change", () => this.controls());
     window.addEventListener("pagehide", () => clearTimeout(this.timer));

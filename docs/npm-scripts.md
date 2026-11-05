@@ -35,11 +35,11 @@ dokumentieren die Werkzeuge; sie sind keine Ausführungsfreigabe.
 | `start:all` | `npm run start:all`: start the app, import worker, and backup worker together. | Same prerequisites and data changes as the individual services. Logs use `[app]`, `[worker]`, and `[backup]`. In development, sets child-process app/Cognito URLs to localhost using `PORT` (default 3000). Other environment values are inherited. `Ctrl+C`/SIGTERM stops all services; after ten seconds remaining processes are forcibly stopped. Core service failures stop the other processes with an error status. |
 | `start:tunnel` | `npm run start:tunnel`: start the app, both workers, and ngrok using the fixed public URL. | Same service prerequisites and data changes as `start:all`, plus public access to the local app. Requires an installed, authenticated ngrok agent. Uses the app's `PORT` (default 3000); waits for local HTTP readiness. Tunnel failures leave local services running. `Ctrl+C` stops all processes. [Setup and details](#local-development-with-ngrok). |
 | `worker` | `npm run worker`: Import-Worker starten. | Verarbeitet Import-Jobs und den dauerhaften Wahoo-Webhook-Eingang; schreibt Trainings und Folgeaufträge. Benötigt die konfigurierte Datenbank und Queue-Infrastruktur, für Wahoo zusätzlich Migration 092 und die [Wahoo-Konfiguration](WAHOO_CONNECT.md#webhooks-und-automatischer-import). |
-| `backup:worker` | `npm run backup:worker`: Ops worker for admin backup/restore and local-map jobs. | Runs queued operations serially, including explicit map scans/download approvals via a separate map CLI process. Requires Redis and the underlying operation prerequisites; a long map job delays backup operations. No automatic map scan/download on startup. [Backup operations](../ops/postgres-backup/README.md), [map administration](workout-map.md#admin-map-demand-and-provisioning). |
+| `backup:worker` | `npm run backup:worker`: Ops worker for admin backup/restore and local-map jobs. | Runs queued operations serially, including explicit map scans/download approvals via a separate map CLI process and async metadata-only update checks. Requires Redis and the underlying operation prerequisites; a long map job delays backup operations. Registers the monthly update scheduler for the local provider, removes it otherwise; registration triggers no immediate scan/download. [Backup operations](../ops/postgres-backup/README.md), [map administration](workout-map.md#admin-map-demand-and-provisioning), [monthly monitoring](workout-map.md#map-update-metadata-monitoring). |
 | `deploy:prod` | `npm run deploy:prod -- "Commit-Nachricht"` | Führt `npm test` und `npm run check` aus, nimmt **alle Repository-Änderungen** mit `git add --all` auf, erstellt Commit und Push und ruft per SSH `./deploy.sh code-only` auf. Erwartet den Release-Branch, standardmäßig `main`. |
 | `env:prod` | `npm run env:prod`: open `~/woa/.env.production` on `cwa24-ec2` directly in Nano over SSH. | Requires a local interactive terminal, working SSH access to the `cwa24-ec2` alias, and Nano plus file access on the server. Saving changes the production environment file; no automatic restart or deployment. [Editing details](#edit-the-production-environment). |
 | `maps:plan` | `npm run maps:plan -- --env-file .env.production [--json] [--quick]`: inventory required Shortbread regions from stored workout GPS boxes. | Explicit environment file, database read access, Node with `node:sqlite`, outbound Geofabrik metadata/HEAD access. Read-only transaction; reads existing map files, creates none, downloads no archives. Full SQLite integrity inspection by default; `--quick` samples archive metadata and one vector tile instead. Phase/inspection progress on stderr; `--json` keeps script stdout machine-readable. Exit 2 for incomplete plans. [Production workflow](workout-map.md#production-planning-and-preparation-over-ssh). |
-| `maps:prepare` | `npm run maps:prepare -- --env-file .env.production [--json]`: recompute the plan, download missing/invalid archives and verify actual viewport tiles. | Same read-only database access; writes archives to `WOA_MAP_DATA_DIR` under exclusive prepare/storage locks, checked `.part` downloads and atomic replacement. Enforces the combined 30%-volume/100-GiB storage budget plus 5%/256 MiB free-space margin; may evict completed raster entries in `WOA_MAP_CACHE_DIR` to make room. Phase/byte/coverage progress on stderr. Pure size mismatches allow up to three GET attempts with HEAD refresh and budget/disk recheck; all validation remains required. Reuses valid archives; no DB writes, migrations, rasterization, service restart or env changes. Exit 2 for incomplete coverage; 1 for operational errors. [Production workflow](workout-map.md#production-planning-and-preparation-over-ssh). |
+| `maps:prepare` | `npm run maps:prepare -- --env-file .env.production [--json]`: recompute the plan, download missing/invalid archives and verify actual viewport tiles. | Same read-only database access; writes archives to `WOA_MAP_DATA_DIR` under exclusive prepare/storage locks, checked `.part` downloads and atomic replacement. Enforces the combined 50%-volume/100-GiB storage budget plus 5%/256 MiB free-space margin; may evict completed raster entries in `WOA_MAP_CACHE_DIR` to make room. Phase/byte/coverage progress on stderr. Pure size mismatches allow up to three GET attempts with HEAD refresh and budget/disk recheck; all validation remains required. Reuses valid archives; no DB writes, migrations, rasterization, service restart or env changes. Exit 2 for incomplete coverage; 1 for operational errors. [Production workflow](workout-map.md#production-planning-and-preparation-over-ssh). |
 | `account-deletion:sweep` | `npm run account-deletion:sweep` | Führt einen Batch fälliger endgültiger Kontolöschungen aus; kein Vorschau-Modus. |
 
 The map commands resolve the active production database through the same pointer
@@ -64,7 +64,7 @@ prepare also checks actual viewport coverage.
 Internal `node --` argument separation prevents Node from consuming `--env-file`;
 the documented npm command remains unchanged. See the production workflow above.
 
-The admin map workflow uses the same scripts out of process through `backup:worker`.
+The admin map demand/provisioning workflow uses the same scripts out of process through `backup:worker`.
 Admin scans use `maps:plan --quick`: file state, vector format and a Shortbread
 tile sample are checked, but `PRAGMA quick_check` is skipped. The report marks
 `inspectionMode: "sample"` and per-archive `integrityChecked: false`; text output
@@ -84,9 +84,21 @@ archives. Without this option, existing manual CLI behavior is unchanged.
 The admin panel needs app and Ops worker running; `start:all` starts both in Dev.
 Its standard environment filename follows the Ops worker's `NODE_ENV`.
 
+The worker also handles manual `Updates prüfen` and monthly `maps-updates` jobs
+without spawning the map CLI or accessing PostgreSQL/SQLite. When the local map
+provider is enabled, worker readiness registers one idempotent BullMQ schedule for
+the first of each month at 03:00 UTC; otherwise it removes that scheduler. This
+requires Redis and outbound official catalog/page/HEAD access when a job runs,
+but downloads/replaces no archive and writes no filesystem data. Private anchors
+and a separate public report remain in Redis beyond completed-job expiry, subject
+to Redis persistence. Strong ETag/HTTP-date changes indicate observed upstream
+changes, not a proven installed version; first/weak/missing/size-only metadata
+remain inconclusive. No new npm script/flag, environment variable, dependency or
+migration is needed. See [monitoring and limits](workout-map.md#map-update-metadata-monitoring).
+
 Both map commands additionally inventory file lengths in the data/cache roots and
-report the combined storage budget: 30% of total volume capacity, capped globally
-at 100 GiB; separate devices each retain their 30% limit. Plans are advisory and
+report the combined storage budget: 50% of total volume capacity, capped globally
+at 100 GiB; separate devices each retain their 50% limit. Plans are advisory and
 remain read-only, including `--quick`. Prepare and raster-cache writes coordinate
 through `.maps-storage.lock`, count partial/rollback files and verify peak capacity
 plus free-space reserve. Only recognized completed raster entries may be evicted

@@ -9,14 +9,52 @@ import { spawnSync } from "node:child_process";
 import { getMapDatabaseConfig, runMapCommand, formatMapCommandError, formatMapProgress } from "../src/scripts/prepare-local-maps.js";
 import { getLocalMapCoverageBounds, project } from "../src/shared/localThumbnailMapViewport.js";
 import { buildMapPlan as buildServiceMapPlan, readMapWorkoutBounds, discoverMapArchive, inspectMapArchive,
-  prepareMapArchives } from "../src/services/localMapProvisioningService.js";
+  prepareMapArchives, mapArchiveMetadata, compareMapArchiveMetadata } from "../src/services/localMapProvisioningService.js";
 import { mapStorageLimit, MAP_STORAGE_MAX_BYTES, readMapStorageUsage, mapStorageCapacity,
   withMapStorageBudget } from "../src/services/localMapStorageService.js";
 
-test("global map storage is limited to thirty percent of total volume capacity and one hundred GiB", () => {
-  assert.equal(mapStorageLimit(100 * 1024 ** 3), 30 * 1024 ** 3);
+test("archive metadata uses only strong bounded ETags and valid HTTP modification dates", () => {
+  assert.deepEqual(mapArchiveMetadata(new Headers({ etag: '"version-1"', "last-modified": "Thu, 05 Nov 2026 10:00:00 GMT" })),
+    { etag: '"version-1"', lastModified: "2026-11-05T10:00:00.000Z" });
+  for (const etag of ['W/"weak"', "unquoted", `"${"a".repeat(257)}"`]) {
+    assert.deepEqual(mapArchiveMetadata(new Headers({ etag, "last-modified": "invalid" })), { etag: null, lastModified: null });
+  }
+});
+
+test("archive comparisons never treat size alone or first observations as installed-version proof", () => {
+  const original = { url: "https://download.geofabrik.de/test.mbtiles", etag: '"one"', lastModified: null, bytes: 100 };
+  assert.equal(compareMapArchiveMetadata(null, original), "unknown");
+  assert.equal(compareMapArchiveMetadata(original, { ...original }), "unchanged");
+  assert.equal(compareMapArchiveMetadata(original, { ...original, bytes: 200 }), "unknown");
+  assert.equal(compareMapArchiveMetadata(original, { ...original, etag: '"two"' }), "changed");
+  assert.equal(compareMapArchiveMetadata(original, { ...original, url: "https://download.geofabrik.de/other.mbtiles" }), "unknown");
+  assert.equal(compareMapArchiveMetadata(original, { ...original, etag: null }), "unknown");
+  assert.equal(compareMapArchiveMetadata({ ...original, etag: null }, { ...original, etag: null, bytes: 200 }), "unknown");
+  const dated = { ...original, etag: null, lastModified: "2026-11-04T10:00:00.000Z" };
+  assert.equal(compareMapArchiveMetadata(dated, { ...dated, lastModified: "2026-11-05T10:00:00.000Z" }), "changed");
+});
+
+test("update metadata discovery fetches only the official page and HEAD, never archive bytes", async () => {
+  const calls = [];
+  const archive = await discoverMapArchive(region("west", null, 7, 9), { includeMetadata: true,
+    fetchFn: async (url, options) => {
+      calls.push({ url, method: options.method || "GET", redirect: options.redirect });
+      if (options.method === "HEAD") return new Response(null, { headers: { "content-length": "100", etag: '"revision"',
+        "last-modified": "Thu, 05 Nov 2026 10:00:00 GMT" } });
+      return new Response('<a href="west-shortbread-1.0.mbtiles">MBTiles</a>');
+    } });
+  assert.deepEqual(archive, { url: "https://download.geofabrik.de/west-shortbread-1.0.mbtiles", bytes: 100,
+    etag: '"revision"', lastModified: "2026-11-05T10:00:00.000Z" });
+  assert.deepEqual(calls.map(call => call.method), ["GET", "HEAD"]);
+  assert.ok(calls.every(call => call.redirect === "error" && new URL(call.url).hostname === "download.geofabrik.de"));
+});
+
+test("global map storage is limited to fifty percent of total volume capacity and one hundred GiB", () => {
+  assert.equal(mapStorageLimit(100 * 1024 ** 3), 50 * 1024 ** 3);
+  assert.equal(mapStorageLimit(199 * 1024 ** 3), 99.5 * 1024 ** 3);
+  assert.equal(mapStorageLimit(200 * 1024 ** 3), MAP_STORAGE_MAX_BYTES);
   assert.equal(mapStorageLimit(1000 * 1024 ** 3), MAP_STORAGE_MAX_BYTES);
-  assert.equal(mapStorageLimit(1001), 300);
+  assert.equal(mapStorageLimit(1001), 500);
   for (const capacity of [0, -1, null, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
     assert.throws(() => mapStorageLimit(capacity), /capacity is unavailable/);
   }
@@ -32,8 +70,8 @@ test("separate map volumes retain individual limits and share one hundred GiB gl
   const gib = 1024 ** 3;
   const usage = { usedBytes: 90 * gib, cacheBytes: 0, limitBytes: 100 * gib, dataDevice: "data", cacheDevice: "cache",
     cacheEntries: [], volumes: [
-      { device: "data", totalBytes: 300 * gib, freeBytes: 200 * gib, usedBytes: 60 * gib, limitBytes: 90 * gib },
-      { device: "cache", totalBytes: 100 * gib, freeBytes: 70 * gib, usedBytes: 30 * gib, limitBytes: 30 * gib }
+      { device: "data", totalBytes: 200 * gib, freeBytes: 140 * gib, usedBytes: 60 * gib, limitBytes: mapStorageLimit(200 * gib) },
+      { device: "cache", totalBytes: 60 * gib, freeBytes: 30 * gib, usedBytes: 30 * gib, limitBytes: mapStorageLimit(60 * gib) }
     ] };
   assert.equal(mapStorageCapacity(usage, 10 * gib).fits, true);
   assert.equal(mapStorageCapacity(usage, 11 * gib).fitsAfterCleanup, false);
@@ -54,7 +92,7 @@ test("shared storage counts nested roots, partials and rollback data once and tr
     await writeFile(path.join(namespace, "1-1-1.json"), Buffer.alloc(100));
     await writeFile(path.join(namespace, "keep.part"), Buffer.alloc(5));
     const config = { dataDirectory, cacheRoot };
-    const statfsFn = async () => ({ blocks: 1000, bsize: 1, bavail: 1024 ** 3 });
+    const statfsFn = async () => ({ blocks: 600, bsize: 1, bavail: 1024 ** 3 });
     const usage = await readMapStorageUsage(config, { statfsFn });
     assert.equal(usage.usedBytes, 205);
     assert.equal(usage.cacheBytes, 100);
@@ -104,7 +142,7 @@ test("global cache cleanup evicts oldest tiles across source and style namespace
     await utimes(oldest, new Date(1000), new Date(1000));
     await writeFile(path.join(dataDirectory, "protected.mbtiles"), Buffer.alloc(80));
     await withMapStorageBudget({ dataDirectory, cacheRoot }, 100, async () => {},
-      { statfsFn: async () => ({ blocks: 1000, bsize: 1, bavail: 1024 ** 3 }) });
+      { statfsFn: async () => ({ blocks: 600, bsize: 1, bavail: 1024 ** 3 }) });
     await assert.rejects(stat(oldest), { code: "ENOENT" });
     assert.equal((await stat(newest)).size, 100);
   });

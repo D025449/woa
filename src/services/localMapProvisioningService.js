@@ -108,8 +108,28 @@ export async function fetchMapCatalog(options = {}) {
   return catalog;
 }
 
-/** @param {any} region @param {MapFetchOptions} options */
-export async function discoverMapArchive(region, { fetchFn = fetch, signal } = {}) {
+export function mapArchiveMetadata(headers) {
+  const rawTag = headers.get("etag") || "";
+  const rawDate = headers.get("last-modified") || "";
+  const timestamp = Date.parse(rawDate);
+  return {
+    etag: /^"[\x21\x23-\x7e]{1,256}"$/.test(rawTag) ? rawTag : null,
+    lastModified: Number.isFinite(timestamp) && new Date(timestamp).toUTCString() === rawDate
+      ? new Date(timestamp).toISOString() : null
+  };
+}
+
+export function compareMapArchiveMetadata(previous, current) {
+  if (!previous || previous.url !== current.url) return "unknown";
+  const fields = ["etag", "lastModified"];
+  if (fields.some(field => previous[field] && current[field] && previous[field] !== current[field])) return "changed";
+  if (previous.bytes !== current.bytes) return "unknown";
+  if (fields.some(field => Boolean(previous[field]) !== Boolean(current[field]))) return "unknown";
+  return fields.some(field => current[field]) ? "unchanged" : "unknown";
+}
+
+/** @param {any} region @param {MapFetchOptions & {includeMetadata?: boolean}} options */
+export async function discoverMapArchive(region, { fetchFn = fetch, signal, includeMetadata = false } = {}) {
   const pbfUrl = officialUrl(region.properties.urls?.pbf);
   if (!pbfUrl.endsWith("-latest.osm.pbf")) throw new MapSetupError("Invalid catalog PBF URL");
   const pageUrl = pbfUrl.slice(0, -"-latest.osm.pbf".length) + ".html";
@@ -122,11 +142,12 @@ export async function discoverMapArchive(region, { fetchFn = fetch, signal } = {
   const url = officialUrl(new URL(href, pageUrl).href);
   const response = await fetchFn(url, { method: "HEAD", redirect: "error",
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000) });
+  await response.body?.cancel();
   if (response.status === 404) return null;
   if (!response.ok) throw new MapSetupError(`Geofabrik archive HEAD HTTP ${response.status}`);
   const bytes = Number(response.headers.get("content-length"));
   if (!Number.isSafeInteger(bytes) || bytes <= 0 || response.headers.get("content-encoding")) throw new MapSetupError("Unknown archive download size");
-  return { url, bytes };
+  return includeMetadata ? { url, bytes, ...mapArchiveMetadata(response.headers) } : { url, bytes };
 }
 
 async function archiveFileState(filename) {

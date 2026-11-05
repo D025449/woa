@@ -2,7 +2,7 @@ import path from "node:path";
 import { lstat, stat, statfs, realpath, readdir, mkdir, open, unlink } from "node:fs/promises";
 
 export const MAP_STORAGE_MAX_BYTES = 100 * 1024 ** 3;
-export const MAP_STORAGE_VOLUME_FRACTION = 0.30;
+export const MAP_STORAGE_VOLUME_FRACTION = 0.50;
 const STORAGE_RESERVE_BYTES = 256 * 1024 ** 2;
 const pendingWrites = new Map();
 

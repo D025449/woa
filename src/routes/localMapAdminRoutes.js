@@ -1,6 +1,7 @@
 import express from "express";
 import requireAdmin from "../middleware/requireAdmin.js";
 import { MAP_OPERATIONS } from "../services/localMapAdminService.js";
+import { mapUpdateStateKey, readMapUpdateState } from "../services/localMapUpdateService.js";
 
 export function createLocalMapAdminRouter({ queue, authorize = requireAdmin }) {
   const router = express.Router();
@@ -19,12 +20,15 @@ export function createLocalMapAdminRouter({ queue, authorize = requireAdmin }) {
     try {
       const jobs = (await queue.getJobs(["active", "waiting", "delayed", "completed", "failed"], 0, 49))
         .filter(job => MAP_OPERATIONS.has(job.name)).sort((first, second) => second.timestamp - first.timestamp);
-      const states = await Promise.all(jobs.map(async job => ({ job, state: await job.getState() })));
+      const states = (await Promise.all(jobs.map(async job => ({ job, state: await job.getState() }))))
+        .filter(entry => !(entry.job.name === "maps-updates" && entry.job.data?.scheduled === true && entry.state === "delayed"));
       const current = states.find(entry => ["active", "waiting", "delayed"].includes(entry.state)) || states[0];
-      const completed = states.filter(entry => entry.state === "completed")
+      const completed = states.filter(entry => entry.state === "completed" && entry.job.name !== "maps-updates")
         .sort((first, second) => second.job.finishedOn - first.job.finishedOn)[0]?.job;
+      const updates = await readMapUpdateState(await queue.client, mapUpdateStateKey(queue.qualifiedName));
       const failureTag = String(current?.job.failedReason || "").match(/\[stage=[a-z-]+, code=[A-Z0-9_]+\]/)?.[0] || "";
       return res.json({ ok: true, report: completed?.returnvalue || null, reportJobId: completed ? String(completed.id) : null,
+        updates: updates.report || null,
         job: current ? { id: String(current.job.id), operation: current.job.name, state: current.state,
           progress: current.job.progress || null,
           error: current.state === "failed" ? `Kartenoperation fehlgeschlagen. ${failureTag} Server-Diagnose erforderlich.` : null } : null });
@@ -39,6 +43,14 @@ export function createLocalMapAdminRouter({ queue, authorize = requireAdmin }) {
     } catch (error) { return next(error); }
   });
 
+  router.post("/updates", async (req, res, next) => {
+    try {
+      const job = await queue.add("maps-updates", { requestedBy: String(req.user.id) },
+        { deduplication: { id: "local-map-operation" } });
+      return res.status(202).json({ ok: true, jobId: String(job.id) });
+    } catch (error) { return next(error); }
+  });
+
   router.post("/prepare", async (req, res, next) => {
     try {
       const { reportJobId, approvedRegions, confirmed } = req.body || {};
@@ -46,7 +58,7 @@ export function createLocalMapAdminRouter({ queue, authorize = requireAdmin }) {
         return res.status(400).json({ error: "Download-Freigabe fehlt." });
       }
       const source = await queue.getJob(String(reportJobId));
-      if (!source || !MAP_OPERATIONS.has(source.name) || await source.getState() !== "completed"
+      if (!source || !["maps-scan", "maps-prepare"].includes(source.name) || await source.getState() !== "completed"
         || !Number.isFinite(source.finishedOn) || Date.now() - source.finishedOn > 3600000) {
         return res.status(409).json({ error: "Kartenbedarf erneut prüfen und freigeben." });
       }
