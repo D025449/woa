@@ -73,6 +73,7 @@ export async function executeMapOperation(job, { spawnFn = spawn } = {}) {
 
 export function summarizeMapDemand(report, now = new Date()) {
   const created = new Set(report.preparation?.created || []);
+  const storage = report.preparation?.storage || report.storage;
   const regions = report.archives.map(archive => ({
     id: archive.id,
     name: archive.name,
@@ -95,6 +96,9 @@ export function summarizeMapDemand(report, now = new Date()) {
     archiveCount: report.archiveCountAfterPrepare,
     archiveLimit: report.archiveLimit,
     freeDiskBytes: report.freeDiskBytes,
+    storage: storage ? { usedBytes: storage.usedBytes, limitBytes: storage.limitBytes,
+      cacheBytes: storage.cacheBytes, availableBytes: storage.availableBytes,
+      fits: storage.fits, fitsAfterCleanup: storage.fitsAfterCleanup } : null,
     downloadBytes: regions.filter(region => region.status === "missing").reduce((sum, region) => sum + region.bytes, 0),
     readyToPrepare: report.readyToPrepare,
     readyToActivate: report.preparation?.readyToActivate === true,

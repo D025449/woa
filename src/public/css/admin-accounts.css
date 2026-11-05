@@ -85,10 +85,11 @@
 .admin-map-heading .btn,
 .admin-map-actions .btn { display: inline-flex; align-items: center; gap: 0.45rem; }
 .admin-map-management svg { width: 16px; height: 16px; flex: 0 0 16px; }
-.admin-map-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 1.2rem 0 0; }
+.admin-map-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.5fr); margin: 1.2rem 0 0; }
 .admin-map-metrics > div { padding: 0.7rem 0.6rem; border-top: 1px solid #cddce3; min-width: 0; }
 .admin-map-metrics dt { font-size: 0.78rem; font-weight: 500; color: #587083; }
-.admin-map-metrics dd { margin: 0.35rem 0 0; font-size: 1.15rem; font-weight: 700; }
+.admin-map-metrics dd { margin: 0.35rem 0 0; font-size: 1.15rem; font-weight: 700; overflow-wrap: anywhere; }
+#local-map-storage { font-size: 0.95rem; }
 .admin-map-status { padding: 0.75rem 0; color: #436176; overflow-wrap: anywhere; }
 .admin-map-status.is-error { color: #a42f39; }
 .admin-map-table { margin-bottom: 0.75rem; min-width: 500px; }
@@ -107,6 +108,7 @@
 @media (max-width: 575px) {
   .admin-map-management { padding: 1rem; }
   .admin-map-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-map-metrics > div:last-child { grid-column: 1 / -1; }
   .admin-map-actions .btn { width: 100%; justify-content: center; }
   .admin-map-actions time { width: 100%; }
 }

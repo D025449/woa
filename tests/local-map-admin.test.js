@@ -36,6 +36,11 @@ test("admin map demand summarizes regions without exposing source URLs or workou
   assert.ok(prepared.regions.every(region => region.status === "available"));
   assert.ok(prepared.regions.every(region => region.integrityChecked));
   assert.equal(summarizeMapDemand({ ...report, preparation: { uncoveredWorkouts: [42] } }).missingTileWorkouts, 1);
+  const storage = { usedBytes: 150, limitBytes: 300, cacheBytes: 50, availableBytes: 150,
+    fits: true, fitsAfterCleanup: true };
+  const finalStorage = summarizeMapDemand({ ...report, storage: { ...storage, usedBytes: 100 },
+    preparation: { storage, uncoveredWorkouts: [] } });
+  assert.deepEqual(finalStorage.storage, storage);
 });
 
 test("map approval cannot add unapproved regions or inject command arguments", () => {
@@ -156,7 +161,16 @@ test("admin map controls require explicit approval, capacity and a completed pla
   assert.equal(controller.element("prepare").disabled, true);
   assert.equal(controller.element("scan").disabled, true);
   controller.busy = false;
+  controller.report.storage = { fits: false, fitsAfterCleanup: false };
+  controller.controls();
+  assert.equal(controller.element("prepare").disabled, true);
+  controller.report.storage.fitsAfterCleanup = true;
+  controller.controls();
+  assert.equal(controller.element("prepare").disabled, false);
   controller.report.freeDiskBytes = 0;
+  controller.controls();
+  assert.equal(controller.element("prepare").disabled, false);
+  controller.report.storage = null;
   controller.controls();
   assert.equal(controller.element("prepare").disabled, true);
   controller.report.freeDiskBytes = 1000000000;

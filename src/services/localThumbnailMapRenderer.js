@@ -10,6 +10,7 @@ import { PbfReader } from 'pbf';
 import sharp from 'sharp';
 import simplify from 'simplify-js';
 import { getLocalThumbnailMapConfig } from '../config/storagePaths.js';
+import { MapStorageError, withMapStorageBudget } from './localMapStorageService.js';
 import { WORKOUT_ROUTE_COLOR, WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION } from '../shared/SegmentAppearance.js';
 import { project, getLocalMapViewport } from '../shared/localThumbnailMapViewport.js';
 
@@ -46,6 +47,7 @@ export class LocalMapRenderer {
     this.cacheId = createHash('sha256').update(JSON.stringify({ cacheVersion,
       sources: this.archives.map(({ region, bytes, modified, sourceStamp }) => ({ region, bytes, modified, sourceStamp })) })).digest('hex').slice(0, 20);
     this.cacheDirectory = path.join(cacheRoot, this.cacheId);
+    this.storageConfig = { dataDirectory, cacheRoot };
     this.maxMemoryBytes = maxMemoryBytes;
     this.maxDiskBytes = maxDiskBytes;
     this.memory = new Map();
@@ -128,12 +130,16 @@ export class LocalMapRenderer {
         checksum: createHash('sha256').update(entry.background).digest('hex'), labels: entry.labels, regions: entry.regions });
       const temporary = `${filename}.${randomUUID()}.part`;
       try {
-        await writeFile(temporary, stored);
-        await rename(temporary, filename);
+        await withMapStorageBudget(this.storageConfig, Buffer.byteLength(stored), async () => {
+          await writeFile(temporary, stored);
+          await rename(temporary, filename);
+          await this.trimDisk();
+        }, { cacheWrite: true });
+      } catch (error) {
+        if (!(error instanceof MapStorageError)) throw error;
       } finally {
         await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });
       }
-      await this.trimDisk();
       this.remember(key, entry);
       return { ...entry, cache: 'built' };
     })();

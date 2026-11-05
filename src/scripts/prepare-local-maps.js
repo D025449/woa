@@ -114,6 +114,8 @@ export async function runMapCommand(argv, { clientFactory = config => new Client
       console.log(`Map directory: ${report.dataDirectory}\nGPS workouts: ${report.gpsWorkouts}; missing thumbnails: ${report.missingThumbnails}`);
       for (const archive of report.archives) console.log(`${archive.existingValid ? archive.integrityChecked ? "REUSE" : "PRESENT (sampled)" : "DOWNLOAD"} ${archive.id}: ${gib(archive.existingValid ? archive.existingBytes : archive.downloadBytes)}; ${archive.workouts} workouts`);
       console.log(`Download: ${gib(report.downloadBytes)}; free disk: ${gib(report.freeDiskBytes)}; archives after prepare: ${report.archiveCountAfterPrepare}/${report.archiveLimit}`);
+      const storage = preparation?.storage || report.storage;
+      console.log(`Map storage: ${gib(storage.usedBytes)} / ${gib(storage.limitBytes)}; cache: ${gib(storage.cacheBytes)}; fits after cache cleanup: ${storage.fitsAfterCleanup}`);
       console.log(`Missing bounds: ${report.missingBounds.length}; unsupported bounds: ${report.unsupportedBounds.length}; unmapped workouts: ${report.unmappedWorkouts.length}; invalid unrelated archives: ${report.invalidUnneededArchives.length}`);
       console.log(`Plan complete: ${report.readyToPrepare}`);
       if (preparation) console.log(`Created: ${preparation.created.length}; reused: ${preparation.reused.length}; workouts with missing tiles: ${preparation.uncoveredWorkouts.length}; ready to activate: ${preparation.readyToActivate}`);

@@ -2,6 +2,7 @@ const phases = {
   starting: "Auftrag wird gestartet", "database-connect": "Datenbankverbindung", "database-read": "GPS-Bedarf ermitteln",
   catalog: "Regionskatalog", plan: "Planung", "plan-bounds": "GPS-Abdeckung planen", "discover-archive": "Region prüfen",
   "inspect-existing": "Vorhandenes Archiv prüfen", "check-file-state": "Dateistand prüfen", "inspect-required": "Archiv validieren",
+  "storage-budget": "Speicherbudget prüfen", "cleanup-cache": "Rastercache bereinigen",
   reuse: "Archiv wiederverwenden", "download-request": "Download anfordern", "refresh-size": "Dateigröße neu abgleichen",
   download: "Download", "verify-download": "Download prüfen", installed: "Archiv installiert", coverage: "Kachelabdeckung prüfen",
   completed: "Abgeschlossen"
@@ -34,8 +35,10 @@ export class LocalMapAdminController {
 
   controls() {
     const missing = this.report?.regions.filter(region => region.status === "missing") || [];
-    const space = this.report && this.report.freeDiskBytes >= this.report.downloadBytes * 1.05 + 256 * 1024 ** 2;
-    const allowed = !this.busy && this.report?.readyToPrepare && missing.length > 0 && space;
+    const space = this.report && (this.report.storage ? this.report.storage.fitsAfterCleanup
+      : this.report.freeDiskBytes >= this.report.downloadBytes * 1.05 + 256 * 1024 ** 2);
+    const budget = !this.report?.storage || this.report.storage.fitsAfterCleanup;
+    const allowed = !this.busy && this.report?.readyToPrepare && missing.length > 0 && space && budget;
     this.element("scan").disabled = this.busy;
     this.element("confirm").disabled = !allowed;
     this.element("prepare").disabled = !allowed || !this.element("confirm").checked;
@@ -50,6 +53,8 @@ export class LocalMapAdminController {
     this.element("archives").textContent = report ? `${report.archiveCount}/${report.archiveLimit}` : "–";
     this.element("download").textContent = formatMapBytes(report?.downloadBytes);
     this.element("disk").textContent = formatMapBytes(report?.freeDiskBytes);
+    this.element("storage").textContent = report?.storage
+      ? `${formatMapBytes(report.storage.usedBytes)} / ${formatMapBytes(report.storage.limitBytes)}` : "–";
     this.element("regions").replaceChildren();
     for (const region of report?.regions || []) {
       const row = document.createElement("tr");
@@ -109,6 +114,9 @@ export class LocalMapAdminController {
         this.status(issues ? `Prüfprobleme: ${report.missingBounds} ohne GPS-Grenzen · ${report.unsupportedBounds} nicht unterstützt · ${report.unmappedWorkouts} ohne Region · ${report.invalidArchives} ungültige Archive · ${coverage}`
           : report.readyToActivate ? "Kartenmaterial bereit · keine fehlenden Kacheln."
             : report.downloadBytes > 0 ? "Fehlende Regionen warten auf Freigabe." : "Regionsarchive vorhanden · Kachelabdeckung nicht geprüft.", issues > 0);
+        if (report.storage && !report.storage.fitsAfterCleanup) {
+          this.status("Speicherbudget oder Freiplatzreserve reicht nicht aus · neue Downloads gesperrt.", true);
+        }
       }
       this.controls();
       if (this.busy) this.timer = setTimeout(() => this.refresh(), 2000);

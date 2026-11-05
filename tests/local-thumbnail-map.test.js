@@ -124,6 +124,22 @@ test("local raster cache repairs corrupt images, isolates styles and enforces li
   });
 });
 
+test("rendering retains the map in memory when another process holds the global storage lock", async () => {
+  await fixture(async config => {
+    const lockPath = path.join(config.dataDirectory, ".maps-storage.lock");
+    await writeFile(lockPath, "");
+    const renderer = new LocalMapRenderer(config);
+    try {
+      const result = await renderer.render(example);
+      assert.match(result.svg, /data-map-provider="local"/);
+      assert.ok(result.stats.cache.built > 0);
+      assert.deepEqual(await readdir(renderer.cacheDirectory), []);
+      assert.ok(renderer.memoryBytes > 0);
+      assert.equal((await stat(lockPath)).size, 0);
+    } finally { renderer.close(); }
+  });
+});
+
 test("local map worker renders offline and survives idle reuse without database access", async () => {
   await fixture(async config => {
     const client = new LocalThumbnailMapClient();

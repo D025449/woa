@@ -12,6 +12,7 @@ import { VectorTile } from "@mapbox/vector-tile";
 import { PbfReader } from "pbf";
 import { getLocalMapCoverageBounds, project } from "../shared/localThumbnailMapViewport.js";
 import { getLocalThumbnailMapConfig } from "../config/storagePaths.js";
+import { MapStorageError, readMapStorageUsage, mapStorageCapacity, withMapStorageBudget } from "./localMapStorageService.js";
 
 /** @typedef {{phase: string, archive?: string, completed?: number, total?: number, bytes?: number, totalBytes?: number, attempt?: number}} MapProgress */
 /** @typedef {{fetchFn?: typeof fetch, signal?: AbortSignal, onProgress?: (progress: MapProgress) => void}} MapFetchOptions */
@@ -48,7 +49,7 @@ function officialUrl(value) {
   return url.href;
 }
 
-async function archiveDownloadResponse(archive, { fetchFn, signal, directory, remainingBytes, onProgress }) {
+async function archiveDownloadResponse(archive, { fetchFn, signal, directory, remainingBytes, onProgress, checkStorage }) {
   for (let attempt = 1; attempt <= 3; attempt++) {
     signal.throwIfAborted();
     onProgress({ phase: "download-request", archive: archive.id, attempt });
@@ -70,6 +71,7 @@ async function archiveDownloadResponse(archive, { fetchFn, signal, directory, re
     await metadata.body?.cancel();
     if (!metadata.ok || metadata.headers.get("content-encoding") || !/^\d+$/.test(updatedLength || "")
       || !Number.isSafeInteger(bytes) || bytes <= 0) throw failure;
+    await checkStorage(bytes + remainingBytes);
     if (await freeDiskBytes(directory) < (bytes + remainingBytes) * 1.05 + 256 * 1024 ** 2) {
       throw new MapSetupError("Insufficient map disk space including safety margin");
     }
@@ -189,9 +191,10 @@ async function freeDiskBytes(directory) {
 /**
  * @param {any[]} workouts
  * @param {any} catalog
- * @param {MapFetchOptions & {dataDirectory?: string, resolveArchive?: typeof discoverMapArchive, inspectArchive?: typeof inspectMapArchive, inspectionMode?: "full" | "sample"}} options
+ * @param {MapFetchOptions & {dataDirectory?: string, cacheRoot?: string, resolveArchive?: typeof discoverMapArchive, inspectArchive?: typeof inspectMapArchive, inspectionMode?: "full" | "sample"}} options
  */
 export async function buildMapPlan(workouts, catalog, { dataDirectory = getLocalThumbnailMapConfig().dataDirectory,
+  cacheRoot = getLocalThumbnailMapConfig().cacheRoot,
   resolveArchive = discoverMapArchive, inspectArchive = inspectMapArchive, inspectionMode = "full", signal, fetchFn = fetch, onProgress = () => {} } = {}) {
   if (!["full", "sample"].includes(inspectionMode)) throw new MapSetupError("Invalid archive inspection mode");
   const regions = catalog.features.filter(feature => ["Polygon", "MultiPolygon"].includes(feature.geometry?.type)
@@ -296,11 +299,13 @@ export async function buildMapPlan(workouts, catalog, { dataDirectory = getLocal
   const finalFiles = new Set([...filenames, ...archives.map(entry => entry.filename)]);
   const invalidUnneededArchives = filenames.filter(filename => !existing.get(filename).valid
     && !archives.some(entry => entry.filename === filename));
-  const report = { dataDirectory, inspectionMode, gpsWorkouts: workouts.length,
+  const downloadBytes = archives.filter(entry => !entry.existingValid).reduce((sum, entry) => sum + entry.downloadBytes, 0);
+  const storage = mapStorageCapacity(await readMapStorageUsage({ dataDirectory, cacheRoot }), downloadBytes);
+  const report = { dataDirectory, cacheRoot, storage, inspectionMode, gpsWorkouts: workouts.length,
     missingThumbnails: workouts.filter(workout => !workout.has_thumbnail).length,
     missingBounds, unsupportedBounds, unmappedWorkouts: unmapped, invalidUnneededArchives,
     archives, archiveCountAfterPrepare: finalFiles.size, archiveLimit: ARCHIVE_LIMIT,
-    downloadBytes: archives.filter(entry => !entry.existingValid).reduce((sum, entry) => sum + entry.downloadBytes, 0),
+    downloadBytes,
     freeDiskBytes: await freeDiskBytes(dataDirectory), readyToPrepare: !missingBounds.length && !unsupportedBounds.length
       && !unmapped.length && !invalidUnneededArchives.length && finalFiles.size <= ARCHIVE_LIMIT };
   const plan = { report, coverage };
@@ -342,7 +347,9 @@ export async function prepareMapArchives(plan, { fetchFn = fetch, signal, onProg
       else onProgress({ phase: "reuse", archive: archive.id });
     }
     const needed = missing.reduce((sum, entry) => sum + entry.downloadBytes, 0);
-    if (needed && await freeDiskBytes(directory) < needed * 1.05 + 256 * 1024 ** 2) throw new MapSetupError("Insufficient map disk space including safety margin");
+    onProgress({ phase: "storage-budget" });
+    await withMapStorageBudget({ dataDirectory: directory, cacheRoot: report.cacheRoot || getLocalThumbnailMapConfig().cacheRoot },
+      needed, async ({ checkCapacity }) => {
     for (const [index, original] of missing.entries()) {
       const archive = { ...original };
       signal?.throwIfAborted();
@@ -352,7 +359,8 @@ export async function prepareMapArchives(plan, { fetchFn = fetch, signal, onProg
       const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
       try {
         const response = await archiveDownloadResponse(archive, { fetchFn, signal: requestSignal, directory,
-          remainingBytes: missing.slice(index + 1).reduce((sum, entry) => sum + entry.downloadBytes, 0), onProgress });
+          remainingBytes: missing.slice(index + 1).reduce((sum, entry) => sum + entry.downloadBytes, 0), onProgress,
+          checkStorage: checkCapacity });
         const output = await open(temporary, "wx", 0o644);
         let bytes = 0;
         let lastProgress = Date.now();
@@ -380,6 +388,10 @@ export async function prepareMapArchives(plan, { fetchFn = fetch, signal, onProg
         onProgress({ phase: "installed", archive: archive.id, completed: created.length, total: missing.length });
       } finally { await unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; }); }
     }
+    }, { onProgress }).catch(error => {
+      if (error instanceof MapStorageError) throw new MapSetupError(error.message);
+      throw error;
+    });
     const { DatabaseSync } = await import("node:sqlite");
     const databases = [];
     const uncoveredWorkouts = [];
@@ -407,7 +419,9 @@ export async function prepareMapArchives(plan, { fetchFn = fetch, signal, onProg
         }
       }
     } finally { for (const source of databases) source.database.close(); }
-    return { created, reused: report.archives.filter(archive => !created.includes(archive.id)).map(archive => archive.id),
+    const storage = mapStorageCapacity(await readMapStorageUsage({ dataDirectory: directory,
+      cacheRoot: report.cacheRoot || getLocalThumbnailMapConfig().cacheRoot }), 0);
+    return { storage, created, reused: report.archives.filter(archive => !created.includes(archive.id)).map(archive => archive.id),
       uncoveredWorkouts, readyToActivate: databases.length > 0 && !uncoveredWorkouts.length };
   } finally { await lock.close(); await unlink(lockPath); }
 }

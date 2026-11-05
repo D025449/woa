@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, readdir, readFile, writeFile, rename, chmod, stat } from "node:fs/promises";
+import { mkdtemp, rm, readdir, readFile, writeFile, rename, chmod, stat, mkdir, symlink, open, utimes } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
@@ -8,14 +8,127 @@ import { PbfWriter } from "pbf";
 import { spawnSync } from "node:child_process";
 import { getMapDatabaseConfig, runMapCommand, formatMapCommandError, formatMapProgress } from "../src/scripts/prepare-local-maps.js";
 import { getLocalMapCoverageBounds, project } from "../src/shared/localThumbnailMapViewport.js";
-import { buildMapPlan, readMapWorkoutBounds, discoverMapArchive, inspectMapArchive,
+import { buildMapPlan as buildServiceMapPlan, readMapWorkoutBounds, discoverMapArchive, inspectMapArchive,
   prepareMapArchives } from "../src/services/localMapProvisioningService.js";
+import { mapStorageLimit, MAP_STORAGE_MAX_BYTES, readMapStorageUsage, mapStorageCapacity,
+  withMapStorageBudget } from "../src/services/localMapStorageService.js";
+
+test("global map storage is limited to thirty percent of total volume capacity and one hundred GiB", () => {
+  assert.equal(mapStorageLimit(100 * 1024 ** 3), 30 * 1024 ** 3);
+  assert.equal(mapStorageLimit(1000 * 1024 ** 3), MAP_STORAGE_MAX_BYTES);
+  assert.equal(mapStorageLimit(1001), 300);
+  for (const capacity of [0, -1, null, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(() => mapStorageLimit(capacity), /capacity is unavailable/);
+  }
+});
 
 function region(id, parent, west, east) {
   return { type: "Feature", properties: { id, parent, name: id,
     urls: { pbf: `https://download.geofabrik.de/${id}-latest.osm.pbf` } },
   geometry: { type: "Polygon", coordinates: [[[west, 47], [east, 47], [east, 51], [west, 51], [west, 47]]] } };
 }
+
+test("separate map volumes retain individual limits and share one hundred GiB globally", () => {
+  const gib = 1024 ** 3;
+  const usage = { usedBytes: 90 * gib, cacheBytes: 0, limitBytes: 100 * gib, dataDevice: "data", cacheDevice: "cache",
+    cacheEntries: [], volumes: [
+      { device: "data", totalBytes: 300 * gib, freeBytes: 200 * gib, usedBytes: 60 * gib, limitBytes: 90 * gib },
+      { device: "cache", totalBytes: 100 * gib, freeBytes: 70 * gib, usedBytes: 30 * gib, limitBytes: 30 * gib }
+    ] };
+  assert.equal(mapStorageCapacity(usage, 10 * gib).fits, true);
+  assert.equal(mapStorageCapacity(usage, 11 * gib).fitsAfterCleanup, false);
+  assert.equal(mapStorageCapacity(usage, 1, "cache").fits, false);
+  usage.volumes[1].usedBytes += 1;
+  assert.equal(mapStorageCapacity(usage, 0).fitsAfterCleanup, false);
+});
+
+test("shared storage counts nested roots, partials and rollback data once and trims only raster entries", async () => {
+  await temporary(async dataDirectory => {
+    const cacheRoot = path.join(dataDirectory, "cache");
+    const namespace = path.join(cacheRoot, "a".repeat(20));
+    await mkdir(namespace, { recursive: true });
+    await writeFile(path.join(dataDirectory, "active.mbtiles"), Buffer.alloc(80));
+    await writeFile(path.join(dataDirectory, "download.part"), Buffer.alloc(10));
+    await mkdir(path.join(dataDirectory, "rollback"));
+    await writeFile(path.join(dataDirectory, "rollback", "old.mbtiles"), Buffer.alloc(10));
+    await writeFile(path.join(namespace, "1-1-1.json"), Buffer.alloc(100));
+    await writeFile(path.join(namespace, "keep.part"), Buffer.alloc(5));
+    const config = { dataDirectory, cacheRoot };
+    const statfsFn = async () => ({ blocks: 1000, bsize: 1, bavail: 1024 ** 3 });
+    const usage = await readMapStorageUsage(config, { statfsFn });
+    assert.equal(usage.usedBytes, 205);
+    assert.equal(usage.cacheBytes, 100);
+    assert.equal(usage.limitBytes, 300);
+    assert.equal(mapStorageCapacity(usage, 150).fits, false);
+    assert.equal(mapStorageCapacity(usage, 150).fitsAfterCleanup, true);
+    let written = false;
+    await withMapStorageBudget(config, 150, async () => { written = true; }, { statfsFn });
+    assert.equal(written, true);
+    assert.deepEqual(await readdir(namespace), ["keep.part"]);
+    assert.equal((await stat(path.join(dataDirectory, "active.mbtiles"))).size, 80);
+    assert.equal((await stat(path.join(dataDirectory, "rollback", "old.mbtiles"))).size, 10);
+    await assert.rejects(withMapStorageBudget(config, 200, async () => assert.fail("must refuse"), { statfsFn }), /budget/);
+    assert.equal((await readdir(dataDirectory)).includes(".maps-storage.lock"), false);
+    await symlink(path.join(dataDirectory, "active.mbtiles"), path.join(namespace, "2-2-2.json"));
+    await assert.rejects(readMapStorageUsage(config, { statfsFn }), /Symbolic links/);
+  });
+});
+
+test("preparation refuses a protected full budget before GET and preserves sparse rollback data", async () => {
+  await temporary(async dataDirectory => {
+    const cacheRoot = path.join(dataDirectory, "cache");
+    const usage = await readMapStorageUsage({ dataDirectory, cacheRoot });
+    const rollback = path.join(dataDirectory, "rollback");
+    await mkdir(rollback);
+    const filename = path.join(rollback, "protected.mbtiles");
+    const file = await open(filename, "wx");
+    try { await file.truncate(usage.limitBytes); } finally { await file.close(); }
+    const plan = await buildMapPlan([workout], catalog, { dataDirectory, cacheRoot,
+      resolveArchive: async feature => archive(feature) });
+    assert.equal(plan.report.storage.fitsAfterCleanup, false);
+    await assert.rejects(prepareMapArchives(plan, { fetchFn: async () => assert.fail("budget must reject before GET") }), /storage budget/);
+    assert.equal((await stat(filename)).size, usage.limitBytes);
+    assert.equal((await readdir(dataDirectory)).some(name => name.endsWith(".lock")), false);
+  });
+});
+
+test("global cache cleanup evicts oldest tiles across source and style namespaces", async () => {
+  await temporary(async dataDirectory => {
+    const cacheRoot = path.join(dataDirectory, "cache");
+    const oldest = path.join(cacheRoot, "a".repeat(20), "1-1-1.json");
+    const newest = path.join(cacheRoot, "b".repeat(20), "1-1-1.json");
+    for (const filename of [oldest, newest]) {
+      await mkdir(path.dirname(filename), { recursive: true });
+      await writeFile(filename, Buffer.alloc(100));
+    }
+    await utimes(oldest, new Date(1000), new Date(1000));
+    await writeFile(path.join(dataDirectory, "protected.mbtiles"), Buffer.alloc(80));
+    await withMapStorageBudget({ dataDirectory, cacheRoot }, 100, async () => {},
+      { statfsFn: async () => ({ blocks: 1000, bsize: 1, bavail: 1024 ** 3 }) });
+    await assert.rejects(stat(oldest), { code: "ENOENT" });
+    assert.equal((await stat(newest)).size, 100);
+  });
+});
+
+test("storage locking serializes local writers, rejects external locks and releases on failure", async () => {
+  await temporary(async dataDirectory => {
+    const config = { dataDirectory, cacheRoot: path.join(dataDirectory, "cache") };
+    const order = [];
+    await Promise.all([1, 2].map(value => withMapStorageBudget(config, 1, async () => {
+      order.push(`start-${value}`);
+      await writeFile(path.join(dataDirectory, `${value}.part`), "x");
+      order.push(`end-${value}`);
+    })));
+    const first = order[0] === "start-1" ? 1 : 2;
+    const second = first === 1 ? 2 : 1;
+    assert.deepEqual(order, [`start-${first}`, `end-${first}`, `start-${second}`, `end-${second}`]);
+    await assert.rejects(withMapStorageBudget(config, 0, async () => { throw new Error("probe"); }), /probe/);
+    const lockPath = path.join(dataDirectory, ".maps-storage.lock");
+    await writeFile(lockPath, "");
+    await assert.rejects(withMapStorageBudget(config, 0, async () => assert.fail("must not run")), /storage is busy/);
+    assert.equal((await stat(lockPath)).size, 0);
+  });
+});
 const catalog = { type: "FeatureCollection", features: [region("country", null, 7, 11),
   region("west", "country", 7, 9.2), region("east", "country", 9.2, 11)] };
 const workout = { id: 1, bounds: { minLng: 9.15, maxLng: 9.25, minLat: 48.7, maxLat: 48.8 }, has_thumbnail: false };
@@ -24,6 +137,10 @@ const archive = feature => ({ url: `https://download.geofabrik.de/${feature.prop
 async function temporary(action) {
   const directory = await mkdtemp(path.join(tmpdir(), "woa-map-provision-"));
   try { await action(directory); } finally { await rm(directory, { recursive: true, force: true }); }
+}
+
+function buildMapPlan(workouts, regions, options) {
+  return buildServiceMapPlan(workouts, regions, { cacheRoot: path.join(options.dataDirectory, "raster-cache"), ...options });
 }
 
 test("map planning uses complete edge tile coverage, leaf regions and cached discoveries", async () => {
@@ -169,6 +286,31 @@ test("sample plans cannot bypass full archive inspections during preparation", a
     assert.equal(calls.length, 2);
     assert.deepEqual(prepared.reused, ["east", "west"]);
     assert.equal(prepared.readyToActivate, true);
+  });
+});
+
+test("a refreshed archive size cannot exceed the shared budget or trigger another GET", async () => {
+  await temporary(async directory => {
+    const body = await tinyArchive(path.join(directory, "fixture"));
+    const dataDirectory = path.join(directory, "maps");
+    const cacheRoot = path.join(directory, "cache");
+    await mkdir(dataDirectory);
+    const usage = await readMapStorageUsage({ dataDirectory, cacheRoot });
+    const protectedFile = path.join(dataDirectory, "rollback.bin");
+    const file = await open(protectedFile, "wx");
+    try { await file.truncate(usage.limitBytes - 2 * body.length); } finally { await file.close(); }
+    const plan = await buildMapPlan([workout], catalog, { dataDirectory, cacheRoot,
+      resolveArchive: async feature => ({ ...archive(feature), bytes: body.length }) });
+    assert.equal(plan.report.storage.fits, true);
+    const calls = [];
+    await assert.rejects(prepareMapArchives(plan, { fetchFn: async (_url, options) => {
+      calls.push(options.method || "GET");
+      return new Response(options.method === "HEAD" ? null : body,
+        { headers: { "content-length": String(body.length + 1) } });
+    } }), /storage budget/);
+    assert.deepEqual(calls, ["GET", "HEAD"]);
+    assert.deepEqual(await readdir(dataDirectory), ["rollback.bin"]);
+    assert.equal((await stat(protectedFile)).size, usage.limitBytes - 2 * body.length);
   });
 });
 
@@ -502,7 +644,7 @@ test("CLI prepare keeps JSON on stdout and emits all progress on stderr without 
     const filename = path.join(directory, "fixture");
     const body = await tinyArchive(filename, true);
     const envFile = path.join(directory, ".env.development");
-    await writeFile(envFile, `DB_NAME=fixture_db\nDB_USER=fixture_user\nWOA_MAP_DATA_DIR=${path.join(directory, "maps")}\n`);
+    await writeFile(envFile, `DB_NAME=fixture_db\nDB_USER=fixture_user\nWOA_MAP_DATA_DIR=${path.join(directory, "maps")}\nWOA_MAP_CACHE_DIR=${path.join(directory, "maps-cache")}\n`);
     const script = `import { readFile } from "node:fs/promises";
       import { DatabaseSync } from "node:sqlite";
       import { runMapCommand } from "./src/scripts/prepare-local-maps.js";

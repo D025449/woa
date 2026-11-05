@@ -39,7 +39,7 @@ dokumentieren die Werkzeuge; sie sind keine Ausführungsfreigabe.
 | `deploy:prod` | `npm run deploy:prod -- "Commit-Nachricht"` | Führt `npm test` und `npm run check` aus, nimmt **alle Repository-Änderungen** mit `git add --all` auf, erstellt Commit und Push und ruft per SSH `./deploy.sh code-only` auf. Erwartet den Release-Branch, standardmäßig `main`. |
 | `env:prod` | `npm run env:prod`: open `~/woa/.env.production` on `cwa24-ec2` directly in Nano over SSH. | Requires a local interactive terminal, working SSH access to the `cwa24-ec2` alias, and Nano plus file access on the server. Saving changes the production environment file; no automatic restart or deployment. [Editing details](#edit-the-production-environment). |
 | `maps:plan` | `npm run maps:plan -- --env-file .env.production [--json] [--quick]`: inventory required Shortbread regions from stored workout GPS boxes. | Explicit environment file, database read access, Node with `node:sqlite`, outbound Geofabrik metadata/HEAD access. Read-only transaction; reads existing map files, creates none, downloads no archives. Full SQLite integrity inspection by default; `--quick` samples archive metadata and one vector tile instead. Phase/inspection progress on stderr; `--json` keeps script stdout machine-readable. Exit 2 for incomplete plans. [Production workflow](workout-map.md#production-planning-and-preparation-over-ssh). |
-| `maps:prepare` | `npm run maps:prepare -- --env-file .env.production [--json]`: recompute the plan, download missing/invalid archives and verify actual viewport tiles. | Same read-only database access; writes only to configured `WOA_MAP_DATA_DIR` with an exclusive lock, checked `.part` downloads and atomic replacement. Needs download space plus 5%/256 MiB margin. Phase/byte/coverage progress on stderr. Pure size mismatches allow up to three GET attempts with HEAD refresh and disk recheck; all validation remains required. Reuses valid archives; no DB writes, migrations, rasterization, service restart or env changes. Exit 2 for incomplete coverage; 1 for operational errors. [Production workflow](workout-map.md#production-planning-and-preparation-over-ssh). |
+| `maps:prepare` | `npm run maps:prepare -- --env-file .env.production [--json]`: recompute the plan, download missing/invalid archives and verify actual viewport tiles. | Same read-only database access; writes archives to `WOA_MAP_DATA_DIR` under exclusive prepare/storage locks, checked `.part` downloads and atomic replacement. Enforces the combined 30%-volume/100-GiB storage budget plus 5%/256 MiB free-space margin; may evict completed raster entries in `WOA_MAP_CACHE_DIR` to make room. Phase/byte/coverage progress on stderr. Pure size mismatches allow up to three GET attempts with HEAD refresh and budget/disk recheck; all validation remains required. Reuses valid archives; no DB writes, migrations, rasterization, service restart or env changes. Exit 2 for incomplete coverage; 1 for operational errors. [Production workflow](workout-map.md#production-planning-and-preparation-over-ssh). |
 | `account-deletion:sweep` | `npm run account-deletion:sweep` | Führt einen Batch fälliger endgültiger Kontolöschungen aus; kein Vorschau-Modus. |
 
 The map commands resolve the active production database through the same pointer
@@ -83,6 +83,18 @@ fresh plan; it does not select arbitrary download URLs or update existing valid
 archives. Without this option, existing manual CLI behavior is unchanged.
 The admin panel needs app and Ops worker running; `start:all` starts both in Dev.
 Its standard environment filename follows the Ops worker's `NODE_ENV`.
+
+Both map commands additionally inventory file lengths in the data/cache roots and
+report the combined storage budget: 30% of total volume capacity, capped globally
+at 100 GiB; separate devices each retain their 30% limit. Plans are advisory and
+remain read-only, including `--quick`. Prepare and raster-cache writes coordinate
+through `.maps-storage.lock`, count partial/rollback files and verify peak capacity
+plus free-space reserve. Only recognized completed raster entries may be evicted
+oldest first across namespaces. Archives, rollback files and orphaned partials are
+never automatically deleted. HEAD size refreshes cannot bypass the budget. A full
+or busy cache does not prevent rendering into RAM. No new npm command/parameter,
+dependency, environment variable or migration is needed. See
+[global storage policy and lock recovery](workout-map.md#global-map-storage-budget).
 
 `deploy:prod` unterstützt `GIT_REMOTE`, `RELEASE_BRANCH`, `DEPLOY_SSH_TARGET`
 und `DEPLOY_APP_DIR`. `SKIP_RELEASE_CHECKS=1` überspringt Tests und Checks.

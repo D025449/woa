@@ -291,15 +291,77 @@ only the three known `lastEnd` errors. Linux ARM64 was not exercised.
   after composition. Route gaps, segment colors and endpoints remain vectors.
   The 320x200 SVG embeds WebP and visible OSM attribution. Cache namespaces include
   archive identity and style. RAM payload LRU is bounded to 16 MiB and completed
-  disk entries to 128 MiB per namespace/worker. Old namespaces and abandoned
-  temporary files require manual cleanup; there is no cross-process tile dedup
-  or global cache-root limit.
+  disk entries to 128 MiB per namespace/worker, additionally constrained by the
+  shared storage budget below. Old raster entries are reclaimed across namespaces
+  when capacity is needed. Orphaned temporary files and empty namespace directories
+  still require verified manual cleanup; there is no cross-process tile dedup.
 - Local mode makes no external map calls. Missing/incomplete coverage, invalid
   archives, worker errors, overload or timeout use the persisted route-only
   fallback. New fallbacks distinguish missing coverage, unsupported routes and
   temporary failure; only these marked images can be retried. Enlarging coverage
   never replaces successful maps or unmarked old images. Indoor/non-GPS profile
   thumbnails retain their existing path.
+
+### Global Map Storage Budget
+
+Approved policy: archives and persistent raster cache share at most **30% of total
+filesystem capacity, capped at 100 GiB**. This uses total volume size, not the
+changing amount of free space. If the configured roots are on different devices,
+each device must stay within its own 30% limit and their combined map storage must
+stay below 100 GiB. Processes must use the same canonical data/cache configuration.
+
+`localMapStorageService.js` recursively counts regular file lengths beneath
+`WOA_MAP_DATA_DIR` and `WOA_MAP_CACHE_DIR`, including partial downloads, protected
+archives, rollback files and old cache namespaces. Overlapping roots are counted
+once. File lengths also count sparse files conservatively; RAM and thumbnail rows
+in PostgreSQL are outside this disk budget. Keep these dedicated directories
+private to the app. Root aliases are canonicalized; symlinks inside the managed
+trees and unknown filesystem capacity prevent new writes rather than bypassing
+accounting. This is an application write policy, not an operating-system quota
+against manual/uncoordinated external writes.
+
+Before a download sequence or raster-cache write, `.maps-storage.lock` in the data
+directory serializes cooperating processes; in-process callers also queue locally.
+Full remaining download bytes are checked against the peak budget, including old
+files that remain during replacement. Refreshed HEAD sizes are checked again
+before another GET. The target volume must additionally retain a free-space
+margin of 5% of the requested bytes plus 256 MiB after cleanup. Unknown capacity,
+an occupied storage lock or protected data exceeding the budget refuses downloads.
+
+Only recognized completed raster entries (`<20-hex namespace>/<z>-<x>-<y>.json`)
+are eligible for oldest-modification-time-first deletion across source/style
+namespaces; successful cache reads refresh that timestamp. Every archive, possible
+rollback file, unknown file and partial is protected. No active archive or future
+rollback set is automatically removed. A cache miss can still render into RAM
+when storage is busy/full; it skips optional persistence without replacing a valid
+map with a route-only fallback. Existing per-namespace/RAM limits still apply.
+
+`maps:plan`, including admin quick scans, only reports budget usage, limit and
+whether cleanup could make the reservation fit; it deletes nothing. Prepare and
+cache writes perform cleanup when needed, then recheck capacity. There is no timer
+or proactive mass deletion, no new configuration variable, dependency, npm script
+or migration. If a process is killed, either map lock can remain: verify owning
+processes and active downloads before manual lock/partial cleanup. Do not remove a
+live lock or run older uncoordinated writers alongside the upgraded processes.
+
+Admin shows `Kartenbudget · Belegt / Limit`, disables download approval when even
+safe cache cleanup cannot satisfy budget/reserve, and reports storage/cleanup
+phases. CLI text/JSON reports the same budget; completed preparation reports the
+new usage rather than its initial estimate. Archive validation and actual viewport
+coverage checks remain unchanged. Versioned archive updates/retirement remain a
+separate follow-up, not implemented by this storage policy.
+
+Verification: all 846 tests passed, including 79 focused provisioning, renderer,
+admin and navigation checks. Tests cover both budget thresholds, split volumes,
+overlapping roots, protected partial/rollback data, global raster LRU, lock
+serialization/release, rejection before GET, budget enforcement after a HEAD size
+change, post-prepare reporting and valid rendering without optional cache writes.
+Syntax/lint passed with 70 existing warnings; full type checking and editor checks
+are clean. Actual EJS/controller browser checks with simulated budget reports at
+1365 px desktop and 390 px mobile verified labels, blocked/cleanup-enabled approval
+and nonoverflowing single-line budget values; screenshots inspected. No production
+cleanup/download, DB data write, migration, deployment or normal Dev restart was
+performed. Real production volume capacity and timing have not been measured.
 
 ### Local Map Lifecycle
 
@@ -332,8 +394,9 @@ reuse its cached image. Recovery is on demand, not an immediate bulk regeneratio
 At the next queued render after a detected inventory change, the client retires
 the idle worker and opens the new archive set. Active work is not interrupted.
 The existing source-identity/style raster namespace separates new tiles from old
-ones. This adds neither validated set activation nor deletion of old namespaces;
-existing disk/cache limits and the 16-archive cap remain in force.
+ones. This adds no validated set activation or archive deletion; old raster entries
+are now eligible under the shared storage policy above. Existing per-namespace
+cache limits and the 16-archive cap remain in force.
 
 Verification: all 827 tests passed, including 40 focused thumbnail/worker cases
 covering states, legacy protection, safe annotation, persisted retry counters,
@@ -362,13 +425,14 @@ Accepted follow-up requirements:
 - Download/validate changed files separately, activate a versioned archive set
   atomically, reopen handles and retain one prior set for rollback. Do not disturb
   working maps during download/failure or mass-regenerate successful thumbnails.
-- Add global storage accounting and safe cleanup for retired sets/raster namespaces,
-  respecting live handles, rollback retention, app/database reserve and the archive
-  cap. The present 128 MiB raster limit is per namespace/worker, not global.
+- Global storage accounting and raster cleanup are implemented above. Automatic
+  archive-set retirement still requires the future versioned updater and rollback
+  metadata; the storage policy currently protects all archives and rollback files.
 
 There is currently no dedicated regional demand table, import-triggered demand
-scan, monthly scheduler, upstream update manager, manifest-based activation/rollback
-or global cache GC. The manual workflow derives demand from PostgreSQL GPS bounds
+scan, monthly scheduler, upstream update manager or manifest-based activation/rollback.
+Global raster cleanup now runs on write-capacity pressure, not on a timer.
+The manual workflow derives demand from PostgreSQL GPS bounds
 and stores job snapshots in the existing Redis-backed Ops queue instead.
 
 ### Admin Map Demand And Provisioning

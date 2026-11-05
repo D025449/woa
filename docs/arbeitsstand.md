@@ -3,6 +3,31 @@
 Stand: 2026-11-05. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Shared Map Storage Budget (2026-11-05)
+
+- User approved a shared archive/raster budget: at most 30% of total volume size,
+	capped at 100 GiB. Split volumes each retain the 30% ceiling with 100 GiB combined.
+	New central service counts configured roots once, including partials/rollback
+	files; unknown capacity/internal symlinks fail closed. Dedicated private roots
+	and matching configuration are required across cooperating processes.
+- Downloads and optional cache writes share `.maps-storage.lock`; peak remaining
+	bytes and refreshed HEAD sizes are checked plus 5%/256 MiB free-space reserve.
+	Oldest recognized completed raster files may be evicted across namespaces.
+	All archives, rollback files, unknown files and partials stay protected. Cache
+	pressure/busy locks still permit rendering into RAM. No periodic GC or automatic
+	archive retirement; killed processes can leave a lock requiring verified cleanup.
+- Read-only plans/Admin show usage/limit and block approval if cleanup cannot make
+	room; completed prepare reports refreshed usage. No new script, dependency, env
+	setting or schema change. Updated map/npm docs; future versioned updater/rollback
+	and permanent/import-triggered regional demand remain separate follow-ups.
+- All 846 tests passed (79 focused), syntax/lint passed with 70 existing warnings,
+	typecheck/editor checks clean. Tests cover protected data, split/nested roots,
+	global cache LRU, locks, pre-GET rejection, HEAD growth and RAM-only rendering.
+	Actual EJS/module browser checks with mocked reports at desktop1365/mobile390
+	verified budget labels, blocking/cleanup approval and single-line values without
+	overflow; screenshots inspected. Existing isolated preview retained. No actual
+	production cleanup/download, DB data write, migration, deployment or Dev restart.
+
 ## Admin Navigation Matches User Settings (2026-11-05)
 
 - User approved seven local admin areas: Users and roles (default), Map material,
