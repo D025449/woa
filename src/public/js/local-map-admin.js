@@ -53,7 +53,9 @@ export class LocalMapAdminController {
     this.element("regions").replaceChildren();
     for (const region of report?.regions || []) {
       const row = document.createElement("tr");
-      const values = [region.name, region.status === "available" ? "Vorhanden" : "Fehlt", formatMapBytes(region.bytes),
+      const state = region.status !== "available" ? "Fehlt" : region.integrityChecked === true ? "Vorhanden · Integrität geprüft"
+        : region.integrityChecked === false ? "Vorhanden · Stichprobe geprüft" : "Vorhanden";
+      const values = [region.name, state, formatMapBytes(region.bytes),
         region.workouts.toLocaleString("de-DE"), region.missingThumbnails.toLocaleString("de-DE")];
       values.forEach((value, index) => {
         const cell = document.createElement("td");
@@ -103,9 +105,10 @@ export class LocalMapAdminController {
       else {
         const report = value.report;
         const issues = report.missingBounds + report.unsupportedBounds + report.unmappedWorkouts + report.invalidArchives + (report.missingTileWorkouts || 0);
-        this.status(issues ? `Prüfprobleme: ${report.missingBounds} ohne GPS-Grenzen · ${report.unsupportedBounds} nicht unterstützt · ${report.unmappedWorkouts} ohne Region · ${report.invalidArchives} ungültige Archive · ${report.missingTileWorkouts || 0} mit Kachellücken`
+        const coverage = report.missingTileWorkouts == null ? "Kachelabdeckung nicht geprüft" : `${report.missingTileWorkouts} mit Kachellücken`;
+        this.status(issues ? `Prüfprobleme: ${report.missingBounds} ohne GPS-Grenzen · ${report.unsupportedBounds} nicht unterstützt · ${report.unmappedWorkouts} ohne Region · ${report.invalidArchives} ungültige Archive · ${coverage}`
           : report.readyToActivate ? "Kartenmaterial bereit · keine fehlenden Kacheln."
-            : report.downloadBytes > 0 ? "Fehlende Regionen warten auf Freigabe." : "Regionsarchive vorhanden.", issues > 0);
+            : report.downloadBytes > 0 ? "Fehlende Regionen warten auf Freigabe." : "Regionsarchive vorhanden · Kachelabdeckung nicht geprüft.", issues > 0);
       }
       this.controls();
       if (this.busy) this.timer = setTimeout(() => this.refresh(), 2000);

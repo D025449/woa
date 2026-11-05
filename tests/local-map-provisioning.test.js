@@ -131,6 +131,47 @@ async function tinyArchive(filename, coverWorkout = false) {
   return readFile(filename);
 }
 
+test("sample inspection skips only the SQLite integrity scan and retains format checks", async context => {
+  await temporary(async directory => {
+    const filename = path.join(directory, "east.mbtiles");
+    await tinyArchive(filename);
+    const queries = [];
+    const prepare = DatabaseSync.prototype.prepare;
+    context.mock.method(DatabaseSync.prototype, "prepare", function (sql) {
+      queries.push(sql);
+      return prepare.call(this, sql);
+    });
+    assert.equal((await inspectMapArchive(filename, { fullIntegrityCheck: false })).valid, true);
+    assert.equal(queries.includes("PRAGMA quick_check"), false);
+    assert.ok(queries.some(sql => sql.includes("metadata")));
+    assert.ok(queries.some(sql => sql.includes("tile_data")));
+    assert.equal((await inspectMapArchive(filename)).valid, true);
+    assert.equal(queries.filter(sql => sql === "PRAGMA quick_check").length, 1);
+    const database = new DatabaseSync(filename);
+    database.exec("UPDATE metadata SET value='png' WHERE name='format'");
+    database.close();
+    assert.equal((await inspectMapArchive(filename, { fullIntegrityCheck: false })).valid, false);
+  });
+});
+
+test("sample plans cannot bypass full archive inspections during preparation", async () => {
+  await temporary(async dataDirectory => {
+    for (const id of ["east", "west"]) await tinyArchive(path.join(dataDirectory, `${id}.mbtiles`), true);
+    const plan = await buildMapPlan([workout], catalog, { dataDirectory, inspectionMode: "sample",
+      resolveArchive: async feature => archive(feature) });
+    assert.equal(plan.report.inspectionMode, "sample");
+    assert.ok(plan.report.archives.every(entry => entry.existingValid && !entry.integrityChecked));
+    const calls = [];
+    const prepared = await prepareMapArchives(plan, { inspectArchive: async filename => {
+      calls.push(filename);
+      return inspectMapArchive(filename);
+    }, fetchFn: async () => assert.fail("must reuse valid archives") });
+    assert.equal(calls.length, 2);
+    assert.deepEqual(prepared.reused, ["east", "west"]);
+    assert.equal(prepared.readyToActivate, true);
+  });
+});
+
 test("prepare validates and atomically installs archives, then reuses without GET", async () => {
   await temporary(async directory => {
     const body = await tinyArchive(path.join(directory, "fixture"));
@@ -463,9 +504,18 @@ test("CLI prepare keeps JSON on stdout and emits all progress on stderr without 
     const envFile = path.join(directory, ".env.development");
     await writeFile(envFile, `DB_NAME=fixture_db\nDB_USER=fixture_user\nWOA_MAP_DATA_DIR=${path.join(directory, "maps")}\n`);
     const script = `import { readFile } from "node:fs/promises";
+      import { DatabaseSync } from "node:sqlite";
       import { runMapCommand } from "./src/scripts/prepare-local-maps.js";
       const body = await readFile(${JSON.stringify(filename)});
-      await runMapCommand(["prepare", "--env-file", ${JSON.stringify(envFile)}, "--json",
+      if (process.env.TEST_MAP_QUICK) {
+        const prepare = DatabaseSync.prototype.prepare;
+        DatabaseSync.prototype.prepare = function(sql) {
+          if (sql === "PRAGMA quick_check") throw new Error("Full inspection must not run in quick mode");
+          return prepare.call(this, sql);
+        };
+      }
+      await runMapCommand([process.env.TEST_MAP_QUICK ? "plan" : "prepare", "--env-file", ${JSON.stringify(envFile)}, "--json",
+        ...(process.env.TEST_MAP_QUICK ? ["--quick"] : []),
         ...(process.env.TEST_MAP_APPROVAL ? ["--approved-regions", process.env.TEST_MAP_APPROVAL] : [])], {
         clientFactory: () => ({ async connect() {}, async end() {}, async query() { return { rows: [${JSON.stringify(workout)}] }; } }),
         fetchFn: async (url, options) => {
@@ -485,6 +535,15 @@ test("CLI prepare keeps JSON on stdout and emits all progress on stderr without 
       assert.match(result.stderr, new RegExp(`\\[maps\\] ${phase}`));
     }
     assert.match(result.stderr, /100\.0%/);
+    const quick = spawnSync(process.execPath, ["--input-type=module", "-e", script],
+      { encoding: "utf8", env: { ...process.env, TEST_MAP_QUICK: "1" } });
+    assert.equal(quick.status, 0, quick.stderr);
+    const quickReport = JSON.parse(quick.stdout);
+    assert.equal(quickReport.inspectionMode, "sample");
+    assert.ok(quickReport.archives.every(entry => entry.existingValid && !entry.integrityChecked));
+    assert.equal(quickReport.downloadBytes, 0);
+    assert.equal(quickReport.preparation, undefined);
+    assert.doesNotMatch(quick.stderr, /\[maps\] (?:download-request|coverage)/);
     const rejected = spawnSync(process.execPath, ["--input-type=module", "-e", script],
       { encoding: "utf8", env: { ...process.env, TEST_MAP_APPROVAL: "unapproved-region" } });
     assert.equal(rejected.status, 0, rejected.stderr);
@@ -506,6 +565,12 @@ test("CLI requires explicit environment selection before connecting or downloadi
   const help = spawnSync(process.execPath, ["--", "src/scripts/prepare-local-maps.js", "prepare", "--help"], { encoding: "utf8" });
   assert.equal(help.status, 0);
   assert.match(help.stdout, /Usage: npm run maps:plan/);
+  assert.match(help.stdout, /--quick/);
+  const quickPrepare = spawnSync(process.execPath, ["--", "src/scripts/prepare-local-maps.js", "prepare",
+    "--env-file", "not-read.env", "--quick"], { encoding: "utf8" });
+  assert.equal(quickPrepare.status, 1);
+  assert.match(quickPrepare.stderr, /prepare requires full archive checks/);
+  assert.doesNotMatch(quickPrepare.stderr, /\[maps\]/);
 });
 
 test("standalone production config uses the same active database pointer as PM2", async () => {

@@ -38,7 +38,7 @@ dokumentieren die Werkzeuge; sie sind keine Ausführungsfreigabe.
 | `backup:worker` | `npm run backup:worker`: Ops worker for admin backup/restore and local-map jobs. | Runs queued operations serially, including explicit map scans/download approvals via a separate map CLI process. Requires Redis and the underlying operation prerequisites; a long map job delays backup operations. No automatic map scan/download on startup. [Backup operations](../ops/postgres-backup/README.md), [map administration](workout-map.md#admin-map-demand-and-provisioning). |
 | `deploy:prod` | `npm run deploy:prod -- "Commit-Nachricht"` | Führt `npm test` und `npm run check` aus, nimmt **alle Repository-Änderungen** mit `git add --all` auf, erstellt Commit und Push und ruft per SSH `./deploy.sh code-only` auf. Erwartet den Release-Branch, standardmäßig `main`. |
 | `env:prod` | `npm run env:prod`: open `~/woa/.env.production` on `cwa24-ec2` directly in Nano over SSH. | Requires a local interactive terminal, working SSH access to the `cwa24-ec2` alias, and Nano plus file access on the server. Saving changes the production environment file; no automatic restart or deployment. [Editing details](#edit-the-production-environment). |
-| `maps:plan` | `npm run maps:plan -- --env-file .env.production [--json]`: inventory required Shortbread regions from stored workout GPS boxes. | Explicit environment file, database read access, Node with `node:sqlite`, outbound Geofabrik metadata/HEAD access. Read-only transaction; reads existing map files, creates none, downloads no archives. Phase/inspection progress on stderr; `--json` keeps script stdout machine-readable. Exit 2 for incomplete plans. [Production workflow](workout-map.md#production-planning-and-preparation-over-ssh). |
+| `maps:plan` | `npm run maps:plan -- --env-file .env.production [--json] [--quick]`: inventory required Shortbread regions from stored workout GPS boxes. | Explicit environment file, database read access, Node with `node:sqlite`, outbound Geofabrik metadata/HEAD access. Read-only transaction; reads existing map files, creates none, downloads no archives. Full SQLite integrity inspection by default; `--quick` samples archive metadata and one vector tile instead. Phase/inspection progress on stderr; `--json` keeps script stdout machine-readable. Exit 2 for incomplete plans. [Production workflow](workout-map.md#production-planning-and-preparation-over-ssh). |
 | `maps:prepare` | `npm run maps:prepare -- --env-file .env.production [--json]`: recompute the plan, download missing/invalid archives and verify actual viewport tiles. | Same read-only database access; writes only to configured `WOA_MAP_DATA_DIR` with an exclusive lock, checked `.part` downloads and atomic replacement. Needs download space plus 5%/256 MiB margin. Phase/byte/coverage progress on stderr. Pure size mismatches allow up to three GET attempts with HEAD refresh and disk recheck; all validation remains required. Reuses valid archives; no DB writes, migrations, rasterization, service restart or env changes. Exit 2 for incomplete coverage; 1 for operational errors. [Production workflow](workout-map.md#production-planning-and-preparation-over-ssh). |
 | `account-deletion:sweep` | `npm run account-deletion:sweep` | Führt einen Batch fälliger endgültiger Kontolöschungen aus; kein Vorschau-Modus. |
 
@@ -59,11 +59,23 @@ the plan. Under the prepare lock, `check-file-state` compares device/inode, size
 and nanosecond mtime/ctime; unchanged files skip the second full scan. Changed,
 missing or uncached files take `inspect-required`; new downloads remain fully
 validated. No persistent inspection cache is created or exported in JSON, so a
-new invocation still performs the first full inspection and coverage checks.
+new default plan/prepare invocation still performs the first full inspection;
+prepare also checks actual viewport coverage.
 Internal `node --` argument separation prevents Node from consuming `--env-file`;
 the documented npm command remains unchanged. See the production workflow above.
 
 The admin map workflow uses the same scripts out of process through `backup:worker`.
+Admin scans use `maps:plan --quick`: file state, vector format and a Shortbread
+tile sample are checked, but `PRAGMA quick_check` is skipped. The report marks
+`inspectionMode: "sample"` and per-archive `integrityChecked: false`; text output
+uses `PRESENT (sampled)` instead of claiming validated reuse. This is not a full
+integrity or viewport coverage guarantee. The Admin UI distinguishes sampled
+archives from integrity-checked archives and leaves untested coverage unknown.
+Catalog/HEAD requests and regional planning still run. `maps:prepare` rejects
+`--quick` before environment/database access and retains all full integrity,
+download and coverage checks. Sample inspections never seed the private cache
+used to skip duplicate full checks, even if a sample plan is prepared directly.
+
 `maps:prepare` additionally accepts optional `--approved-regions id,...`: all
 currently missing required regions must be in that list before downloads start.
 This guards an explicit admin approval against new demand discovered during a

@@ -133,15 +133,17 @@ async function archiveFileState(filename) {
   return { bytes: Number(details.size), fingerprint: [details.dev, details.ino, details.size, details.mtimeNs, details.ctimeNs].join(":") };
 }
 
-export async function inspectMapArchive(filename) {
+export async function inspectMapArchive(filename, { fullIntegrityCheck = true } = {}) {
   const details = await archiveFileState(filename);
   if (!details) return { valid: false, bytes: 0 };
   let database;
   try {
     const { DatabaseSync } = await import("node:sqlite");
     database = new DatabaseSync(filename, { readOnly: true });
-    const check = database.prepare("PRAGMA quick_check").get();
-    if (Object.values(check)[0] !== "ok") throw new Error("Invalid SQLite archive");
+    if (fullIntegrityCheck) {
+      const check = database.prepare("PRAGMA quick_check").get();
+      if (Object.values(check)[0] !== "ok") throw new Error("Invalid SQLite archive");
+    }
     const format = database.prepare("SELECT value FROM metadata WHERE name='format'").get();
     if (format?.value !== "pbf") throw new Error("Expected vector MBTiles");
     const row = database.prepare("SELECT tile_data FROM tiles LIMIT 1").get();
@@ -187,10 +189,11 @@ async function freeDiskBytes(directory) {
 /**
  * @param {any[]} workouts
  * @param {any} catalog
- * @param {MapFetchOptions & {dataDirectory?: string, resolveArchive?: typeof discoverMapArchive, inspectArchive?: typeof inspectMapArchive}} options
+ * @param {MapFetchOptions & {dataDirectory?: string, resolveArchive?: typeof discoverMapArchive, inspectArchive?: typeof inspectMapArchive, inspectionMode?: "full" | "sample"}} options
  */
 export async function buildMapPlan(workouts, catalog, { dataDirectory = getLocalThumbnailMapConfig().dataDirectory,
-  resolveArchive = discoverMapArchive, inspectArchive = inspectMapArchive, signal, fetchFn = fetch, onProgress = () => {} } = {}) {
+  resolveArchive = discoverMapArchive, inspectArchive = inspectMapArchive, inspectionMode = "full", signal, fetchFn = fetch, onProgress = () => {} } = {}) {
+  if (!["full", "sample"].includes(inspectionMode)) throw new MapSetupError("Invalid archive inspection mode");
   const regions = catalog.features.filter(feature => ["Polygon", "MultiPolygon"].includes(feature.geometry?.type)
     && /^[a-z0-9]+(?:[-/][a-z0-9]+)*$/.test(feature.properties?.id) && feature.properties.urls?.pbf)
     .map(feature => ({ feature, bounds: bbox(feature), id: feature.properties.id, parent: feature.properties.parent }));
@@ -281,18 +284,19 @@ export async function buildMapPlan(workouts, catalog, { dataDirectory = getLocal
     signal?.throwIfAborted();
     onProgress({ phase: "inspect-existing", archive: filename.slice(0, -".mbtiles".length).replaceAll("--", "/"),
       completed: index + 1, total: filenames.length });
-    existing.set(filename, await inspectArchive(path.join(dataDirectory, filename)));
+    existing.set(filename, await inspectArchive(path.join(dataDirectory, filename), { fullIntegrityCheck: inspectionMode === "full" }));
   }
   const archives = [...required.values()].sort((first, second) => first.id.localeCompare(second.id)).map(entry => {
     const filename = `${entry.id.replaceAll("/", "--")}.mbtiles`;
     return { id: entry.id, name: entry.name, filename, url: entry.url, downloadBytes: entry.bytes,
       existingValid: existing.get(filename)?.valid === true, existingBytes: existing.get(filename)?.bytes || 0,
+      integrityChecked: existing.get(filename)?.valid === true && inspectionMode === "full",
       workouts: entry.workouts.size, missingThumbnails: entry.missingThumbnails.size };
   });
   const finalFiles = new Set([...filenames, ...archives.map(entry => entry.filename)]);
   const invalidUnneededArchives = filenames.filter(filename => !existing.get(filename).valid
     && !archives.some(entry => entry.filename === filename));
-  const report = { dataDirectory, gpsWorkouts: workouts.length,
+  const report = { dataDirectory, inspectionMode, gpsWorkouts: workouts.length,
     missingThumbnails: workouts.filter(workout => !workout.has_thumbnail).length,
     missingBounds, unsupportedBounds, unmappedWorkouts: unmapped, invalidUnneededArchives,
     archives, archiveCountAfterPrepare: finalFiles.size, archiveLimit: ARCHIVE_LIMIT,
@@ -300,7 +304,7 @@ export async function buildMapPlan(workouts, catalog, { dataDirectory = getLocal
     freeDiskBytes: await freeDiskBytes(dataDirectory), readyToPrepare: !missingBounds.length && !unsupportedBounds.length
       && !unmapped.length && !invalidUnneededArchives.length && finalFiles.size <= ARCHIVE_LIMIT };
   const plan = { report, coverage };
-  planArchiveInspections.set(plan, existing);
+  if (inspectionMode === "full") planArchiveInspections.set(plan, existing);
   return plan;
 }
 

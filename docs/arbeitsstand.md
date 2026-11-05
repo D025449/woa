@@ -3,6 +3,25 @@
 Stand: 2026-11-05. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Fast Admin Map Inventory Scan (2026-11-05)
+
+- User approved separating the slow full archive scan from admin demand checks.
+	Admin `maps-scan` now invokes `plan --quick`: stable file metadata, vector-format
+	metadata and one Shortbread tile sample, without SQLite `quick_check`.
+	Ordinary CLI plan/prepare retain full validation; prepare rejects `--quick`.
+- UI distinguishes sampled archives from integrity-checked files and reports
+	untested tile coverage as unknown, not zero missing tiles. Sample inspections
+	never seed the full-inspection reuse cache, including direct preparation.
+	Catalog/network discovery and geometry planning remain; no production timing
+	measurement or live authenticated Ops verification yet. No persistent cache.
+- All 836 tests passed (57 focused admin/provisioning checks), syntax/lint passed
+	with 70 existing warnings, full typecheck clean. Real isolated CLI regression
+	verifies quick scans skip `quick_check`; full prepare checks remain covered.
+	Actual EJS section/module browser-checked at desktop1365/mobile390 with mocked
+	reports: both integrity labels, unknown coverage, approval, no page overflow.
+	Screenshots inspected; isolated server stopped. Updated map/npm docs. No
+	migration, DB data write, deployment or normal Dev/production restart.
+
 ## lastEnd Type Errors Resolved (2026-11-05)
 
 - User approved a minimal fix in `MicroIntervalDetector`: snapshot closure-mutated

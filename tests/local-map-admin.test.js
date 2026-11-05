@@ -24,10 +24,17 @@ test("admin map demand summarizes regions without exposing source URLs or workou
   assert.equal(summary.downloadBytes, 200);
   assert.equal(summary.gpsWorkouts, 3);
   assert.doesNotMatch(JSON.stringify(summary), /private-value|filename|https:/);
-  const prepared = summarizeMapDemand({ ...report, preparation: { created: ["alsace"], readyToActivate: true } });
+  assert.equal(summary.missingTileWorkouts, null);
+  assert.equal(summary.regions[0].integrityChecked, true);
+  const sampled = summarizeMapDemand({ ...report, inspectionMode: "sample" });
+  assert.equal(sampled.regions[0].status, "available");
+  assert.equal(sampled.regions[0].integrityChecked, false);
+  assert.equal(sampled.readyToActivate, false);
+  const prepared = summarizeMapDemand({ ...report, preparation: { created: ["alsace"], uncoveredWorkouts: [], readyToActivate: true } });
   assert.equal(prepared.downloadBytes, 0);
   assert.equal(prepared.readyToActivate, true);
   assert.ok(prepared.regions.every(region => region.status === "available"));
+  assert.ok(prepared.regions.every(region => region.integrityChecked));
   assert.equal(summarizeMapDemand({ ...report, preparation: { uncoveredWorkouts: [42] } }).missingTileWorkouts, 1);
 });
 
@@ -54,10 +61,32 @@ test("map operations run the existing CLI out of process and expose only structu
     return child;
   } });
   assert.equal(args[0], "--");
+  assert.equal(args.includes("--quick"), false);
   assert.deepEqual(args.slice(-2), ["--approved-regions", "alsace"]);
   assert.ok(progress.some(value => value.phase === "download" && value.percent === 50));
   assert.doesNotMatch(JSON.stringify(progress), /private-error-details/);
   assert.equal(result.downloadBytes, 200);
+});
+
+test("admin map scans request quick inspection while keeping tile coverage unknown", async () => {
+  let args;
+  const result = await executeMapOperation({ name: "maps-scan", data: {}, async updateProgress() {} }, {
+    spawnFn: (_executable, selected) => {
+      args = selected;
+      const child = new EventEmitter();
+      Object.assign(child, { stdout: new EventEmitter(), stderr: new EventEmitter(), kill() {} });
+      setImmediate(() => {
+        child.stdout.emit("data", Buffer.from(JSON.stringify({ ...report, inspectionMode: "sample" })));
+        child.emit("close", 0);
+      });
+      return child;
+    }
+  });
+  assert.equal(args[2], "plan");
+  assert.ok(args.includes("--quick"));
+  assert.equal(result.regions[0].integrityChecked, false);
+  assert.equal(result.missingTileWorkouts, null);
+  assert.equal(result.readyToActivate, false);
 });
 
 async function withMapApi(queue, action) {

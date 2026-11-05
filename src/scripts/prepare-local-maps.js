@@ -62,14 +62,15 @@ export function formatMapProgress(progress) {
 export async function runMapCommand(argv, { clientFactory = config => new Client(config), fetchFn = fetch,
   progressWriter = message => console.error(message) } = {}) {
   const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: {
-    "env-file": { type: "string" }, "approved-regions": { type: "string" }, json: { type: "boolean", default: false }, help: { type: "boolean", default: false }
+    "env-file": { type: "string" }, "approved-regions": { type: "string" }, quick: { type: "boolean", default: false }, json: { type: "boolean", default: false }, help: { type: "boolean", default: false }
   } });
   if (values.help) {
-    console.log("Usage: npm run maps:plan|maps:prepare -- --env-file .env.production [--json] [--approved-regions id,...]\nPlan reads GPS bounds and public metadata only. Prepare downloads validated archives; neither command writes database data or runs migrations.");
+    console.log("Usage: npm run maps:plan|maps:prepare -- --env-file .env.production [--json] [--approved-regions id,...]\nPlan additionally accepts --quick for archive metadata/tile sampling without full SQLite integrity checks. Prepare does not accept --quick. Neither command writes database data or runs migrations.");
     return;
   }
   const command = positionals[0];
   if (!["plan", "prepare"].includes(command) || positionals.length !== 1 || !values["env-file"]) throw new MapSetupError("Specify plan|prepare and an explicit --env-file; see --help");
+  if (values.quick && command !== "plan") throw new MapSetupError("--quick is only supported for plan; prepare requires full archive checks");
   await mapStage("sqlite-runtime", async () => {
     try { await import("node:sqlite"); }
     catch { throw new MapSetupError("Node.js with node:sqlite support is required before preparing maps"); }
@@ -98,7 +99,7 @@ export async function runMapCommand(argv, { clientFactory = config => new Client
     const catalog = await mapStage("catalog", () => fetchMapCatalog({ signal: cancellation.signal, fetchFn }));
     onProgress({ phase: "plan" });
     const plan = await mapStage("plan", () => buildMapPlan(workouts, catalog, { dataDirectory: getLocalThumbnailMapConfig().dataDirectory,
-      signal: cancellation.signal, fetchFn, onProgress }));
+      inspectionMode: values.quick ? "sample" : "full", signal: cancellation.signal, fetchFn, onProgress }));
     let preparation;
     if (values["approved-regions"] !== undefined) await mapStage("prepare", () => {
       try { validateMapApproval(plan.report, values["approved-regions"].split(",")); }
@@ -111,7 +112,7 @@ export async function runMapCommand(argv, { clientFactory = config => new Client
       const report = plan.report;
       const gib = bytes => `${(bytes / 1024 ** 3).toFixed(2)} GiB`;
       console.log(`Map directory: ${report.dataDirectory}\nGPS workouts: ${report.gpsWorkouts}; missing thumbnails: ${report.missingThumbnails}`);
-      for (const archive of report.archives) console.log(`${archive.existingValid ? "REUSE" : "DOWNLOAD"} ${archive.id}: ${gib(archive.existingValid ? archive.existingBytes : archive.downloadBytes)}; ${archive.workouts} workouts`);
+      for (const archive of report.archives) console.log(`${archive.existingValid ? archive.integrityChecked ? "REUSE" : "PRESENT (sampled)" : "DOWNLOAD"} ${archive.id}: ${gib(archive.existingValid ? archive.existingBytes : archive.downloadBytes)}; ${archive.workouts} workouts`);
       console.log(`Download: ${gib(report.downloadBytes)}; free disk: ${gib(report.freeDiskBytes)}; archives after prepare: ${report.archiveCountAfterPrepare}/${report.archiveLimit}`);
       console.log(`Missing bounds: ${report.missingBounds.length}; unsupported bounds: ${report.unsupportedBounds.length}; unmapped workouts: ${report.unmappedWorkouts.length}; invalid unrelated archives: ${report.invalidUnneededArchives.length}`);
       console.log(`Plan complete: ${report.readyToPrepare}`);

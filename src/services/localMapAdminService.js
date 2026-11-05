@@ -21,6 +21,7 @@ export async function executeMapOperation(job, { spawnFn = spawn } = {}) {
   const command = job.name === "maps-scan" ? "plan" : "prepare";
   const args = ["--", path.join(projectRoot, "src/scripts/prepare-local-maps.js"), command,
     "--env-file", path.join(projectRoot, `.env.${process.env.NODE_ENV || "development"}`), "--json"];
+  if (command === "plan") args.push("--quick");
   if (command === "prepare") args.push("--approved-regions", job.data.approvedRegions.join(","));
   await job.updateProgress({ phase: "starting" });
   const child = spawnFn(process.execPath, args, { cwd: projectRoot, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
@@ -76,6 +77,8 @@ export function summarizeMapDemand(report, now = new Date()) {
     id: archive.id,
     name: archive.name,
     status: archive.existingValid || created.has(archive.id) ? "available" : "missing",
+    integrityChecked: created.has(archive.id) || archive.existingValid === true
+      && (archive.integrityChecked ?? report.inspectionMode !== "sample"),
     bytes: archive.existingValid ? archive.existingBytes : archive.downloadBytes,
     workouts: archive.workouts,
     missingThumbnails: archive.missingThumbnails
@@ -88,7 +91,7 @@ export function summarizeMapDemand(report, now = new Date()) {
     unsupportedBounds: report.unsupportedBounds.length,
     unmappedWorkouts: report.unmappedWorkouts.length,
     invalidArchives: report.invalidUnneededArchives.length,
-    missingTileWorkouts: report.preparation?.uncoveredWorkouts?.length || 0,
+    missingTileWorkouts: report.preparation ? report.preparation.uncoveredWorkouts.length : null,
     archiveCount: report.archiveCountAfterPrepare,
     archiveLimit: report.archiveLimit,
     freeDiskBytes: report.freeDiskBytes,

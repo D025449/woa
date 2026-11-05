@@ -383,10 +383,24 @@ nor downloads. There is no automatic scan on upload or page load.
 `Bedarf prüfen` explicitly queues `maps-scan`. The existing backup Ops worker runs
 the map CLI in a separate Node process with the standard environment file for its
 `NODE_ENV`; production still uses the shared runtime database pointer resolver.
-Read-only PostgreSQL inventory, regional deduplication, official metadata, archive
-validation and space/archive limits reuse the CLI implementation. SQLite full
-checks block that child, not Express or the Ops worker event loop. This does not
-make an individual SQLite call interruptible.
+Read-only PostgreSQL inventory, regional deduplication, official metadata and
+space/archive limits reuse the CLI implementation. Admin scans explicitly run
+`plan --quick`: compare file state before/after inspection, read vector-format
+metadata and decode one tile to confirm Shortbread layers, without running
+`PRAGMA quick_check` over every archive. Catalog/HEAD requests and regional
+geometry planning still run; no production timing improvement has been measured.
+
+Sampled archives show `Vorhanden · Stichprobe geprüft`; full integrity checks show
+`Vorhanden · Integrität geprüft`. A sample is not a whole-file integrity guarantee.
+Plan-only reports leave `missingTileWorkouts` null and explicitly display untested
+viewport coverage, rather than claiming zero missing tiles. Older stored region
+summaries without an integrity marker retain the neutral `Vorhanden` label.
+The ordinary `maps:plan` command remains a full integrity check unless `--quick`
+is explicitly requested. `maps:prepare --quick` is rejected before connecting to
+the database. Prepare always replans with full inspection, validates new downloads
+and verifies actual viewport tiles. Sample inspections never populate the private
+full-inspection reuse cache. Full SQLite checks still block the CLI child, not
+Express or the Ops worker event loop; individual SQLite calls remain synchronous.
 
 After a complete scan, the admin confirms the listed missing regions/total and
 chooses `Fehlende Regionen laden`. Approval covers all missing regions in that
@@ -424,15 +438,21 @@ and on-demand recovery of marked fallbacks are unchanged. This provisions missin
 regions, not replacement updates to valid existing archives, and does not change
 provider flags or restart application processes.
 
-Verification: all 833 tests passed, including 54 focused admin/provisioning cases.
+Verification after the quick-scan change: all 836 tests passed, including 57
+focused admin/provisioning cases. Tests confirm that sample inspection skips
+`quick_check` while retaining format/tile checks, direct preparation of a sample
+plan performs full inspections, admin scan/prepare select the correct CLI modes,
+and `prepare --quick` is rejected. An isolated real CLI quick scan reuses existing
+archives with `quick_check` deliberately made unavailable and performs no download.
 Tests cover summaries/privacy, admin/Origin guards, fresh approval, deduplication,
 UI capacity/confirmation controls, safe child progress/failures and a real isolated
 CLI subprocess refusing new unapproved demand before GET. Syntax/lint passed
-(70 existing warnings); only the three known `lastEnd` type errors remain; editor
-diagnostics are clean. The actual EJS section was checked at 1365px desktop and
-390px mobile with simulated API jobs: no auto-start, gated approval, scan/download
-progress/completion, working icons, contained mobile table scrolling and no page
-overflow. No production/Redis operation, real archive download, migration or
+(70 existing warnings), and full type checking passes without errors. The actual
+EJS map section and browser module were checked at 1365px desktop and 390px mobile
+with simulated reports: sample/full integrity labels, unknown coverage even in
+error reports, approval gates, two icons, contained mobile table scrolling and no
+page overflow; screenshots inspected. No production/Redis operation, real archive
+download, migration or
 normal Dev backend restart was performed by Copilot. The isolated UI test server
 was stopped after verification; live authenticated Ops execution remains untested.
 
