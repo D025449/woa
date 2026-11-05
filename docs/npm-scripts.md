@@ -38,8 +38,8 @@ dokumentieren die Werkzeuge; sie sind keine Ausführungsfreigabe.
 | `backup:worker` | `npm run backup:worker`: Backup-/Restore-Worker für den Admin-Wizard. | Führt eingereihte Betriebsaufträge aus. [Betriebsanleitung](../ops/postgres-backup/README.md). |
 | `deploy:prod` | `npm run deploy:prod -- "Commit-Nachricht"` | Führt `npm test` und `npm run check` aus, nimmt **alle Repository-Änderungen** mit `git add --all` auf, erstellt Commit und Push und ruft per SSH `./deploy.sh code-only` auf. Erwartet den Release-Branch, standardmäßig `main`. |
 | `env:prod` | `npm run env:prod`: open `~/woa/.env.production` on `cwa24-ec2` directly in Nano over SSH. | Requires a local interactive terminal, working SSH access to the `cwa24-ec2` alias, and Nano plus file access on the server. Saving changes the production environment file; no automatic restart or deployment. [Editing details](#edit-the-production-environment). |
-| `maps:plan` | `npm run maps:plan -- --env-file .env.production [--json]`: inventory required Shortbread regions from stored workout GPS boxes. | Explicit environment file, database read access, Node with `node:sqlite`, outbound Geofabrik metadata/HEAD access. Read-only transaction; reads existing map files, creates none, downloads no archives. Exit 2 for incomplete plans. [Production workflow](workout-map.md#production-planning-and-preparation-over-ssh). |
-| `maps:prepare` | `npm run maps:prepare -- --env-file .env.production [--json]`: recompute the plan, download missing/invalid archives and verify actual viewport tiles. | Same read-only database access; writes only to configured `WOA_MAP_DATA_DIR` with an exclusive lock, checked `.part` downloads and atomic replacement. Needs download space plus 5%/256 MiB margin. Reuses valid archives; no DB writes, migrations, rasterization, service restart or env changes. Exit 2 for incomplete coverage; 1 for operational errors. [Production workflow](workout-map.md#production-planning-and-preparation-over-ssh). |
+| `maps:plan` | `npm run maps:plan -- --env-file .env.production [--json]`: inventory required Shortbread regions from stored workout GPS boxes. | Explicit environment file, database read access, Node with `node:sqlite`, outbound Geofabrik metadata/HEAD access. Read-only transaction; reads existing map files, creates none, downloads no archives. Phase/inspection progress on stderr; `--json` keeps script stdout machine-readable. Exit 2 for incomplete plans. [Production workflow](workout-map.md#production-planning-and-preparation-over-ssh). |
+| `maps:prepare` | `npm run maps:prepare -- --env-file .env.production [--json]`: recompute the plan, download missing/invalid archives and verify actual viewport tiles. | Same read-only database access; writes only to configured `WOA_MAP_DATA_DIR` with an exclusive lock, checked `.part` downloads and atomic replacement. Needs download space plus 5%/256 MiB margin. Phase/byte/coverage progress on stderr. Pure size mismatches allow up to three GET attempts with HEAD refresh and disk recheck; all validation remains required. Reuses valid archives; no DB writes, migrations, rasterization, service restart or env changes. Exit 2 for incomplete coverage; 1 for operational errors. [Production workflow](workout-map.md#production-planning-and-preparation-over-ssh). |
 | `account-deletion:sweep` | `npm run account-deletion:sweep` | Führt einen Batch fälliger endgültiger Kontolöschungen aus; kein Vorschau-Modus. |
 
 The map commands resolve the active production database through the same pointer
@@ -47,8 +47,13 @@ resolver as PM2. `.env.production` implies production mode unless its `NODE_ENV`
 explicitly overrides it; custom production filenames need `NODE_ENV=production`.
 Failures include a safe `stage`/allowlisted `code`, not raw connection details.
 Archive response rejection also reports archive ID, HTTP status, expected/reported
-byte counts, body presence, normalized encoding and a specific reason. Validation
-and retry behavior are unchanged; no download progress display is provided.
+byte counts, body presence, normalized encoding and a specific reason. Phase and
+download-byte/percentage updates use stderr in text and JSON modes. A pure size
+mismatch allows two HEAD refreshes/retries (three GET attempts total per archive),
+each with a new space check; HTTP, encoding, final length and SQLite/format checks
+remain mandatory. The per-archive two-hour deadline includes retries. Existing
+valid archives are reused; the plan retains its initial size estimates. Progress
+does not update an already running process or provide an idle-network heartbeat.
 Internal `node --` argument separation prevents Node from consuming `--env-file`;
 the documented npm command remains unchanged. See the production workflow above.
 

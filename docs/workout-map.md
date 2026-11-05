@@ -149,21 +149,51 @@ not bytes already downloaded. Missing/invalid lengths are shown as `missing` or
 Only recognized encoding names are exposed; unrecognized header values become
 `other`. No response body, raw header values, credentials or URLs are printed.
 Archive IDs and numeric values are constrained before inclusion in diagnostics.
-The original response rejection, body cancellation, partial-file cleanup and
-archive validation remain unchanged; checks have not been relaxed.
+Unmatched responses are canceled before creating a partial file. Only a positive,
+safe numeric GET length differing from the planned length qualifies for the
+bounded metadata refresh described below; HTTP, body, encoding and length checks
+are still required. Download and archive validation have not been relaxed.
 
 The user reported a complete production plan (3,236 GPS workouts, 2,704 missing
 thumbnails, eight archives totaling 3.93 GiB, 23.57 GiB free), followed by repeated
-`Archive response changed or invalid` failures during preparation. The cause is
-still unconfirmed; a local public HEAD/GET check of Alsace matched but does not
-establish what EC2 received or which archive failed. After deploying the added
-diagnostics, rerun the same prepare command and capture the complete new error.
+`Archive response changed or invalid` failures during preparation. The enriched
+production error identified Lorraine: HTTP 200, HEAD/planned length 248553472,
+GET length 248664064, body present and no encoding. The 108 KiB discrepancy is
+confirmed; an upstream update or inconsistent cached metadata is not proven.
 Keep the local provider disabled until preparation reports ready. Completed valid
 archives remain reusable; do not remove a live preparation lock or start another
-preparation process while one is running. No progress/throughput display was added.
-All 797 tests passed, including HTTP/length/body/encoding and redaction cases;
+preparation process while one is running. New code only affects subsequent runs
+after deployment; it cannot change an already running process.
+All 812 tests passed, including 40 focused provisioning/CLI cases covering refresh,
+retry exhaustion, HTTP/length/body/encoding, disk safety, cancellation, damaged
+downloads, progress and JSON/stderr separation;
 syntax/lint passed, with only the existing `lastEnd` type errors. No production
 access, service restart, migration or real archive download was performed here.
+
+Both commands emit `[maps]` phase updates to stderr, including database/catalog,
+region discovery, bounds planning and each existing-archive inspection.
+Preparation additionally reports the locked recheck of each required archive,
+reuse, download requests/attempts, bytes and percentages, downloaded-file
+verification, installation and coverage counters (every 100 workouts and at the
+end). Download byte updates are throttled to at most one per second, plus initial
+and final updates; they require incoming chunks, so waiting for a network response
+does not produce a heartbeat. SQLite `quick_check` is synchronous and reports the
+current archive before starting, not a percentage within that check. Both archive
+inspection passes remain intentional. These messages are visible without a TTY;
+`--json` keeps the script's stdout exclusively for its final JSON report.
+
+Example progress (illustrative, not captured production output):
+
+```text
+[maps] inspect-existing archive=lorraine 7/8
+[maps] download-request archive=lorraine attempt=1/3
+[maps] refresh-size archive=lorraine attempt=2/3
+[maps] download-request archive=lorraine attempt=2/3
+[maps] download archive=lorraine 124332032/248664064 bytes (50.0%)
+[maps] verify-download archive=lorraine
+[maps] installed archive=lorraine 1/2
+[maps] coverage 100/3236
+```
 
 The inventory uses one `BEGIN READ ONLY` transaction and only stored
 `workouts.gps_bounds` for valid GPS workouts, across all users. It counts existing
@@ -186,8 +216,18 @@ required archives download into unique `.part` files and replace their destinati
 only after exact length, SQLite `quick_check`, vector format and sample Shortbread
 decoding pass. No authoritative upstream checksum is provided by this workflow.
 Failed/interrupted downloads clean their own temporary files; completed archives
-remain for safe reruns. If upstream lengths change during preparation, rerun the
-command. SIGINT/SIGTERM cancel downloads; each download has a two-hour limit.
+remain for safe reruns. A pure GET length mismatch cancels that body, refreshes
+HEAD with a 30-second timeout, rechecks free space for the refreshed size plus
+remaining downloads and the same safety margin, then retries GET. At most three
+GET attempts and two HEAD refreshes are allowed per archive. GET and refresh
+requests use `cache: "no-store"`; the server can still return inconsistent data.
+Refresh must return a successful response with a positive safe integer length
+and no encoding. Other response failures are not retried. A continued mismatch
+ends with the enriched response error, not an unchecked download. The accepted
+HEAD/GET size is also enforced while streaming and at completion, followed by the
+original SQLite/format/Shortbread checks. Refreshed sizes affect that download;
+the plan report retains its initial HEAD estimates. SIGINT/SIGTERM cancel requests;
+the whole download attempt sequence for one archive shares a two-hour limit.
 After a crash/SIGKILL, check that no preparation process remains before manually
 removing a stale lock or abandoned `.part` file. Never clean live temporary files.
 

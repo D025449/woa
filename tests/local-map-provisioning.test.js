@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { PbfWriter } from "pbf";
 import { spawnSync } from "node:child_process";
-import { getMapDatabaseConfig, runMapCommand, formatMapCommandError } from "../src/scripts/prepare-local-maps.js";
+import { getMapDatabaseConfig, runMapCommand, formatMapCommandError, formatMapProgress } from "../src/scripts/prepare-local-maps.js";
 import { getLocalMapCoverageBounds, project } from "../src/shared/localThumbnailMapViewport.js";
 import { buildMapPlan, readMapWorkoutBounds, discoverMapArchive, inspectMapArchive,
   prepareMapArchives } from "../src/services/localMapProvisioningService.js";
@@ -211,16 +211,22 @@ test("an empty GPS inventory cannot activate a renderer without any archives", a
 test("changed download sizes cancel the body and leave no partial files", async () => {
   await temporary(async dataDirectory => {
     const plan = await buildMapPlan([workout], catalog, { dataDirectory, resolveArchive: async feature => archive(feature) });
-    let cancelled = false;
-    const body = new ReadableStream({ cancel() { cancelled = true; } });
-    await assert.rejects(prepareMapArchives(plan, { fetchFn: async () =>
-      new Response(body, { headers: { "content-length": "101" } }) }), error => {
+    let cancelled = 0;
+    let heads = 0;
+    await assert.rejects(prepareMapArchives(plan, { fetchFn: async (_url, options) => {
+      if (options.method === "HEAD") {
+        heads++;
+        return new Response(null, { headers: { "content-length": "100" } });
+      }
+      return new Response(new ReadableStream({ cancel() { cancelled++; } }), { headers: { "content-length": "101" } });
+    } }), error => {
       assert.match(error.message, /archive=east, http=200, expectedBytes=100, reportedBytes=101/);
       assert.match(error.message, /body=present, encoding=none, reason=size-mismatch/);
       assert.match(formatMapCommandError(error), /archive=east/);
       return true;
     });
-    assert.equal(cancelled, true);
+    assert.equal(cancelled, 3);
+    assert.equal(heads, 2);
     assert.deepEqual(await readdir(dataDirectory), []);
   });
 });
@@ -246,6 +252,152 @@ test("archive response diagnostics distinguish HTTP, missing data and encoding w
       });
       assert.deepEqual(await readdir(dataDirectory), []);
     });
+  });
+});
+
+test("changed archive sizes refresh HEAD and install only a matching validated response with progress", async () => {
+  await temporary(async dataDirectory => {
+    const body = await tinyArchive(path.join(dataDirectory, "west.mbtiles"), true);
+    const progress = [];
+    const onProgress = event => progress.push(event);
+    const plan = await buildMapPlan(Array.from({ length: 101 }, (_, index) => ({ ...workout, id: index + 1 })), catalog,
+      { dataDirectory, resolveArchive: async feature => archive(feature), onProgress });
+    let gets = 0;
+    let heads = 0;
+    let cancelled = 0;
+    const result = await prepareMapArchives(plan, { onProgress, fetchFn: async (_url, options) => {
+      assert.equal(options.cache, "no-store");
+      if (options.method === "HEAD") {
+        heads++;
+        return new Response(null, { headers: { "content-length": String(body.length) } });
+      }
+      gets++;
+      return new Response(gets === 1 ? new ReadableStream({ cancel() { cancelled++; } }) : body,
+        { headers: { "content-length": String(body.length) } });
+    } });
+    assert.equal(gets, 2);
+    assert.equal(heads, 1);
+    assert.equal(cancelled, 1);
+    assert.deepEqual(result.created, ["east"]);
+    assert.deepEqual(result.reused, ["west"]);
+    assert.equal(result.readyToActivate, true);
+    assert.deepEqual(await readFile(path.join(dataDirectory, "east.mbtiles")), body);
+    assert.equal(plan.report.archives[0].downloadBytes, 100);
+    assert.deepEqual(progress.filter(event => event.phase === "download-request").map(event => event.attempt), [1, 2]);
+    for (const phase of ["discover-archive", "plan-bounds", "inspect-existing", "inspect-required", "reuse", "refresh-size", "verify-download", "installed"]) {
+      assert.ok(progress.some(event => event.phase === phase), phase);
+    }
+    assert.deepEqual(progress.filter(event => event.phase === "download").map(event => event.bytes), [0, body.length]);
+    assert.deepEqual(progress.filter(event => event.phase === "coverage").map(event => event.completed), [0, 100, 101]);
+    assert.ok(progress.findIndex(event => event.phase === "verify-download") < progress.findIndex(event => event.phase === "installed"));
+    assert.deepEqual((await readdir(dataDirectory)).sort(), ["east.mbtiles", "west.mbtiles"]);
+  });
+});
+
+test("refreshed metadata cannot bypass encoding, size or available-space checks", async context => {
+  const cases = [
+    { name: "HTTP error", status: 503, headers: { "content-length": "101" }, expected: /size-mismatch/ },
+    { name: "missing length", headers: {}, expected: /size-mismatch/ },
+    { name: "invalid length", headers: { "content-length": "private-header-value" }, expected: /size-mismatch/ },
+    { name: "unsafe length", headers: { "content-length": "9007199254740992" }, expected: /size-mismatch/ },
+    { name: "encoded archive", headers: { "content-length": "101", "content-encoding": "gzip" }, expected: /size-mismatch/ },
+    { name: "insufficient space", headers: { "content-length": "1000000000000000" }, expected: /Insufficient map disk/ }
+  ];
+  for (const entry of cases) await context.test(entry.name, async () => {
+    await temporary(async dataDirectory => {
+      const plan = await buildMapPlan([workout], catalog, { dataDirectory, resolveArchive: async feature => archive(feature) });
+      let gets = 0;
+      let heads = 0;
+      await assert.rejects(prepareMapArchives(plan, { fetchFn: async (_url, options) => {
+        if (options.method === "HEAD") {
+          heads++;
+          return new Response(null, { status: entry.status || 200, headers: entry.headers });
+        }
+        gets++;
+        return new Response("changed", { headers: { "content-length": "101" } });
+      } }), entry.expected);
+      assert.equal(gets, 1);
+      assert.equal(heads, 1);
+      assert.deepEqual(await readdir(dataDirectory), []);
+    });
+  });
+});
+
+test("refreshed downloads still reject truncated, oversized and invalid SQLite content", async context => {
+  for (const kind of ["truncated", "oversized", "invalid-sqlite"]) await context.test(kind, async () => {
+    await temporary(async directory => {
+      const body = await tinyArchive(path.join(directory, "fixture"));
+      const dataDirectory = path.join(directory, "maps");
+      const plan = await buildMapPlan([workout], catalog, { dataDirectory, resolveArchive: async feature => archive(feature) });
+      let gets = 0;
+      await assert.rejects(prepareMapArchives(plan, { fetchFn: async (_url, options) => {
+        if (options.method === "HEAD") return new Response(null, { headers: { "content-length": String(body.length) } });
+        gets++;
+        const content = gets === 1 ? "changed" : kind === "truncated" ? body.subarray(0, -1)
+          : kind === "oversized" ? Buffer.concat([body, Buffer.alloc(1)]) : Buffer.alloc(body.length);
+        return new Response(content, { headers: { "content-length": String(body.length) } });
+      } }), kind === "oversized" ? /exceeded planned size/ : /validation/);
+      assert.equal(gets, 2);
+      assert.deepEqual(await readdir(dataDirectory), []);
+    });
+  });
+});
+
+test("cancellation interrupts size refresh and cleans the preparation lock", async () => {
+  await temporary(async dataDirectory => {
+    const plan = await buildMapPlan([workout], catalog, { dataDirectory, resolveArchive: async feature => archive(feature) });
+    const controller = new AbortController();
+    let gets = 0;
+    await assert.rejects(prepareMapArchives(plan, { signal: controller.signal, fetchFn: async (_url, options) => {
+      if (options.method === "HEAD") {
+        controller.abort();
+        options.signal.throwIfAborted();
+      }
+      gets++;
+      return new Response("changed", { headers: { "content-length": "101" } });
+    } }), { name: "AbortError" });
+    assert.equal(gets, 1);
+    assert.deepEqual(await readdir(dataDirectory), []);
+  });
+});
+
+test("progress formatting exposes phase, counters and percentages without unsafe archive names", () => {
+  assert.equal(formatMapProgress({ phase: "download", archive: "europe/france/lorraine", bytes: 75, totalBytes: 100 }),
+    "[maps] download archive=europe/france/lorraine 75/100 bytes (75.0%)");
+  assert.equal(formatMapProgress({ phase: "download-request", archive: "east", attempt: 2 }),
+    "[maps] download-request archive=east attempt=2/3");
+  assert.equal(formatMapProgress({ phase: "coverage", completed: 100, total: 101 }), "[maps] coverage 100/101");
+  assert.equal(formatMapProgress({ phase: "private-value\n", archive: "https://private-value" }), "[maps] progress archive=unknown");
+});
+
+test("CLI prepare keeps JSON on stdout and emits all progress on stderr without live services", async () => {
+  await temporary(async directory => {
+    const filename = path.join(directory, "fixture");
+    const body = await tinyArchive(filename, true);
+    const envFile = path.join(directory, ".env.development");
+    await writeFile(envFile, `DB_NAME=fixture_db\nDB_USER=fixture_user\nWOA_MAP_DATA_DIR=${path.join(directory, "maps")}\n`);
+    const script = `import { readFile } from "node:fs/promises";
+      import { runMapCommand } from "./src/scripts/prepare-local-maps.js";
+      const body = await readFile(${JSON.stringify(filename)});
+      await runMapCommand(["prepare", "--env-file", ${JSON.stringify(envFile)}, "--json"], {
+        clientFactory: () => ({ async connect() {}, async end() {}, async query() { return { rows: [${JSON.stringify(workout)}] }; } }),
+        fetchFn: async (url, options) => {
+          if (options.method === "HEAD") return new Response(null, { headers: { "content-length": "${body.length}" } });
+          if (url.endsWith(".json")) return new Response(JSON.stringify(${JSON.stringify(catalog)}));
+          if (url.endsWith(".html")) return new Response('<a href="' + url.replace(/\\.html$/, "-shortbread-1.0.mbtiles") + '">Map</a>');
+          return new Response(body, { headers: { "content-length": "${body.length}" } });
+        }
+      });`;
+    const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.preparation.readyToActivate, true);
+    assert.deepEqual(report.preparation.created, ["east", "west"]);
+    assert.doesNotMatch(result.stdout, /\[maps\]/);
+    for (const phase of ["database-read", "catalog", "plan", "inspect-required", "download-request", "download", "verify-download", "installed", "coverage"]) {
+      assert.match(result.stderr, new RegExp(`\\[maps\\] ${phase}`));
+    }
+    assert.match(result.stderr, /100\.0%/);
   });
 });
 

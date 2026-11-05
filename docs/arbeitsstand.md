@@ -3,6 +3,31 @@
 Stand: 2026-11-05. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Map Preparation Progress And Bounded Size Refresh (2026-11-05)
+
+- User supplied production rejection for Lorraine: HTTP 200, planned/HEAD
+	248553472 bytes versus GET 248664064 bytes, no encoding, body present. The
+	discrepancy is confirmed; upstream update/cache inconsistency remains an
+	assumption. Six completed archives were reported. Latest process listing had
+	no match; no final success/readiness output has been supplied.
+- User explicitly approved visible phases/download progress and bounded metadata
+	refresh. Implemented stderr updates for DB/catalog/plan, archive discovery and
+	both inspection passes, reuse, attempts, byte percentages, verification,
+	installation and coverage counters. JSON stdout remains separate. No idle
+	heartbeat or within-archive SQLite percentage; synchronous checks remain.
+- Pure positive safe-integer GET size mismatch now cancels the response, refreshes
+	HEAD (30s, no-store), rechecks full remaining space/margin and retries GET
+	(no-store). Maximum three GET attempts/two refreshes, sharing the existing 2h
+	archive deadline. HTTP/body/encoding failures are not retried; exact stream
+	length, SQLite and Shortbread validation remain mandatory. Valid files reused;
+	initial plan estimates unchanged. Changes apply only after user deployment.
+- All 812 tests passed, including 40 focused provisioning/CLI cases (successful
+	refresh, retry exhaustion, bad metadata/disk/content, cancellation, progress,
+	actual subprocess JSON/stderr). Syntax/lint passed with 70 existing warnings;
+	editor diagnostics clean, only the three known `lastEnd` type errors remain.
+	Updated map workflow and npm-script docs. No production access, deployment,
+	service restart, actual map download or migration by Copilot.
+
 ## Map Download Response Diagnostics (2026-11-05)
 
 - User reported a complete production plan: 3,236 GPS workouts, 2,704 missing
