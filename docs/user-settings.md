@@ -54,3 +54,43 @@ responsibilities and element IDs. Layout styles are in `src/public/css/profile.c
 Navigation labels are translated in all six existing browser locale files.
 
 No database changes, migrations, new dependencies, or npm scripts are required.
+
+## Administration Navigation
+
+The authenticated administrator page `/admin/accounts` follows the same local
+navigation pattern, without changing the user settings page or global navigation:
+
+| Area | Contents | Direct Link |
+| --- | --- | --- |
+| Users and roles | User search and administrator permissions (default area) | `/admin/accounts#users` |
+| Map material | Regional inventory and explicitly approved provisioning | `/admin/accounts#maps` |
+| Database | PostgreSQL snapshots, isolated restore, activation, rollback and deletion | `/admin/accounts#database` |
+| System backup | Portable system backup and component restore | `/admin/accounts#system-backup` |
+| Accounts | Account JSON export and import | `/admin/accounts#accounts` |
+| Segments | Segment ZIP export, preview and import | `/admin/accounts#segments` |
+| Workouts | Workout ZIP export, preview and import | `/admin/accounts#workouts` |
+
+Desktop uses the same 200 px navigation column; below 768 px a labelled native
+select replaces the links. Only the active area is visible with navigation JS.
+Absent, unknown and malformed fragments select Users and roles. Existing nested
+anchors such as `#local-map-management`, `#database-backup-wizard` and
+`#segment-backup-preview` reveal their containing area and scroll to the target.
+Links and selection update the fragment with Back/Forward support. Forms and
+controllers stay mounted; switching areas does not clear input values, selected
+files, approvals or ongoing operation updates. Without navigation JS, all areas
+remain visible and the native links remain available. Existing APIs and operation
+handlers are unchanged.
+
+`src/views/admin-accounts.ejs` owns the seven panel boundaries and navigation;
+`src/public/js/admin-facets.js` controls visibility/history, and
+`src/public/css/admin-accounts.css` provides the responsive layout. No profile
+controller refactor, dependency, npm script or schema change is involved.
+
+Verification: all 838 tests passed, including navigation and rendered-EJS checks
+in `tests/admin-workout-preview-browser.test.js`. Syntax, lint and type checking
+passed (70 existing lint warnings). An isolated full-EJS preview with actual
+browser controllers and simulated read-only APIs checked all seven areas at
+1365 px desktop and 390 px mobile, descendant links, invalid fragments, browser
+Back/Forward, retained file selection and script-unavailable fallback. Desktop
+and mobile screenshots were inspected; no horizontal page overflow was found.
+This was not a live authenticated backend, Redis, backup/restore or database test.

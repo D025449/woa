@@ -3,6 +3,25 @@
 Stand: 2026-11-05. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Admin Navigation Matches User Settings (2026-11-05)
+
+- User approved seven local admin areas: Users and roles (default), Map material,
+	Database, System backup, Accounts, Segments and Workouts. Main heading is now
+	Administration. Same 200 px desktop navigation/mobile select as user settings;
+	only the active panel is shown. Existing control IDs and APIs are unchanged.
+- Added `admin-facets.js` for fragment/history navigation. Descendant links such
+	as `#local-map-management` still work; invalid fragments fall back to Users.
+	Panels/forms remain mounted, preserving selections, approvals and job updates;
+	all areas/native links remain available if navigation JS fails. No profile
+	controller changes. See `docs/user-settings.md#administration-navigation`.
+- All 838 tests passed, including new navigation and rendered-EJS structure tests.
+	Syntax/lint passed with 70 existing warnings; full typecheck/editor checks clean.
+	Actual full EJS and controllers browser-tested with simulated read-only APIs:
+	all seven areas desktop1365/mobile390, history, descendant/invalid links, file
+	selection retention and script-unavailable fallback. Screenshots inspected,
+	no page overflow. Isolated preview left running for user inspection; normal
+	Dev backend untouched. No real backup/restore, DB data write, migration or deploy.
+
 ## Fast Admin Map Inventory Scan (2026-11-05)
 
 - User approved separating the slow full archive scan from admin demand checks.

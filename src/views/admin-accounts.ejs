@@ -7,7 +7,7 @@
     <title>Administration</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/css/ui-system.css?v=atlas-blue-4">
-    <link rel="stylesheet" href="/css/admin-accounts.css?v=local-map-admin-1">
+    <link rel="stylesheet" href="/css/admin-accounts.css?v=facets-1">
 </head>
 <body class="admin-accounts-page">
     <%- include("partials/app-topbar", {
@@ -25,14 +25,37 @@
         <div class="admin-accounts-shell ui-page-shell">
             <section class="ui-hero ui-hero--compact admin-accounts-hero">
                 <div>
-                    <p class="ui-hero__kicker">Administration</p>
-                    <h1 class="ui-hero__title">Backup &amp; Wiederherstellung</h1>
-                    <p class="ui-hero__subtitle">
-                        Vollständige PostgreSQL-Snapshots verwalten sowie portable Benutzer- und Segmentdaten sichern.
-                    </p>
+                    <h1 class="ui-hero__title">Administration</h1>
                 </div>
             </section>
 
+            <% const adminFacets = [
+                { id: "users", label: "Benutzer & Rollen" },
+                { id: "maps", label: "Kartenmaterial" },
+                { id: "database", label: "Datenbank" },
+                { id: "system-backup", label: "System-Backup" },
+                { id: "accounts", label: "Konten" },
+                { id: "segments", label: "Segmente" },
+                { id: "workouts", label: "Workouts" }
+            ]; %>
+            <div class="admin-facets" data-admin-facets>
+                <nav class="admin-facet-nav" aria-label="Administrationsbereiche">
+                    <div class="admin-facet-links">
+                        <% adminFacets.forEach(facet => { %>
+                            <a id="admin-nav-<%= facet.id %>" href="#<%= facet.id %>" data-admin-link><%= facet.label %></a>
+                        <% }) %>
+                    </div>
+                    <div class="admin-facet-mobile">
+                        <label class="form-label" for="admin-facet-select">Administrationsbereich</label>
+                        <select id="admin-facet-select" class="form-select" data-admin-select>
+                            <% adminFacets.forEach(facet => { %>
+                                <option value="<%= facet.id %>"><%= facet.label %></option>
+                            <% }) %>
+                        </select>
+                    </div>
+                </nav>
+                <div class="admin-facet-content">
+            <div id="maps" class="admin-facet-panel" data-admin-panel role="region" aria-labelledby="admin-nav-maps">
             <section class="ui-surface admin-map-management" id="local-map-management" aria-labelledby="local-map-title">
                 <div class="admin-map-heading">
                     <div>
@@ -73,6 +96,8 @@
                 </div>
             </section>
 
+            </div>
+            <div id="users" class="admin-facet-panel" data-admin-panel role="region" aria-labelledby="admin-nav-users">
             <section class="ui-surface admin-user-roles" id="admin-user-roles">
                 <div class="admin-user-roles__header">
                     <div>
@@ -102,6 +127,8 @@
                 <div class="alert d-none mt-3 mb-0" id="admin-user-roles-result" role="status"></div>
             </section>
 
+            </div>
+            <div id="database" class="admin-facet-panel" data-admin-panel role="region" aria-labelledby="admin-nav-database">
             <section class="ui-surface admin-database-wizard" id="database-backup-wizard">
                 <div class="admin-database-wizard__header">
                     <div>
@@ -254,6 +281,8 @@
                 </div>
             </section>
 
+            </div>
+            <div id="system-backup" class="admin-facet-panel" data-admin-panel role="region" aria-labelledby="admin-nav-system-backup">
             <section class="ui-surface admin-database-wizard" id="logical-backup-wizard">
                 <div class="admin-database-wizard__header">
                     <div>
@@ -304,6 +333,8 @@
                 </div>
             </section>
 
+            </div>
+            <div id="accounts" class="admin-facet-panel" data-admin-panel role="region" aria-labelledby="admin-nav-accounts">
             <div class="admin-accounts-grid">
                 <section class="ui-surface admin-accounts-card">
                     <p class="admin-accounts-step">01 · Export</p>
@@ -323,6 +354,10 @@
                     <div class="alert d-none mt-3 mb-0" id="account-backup-result" role="status"></div>
                 </section>
 
+            </div>
+            </div>
+            <div id="segments" class="admin-facet-panel" data-admin-panel role="region" aria-labelledby="admin-nav-segments">
+            <div class="admin-accounts-grid">
                 <section class="ui-surface admin-accounts-card">
                     <p class="admin-accounts-step">03 · Segmentexport</p>
                     <h2>Alle Segmente herunterladen</h2>
@@ -359,6 +394,10 @@
                     </div>
                 </section>
 
+            </div>
+            </div>
+            <div id="workouts" class="admin-facet-panel" data-admin-panel role="region" aria-labelledby="admin-nav-workouts">
+            <div class="admin-accounts-grid">
                 <section class="ui-surface admin-accounts-card">
                     <p class="admin-accounts-step">05 · Workoutexport</p>
                     <h2>Alle Workouts herunterladen</h2>
@@ -386,9 +425,13 @@
                     </div>
                 </section>
             </div>
+            </div>
+                </div>
+            </div>
         </div>
     </main>
 
+    <script type="module" src="/js/admin-facets.js?v=1"></script>
     <script src="https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
     <script type="module" src="/js/local-map-admin.js?v=2"></script>
     <script type="module" src="/js/admin-accounts.js?v=admin-role-management-1"></script>

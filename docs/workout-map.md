@@ -373,7 +373,13 @@ and stores job snapshots in the existing Redis-backed Ops queue instead.
 
 ### Admin Map Demand And Provisioning
 
-Open `/admin/accounts#local-map-management` as an administrator. The map section
+Open `/admin/accounts#maps` as an administrator. The existing
+`/admin/accounts#local-map-management` link also opens the containing map area.
+Administration now uses the same local navigation pattern as user settings:
+desktop links, a mobile area select and one visible area at a time; switching
+areas preserves approvals, controls and operation updates. See
+[administration navigation](user-settings.md#administration-navigation).
+The map section
 shows region status/size, overlapping workout counts, missing thumbnail counts,
 planned archive count, download total and free disk at planning time. Counts across
 regions are not additive because a workout may intersect several regions.
