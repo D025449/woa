@@ -20,6 +20,25 @@ const ARCHIVE_LIMIT = 16;
 
 export class MapSetupError extends Error {}
 
+function archiveResponseFailure(archive, response) {
+  const id = typeof archive.id === "string" && archive.id.length <= 160
+    && /^[a-z0-9]+(?:[-/][a-z0-9]+)*$/.test(archive.id) ? archive.id : "unknown";
+  const expected = Number.isSafeInteger(archive.downloadBytes) && archive.downloadBytes >= 0 ? archive.downloadBytes : "invalid";
+  const length = response.headers.get("content-length");
+  const reported = length === null ? "missing" : /^\d+$/.test(length) && Number.isSafeInteger(Number(length))
+    ? Number(length) : "invalid";
+  const rawEncoding = response.headers.get("content-encoding");
+  const encoding = !rawEncoding ? "none" : ["gzip", "br", "deflate", "identity", "zstd"].includes(rawEncoding.toLowerCase())
+    ? rawEncoding.toLowerCase() : "other";
+  const reasons = [];
+  if (!response.ok) reasons.push("http-status");
+  if (!response.body) reasons.push("missing-body");
+  if (rawEncoding) reasons.push("content-encoding");
+  if (Number(length) !== archive.downloadBytes) reasons.push(length === null ? "missing-length" : "size-mismatch");
+  const status = Number.isInteger(response.status) && response.status >= 0 && response.status <= 599 ? response.status : "invalid";
+  return new MapSetupError(`Archive response changed or invalid; rerun maps:plan [archive=${id}, http=${status}, expectedBytes=${expected}, reportedBytes=${reported}, body=${response.body ? "present" : "missing"}, encoding=${encoding}, reason=${reasons.join("+")}]`);
+}
+
 function officialUrl(value) {
   const url = new URL(value);
   if (url.protocol !== "https:" || url.hostname !== "download.geofabrik.de"
@@ -266,8 +285,9 @@ export async function prepareMapArchives({ report, coverage }, { fetchFn = fetch
         const response = await fetchFn(officialUrl(archive.url), { redirect: "error", signal: requestSignal });
         if (!response.ok || !response.body || response.headers.get("content-encoding")
           || Number(response.headers.get("content-length")) !== archive.downloadBytes) {
+          const failure = archiveResponseFailure(archive, response);
           await response.body?.cancel();
-          throw new MapSetupError("Archive response changed or invalid; rerun maps:plan");
+          throw failure;
         }
         const output = await open(temporary, "wx", 0o644);
         let bytes = 0;

@@ -3,6 +3,24 @@
 Stand: 2026-11-05. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Map Download Response Diagnostics (2026-11-05)
+
+- User reported a complete production plan: 3,236 GPS workouts, 2,704 missing
+	thumbnails, eight archives/3.93 GiB, 23.57 GiB free. Prepare repeatedly rejected
+	an archive response; actual cause/archive remain unconfirmed. The local public
+	Alsace HEAD/GET check matched, not evidence of the response received by EC2.
+- User approved local diagnostic expansion only. Rejections now identify safe
+	archive ID, HTTP status, expected/GET-reported bytes, body presence, normalized
+	encoding and specific reasons. Raw unknown headers/body/URLs are not exposed.
+	Response checks, cancellation, cleanup and valid-archive reuse are unchanged.
+	No progress indicator or relaxed validation was added.
+- All 797 tests passed (25 focused provisioning/CLI cases), syntax/lint passed
+	with 70 existing warnings; changed files have no editor errors. Only the three
+	known `lastEnd` type errors remain. Updated command/detail documentation.
+	No production access, deployment, service restart, real archive downloads or
+	migrations. User must deploy/retry and supply the enriched error for diagnosis;
+	keep provider disabled until preparation is ready.
+
 ## Map CLI Runtime Database And Diagnostics Fix (2026-11-05)
 
 - User reported a generic production `maps:plan` failure with the correct

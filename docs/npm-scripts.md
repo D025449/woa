@@ -46,6 +46,9 @@ The map commands resolve the active production database through the same pointer
 resolver as PM2. `.env.production` implies production mode unless its `NODE_ENV`
 explicitly overrides it; custom production filenames need `NODE_ENV=production`.
 Failures include a safe `stage`/allowlisted `code`, not raw connection details.
+Archive response rejection also reports archive ID, HTTP status, expected/reported
+byte counts, body presence, normalized encoding and a specific reason. Validation
+and retry behavior are unchanged; no download progress display is provided.
 Internal `node --` argument separation prevents Node from consuming `--env-file`;
 the documented npm command remains unchanged. See the production workflow above.
 

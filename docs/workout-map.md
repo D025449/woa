@@ -140,6 +140,31 @@ connect/read failures, missing file/invalid pointer and secret-redaction tests.
 Syntax/lint passed; only the three known `lastEnd` type errors remain. No production
 access, service restart, migration or deployment was performed by Copilot.
 
+Rejected archive responses now include `archive`, `http`, `expectedBytes`,
+`reportedBytes`, `body`, `encoding` and `reason` before the existing stage/code.
+`expectedBytes` comes from planning/HEAD; `reportedBytes` is the GET Content-Length,
+not bytes already downloaded. Missing/invalid lengths are shown as `missing` or
+`invalid`. Reasons distinguish `http-status`, `missing-body`, `content-encoding`,
+`missing-length` and `size-mismatch`; simultaneous failures are joined with `+`.
+Only recognized encoding names are exposed; unrecognized header values become
+`other`. No response body, raw header values, credentials or URLs are printed.
+Archive IDs and numeric values are constrained before inclusion in diagnostics.
+The original response rejection, body cancellation, partial-file cleanup and
+archive validation remain unchanged; checks have not been relaxed.
+
+The user reported a complete production plan (3,236 GPS workouts, 2,704 missing
+thumbnails, eight archives totaling 3.93 GiB, 23.57 GiB free), followed by repeated
+`Archive response changed or invalid` failures during preparation. The cause is
+still unconfirmed; a local public HEAD/GET check of Alsace matched but does not
+establish what EC2 received or which archive failed. After deploying the added
+diagnostics, rerun the same prepare command and capture the complete new error.
+Keep the local provider disabled until preparation reports ready. Completed valid
+archives remain reusable; do not remove a live preparation lock or start another
+preparation process while one is running. No progress/throughput display was added.
+All 797 tests passed, including HTTP/length/body/encoding and redaction cases;
+syntax/lint passed, with only the existing `lastEnd` type errors. No production
+access, service restart, migration or real archive download was performed here.
+
 The inventory uses one `BEGIN READ ONLY` transaction and only stored
 `workouts.gps_bounds` for valid GPS workouts, across all users. It counts existing
 thumbnails without reading their content. Mercator framing/padding is shared with

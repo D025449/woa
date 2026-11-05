@@ -214,9 +214,38 @@ test("changed download sizes cancel the body and leave no partial files", async 
     let cancelled = false;
     const body = new ReadableStream({ cancel() { cancelled = true; } });
     await assert.rejects(prepareMapArchives(plan, { fetchFn: async () =>
-      new Response(body, { headers: { "content-length": "101" } }) }), /response changed/);
+      new Response(body, { headers: { "content-length": "101" } }) }), error => {
+      assert.match(error.message, /archive=east, http=200, expectedBytes=100, reportedBytes=101/);
+      assert.match(error.message, /body=present, encoding=none, reason=size-mismatch/);
+      assert.match(formatMapCommandError(error), /archive=east/);
+      return true;
+    });
     assert.equal(cancelled, true);
     assert.deepEqual(await readdir(dataDirectory), []);
+  });
+});
+
+test("archive response diagnostics distinguish HTTP, missing data and encoding without raw headers", async context => {
+  const cases = [
+    { name: "HTTP rejection", status: 503, headers: { "content-length": "100" }, expected: /http=503.*reason=http-status/ },
+    { name: "missing length", headers: {}, expected: /reportedBytes=missing.*reason=missing-length/ },
+    { name: "missing body", body: null, headers: { "content-length": "100" }, expected: /body=missing.*reason=missing-body/ },
+    { name: "unexpected gzip", headers: { "content-length": "100", "content-encoding": "gzip" }, expected: /encoding=gzip, reason=content-encoding/ },
+    { name: "unrecognized encoding", headers: { "content-length": "100", "content-encoding": "private-header-value" }, expected: /encoding=other, reason=content-encoding/ },
+    { name: "invalid length", headers: { "content-length": "private-header-value" }, expected: /reportedBytes=invalid.*reason=size-mismatch/ }
+  ];
+  for (const entry of cases) await context.test(entry.name, async () => {
+    await temporary(async dataDirectory => {
+      const plan = await buildMapPlan([workout], catalog, { dataDirectory, resolveArchive: async feature => archive(feature) });
+      await assert.rejects(prepareMapArchives(plan, { fetchFn: async () => new Response(entry.body === null ? null : "private-body-value",
+        { status: entry.status || 200, headers: entry.headers }) }), error => {
+        assert.match(error.message, entry.expected);
+        assert.match(error.message, /archive=east/);
+        assert.doesNotMatch(error.message, /private-header-value|private-body-value|https?:\/\//);
+        return true;
+      });
+      assert.deepEqual(await readdir(dataDirectory), []);
+    });
   });
 });
 
