@@ -1,7 +1,128 @@
 # Arbeitsstand
 
-Stand: 2026-11-04. Diese Datei hält Absprachen für folgende Sitzungen fest.
+Stand: 2026-11-05. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
+
+## Manual Production Map Provisioning Commands (2026-11-05)
+
+- User approved `maps:plan` and `maps:prepare` for manual use after SSH login,
+	initially implemented/tested locally only. User reports production environment
+	settings entered; Copilot did not inspect/change production or deploy anything.
+	Keep the local provider disabled through deployment until prepare reports ready,
+	otherwise missing-map fallbacks could be persisted before provisioning.
+- Commands require explicit `--env-file`, support `--json`/`--help`, and select
+	all valid-GPS workout boxes in an explicit READ ONLY transaction. No track decode,
+	DB writes, migrations, image generation, environment edits or service restarts.
+	Shared Mercator viewport math includes padding and complete edge raster tiles.
+- Added Turf/HTML parser dependencies with locked versions. Official Geofabrik
+	polygons, HTML archive links and HEAD sizes drive the plan; unavailable child
+	extracts use supported parents. Geometry differences eliminate false failures
+	from redundant overlapping aggregates (real catalog contains DACH).
+- Prepare reuses valid archives, locks the data directory, checks space and the
+	16-file renderer limit, validates unique partial downloads (length/SQLite/vector
+	sample), then atomically installs them. Checks every required viewport tile before
+	reporting readiness. Safe retries preserve completed/valid files. Stale crash
+	locks/parts, archive updates and >16-region consolidation remain manual.
+- Actual Dev plan: 3,225 GPS workouts, 2,986 missing thumbnails, zero missing/
+	unsupported bounds or unmapped workouts. Eight regions: Alsace, Austria, BW,
+	Bayern, Franche-Comte, Hessen, Lorraine, Rheinland-Pfalz. BW/Hessen reused;
+	six missing archives total 3,233,480,704 bytes (3.01 GiB). No additional real
+	archives downloaded; download/prepare checks use temporary small fixtures.
+- All 786 tests passed, including 20 focused planning/provisioning/renderer tests.
+	Syntax/lint passed (70 existing warnings); new modules have no editor errors.
+	Only the three known `lastEnd` type errors remain. Production-style dependency-
+	resolution dry-run and whitespace checks passed. No Linux ARM64 test.
+- Production sequence, env settings, command effects/exits/recovery and verification:
+	`docs/workout-map.md` (Production Planning And Preparation Over SSH), linked
+	from the updated command table in `docs/npm-scripts.md`; README link remains.
+- The assistant-managed Dev backend was stopped at user request after the earlier
+	integration check. Do not start it automatically; the user manages restarts.
+
+## Local On-Demand Thumbnail Integration (2026-11-05)
+
+- User approved regular service integration on Dev: preserve existing thumbnails,
+	generate/persist only missing ones near the workout-list viewport. Existing API
+	candidate flags, authenticated routes and advisory-lock/commit storage are
+	reused. Explicit GPS edits still intentionally replace their thumbnail.
+- Added regular renderer and lazy serial map worker per process (eight outstanding
+	requests, 30-second deadline), root dependencies and configurable archives/cache.
+	Local mode makes no external map calls; errors/incomplete coverage use persisted
+	route-only fallbacks without automatic retries. No automatic style upgrades.
+- App/import/backup processes run with local maps on port 3000; port 3001 was
+	stopped because the current Cognito registration only supports 3000. User
+	confirmed persistent Dev environment entries. BW/Hessen archives remain in
+	`tmp/local-map-prototype/data`; cache is `tmp/woa-local-map-cache`.
+	Configuration, cache/worker limits and restart instructions: `docs/workout-map.md`
+	(Local On-Demand Route Thumbnails), linked from `docs/npm-scripts.md`.
+- Real Dev check created missing thumbnail `84965` once (local map, 20,435 bytes),
+	verified commit and unchanged content/timestamp on reuse. Existing `85063`
+	remained unchanged. No deleted thumbnails, EC2 access, deployment or migration.
+- All 771 tests passed, including 32 focused fixture/cache/worker/observer tests.
+	Syntax and focused lint passed (one pre-existing unused `os` warning). Typecheck
+	has only the three known `lastEnd` errors in `MicroIntervalDetector.js:141`.
+	Production-style dependency-resolution dry-run and whitespace checks passed;
+	Linux ARM64 remains untested.
+- Authenticated live scrolling at `http://localhost:3000/dashboard-new` generated
+	and saved missing `84964`/`84963` as local maps; repeated uncached HTTP reads
+	preserved content/timestamps. Only 14/96 list images were requested, with the
+	far-end entry still untouched. Decode, dimensions, placeholders, nonblank/color
+	pixels and desktop thumbnail screenshot passed. Hidden browser documents pause
+	observer callbacks; foregrounding the page restored normal behavior.
+- Mobile DOM/decode/16:10 size checks passed. Dashboard horizontal overflow was
+	observed (546px document at 390px viewport), not fixed in this scope. Mobile
+	screenshot automation failed after horizontal scrolling moved the target off
+	screen; no mobile screenshot result is claimed. Restored desktop viewport and
+	original 24-entry preference. See `docs/workout-map.md` for verification limits.
+
+## Local OSM Thumbnail Prototype (2026-11-05)
+
+- Approved follow-up: reusable 256x256 raster tile cache, still Dev-only. Cache
+	keys exclude workout/route and include archive file identity/size/timestamps
+	and explicit style version. Atomic JSON entries contain lossless PNGs, label
+	candidates and image checksums; labels/routes are placed per final thumbnail.
+	RAM LRU is bounded to 16 MiB of estimated cached payload; completed disk entries
+	to 128 MiB per active source/style namespace. Previous namespaces remain for
+	manual cleanup. Same-process concurrent tile builds are shared.
+- Updated preview separates uncached vector rendering, forced tile builds,
+	disk reuse after clearing RAM and five RAM repeats. Current Mac results for
+	85063/85057/83899: vector 359/581/504 ms, build 401/689/588 ms,
+	disk 89/94/58 ms, RAM median 15/17/18 ms (about 24-34x versus vector).
+	Six/six/four reusable tiles occupy 1,699,736 bytes total (1.62 MiB).
+	New SVGs are 12,325/14,217/20,561 bytes. No cold-OS-cache or EC2 benchmark.
+- Four focused cache tests passed: persisted reuse across renderer recreation,
+	RAM hits without vector rendering, corrupt-entry recovery, concurrent-build
+	sharing, style-version separation, memory/disk limits and offline coverage.
+	Desktop/mobile screenshots, nine image decodes, map/route pixel checks and
+	no-overlap/overflow checks passed; preview reload made no external requests.
+	Mean RGB differences from vector-only previews were 7.07/4.39/5.38 out of 255,
+	due to fixed-resolution tile resampling. A raw RGB/RGBA composition mismatch
+	found during validation was corrected before the final comparisons.
+- During the prototype-only phase, user approved Baden-Wuerttemberg and Hessen,
+	not production integration. Isolated artifacts and dependencies are under ignored
+	`tmp/local-map-prototype/`; app code, root dependencies and stored thumbnails
+	were unchanged at that stage. Later Dev integration is described above.
+	Preview: `http://127.0.0.1:3110/` while its server runs.
+- Downloaded Geofabrik Shortbread 1.0 MBTiles directly: 560,644,096 and
+	427,806,720 bytes, totaling 942.7 MiB. No PBF conversion, Java, Docker or
+	production upload. SQLite read-only access plus MVT parsing and Sharp render
+	an OSM-like style locally; no external map requests during rendering.
+- Initial vector-only baseline for 85063/85057/83899: SVGs 15,525/14,793/21,213 bytes;
+	warm medians about 325/568/504 ms across five sequential repeats on this Mac.
+	First passes about 371/569/514 ms, not cold-disk measurements. Disabling
+	Sharp caches and limiting its concurrency reduced measured end-of-run RSS
+	from roughly 1.4 GB to roughly 350 MiB; no peak or EC2 benchmark.
+- Passed syntax, SQLite quick_check for both archives, offline rendering in
+	Stuttgart/Frankfurt, missing-region rejection, compact output assertions,
+	desktop/mobile screenshots, image decoding, nonblank map/route pixels and
+	layout checks. Browser reload made zero external requests. Dev route queries
+	ran in READ ONLY transactions; no application/database writes or migrations.
+- Earlier read-only EC2 inspection found one persistent 30-GB XFS root volume,
+	about 24 GB free; PostgreSQL uses `/var/lib/pgsql/data` on it. Proposed future
+	map folder `/home/ec2-user/woa-map-data/` was NOT created. No EC2 access or
+	changes occurred during prototype implementation. Production performance,
+	automated updates and regional fallback remain unimplemented/unverified.
+- Setup, measurements, limitations and update proposal:
+	`docs/workout-map.md` (Local Regional OSM Thumbnail Prototype).
 
 ## Production Lockfile Repair (2026-11-04)
 

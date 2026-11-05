@@ -2124,7 +2124,7 @@ export default class WorkoutLibraryView {
 
         <div class="workout-library-card__body">
           <div class="workout-library-card__body-main">
-            <div class="workout-library-card__thumb-shell${workout.has_thumbnail ? " has-image" : ""}">
+            <div class="workout-library-card__thumb-shell">
               ${workout.has_thumbnail ? `
                 <img
                   class="workout-library-card__thumb-image"
@@ -2132,8 +2132,10 @@ export default class WorkoutLibraryView {
                   alt=""
                   loading="lazy"
                   decoding="async"
-                  onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                <div class="workout-library-card__thumb-placeholder" style="display:none;">${hasValidGps ? "GPS" : "DATA"}</div>
+                  style="visibility:hidden;"
+                  onload="this.style.visibility='visible'; this.style.display='block'; this.nextElementSibling.style.display='none'; this.parentElement.classList.add('has-image');"
+                  onerror="this.style.display='none'; this.nextElementSibling.style.display='flex'; this.parentElement.classList.remove('has-image');">
+                <div class="workout-library-card__thumb-placeholder">${hasValidGps ? "GPS" : "DATA"}</div>
               ` : `
                 <div class="workout-library-card__thumb-placeholder">${hasValidGps ? "GPS" : "DATA"}</div>
               `}

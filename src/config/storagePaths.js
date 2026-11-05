@@ -24,6 +24,14 @@ export function getThumbnailTempDir() {
   return path.join(resolveAppTempRoot(), "woa-postprocess", "thumbnails");
 }
 
+export function getLocalThumbnailMapConfig() {
+  return {
+    enabled: String(process.env.WOA_THUMBNAIL_MAP_PROVIDER || "").trim() === "local",
+    dataDirectory: path.resolve(process.env.WOA_MAP_DATA_DIR || path.join(resolveAppTempRoot(), "woa-map-data")),
+    cacheRoot: path.resolve(process.env.WOA_MAP_CACHE_DIR || path.join(getThumbnailTempDir(), "raster-cache"))
+  };
+}
+
 export function ensureDirSync(targetPath) {
   fs.mkdirSync(targetPath, { recursive: true });
   return targetPath;

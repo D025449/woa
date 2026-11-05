@@ -4,6 +4,8 @@ import Workout from "../shared/Workout.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
 import SegmentDBService from "./segmentDBService.js";
 import GeoapifyThumbnailService from "./geoapifyThumbnailService.js";
+import { getLocalThumbnailMapConfig } from "../config/storagePaths.js";
+import LocalThumbnailMapService from "./localThumbnailMapService.js";
 import {
   matchCompactGpsSegmentBestEfforts,
   prepareCompactGpsSegmentDefinitions
@@ -330,6 +332,20 @@ async function renderGeoapifyRouteThumbnail(options, fallback = null) {
   return background
     ? buildRouteThumbnail(segments, null, options.segmentOverlays, background)
     : annotateRouteFallback(fallback, failure);
+}
+
+async function renderLocalRouteThumbnail(options, fallback) {
+  const segments = normalizeRouteSegments(options.gpsTrackSegments, options.gpsTrack);
+  const result = await LocalThumbnailMapService.render({
+    segments: segments.map(segment => segment.map(point => [point.lng, point.lat])),
+    overlays: (options.segmentOverlays || []).map(overlay => ({
+      segmenttype: overlay.segmenttype || "manual",
+      color: getSegmentColor(overlay),
+      segments: normalizeRouteSegments(overlay.segments).map(segment => segment.map(point => [point.lng, point.lat]))
+    }))
+  });
+  return { ...fallback, width: 320, height: 200, content: result.svg,
+    renderStats: { ...fallback.renderStats, localMap: result.stats } };
 }
 
 function buildRouteThumbnail(gpsTrackSegments = null, gpsTrack = null, segmentOverlays = [], mapBackground = null) {
@@ -744,7 +760,8 @@ export default class WorkoutThumbnailService {
     return null;
   }
 
-  static async createThumbnailPayloadAsync(options = {}, { renderRoute = renderGeoapifyRouteThumbnail } = {}) {
+  static async createThumbnailPayloadAsync(options = {}, { renderRoute = getLocalThumbnailMapConfig().enabled
+    ? renderLocalRouteThumbnail : renderGeoapifyRouteThumbnail } = {}) {
     const fallback = WorkoutThumbnailService.createThumbnailPayload(options);
     if (fallback?.kind !== "route") {
       return fallback;
@@ -868,7 +885,7 @@ export default class WorkoutThumbnailService {
 
   static hasMapBackground(thumbnail) {
     return thumbnail?.kind === "route"
-      && String(thumbnail.content || "").includes('data-map-provider="geoapify"');
+      && /data-map-provider="(?:geoapify|local)"/.test(String(thumbnail.content || ""));
   }
 
   static getThumbnailCacheControl(thumbnail) {
@@ -878,6 +895,7 @@ export default class WorkoutThumbnailService {
   }
 
   static isCurrentRouteThumbnail(thumbnail, now = Date.now()) {
+    if (getLocalThumbnailMapConfig().enabled && thumbnail?.content) return true;
     if (thumbnail?.kind !== "route") {
       return true;
     }

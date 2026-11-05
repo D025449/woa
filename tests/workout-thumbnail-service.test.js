@@ -1,11 +1,88 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import sharp from "sharp";
+import { readFile } from "node:fs/promises";
 
 import WorkoutThumbnailService from "../src/services/workoutThumbnailService.js";
 import { GeoapifyThumbnailClient } from "../src/services/geoapifyThumbnailService.js";
 import GeoapifyThumbnailService from "../src/services/geoapifyThumbnailService.js";
 import pool from "../src/services/database.js";
+import LocalThumbnailMapService from "../src/services/localThumbnailMapService.js";
+
+test("library observes on-demand candidates and starts requests only near the viewport", async () => {
+  const source = await readFile(new URL("../src/public/js/workout-library-view.js", import.meta.url), "utf8");
+  assert.match(source, /workout\.has_thumbnail \?/);
+  assert.match(source, /style="visibility:hidden;"/);
+  const methods = ["bindThumbnailLazyLoad", "loadThumbnailImage", "loadVisibleThumbnailImages"].map(name => {
+    const start = source.search(new RegExp(`^  ${name}\\(`, "m"));
+    const rest = source.slice(start + 1);
+    const next = rest.search(/\n {2}(?:async )?\w+\(/);
+    return source.slice(start, start + 1 + next);
+  });
+  class ImageFixture {
+    constructor(top) { this.dataset = { thumbSrc: `/thumbnail/${top}` }; this.src = null; this.top = top; }
+    getAttribute() { return this.src; }
+    setAttribute(_name, value) { this.src = value; }
+    getBoundingClientRect() { return { top: this.top, bottom: this.top + 95, left: 10, right: 162 }; }
+  }
+  let observed;
+  class ObserverFixture {
+    constructor(callback) { observed = callback; }
+    observe() {}
+    unobserve() {}
+  }
+  const Controller = new Function("HTMLImageElement", "IntersectionObserver", "window", "requestAnimationFrame",
+    `return class { ${methods.join("\n")} }`)(ImageFixture, ObserverFixture,
+      { IntersectionObserver: ObserverFixture, innerWidth: 800, innerHeight: 600 }, callback => callback());
+  const visible = new ImageFixture(20);
+  const distant = new ImageFixture(1000);
+  const controller = new Controller();
+  controller.container = { querySelectorAll: () => [visible, distant] };
+  controller.bindThumbnailLazyLoad();
+  assert.equal(visible.src, visible.dataset.thumbSrc);
+  assert.equal(distant.src, null);
+  observed([{ target: distant, isIntersecting: true }]);
+  assert.equal(distant.src, distant.dataset.thumbSrc);
+});
+
+test("local maps reuse every existing thumbnail without style upgrades or fallback retries", () => {
+  const previous = process.env.WOA_THUMBNAIL_MAP_PROVIDER;
+  process.env.WOA_THUMBNAIL_MAP_PROVIDER = "local";
+  try {
+    for (const content of ['<svg/>', '<svg data-map-fallback="outside-coverage"/>', '<svg data-thumbnail-style="1"/>']) {
+      assert.equal(WorkoutThumbnailService.isCurrentRouteThumbnail({ kind: "route", content }, Date.now()), true);
+    }
+    assert.equal(WorkoutThumbnailService.hasMapBackground({ kind: "route", content: '<svg data-map-provider="local"/>' }), true);
+  } finally {
+    if (previous === undefined) delete process.env.WOA_THUMBNAIL_MAP_PROVIDER;
+    else process.env.WOA_THUMBNAIL_MAP_PROVIDER = previous;
+  }
+});
+
+test("local provider renders GPS only and never calls the external map provider", async context => {
+  const previous = process.env.WOA_THUMBNAIL_MAP_PROVIDER;
+  process.env.WOA_THUMBNAIL_MAP_PROVIDER = "local";
+  context.mock.method(GeoapifyThumbnailService, "getBackground", () => assert.fail("external maps forbidden"));
+  let requests = 0;
+  context.mock.method(LocalThumbnailMapService, "render", async () => {
+    requests++;
+    return { svg: '<svg data-map-provider="local"/>', stats: { cache: { memory: 1 } } };
+  });
+  try {
+    const local = await WorkoutThumbnailService.createThumbnailPayloadAsync({ gpsTrack: [[49, 8], [49.1, 8.1]] });
+    assert.match(local.content, /data-map-provider="local"/);
+    assert.equal(local.width, 320);
+    await WorkoutThumbnailService.createThumbnailPayloadAsync({ powers: [100, 200, 150] });
+    assert.equal(requests, 1);
+    context.mock.method(LocalThumbnailMapService, "render", async () => { throw new Error("outside-coverage"); });
+    const fallback = await WorkoutThumbnailService.createThumbnailPayloadAsync({ gpsTrack: [[40, 100], [40.1, 100.1]] });
+    assert.equal(fallback.kind, "route");
+    assert.equal(WorkoutThumbnailService.hasMapBackground(fallback), false);
+  } finally {
+    if (previous === undefined) delete process.env.WOA_THUMBNAIL_MAP_PROVIDER;
+    else process.env.WOA_THUMBNAIL_MAP_PROVIDER = previous;
+  }
+});
 
 test("thumbnail persistence serializes creation, commits before returning and reuses stored content", async (context) => {
   const payload = WorkoutThumbnailService.createThumbnailPayload({ gpsTrack: [[49, 8], [49.1, 8.1]] });

@@ -28,6 +28,206 @@ flyover modals are unchanged.
 - Terrain only affects visualization. Stored GPS positions, recorded altitude,
   ascent/descent and workout analysis are not changed.
 
+## Local On-Demand Route Thumbnails
+
+The regular thumbnail service supports local regional maps. The current Dev
+processes use the Baden-Wuerttemberg and Hessen Shortbread 1.0 archives from the
+prototype; rendering no longer depends on prototype code or its preview server.
+The user reports that the production environment settings have been entered;
+production archives, runtime compatibility and activation have not been verified
+by Copilot. No production deployment or preparation was performed here.
+
+### Development Configuration
+
+The user configured these values in the local development environment file:
+
+```dotenv
+PORT=3000
+FEATURE_THUMBNAILS_ON_DEMAND=1
+WOA_THUMBNAIL_MAP_PROVIDER=local
+WOA_MAP_DATA_DIR=tmp/local-map-prototype/data
+WOA_MAP_CACHE_DIR=tmp/woa-local-map-cache
+```
+
+Restart with `npm run start:all` and open
+`http://localhost:3000/dashboard-new`. The currently registered Cognito callback
+requires port 3000. Stop any previous Dev start first. These variables are
+inherited by app and workers; there is no automatic archive download or migration.
+The protected environment file was updated by the user, not Copilot.
+
+Root dependencies include `@mapbox/vector-tile`, `pbf` and `simplify-js` alongside
+Sharp. The rendering worker requires `node:sqlite`; verified on Node 26.4.0/macOS.
+The data directory must contain one to sixteen Shortbread vector `.mbtiles`
+archives, opened read-only. Current BW/Hessen files occupy about 943 MiB.
+Relative paths resolve from the working directory. Without explicit overrides,
+data defaults to `<WOA_TEMP_DIR>/woa-map-data` and cache to
+`<WOA_TEMP_DIR>/woa-postprocess/thumbnails/raster-cache`; `WOA_TEMP_DIR` defaults
+to the repository's `tmp` directory. Restart after changing archives/configuration.
+Unset the provider override to retain the Geoapify path. Production requires
+separate archive provisioning and Node/native dependency verification.
+
+### Production Planning And Preparation Over SSH
+
+Two manual npm commands separate provisioning from deployment and rendering:
+
+```bash
+cd ~/woa
+npm run maps:plan -- --env-file .env.production
+npm run maps:prepare -- --env-file .env.production
+```
+
+Deploy the scripts/dependencies before running them remotely, but keep
+`WOA_THUMBNAIL_MAP_PROVIDER=local` disabled until preparation succeeds. Otherwise
+the deployment's service restart can activate local rendering before its maps
+exist, persisting route-only fallbacks that are not automatically refreshed.
+The user performs SSH, deployment and production command execution manually.
+
+Recommended production directories, outside the code checkout:
+
+```dotenv
+WOA_MAP_DATA_DIR=/home/ec2-user/woa-map-data
+WOA_MAP_CACHE_DIR=/home/ec2-user/woa-map-cache
+FEATURE_THUMBNAILS_ON_DEMAND=1
+```
+
+1. Keep the provider override unset/disabled, deploy the code and install the
+  locked root dependencies. Use a Node.js release with `node:sqlite` support;
+  Node 26.4.0/macOS was tested, not Linux ARM64. The commands fail early if the
+  SQLite module is unavailable. Use the existing service account, not root.
+2. Run `maps:plan` and review region names, existing archives, total download,
+  free disk, missing/unsupported bounds, unmapped workouts and archive count.
+  This command does not create files, download archives or change database data.
+3. Run `maps:prepare`. Require both exit code 0 and `ready to activate: true`.
+  A complete polygon plan alone does not prove that the archives contain every
+  required tile. Resolve any reported actual tile gaps before enabling local maps.
+4. Only then add `WOA_THUMBNAIL_MAP_PROVIDER=local` to the production environment
+  and restart app and workers with the updated environment. Keep the Geoapify
+  configuration for rollback by unsetting the provider override. The commands
+  never edit environment files, restart services, render images or modify
+  workouts/thumbnails, and never run migrations.
+
+Both commands require an explicit `--env-file`; there is no implicit production
+selection. `--help` needs no environment file. Append `--json` for a structured
+report, including affected workout IDs for unresolved cases. Exit 0 means success,
+2 means an incomplete plan/coverage check, and 1 means an operational failure.
+Only controlled error messages are exposed; raw connection errors/environment
+contents are not printed. Plans contain aggregate counts/region names rather than
+raw GPS tracks. Per-region workout counts overlap when routes span regions.
+
+The inventory uses one `BEGIN READ ONLY` transaction and only stored
+`workouts.gps_bounds` for valid GPS workouts, across all users. It counts existing
+thumbnails without reading their content. Mercator framing/padding is shared with
+the renderer, expanded to complete raster tile footprints. Geofabrik's GeoJSON
+polygons determine intersections. Smaller extracts fall back to an available
+parent; parent/child downloads are deduplicated. Redundant overlapping aggregate
+regions such as DACH do not create false gaps. Regions with no archive coverage
+and GPS workouts with missing/unsupported bounds are reported, not silently skipped.
+
+The public Geofabrik catalog and region pages are fetched as bounded metadata;
+Shortbread 1.0 links are read from the official HTML rather than guessed. HEAD
+requests obtain exact current lengths. No PBF conversion or external raster map
+service is used. Catalog data is not saved locally by these commands.
+
+Preparation downloads sequentially under an exclusive `.maps-prepare.lock` in
+the data directory. Valid existing Shortbread archives are reused, even if a
+newer upstream version exists; this is not an update command. Missing/invalid
+required archives download into unique `.part` files and replace their destination
+only after exact length, SQLite `quick_check`, vector format and sample Shortbread
+decoding pass. No authoritative upstream checksum is provided by this workflow.
+Failed/interrupted downloads clean their own temporary files; completed archives
+remain for safe reruns. If upstream lengths change during preparation, rerun the
+command. SIGINT/SIGTERM cancel downloads; each download has a two-hour limit.
+After a crash/SIGKILL, check that no preparation process remains before manually
+removing a stale lock or abandoned `.part` file. Never clean live temporary files.
+
+Free space must cover all planned downloads plus 5% and 256 MiB safety margin.
+The renderer's 16-archive limit includes unrelated files already in the directory;
+invalid unrelated archives block preparation. The command never deletes them.
+After downloads, every required tile at each thumbnail zoom is checked in the
+read-only archive set. No raster prewarming is necessary. For more than 16 regions,
+an explicit larger-extract/consolidation strategy is needed before proceeding;
+the commands do not change the renderer limit or silently remove archives.
+Stop provisioning/restart rendering workers when replacing files already open by
+running processes; existing workers do not automatically reopen archives.
+
+Local verification on 2026-11-05: 3,225 GPS workouts, 2,986 missing thumbnails,
+zero missing/unsupported bounds and zero unmapped workouts. The complete plan
+requires Alsace, Austria, Baden-Wuerttemberg, Bayern, Franche-Comte, Hessen,
+Lorraine and Rheinland-Pfalz. Existing BW/Hessen files are reusable; six additional
+archives total 3,233,480,704 bytes (about 3.01 GiB), with about 3.93 GiB for all
+eight archives. These are Dev results, not a production inventory; upstream sizes
+change. No real additional archives were downloaded. Preparation/download/error
+paths were tested using small temporary MBTiles and mocked HTTP responses.
+All 786 tests passed, including 20 focused provisioning/renderer checks. Syntax,
+lint (70 existing warnings), production-style dependency-resolution dry-run and
+patch checks passed. New modules have no editor errors; typecheck still reports
+only the three known `lastEnd` errors. Linux ARM64 was not exercised.
+
+### Loading, Persistence And Limits
+
+- The existing library observer requests images near the viewport with a 200px
+  prefetch margin. The list API already includes missing-image candidates when
+  on-demand generation is enabled. Setting `FEATURE_THUMBNAILS_ON_DEMAND=0`
+  preserves existing-image-only behavior. Placeholders remain visible until a
+  successful image load, without removing the observable image footprint.
+- Local mode reuses every existing nonempty thumbnail, including old styles,
+  Geoapify backgrounds and route-only fallbacks. There is no bulk generation,
+  style upgrade or automatic fallback retry. Explicit manual/copied GPS edits
+  still replace thumbnails because the route itself has changed.
+- Missing images use the existing authenticated route and `workout_thumbnails`
+  storage: per-workout advisory locking, recheck after locking and commit before
+  returning. The full self-contained SVG is durable across restarts. No migration.
+- Each process lazily starts one serial rendering worker, with at most eight
+  outstanding requests and a 30-second queue/render deadline. Existing thumbnail
+  generation concurrency remains six. SQLite, MVT decoding and Sharp work stay
+  off the webserver's main JavaScript thread. Sharp settings are worker-local.
+- Reusable 256x256 PNG geometry tiles exclude routes; town labels are placed
+  after composition. Route gaps, segment colors and endpoints remain vectors.
+  The 320x200 SVG embeds WebP and visible OSM attribution. Cache namespaces include
+  archive identity and style. RAM payload LRU is bounded to 16 MiB and completed
+  disk entries to 128 MiB per namespace/worker. Old namespaces and abandoned
+  temporary files require manual cleanup; there is no cross-process tile dedup
+  or global cache-root limit.
+- Local mode makes no external map calls. Missing/incomplete coverage, invalid
+  archives, worker errors, overload or timeout use the persisted route-only
+  fallback, without automatic retry. Enlarging coverage does not replace saved
+  images. Indoor/non-GPS profile thumbnails retain their existing path.
+
+### Integration Verification
+
+The initial integration passed all 771 tests, including 32 focused thumbnail/worker tests. Temporary
+MBTiles fixtures exercise persistent cache reuse, corruption repair, style
+isolation, limits, missing coverage, real worker reuse, bounded queueing, failure
+recovery and timeout. Service tests cover local selection without external calls,
+existing-image preservation and the actual library observer/visibility methods.
+Syntax and focused lint passed with one pre-existing unused-import warning;
+typecheck retains only three known `lastEnd` nullability errors in
+`src/shared/MicroIntervalDetector.js:141`. Production-style dependency-resolution
+dry-run passed; Linux ARM64 runtime/native packages remain untested.
+
+A real Dev check created previously missing thumbnail `84965` exactly once:
+local map, 20,435-byte SVG, committed storage. A second call returned identical
+content and unchanged timestamp with no additional render. Existing thumbnail
+`85063` remained unchanged; no thumbnails were deleted.
+
+Authenticated live scrolling then generated and persisted local maps for the
+previously missing `84964` and neighboring `84963` (23,583/24,760 bytes).
+Repeated uncached HTTP reads returned identical content with unchanged database
+timestamps. Of 96 list images, only 14 were requested during the tested scroll;
+the far-end entry retained no `src`. Image decode, hidden-placeholder state,
+320x200 dimensions and nonblank/colorful canvas pixels passed; the desktop
+thumbnail screenshot showed the route and visible attribution.
+
+The integrated browser pauses IntersectionObserver callbacks while its document
+is hidden; making the page visible resumed normal loading without code changes.
+At 390px viewport width the thumbnail decoded and retained its 16:10 footprint
+(about 111x69px), but the dashboard had horizontal overflow (546px document width).
+This broader layout issue was not changed. A mobile thumbnail screenshot could
+not be captured reliably after the automation scrolled it horizontally outside
+the viewport; mobile verification is limited to DOM/decode/size checks.
+The original desktop viewport and 24-entry page preference were restored.
+No EC2 access, deployment or migration was performed.
+
 ## Persisted Geoapify Route Thumbnails
 
 GPS thumbnails now support a server-generated Geoapify background. This is separate
@@ -171,6 +371,165 @@ unused-import warnings in the workout routes. The typecheck still reports the
 three pre-existing nullable `lastEnd` errors in `MicroIntervalDetector.js:141`.
 The dependency installation also reported eleven audit findings (eight moderate,
 three high); no unrelated dependency upgrades or automatic audit fixes were run.
+
+## Local Regional OSM Thumbnail Prototype
+
+On 2026-11-05 the user approved an isolated Dev prototype covering
+Baden-Wuerttemberg and Hessen. No production integration or upload was approved.
+Artifacts live under ignored `tmp/local-map-prototype/`, not in the application
+or a tracked reusable tool. Keep that directory to retain the prototype; its
+source and downloaded files are not included in deployments.
+
+Geofabrik already publishes experimental Shortbread 1.0 vector tiles, so this
+prototype downloads MBTiles directly instead of generating PMTiles from PBF.
+Both are local vector-tile archives; MBTiles uses SQLite, which the installed
+Node 26.4.0 can read without another database service. Regional downloads:
+
+- `https://download.geofabrik.de/europe/germany/baden-wuerttemberg-shortbread-1.0.mbtiles`
+- `https://download.geofabrik.de/europe/germany/hessen-shortbread-1.0.mbtiles`
+
+Downloaded file sizes are 560,644,096 bytes (534.7 MiB) and 427,806,720 bytes
+(408.0 MiB), totaling 988,450,816 bytes (942.7 MiB). These are measured archive
+sizes, not RAM requirements or estimates for other regions. Replacement downloads
+may differ; the initial HEAD probes already observed an upstream version change.
+Downloads stream to `.part` files, check the announced length and rename on
+success. Length and SQLite quick_check are not cryptographic source verification.
+
+### Local Operation
+
+From the repository root, with the existing ignored prototype files present:
+
+```bash
+npm ci --prefix tmp/local-map-prototype --ignore-scripts
+node tmp/local-map-prototype/setup.mjs
+node tmp/local-map-prototype/setup.mjs --download
+node --test tmp/local-map-prototype/render-cache.test.mjs
+node tmp/local-map-prototype/preview.mjs --build-only
+node tmp/local-map-prototype/preview.mjs
+```
+
+The setup command without `--download` only probes remote sizes and modification
+times. The preview binds to `127.0.0.1:3110`; override `LOCAL_MAP_PREVIEW_PORT`
+when that port is occupied. `Ctrl+C` stops it. The private dependency tree contains
+`@mapbox/vector-tile`, `pbf` and `simplify-js`; Sharp is reused from the app.
+Root package files and npm scripts are unchanged.
+
+The preview guards localhost and `cwa24_dev`, reads the three known GPS routes
+under `BEGIN READ ONLY`, and closes the DB pool before rendering. It does not
+call persisted-thumbnail generation or overwrite existing database thumbnails.
+Reports and example SVGs are written only under the prototype's `data/` folder.
+
+The renderer opens both tile archives with SQLite `readOnly: true`, decodes
+MVT/gzip, fits Web-Mercator bounds and paints land, woods, water, road classes,
+boundaries and basic collision-filtered town labels through SVG/Sharp. It is an
+OSM-like custom style, not the original OpenStreetMap Carto style. It embeds a
+320x200/Q55 WebP background, a simplified vector route with GPS gaps/endpoints,
+and visible `OpenStreetMap contributors` attribution. Tile parsing and RDP use
+existing libraries. No external tile, font, style or image fetch is needed during
+rendering. Both regional files are read at boundaries; buffered regional coverage
+is not a guarantee of complete mapping outside the chosen states.
+
+### Initial Vector-Only Measurements
+
+| Workout | Distance | Complete SVG | First pass | Warm median, 5 repeats |
+| --- | ---: | ---: | ---: | ---: |
+| 85063 | 28.3 km | 15,525 bytes | 371 ms | 325 ms |
+| 85057 | 48.0 km | 14,793 bytes | 569 ms | 568 ms |
+| 83899 | 95.2 km | 21,213 bytes | 514 ms | 504 ms |
+
+Mac measurements include tile reads, decoding, styling, WebP encoding and SVG
+assembly, but not route DB retrieval. First pass does not mean cold OS caches.
+End-of-run RSS was roughly 350 MiB after sequential repeats, not a measured peak.
+Sharp caches are disabled and its concurrency is one in this isolated process;
+the initial default-cache experiment retained roughly 1.4 GB. Never extrapolate
+these figures to simultaneous EC2 requests without a separate memory/load test.
+
+Both archives passed SQLite quick_check. Offline smoke tests rendered Stuttgart
+and Frankfurt with fetch disabled and rejected a route outside local coverage.
+All three real examples had zero missing tile positions. Desktop 1280x1100 and
+mobile 390x1100 browser checks verified nine decoded images, nonblank colored
+map/route pixels, 152x95/128x80 small frames, screenshots and no horizontal
+overflow or overlapping figures. Browser reload made zero external requests.
+Only a basic cartographic subset is implemented: no hillshade, sophisticated
+label placement, complete bridge ordering, segment-colored overlays, production
+queue, automatic provider fallback or workload isolation.
+
+### Reusable Raster Tile Cache
+
+The approved follow-up caches map geometry as fixed 256x256 lossless PNG tiles,
+not workout-specific crops. `render()` uses these by default; pass
+`{ rasterCache: false }` for the vector-only baseline. Tile PNGs contain no route
+or baked-in town labels. Label candidates are stored alongside the image and
+placed after crop/resize, preventing labels from being cut at tile boundaries.
+Routes, endpoint markers and attribution stay in the final SVG overlay.
+
+The preview writes `data/preview-raster-cache/<source-style-id>/<z>-<x>-<y>.json`.
+The renderer's standalone default is `data/raster-cache/`. The version ID covers
+the explicit style identifier, archive identity (device/inode/ctime), size and
+mtime. Restart the renderer after replacing archives, and bump `cacheVersion`
+when changing tile appearance. A final thumbnail is assembled from four to six
+tiles in these examples, including both regional sources in overlap areas.
+
+Entries are written to unique `.part` files and atomically renamed; image
+checksums and PNG format/dimensions are validated on disk reads. Corrupt entries
+regenerate. An estimated-payload 16-MiB RAM LRU avoids repeated reads; completed
+disk entries are pruned by last-use mtime to 128 MiB **per version directory**.
+These are not total process-memory or whole-cache-root limits. Obsolete version
+directories and earlier experimental caches are retained and require manual
+cleanup; concurrent writes can temporarily exceed the completed-entry limit.
+Same-process concurrent requests share one in-flight tile build. Cross-process
+build deduplication and a production generation queue are not implemented.
+
+Every preview start intentionally benchmarks the baseline, forces all relevant
+tile builds, clears RAM before disk reuse, then measures five RAM repeats. This
+is a benchmark mode, not the normal lazy-cache strategy for production. The
+latest local run measured:
+
+| Workout | Vector only | Forced build | Disk reuse | RAM median, 5 repeats |
+| --- | ---: | ---: | ---: | ---: |
+| 85063 | 359 ms | 401 ms | 89 ms | 15 ms |
+| 85057 | 581 ms | 689 ms | 94 ms | 17 ms |
+| 83899 | 504 ms | 588 ms | 58 ms | 18 ms |
+
+RAM reuse was about 24-34 times faster than the same-run vector-only baseline.
+Disk reuse means an empty renderer RAM cache, **not cold operating-system disk
+caches**. First tile creation remains slow; fixed-grid tiles can be reused by
+other workouts and can be warmed separately. No EC2 throughput claim is made.
+The sixteen tiles generated for these three examples occupy 1,699,736 bytes
+(1.62 MiB), including base64 PNGs and label metadata. This is not a storage
+estimate for prerendering both entire states. Final SVG sizes are now
+12,325 / 14,217 / 20,561 bytes.
+
+Four focused tests passed for persisted reuse across renderer recreation, RAM
+hits without vector rendering, corruption recovery, shared parallel builds,
+version separation, memory/disk bounds and offline region behavior. They use
+temporary private cache directories and the downloaded archives read-only.
+Pixel comparisons catch RGB/RGBA channel errors; Sharp's composite raw output
+can have four channels even when its initial canvas had three, so the actual
+output channel metadata must be carried into the next raw-image pipeline.
+
+The updated preview passed desktop 1280x1100/mobile 390x1100 screenshots, nine
+image decodes, nonblank map/route pixels, no overlapping figures or horizontal
+overflow, and zero external requests on reload. Fixed-resolution tile resampling
+slightly changes appearance: mean RGB differences versus the vector-only SVGs
+were 7.07 / 4.39 / 5.38 on a 0-255 scale, not pixel-identical rendering.
+Existing application code, persisted thumbnails, root dependency files and EC2
+remain unchanged. The cache and its tests are disposable ignored Dev artifacts.
+
+For future updates, prefer versioned archive sets built/downloaded separately,
+validate both regions, then atomically switch a manifest to the new pair and
+reopen read-only handles. Keep the previous pair for rollback. Budget roughly
+1.9 GiB for two copies of these measured archives, plus application/DB reserve.
+The setup downloader is a prototype, not an automated production update manager.
+Existing successful workout thumbnails would stay unchanged after a data update.
+OSM data is ODbL 1.0; retain attribution and review database redistribution duties
+before publishing modified archives. Geofabrik attribution is shown in the preview.
+
+Read-only EC2 inspection before this prototype found one persistent 30-GB root
+filesystem with about 24 GB free and PostgreSQL at `/var/lib/pgsql/data` on it.
+A possible future location is `/home/ec2-user/woa-map-data/`, separate from Git
+and PostgreSQL's own directory. Nothing was created there. No production request,
+deployment, schema migration or service restart was performed for this prototype.
 
 ## GPS Thumbnail Visual Prototype
 

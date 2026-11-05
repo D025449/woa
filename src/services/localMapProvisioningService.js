@@ -1,0 +1,316 @@
+import path from "node:path";
+import { mkdir, readdir, stat, statfs, open, unlink, rename } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { gunzipSync } from "node:zlib";
+import { load } from "cheerio";
+import bbox from "@turf/bbox";
+import bboxPolygon from "@turf/bbox-polygon";
+import booleanIntersects from "@turf/boolean-intersects";
+import intersect from "@turf/intersect";
+import difference from "@turf/difference";
+import { VectorTile } from "@mapbox/vector-tile";
+import { PbfReader } from "pbf";
+import { getLocalMapCoverageBounds, project } from "../shared/localThumbnailMapViewport.js";
+import { getLocalThumbnailMapConfig } from "../config/storagePaths.js";
+
+/** @typedef {{fetchFn?: typeof fetch, signal?: AbortSignal}} MapFetchOptions */
+
+const CATALOG_URL = "https://download.geofabrik.de/index-v1.json";
+const ARCHIVE_LIMIT = 16;
+
+export class MapSetupError extends Error {}
+
+function officialUrl(value) {
+  const url = new URL(value);
+  if (url.protocol !== "https:" || url.hostname !== "download.geofabrik.de"
+    || url.username || url.password || url.port || url.search || url.hash) throw new MapSetupError("Invalid Geofabrik URL");
+  return url.href;
+}
+
+/** @param {string} url @param {MapFetchOptions} options */
+async function metadataText(url, { fetchFn = fetch, signal } = {}) {
+  const response = await fetchFn(officialUrl(url), { redirect: "error",
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000) });
+  if (response.status === 404) return null;
+  if (!response.ok || !response.body) {
+    await response.body?.cancel();
+    throw new MapSetupError(`Geofabrik metadata HTTP ${response.status}`);
+  }
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of response.body) {
+    bytes += chunk.length;
+    if (bytes > 32 * 1024 ** 2) throw new MapSetupError("Geofabrik metadata too large");
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+/** @param {MapFetchOptions} options */
+export async function fetchMapCatalog(options = {}) {
+  const text = await metadataText(CATALOG_URL, options);
+  if (!text) throw new MapSetupError("Geofabrik catalog unavailable");
+  const catalog = JSON.parse(text);
+  if (catalog.type !== "FeatureCollection" || !Array.isArray(catalog.features)) throw new MapSetupError("Invalid Geofabrik catalog");
+  return catalog;
+}
+
+/** @param {any} region @param {MapFetchOptions} options */
+export async function discoverMapArchive(region, { fetchFn = fetch, signal } = {}) {
+  const pbfUrl = officialUrl(region.properties.urls?.pbf);
+  if (!pbfUrl.endsWith("-latest.osm.pbf")) throw new MapSetupError("Invalid catalog PBF URL");
+  const pageUrl = pbfUrl.slice(0, -"-latest.osm.pbf".length) + ".html";
+  const html = await metadataText(pageUrl, { fetchFn, signal });
+  if (!html) return null;
+  const page = load(html);
+  const href = page("a[href]").toArray().map(element => page(element).attr("href"))
+    .find(value => value && /-shortbread-1\.0\.mbtiles$/.test(value));
+  if (!href) return null;
+  const url = officialUrl(new URL(href, pageUrl).href);
+  const response = await fetchFn(url, { method: "HEAD", redirect: "error",
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000) });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new MapSetupError(`Geofabrik archive HEAD HTTP ${response.status}`);
+  const bytes = Number(response.headers.get("content-length"));
+  if (!Number.isSafeInteger(bytes) || bytes <= 0 || response.headers.get("content-encoding")) throw new MapSetupError("Unknown archive download size");
+  return { url, bytes };
+}
+
+export async function inspectMapArchive(filename) {
+  const details = await stat(filename).catch(error => { if (error.code === "ENOENT") return null; throw error; });
+  if (!details) return { valid: false, bytes: 0 };
+  let database;
+  try {
+    const { DatabaseSync } = await import("node:sqlite");
+    database = new DatabaseSync(filename, { readOnly: true });
+    const check = database.prepare("PRAGMA quick_check").get();
+    if (Object.values(check)[0] !== "ok") throw new Error("Invalid SQLite archive");
+    const format = database.prepare("SELECT value FROM metadata WHERE name='format'").get();
+    if (format?.value !== "pbf") throw new Error("Expected vector MBTiles");
+    const row = database.prepare("SELECT tile_data FROM tiles LIMIT 1").get();
+    if (!(row?.tile_data instanceof Uint8Array)) throw new Error("Missing vector tiles");
+    const raw = Buffer.from(row.tile_data);
+    const tile = new VectorTile(new PbfReader(raw[0] === 0x1f && raw[1] === 0x8b ? gunzipSync(raw) : raw));
+    if (!Object.keys(tile.layers).some(name => ["land", "streets", "water_polygons"].includes(name))) throw new Error("Expected Shortbread layers");
+    return { valid: true, bytes: details.size };
+  } catch { return { valid: false, bytes: details.size }; }
+  finally { database?.close(); }
+}
+
+export async function readMapWorkoutBounds(client) {
+  await client.query("BEGIN READ ONLY");
+  try {
+    await client.query("SET LOCAL statement_timeout = '120s'");
+    const result = await client.query(`SELECT w.id,
+      CASE WHEN w.gps_bounds IS NULL THEN NULL ELSE json_build_object(
+        'minLng', (center(w.gps_bounds))[0] - width(w.gps_bounds)/2,
+        'maxLng', (center(w.gps_bounds))[0] + width(w.gps_bounds)/2,
+        'minLat', (center(w.gps_bounds))[1] - height(w.gps_bounds)/2,
+        'maxLat', (center(w.gps_bounds))[1] + height(w.gps_bounds)/2) END AS bounds,
+      EXISTS(SELECT 1 FROM workout_thumbnails t WHERE t.workout_id=w.id) AS has_thumbnail
+      FROM workouts w WHERE w.validgps=true ORDER BY w.id`);
+    await client.query("COMMIT");
+    return result.rows;
+  } catch (error) { await client.query("ROLLBACK"); throw error; }
+}
+
+async function freeDiskBytes(directory) {
+  let existing = directory;
+  while (!await stat(existing).catch(error => { if (error.code === "ENOENT") return null; throw error; })) {
+    const parent = path.dirname(existing);
+    if (parent === existing) throw new MapSetupError("Cannot inspect map filesystem");
+    existing = parent;
+  }
+  const filesystem = await statfs(existing);
+  return Number(filesystem.bavail) * Number(filesystem.bsize);
+}
+
+/**
+ * @param {any[]} workouts
+ * @param {any} catalog
+ * @param {{dataDirectory?: string, resolveArchive?: typeof discoverMapArchive, inspectArchive?: typeof inspectMapArchive, signal?: AbortSignal}} options
+ */
+export async function buildMapPlan(workouts, catalog, { dataDirectory = getLocalThumbnailMapConfig().dataDirectory,
+  resolveArchive = discoverMapArchive, inspectArchive = inspectMapArchive, signal } = {}) {
+  const regions = catalog.features.filter(feature => ["Polygon", "MultiPolygon"].includes(feature.geometry?.type)
+    && /^[a-z0-9]+(?:[-/][a-z0-9]+)*$/.test(feature.properties?.id) && feature.properties.urls?.pbf)
+    .map(feature => ({ feature, bounds: bbox(feature), id: feature.properties.id, parent: feature.properties.parent }));
+  if (!regions.length || new Set(regions.map(region => region.id)).size !== regions.length) throw new MapSetupError("Invalid region catalog");
+  const byId = new Map(regions.map(region => [region.id, region]));
+  const discoveries = new Map();
+  async function resolve(region, visited = new Set()) {
+    if (visited.has(region.id)) throw new MapSetupError("Cyclic region hierarchy");
+    visited.add(region.id);
+    if (!discoveries.has(region.id)) discoveries.set(region.id, await resolveArchive(region.feature, { signal }));
+    const archive = discoveries.get(region.id);
+    if (archive) return { region, archive };
+    const parent = byId.get(region.parent);
+    return parent ? resolve(parent, visited) : null;
+  }
+  const coverage = [];
+  const selections = new Map();
+  const required = new Map();
+  const missingBounds = [];
+  const unsupportedBounds = [];
+  const unmapped = [];
+  for (const workout of workouts) {
+    signal?.throwIfAborted();
+    if (!workout.bounds) { missingBounds.push(workout.id); continue; }
+    let bounds;
+    try { bounds = getLocalMapCoverageBounds(workout.bounds); }
+    catch { unsupportedBounds.push(workout.id); continue; }
+    coverage.push({ id: workout.id, bounds });
+    /** @type {[number, number, number, number]} */
+    const coordinates = [bounds.minLng, bounds.minLat, bounds.maxLng, bounds.maxLat];
+    const key = coordinates.join(",");
+    if (!selections.has(key)) {
+      const polygon = bboxPolygon(coordinates);
+      const hits = regions.filter(region => region.bounds[0] <= bounds.maxLng && region.bounds[2] >= bounds.minLng
+        && region.bounds[1] <= bounds.maxLat && region.bounds[3] >= bounds.minLat
+        && booleanIntersects(polygon, region.feature));
+      const parents = new Set(hits.map(region => region.parent));
+      const matches = [];
+      const unavailableRegions = [];
+      for (const region of hits.filter(entry => !parents.has(entry.id))) {
+        const resolved = await resolve(region);
+        if (resolved) matches.push(resolved);
+        else unavailableRegions.push(region);
+      }
+      const unavailable = unavailableRegions.some(region => {
+        let remaining = intersect({ type: "FeatureCollection", features: [polygon, region.feature] });
+        for (const match of matches) {
+          if (!remaining) break;
+          remaining = difference({ type: "FeatureCollection", features: [remaining, match.region.feature] });
+        }
+        return Boolean(remaining);
+      });
+      selections.set(key, { matches, unavailable: unavailable || !matches.length });
+    }
+    const { matches, unavailable } = selections.get(key);
+    if (unavailable) unmapped.push(workout.id);
+    for (const { region, archive } of matches) {
+      if (!required.has(region.id)) required.set(region.id, { id: region.id, name: region.feature.properties.name,
+        url: officialUrl(archive.url), bytes: archive.bytes, workouts: new Set(), missingThumbnails: new Set() });
+      const entry = required.get(region.id);
+      entry.workouts.add(workout.id);
+      if (!workout.has_thumbnail) entry.missingThumbnails.add(workout.id);
+    }
+  }
+  for (const id of [...required.keys()]) {
+    let parent = byId.get(id)?.parent;
+    const visited = new Set();
+    while (parent && byId.has(parent)) {
+      if (visited.has(parent)) throw new MapSetupError("Cyclic region hierarchy");
+      visited.add(parent);
+      if (required.has(parent)) {
+        for (const workout of required.get(id).workouts) required.get(parent).workouts.add(workout);
+        for (const workout of required.get(id).missingThumbnails) required.get(parent).missingThumbnails.add(workout);
+        required.delete(id);
+        break;
+      }
+      parent = byId.get(parent).parent;
+    }
+  }
+  const filenames = (await readdir(dataDirectory).catch(error => { if (error.code === "ENOENT") return []; throw error; }))
+    .filter(name => name.endsWith(".mbtiles"));
+  const existing = new Map();
+  for (const filename of filenames) existing.set(filename, await inspectArchive(path.join(dataDirectory, filename)));
+  const archives = [...required.values()].sort((first, second) => first.id.localeCompare(second.id)).map(entry => {
+    const filename = `${entry.id.replaceAll("/", "--")}.mbtiles`;
+    return { id: entry.id, name: entry.name, filename, url: entry.url, downloadBytes: entry.bytes,
+      existingValid: existing.get(filename)?.valid === true, existingBytes: existing.get(filename)?.bytes || 0,
+      workouts: entry.workouts.size, missingThumbnails: entry.missingThumbnails.size };
+  });
+  const finalFiles = new Set([...filenames, ...archives.map(entry => entry.filename)]);
+  const invalidUnneededArchives = filenames.filter(filename => !existing.get(filename).valid
+    && !archives.some(entry => entry.filename === filename));
+  const report = { dataDirectory, gpsWorkouts: workouts.length,
+    missingThumbnails: workouts.filter(workout => !workout.has_thumbnail).length,
+    missingBounds, unsupportedBounds, unmappedWorkouts: unmapped, invalidUnneededArchives,
+    archives, archiveCountAfterPrepare: finalFiles.size, archiveLimit: ARCHIVE_LIMIT,
+    downloadBytes: archives.filter(entry => !entry.existingValid).reduce((sum, entry) => sum + entry.downloadBytes, 0),
+    freeDiskBytes: await freeDiskBytes(dataDirectory), readyToPrepare: !missingBounds.length && !unsupportedBounds.length
+      && !unmapped.length && !invalidUnneededArchives.length && finalFiles.size <= ARCHIVE_LIMIT };
+  return { report, coverage };
+}
+
+/** @param {any} plan @param {MapFetchOptions} options */
+export async function prepareMapArchives({ report, coverage }, { fetchFn = fetch, signal } = {}) {
+  if (!report.readyToPrepare) throw new MapSetupError("Incomplete map plan; resolve reported bounds/coverage/archive limits first");
+  const directory = report.dataDirectory;
+  await mkdir(directory, { recursive: true });
+  const lockPath = path.join(directory, ".maps-prepare.lock");
+  const lock = await open(lockPath, "wx").catch(error => {
+    if (error.code === "EEXIST") throw new MapSetupError("Map preparation already locked; check other process before manual cleanup");
+    throw error;
+  });
+  const created = [];
+  try {
+    const currentFiles = (await readdir(directory)).filter(name => name.endsWith(".mbtiles"));
+    if (new Set([...currentFiles, ...report.archives.map(entry => entry.filename)]).size > ARCHIVE_LIMIT) {
+      throw new MapSetupError("Map archive count changed beyond renderer limit; rerun maps:plan");
+    }
+    const missing = [];
+    for (const archive of report.archives) {
+      if (!(await inspectMapArchive(path.join(directory, archive.filename))).valid) missing.push(archive);
+    }
+    const needed = missing.reduce((sum, entry) => sum + entry.downloadBytes, 0);
+    if (needed && await freeDiskBytes(directory) < needed * 1.05 + 256 * 1024 ** 2) throw new MapSetupError("Insufficient map disk space including safety margin");
+    for (const archive of missing) {
+      signal?.throwIfAborted();
+      const destination = path.join(directory, archive.filename);
+      const temporary = `${destination}.${randomUUID()}.part`;
+      const timeout = AbortSignal.timeout(2 * 60 * 60 * 1000);
+      const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+      try {
+        const response = await fetchFn(officialUrl(archive.url), { redirect: "error", signal: requestSignal });
+        if (!response.ok || !response.body || response.headers.get("content-encoding")
+          || Number(response.headers.get("content-length")) !== archive.downloadBytes) {
+          await response.body?.cancel();
+          throw new MapSetupError("Archive response changed or invalid; rerun maps:plan");
+        }
+        const output = await open(temporary, "wx", 0o644);
+        let bytes = 0;
+        try {
+          for await (const chunk of response.body) {
+            requestSignal.throwIfAborted();
+            bytes += chunk.length;
+            if (bytes > archive.downloadBytes) throw new MapSetupError("Archive exceeded planned size");
+            const buffer = Buffer.from(chunk);
+            let offset = 0;
+            while (offset < buffer.length) offset += (await output.write(buffer, offset, buffer.length - offset)).bytesWritten;
+          }
+          await output.sync();
+        } finally { await output.close(); }
+        if (bytes !== archive.downloadBytes || !(await inspectMapArchive(temporary)).valid) throw new MapSetupError("Downloaded archive failed size/SQLite/Shortbread validation");
+        await rename(temporary, destination);
+        created.push(archive.id);
+      } finally { await unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; }); }
+    }
+    const { DatabaseSync } = await import("node:sqlite");
+    const databases = [];
+    const uncoveredWorkouts = [];
+    try {
+      for (const filename of (await readdir(directory)).filter(name => name.endsWith(".mbtiles"))) {
+        const database = new DatabaseSync(path.join(directory, filename), { readOnly: true });
+        databases.push({ database, tile: database.prepare("SELECT 1 FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=?") });
+      }
+      for (const entry of coverage) {
+        signal?.throwIfAborted();
+        const bounds = entry.bounds;
+        const count = 2 ** bounds.zoom;
+        const minX = Math.round((bounds.minLng + 180) / 360 * count);
+        const maxX = Math.round((bounds.maxLng + 180) / 360 * count) - 1;
+        const minY = Math.round(project([0, bounds.maxLat])[1] * count);
+        const maxY = Math.round(project([0, bounds.minLat])[1] * count) - 1;
+        let covered = true;
+        for (let tileX = minX; tileX <= maxX; tileX++) for (let tileY = minY; tileY <= maxY; tileY++) {
+          if (!databases.some(source => source.tile.get(bounds.zoom, tileX, count - 1 - tileY))) covered = false;
+        }
+        if (!covered) uncoveredWorkouts.push(entry.id);
+      }
+    } finally { for (const source of databases) source.database.close(); }
+    return { created, reused: report.archives.filter(archive => !created.includes(archive.id)).map(archive => archive.id),
+      uncoveredWorkouts, readyToActivate: databases.length > 0 && !uncoveredWorkouts.length };
+  } finally { await lock.close(); await unlink(lockPath); }
+}
