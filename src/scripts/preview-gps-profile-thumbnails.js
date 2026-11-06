@@ -5,6 +5,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { load } from "cheerio";
 import dotenv from "dotenv";
 import { applyRuntimeDatabasePointer } from "../../ops/postgres-backup/runtime-database.mjs";
+import { buildThumbnailSegmentProfile } from "../services/workoutThumbnailSegmentProfile.js";
+
+export function buildSegmentProfilePreview(profileSvg, segments, recordCount, { showPhases = false } = {}) {
+  return buildThumbnailSegmentProfile(profileSvg, segments, recordCount, { showPhases });
+}
 
 export function buildBandProfileThumbnail(metricSvg, altitudeSvg) {
   const metric = load(metricSvg, { xml: true });
@@ -44,7 +49,7 @@ export function buildGpsProfileComparison(routeSvg, metricSvg, { bands = false }
   return route.xml();
 }
 
-export function buildComparisonPage(examples, { bands = false, production = false, nonGpsExamples = [] } = {}) {
+export function buildComparisonPage(examples, { bands = false, production = false, nonGpsExamples = [], segmentExamples = [], segments = false } = {}) {
   const image = (svg, className) => `<img class="${className}" width="320" height="200" alt="" src="data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}">`;
   const column = (label, svg) => `<figure><figcaption>${label}</figcaption>${image(svg, "native")}${image(svg, "list-size")}</figure>`;
   return `<!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -53,13 +58,14 @@ export function buildComparisonPage(examples, { bands = false, production = fals
     main{max-width:1100px;margin:auto;padding:28px 24px}header{display:flex;align-items:baseline;justify-content:space-between;gap:16px;border-bottom:2px solid #426950;padding-bottom:16px}
     h1{font-family:Georgia,serif;font-size:26px;font-weight:400;margin:0}header span{font-size:13px;color:#647067}section{padding:24px 0;border-bottom:1px solid #dce3dd}h2{font-size:15px;font-weight:600;margin:0 0 18px}
     .comparison{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}figure{margin:0;min-width:0}figcaption{font-size:13px;margin-bottom:10px;color:#536158}
-    nav{display:flex;gap:20px;margin-top:18px}nav a{color:#536158;text-decoration:none;padding-bottom:8px;border-bottom:2px solid transparent}nav a[aria-current="page"]{color:#253128;border-color:#426950}
+    nav{display:flex;flex-wrap:wrap;gap:20px;margin-top:18px}nav a{color:#536158;text-decoration:none;padding-bottom:8px;border-bottom:2px solid transparent}nav a[aria-current="page"]{color:#253128;border-color:#426950}
     img{display:block;object-fit:contain;max-width:100%;height:auto}.native{width:320px;aspect-ratio:16/10}.list-size{width:152px;aspect-ratio:16/10;margin-top:16px}
     @media(max-width:760px){main{padding:20px 16px}header{flex-wrap:wrap}.comparison{grid-template-columns:1fr;gap:24px}figure{display:grid;grid-template-columns:minmax(0,320px);justify-content:center}h1{font-size:24px}}
     </style></head><body><main><header><h1>Thumbnail-Vergleich</h1><span>Dev &middot; 320 &times; 200 / 152 &times; 95</span></header>
-    <nav><a href="index.html" ${!bands && !production ? 'aria-current="page"' : ""}>Linien</a><a href="bands.html" ${bands && !production ? 'aria-current="page"' : ""}>B&auml;nder</a><a href="production.html" ${production ? 'aria-current="page"' : ""}>GPS / Ohne GPS</a></nav>
+    <nav><a href="index.html" ${!bands && !production && !segments ? 'aria-current="page"' : ""}>Linien</a><a href="bands.html" ${bands && !production && !segments ? 'aria-current="page"' : ""}>B&auml;nder</a><a href="production.html" ${production ? 'aria-current="page"' : ""}>GPS / Ohne GPS</a><a href="segments.html" ${segments ? 'aria-current="page"' : ""}>Segmente</a></nav>
     ${examples.map(example => `<section><h2>Workout ${Number(example.id)}</h2><div class="comparison">${column("Karte", example.route)}${column(bands ? "Karte + B&auml;nder" : "Karte + Profil", example.combined)}${column(production ? "GPS-Profil" : bands ? "Power / Altitude" : "Profil", example.metric)}</div></section>`).join("")}
     ${nonGpsExamples.map(example => `<section><h2>Workout ${Number(example.id)} &middot; Ohne GPS</h2>${column("Profil", example.metric)}</section>`).join("")}
+    ${segmentExamples.map(example => `<section><h2>Workout ${Number(example.id)} &middot; ${example.demo ? "Mikrointervalle: Layout-Demo" : "Ohne GPS"}</h2><div class="comparison">${column("B&auml;nder", example.metric)}${column("Segmente", example.combined)}${column("Phasen", example.phases)}</div></section>`).join("")}
     </main></body></html>`;
 }
 
@@ -81,27 +87,49 @@ export async function createGpsProfilePreview(argv) {
   const bandExamples = [];
   const productionExamples = [];
   const nonGpsExamples = [];
+  const segmentExamples = [];
   try {
     const connection = await pool.connect();
     let rows;
     let nonGpsRows;
+    let segmentWorkoutRows;
+    let segmentRows;
     try {
       await connection.query("BEGIN READ ONLY");
       const identity = await connection.query("SELECT current_database() AS name");
       if (identity.rows[0]?.name !== process.env.DB_NAME) throw new Error("Unexpected development database");
-      const result = await connection.query(`SELECT w.id, w.stream, w.stream_codec, w.gps_track_blob, w.gps_track_blob_codec, wt.content
+      const result = await connection.query(`SELECT w.id, w.uid, w.stream, w.stream_codec, w.gps_track_blob, w.gps_track_blob_codec, wt.content
         FROM workouts w JOIN workout_thumbnails wt ON wt.workout_id=w.id
         WHERE w.validgps=true AND w.stream IS NOT NULL AND wt.kind='route'
           AND wt.content LIKE '%data-map-provider="local"%'
-        ORDER BY w.id DESC LIMIT 12`);
+        ORDER BY EXISTS (SELECT 1 FROM workout_segments ws WHERE ws.wid=w.id
+          AND (ws.structure_kind IN ('intervals','microintervals')
+            OR ws.segmenttype='manual' AND coalesce(ws.structure_kind,'simple')='simple')) DESC,
+          w.id DESC LIMIT 12`);
       rows = result.rows;
-      const nonGpsResult = await connection.query(`SELECT id, stream, stream_codec, workout_type
+      const nonGpsResult = await connection.query(`SELECT id, uid, stream, stream_codec, workout_type
         FROM workouts WHERE validgps IS NOT TRUE AND stream IS NOT NULL ORDER BY id DESC LIMIT 6`);
       nonGpsRows = nonGpsResult.rows;
+      const segmentWorkouts = await connection.query(`SELECT w.id, w.uid, w.stream, w.stream_codec, w.workout_type
+        FROM workouts w WHERE w.validgps IS NOT TRUE AND w.stream IS NOT NULL
+        AND EXISTS (SELECT 1 FROM workout_segments ws WHERE ws.wid=w.id
+          AND (ws.structure_kind IN ('intervals','microintervals')
+            OR ws.segmenttype='manual' AND coalesce(ws.structure_kind,'simple')='simple'))
+        ORDER BY w.id DESC LIMIT 6`);
+      segmentWorkoutRows = segmentWorkouts.rows;
+      segmentRows = [];
+      const selectedWorkouts = new Map([...rows, ...nonGpsRows, ...segmentWorkoutRows].map(row => [String(row.id), row]));
+      for (const row of selectedWorkouts.values()) {
+        const stored = await ThumbnailService.loadWorkoutSegmentsForThumbnail(row.id, row.uid, connection);
+        segmentRows.push(...stored.map(segment => ({ ...segment, wid: row.id })));
+      }
       await connection.query("COMMIT");
     } catch (error) { await connection.query("ROLLBACK"); throw error; }
     finally { connection.release(); }
     for (const row of rows) {
+      const storedRoute = load(row.content, { xml: true });
+      storedRoute("[data-route-profile-bands]").remove();
+      const routeSvg = storedRoute.xml();
       const stream = await Workout.decompress(row.stream, row.stream_codec || "brotli");
       const series = Workout.getWst9ThumbnailSeries(stream, { includeProfiles: true });
       const metric = ThumbnailService.createThumbnailPayload({
@@ -109,15 +137,16 @@ export async function createGpsProfilePreview(argv) {
         powers: Array.from(series.powers), heartRates: Array.from(series.heartRates), cadences: Array.from(series.cadences)
       });
       if (!metric?.content) continue;
-      examples.push({ id: row.id, route: row.content, metric: metric.content,
-        combined: buildGpsProfileComparison(row.content, metric.content) });
-      const profileSeries = { powers: series.powers, heartRates: series.heartRates, altitudes: series.altitudes, speeds: series.speeds, gps: true };
+      examples.push({ id: row.id, route: routeSvg, metric: metric.content,
+        combined: buildGpsProfileComparison(routeSvg, metric.content) });
+      const profileSeries = { powers: series.powers, heartRates: series.heartRates, altitudes: series.altitudes, speeds: series.speeds,
+        segments: segmentRows.filter(segment => String(segment.wid) === String(row.id)), recordCount: series.recordCount, gps: true };
       const productionMetric = ThumbnailService.createBandProfileThumbnail(profileSeries);
       const decodedGps = await GpsTrackBlobService.decodeCompressed(row.gps_track_blob, { codec: row.gps_track_blob_codec || "identity" });
       const combined = await ThumbnailService.createThumbnailPayloadAsync({ ...profileSeries, gpsTrack: decodedGps.track }, {
-        renderRoute: async () => ({ kind: "route", mimeType: "image/svg+xml", width: 320, height: 200, content: row.content })
+        renderRoute: async () => ({ kind: "route", mimeType: "image/svg+xml", width: 320, height: 200, content: routeSvg })
       });
-      if (productionMetric && combined?.kind === "route") productionExamples.push({ id: row.id, route: row.content, metric: productionMetric.content,
+      if (productionMetric && combined?.kind === "route") productionExamples.push({ id: row.id, route: routeSvg, metric: productionMetric.content,
         combined: combined.content });
       const workout = Workout.fromBuffer(stream);
       const altitudes = Array.from({ length: workout.length }, (_, index) => workout.getAltitudeAt(index));
@@ -130,8 +159,8 @@ export async function createGpsProfilePreview(argv) {
         const altitude = ThumbnailService.createThumbnailPayload({ profileStyle: "lines", altitudes: finiteAltitudes.map(value => value - baseline), powers: [] });
         if (altitude?.content) {
           const bands = buildBandProfileThumbnail(metric.content, altitude.content);
-          bandExamples.push({ id: row.id, route: row.content, metric: bands,
-            combined: buildGpsProfileComparison(row.content, bands, { bands: true }) });
+          bandExamples.push({ id: row.id, route: routeSvg, metric: bands,
+            combined: buildGpsProfileComparison(routeSvg, bands, { bands: true }) });
         }
       }
       if (examples.length === 3) break;
@@ -141,11 +170,41 @@ export async function createGpsProfilePreview(argv) {
       const series = Workout.getWst9ThumbnailSeries(stream, { includeProfiles: true });
       const metric = ThumbnailService.createThumbnailPayload({ workoutType: row.workout_type,
         powers: Array.from(series.powers), heartRates: Array.from(series.heartRates),
-        altitudes: Array.from(series.altitudes), speeds: Array.from(series.speeds) });
+        altitudes: Array.from(series.altitudes), speeds: Array.from(series.speeds),
+        segments: segmentRows.filter(segment => String(segment.wid) === String(row.id)) });
       if (metric) nonGpsExamples.push({ id: row.id, metric: metric.content });
       if (nonGpsExamples.length === 3) break;
     }
     if (!examples.length) throw new Error("No local map workouts with metric profiles");
+    let demoSource;
+    for (const row of segmentWorkoutRows) {
+      const stream = await Workout.decompress(row.stream, row.stream_codec || "brotli");
+      const series = Workout.getWst9ThumbnailSeries(stream, { includeProfiles: true });
+      const metric = ThumbnailService.createThumbnailPayload({ workoutType: row.workout_type,
+        powers: Array.from(series.powers), heartRates: Array.from(series.heartRates),
+        altitudes: Array.from(series.altitudes), speeds: Array.from(series.speeds) });
+      if (!metric) continue;
+      const selected = segmentRows.filter(segment => String(segment.wid) === String(row.id));
+      segmentExamples.push({ id: row.id, demo: false, metric: metric.content,
+        combined: buildSegmentProfilePreview(metric.content, selected, series.recordCount),
+        phases: buildSegmentProfilePreview(metric.content, selected, series.recordCount, { showPhases: true }) });
+      if (!demoSource && series.recordCount > 1200) demoSource = { id: row.id, metric: metric.content, recordCount: series.recordCount };
+    }
+    if (demoSource && !segmentRows.some(segment => segment.structure_kind === "microintervals"
+      && segmentWorkoutRows.some(row => String(row.id) === String(segment.wid)))) {
+      const start = Math.floor(demoSource.recordCount * 0.2);
+      const phases = Array.from({ length: 24 }, (_, index) => {
+        const offset = start + Math.floor(index / 2) * 60 + (index % 2 ? 40 : 0);
+        return { phase_kind: index % 2 ? "recovery" : "work", repetition_index: Math.floor(index / 2) + 1,
+          start_offset: offset, end_offset: offset + (index % 2 ? 20 : 40) - 1 };
+      });
+      const demo = [{ id: "demo", segmenttype: "manual", structure_kind: "microintervals",
+        start_offset: start, end_offset: phases.at(-1).end_offset, phases,
+        pattern_work_duration_seconds: 40, pattern_recovery_duration_seconds: 20 }];
+      segmentExamples.push({ ...demoSource, demo: true,
+        combined: buildSegmentProfilePreview(demoSource.metric, demo, demoSource.recordCount),
+        phases: buildSegmentProfilePreview(demoSource.metric, demo, demoSource.recordCount, { showPhases: true }) });
+    }
     const directory = path.resolve("tmp/gps-profile-preview");
     await mkdir(directory, { recursive: true });
     const filename = path.join(directory, "index.html");
@@ -155,8 +214,11 @@ export async function createGpsProfilePreview(argv) {
     await writeFile(bandsFilename, buildComparisonPage(bandExamples, { bands: true }), { mode: 0o600 });
     const productionFilename = path.join(directory, "production.html");
     await writeFile(productionFilename, buildComparisonPage(productionExamples, { bands: true, production: true, nonGpsExamples }), { mode: 0o600 });
+    const segmentsFilename = path.join(directory, "segments.html");
+    await writeFile(segmentsFilename, buildComparisonPage([], { segments: true, segmentExamples }), { mode: 0o600 });
     console.log(JSON.stringify({ preview: filename, bandsPreview: bandsFilename,
       productionPreview: productionFilename, nonGpsWorkouts: nonGpsExamples.map(example => example.id),
+      segmentsPreview: segmentsFilename, segmentWorkouts: segmentExamples.filter(example => !example.demo).map(example => example.id),
       workouts: examples.map(example => example.id), bandWorkouts: bandExamples.map(example => example.id) }));
     return filename;
   } finally { await pool.end(); }

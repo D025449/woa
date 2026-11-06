@@ -643,9 +643,9 @@ RAM default; this is an integration check, not representative latency evidence.
 Report: `tmp/woa-local-map-cache/gps-benchmark-f0e696d0-fda9-49fe-bb96-bdb3c0b6d5ca/report.json`.
 
 Existing thumbnail rows are untouched and their currentness policy is unchanged.
-The user will delete old rows manually. Browser thumbnail URL version is now 2
-to separate it from previously cached version-1 images; this does not force
-database regeneration or invalidate an already cached version-2 URL. Successful
+The user will delete old rows manually. Browser thumbnail URL version is now 3
+for the segment/phase integration; this separates earlier URL versions but does
+not force database regeneration or invalidate an already cached version-3 URL. Successful
 images still use the existing private immutable cache policy.
 
 The retained line prototype is explicitly requested through `profileStyle: "lines"`.
@@ -657,6 +657,48 @@ data, plus actual non-GPS streams. Dev examples: GPS 84965/84964/84963, non-GPS
 All 888 tests passed; focused decoder/service tests and types also passed after
 the final missing-column coverage adjustment. No existing thumbnail writes,
 migration, deployment, normal service restart or environment-file edits.
+
+### Production Segment And Phase Bands
+
+The user approved the phase-detail variant as the default for newly generated
+non-GPS/indoor and GPS thumbnails. Only stored interval blocks, microinterval
+blocks and simple manual segments are rendered in the profile. Automatic simple
+laps, critical-power, GPS and unknown segment types remain excluded there.
+Existing colored segment overlays on the GPS route are unchanged.
+
+The production segment SVG helper uses the same shared lane allocator, palette
+and phase-area policy as the workout chart, without importing the browser UI or
+running detectors. It renders compact header bars and areas across every visible
+metric band. Work/recovery opacity is 0.28/0.04; manual segments use their solid
+range area. Blocks without stored phases retain their parent area. Offsets are
+clipped to the raw workout record count before series downsampling.
+
+Non-GPS profiles retain the approved full phase design. GPS applies it inside the
+existing 0.6-white-backed map strip, omitting tiny header labels and leaving the
+segment-profile body transparent so the map can show through. Map, route,
+endpoint layers and attribution remain outside/above the profile as before.
+Stored parents are scoped by workout ID and owner, with ordered phases read from
+the existing workout_segment_phases table. No new migration is needed; the
+existing segment/phase schema must already be present. No detector or segment
+write is triggered by thumbnail generation.
+
+The read-only production preview uses that same loader/compositor. Existing map
+SVG profile groups are removed only from the in-memory preview copy to avoid
+reusing an old strip. Actual GPS examples: 85063 with two microinterval blocks,
+85062/85058 with manual segments. Non-GPS 85065 has one interval block. The
+synthetic microinterval demonstration remains confined to segments.html.
+
+Verification: 892 full-suite tests, final 39 thumbnail tests, types and syntax
+passed; scoped lint had no errors and three existing ChartView warnings. Browser
+1200/390px checks: all 24 production-preview images loaded/nonblank, no overflow,
+one GPS strip each, real phase/header elements and preserved attribution.
+Nine of nine one-GPS Dev benchmark generations succeeded using temporary
+thumbnail tables and PNG RAM default. Report:
+`tmp/woa-local-map-cache/gps-benchmark-3dccf2cf-553a-4d61-9d7c-f6b96676105a/report.json`.
+This is an integration smoke, not representative production latency evidence;
+the isolated cache/report remains retained and budget-counted.
+Existing thumbnail rows/currentness, route style version and tile-cache identity
+are unchanged. No migration, deployment, application restart or env edit occurred.
 
 ### Combined GPS And Metric Profile Preview
 
@@ -707,6 +749,43 @@ profiles retain Power/Altitude labels. Route/marker layering and attribution are
 unchanged. All three Dev samples produced both bands. All 886 tests passed; the
 final alignment adjustment also passed focused tests/types/lint. Desktop/mobile
 screenshots show loaded images and no overflow; old line images remain available.
+
+### Non-GPS Segment Thumbnail Preview
+
+The same read-only Dev preview script now writes
+`tmp/gps-profile-preview/segments.html`. It compares unchanged production bands,
+bands with segment areas, and a phase-detail variant at 320x200 and 152x95.
+The comparison page itself remains read-only. The phase-detail variant was
+subsequently approved as the production default for GPS and non-GPS profiles;
+see Production Segment And Phase Bands above. The other comparison columns and
+synthetic demonstration remain preview-only. No detection, segment saves or
+migrations run when creating the preview.
+
+Only interval blocks, microinterval blocks and ordinary manual segments are
+included. Automatic simple laps, critical-power, GPS and unknown segment types
+are excluded. Stored parents and ordered phases are selected in the existing
+read-only transaction. Actual examples are 85065 (one interval block) and
+83935/59436 (two manual segments each). No stored non-GPS microinterval example
+was found in this Dev selection, so a separately labeled Layout-Demo places
+synthetic 12 x 40/20 phases on the real 85065 metric profile. These phases do not
+represent detected efforts and are not persisted.
+
+The design follows the actual ECharts Bands UI: same segment colors and header
+lane allocator, compact top bars, and transparent areas across every displayed
+metric band. Four compact overlap lanes are available; labels are omitted when
+they do not fit. The reserved header space scales the metric body without
+changing the outer SVG dimensions. Areas share the profile's 18..238 time extent;
+structured block/phase end offsets are inclusive and clipped to the workout.
+The phase variant uses the existing UI helper's work/recovery opacity 0.28/0.04
+for all shown blocks, rather than requiring interactive hover/selection. Manual
+segments have no phase-detail difference. No ECharts chart instance is created.
+
+Verification: all 37 focused thumbnail tests, full type checking, scoped lint and
+syntax passed. Desktop1200/mobile390 image/canvas checks found all 24 images
+loaded/nonblank, correct native/list sizes and no horizontal overflow. Pixel
+checks confirmed phase differences for the interval block and demo, and equality
+for simple manual segments. The script retains the earlier three comparison
+pages; current GPS examples are selected dynamically from Dev data.
 
 ### GPS Thumbnail Performance Measurement
 

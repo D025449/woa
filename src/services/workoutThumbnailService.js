@@ -1,6 +1,7 @@
 import pool from "./database.js";
 import pLimit from "p-limit";
 import { load } from "cheerio";
+import { buildThumbnailSegmentProfile } from "./workoutThumbnailSegmentProfile.js";
 import Workout from "../shared/Workout.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
 import SegmentDBService from "./segmentDBService.js";
@@ -664,7 +665,7 @@ function buildMetricProfileThumbnail({
 }
 
 function buildBandProfileThumbnail({ powers = [], heartRates = [], altitudes = [], speeds = [],
-  gps = false, compact = false, kind = "metrics-profile" } = {}) {
+  segments = [], recordCount = null, gps = false, compact = false, kind = "metrics-profile" } = {}) {
   const prepare = (values, window) => {
     const numeric = Array.from(values || [], value => value == null ? Number.NaN : Number(value));
     const smoothed = smoothSeriesCentered(numeric, window);
@@ -714,7 +715,10 @@ function buildBandProfileThumbnail({ powers = [], heartRates = [], altitudes = [
     return `<g data-band="${key}">${compact ? "" : `<text x="18" y="${top + 9}" font-family="sans-serif" font-size="8" fill="${color}">${label}</text>`}${paths.join("")}</g>`;
   }).join("");
   return { kind, mimeType: "image/svg+xml", width: SVG_WIDTH, height: SVG_HEIGHT,
-    content: `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="160" viewBox="0 0 256 160" data-thumbnail-bands="1">${compact ? "" : '<rect width="256" height="160" fill="#f8fafc"/>'}${bodyMarkup}</svg>` };
+    content: buildThumbnailSegmentProfile(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="160" viewBox="0 0 256 160" data-thumbnail-bands="1">${compact ? "" : '<rect width="256" height="160" fill="#f8fafc"/>'}${bodyMarkup}</svg>`,
+      segments, recordCount ?? Math.max(powers.length, heartRates.length, altitudes.length, speeds.length), { compact }
+    ) };
 }
 
 function addRouteProfileBands(thumbnail, series) {
@@ -737,13 +741,33 @@ function addRouteProfileBands(thumbnail, series) {
 
 function resolveProfileSeries(options) {
   const extracted = WorkoutThumbnailService.extractThumbnailSeries(options.workoutObject);
-  return Object.fromEntries(["powers", "heartRates", "altitudes", "speeds"].map(key =>
+  const series = Object.fromEntries(["powers", "heartRates", "altitudes", "speeds"].map(key =>
     [key, options[key] == null ? extracted[key] : Array.from(options[key])]));
+  return { ...series, segments: options.segments || [],
+    recordCount: options.recordCount ?? options.workoutObject?.length ?? Math.max(...Object.values(series).map(values => values.length)) };
 }
 
 export default class WorkoutThumbnailService {
   static createBandProfileThumbnail(options = {}) {
     return buildBandProfileThumbnail(options);
+  }
+
+  static async loadWorkoutSegmentsForThumbnail(workoutId, uid, queryable = pool) {
+    const result = await queryable.query(`
+      SELECT ws.id, ws.segmenttype, ws.structure_kind, ws.segmentname,
+        ws.start_offset, ws.end_offset, ws.pattern_work_duration_seconds,
+        ws.pattern_recovery_duration_seconds,
+        CASE WHEN ws.structure_kind IN ('intervals', 'microintervals') THEN
+          coalesce((SELECT jsonb_agg(jsonb_build_object(
+            'position', phase.position, 'phase_kind', phase.phase_kind,
+            'repetition_index', phase.repetition_index, 'duration', phase.duration,
+            'start_offset', phase.start_offset, 'end_offset', phase.end_offset)
+            ORDER BY phase.position)
+            FROM workout_segment_phases phase WHERE phase.segment_id = ws.id), '[]'::jsonb)
+          ELSE '[]'::jsonb END AS phases
+      FROM workout_segments ws WHERE ws.wid = $1 AND ws.uid = $2
+      ORDER BY ws.start_offset, ws.end_offset`, [workoutId, uid]);
+    return result.rows;
   }
 
   static extractThumbnailSeries(workoutObject = null) {
@@ -794,10 +818,12 @@ export default class WorkoutThumbnailService {
     heartRates = null,
     cadences = null,
     speeds = null,
+    segments = null,
+    recordCount = null,
     profileStyle = "bands"
   } = {}) {
     if (profileStyle !== "lines") {
-      const series = resolveProfileSeries({ workoutObject, altitudes, powers, heartRates, speeds });
+      const series = resolveProfileSeries({ workoutObject, altitudes, powers, heartRates, speeds, segments, recordCount });
       if (String(workoutType || "").toLowerCase() !== "indoor") {
         const route = buildRouteThumbnail(gpsTrackSegments, gpsTrack, segmentOverlays);
         if (route) return addRouteProfileBands(route, series);
@@ -1123,15 +1149,18 @@ export default class WorkoutThumbnailService {
       let workoutObject = null;
       let gpsTrackSegments = [];
       let segmentOverlays = [];
+      let workoutSegments = [];
+      const timed = async (profileKey, callback) => {
+        const startedAt = performance.now();
+        const value = await callback();
+        profile[profileKey] = performance.now() - startedAt;
+        return value;
+      };
+      const storedSegmentsPromise = timed("loadWorkoutSegmentsMs", () =>
+        WorkoutThumbnailService.loadWorkoutSegmentsForThumbnail(normalizedWorkoutId, row.uid));
 
       if (row.validgps && row.gps_track_blob) {
-        const timed = async (profileKey, callback) => {
-          const startedAt = performance.now();
-          const value = await callback();
-          profile[profileKey] = performance.now() - startedAt;
-          return value;
-        };
-        const [compactTrack, workoutSegments, candidateResult] = await Promise.all([
+        const [compactTrack, loadedSegments, candidateResult] = await Promise.all([
           timed("decodeGpsTrackMs", () => GpsTrackBlobService.decodeCompressedCompact(
             row.gps_track_blob,
             {
@@ -1139,13 +1168,7 @@ export default class WorkoutThumbnailService {
               includeSlotIndices: true
             }
           )),
-          timed("loadWorkoutSegmentsMs", () => pool.query(`
-            SELECT segmenttype, start_offset, end_offset
-            FROM workout_segments
-            WHERE wid = $1
-              AND uid = $2
-            ORDER BY start_offset, end_offset
-          `, [normalizedWorkoutId, row.uid])),
+          storedSegmentsPromise,
           timed("loadGpsCandidatesMs", () =>
             SegmentDBService.getMatchingSegmentCandidateIdsForWorkoutsBulk(
               row.uid,
@@ -1153,9 +1176,9 @@ export default class WorkoutThumbnailService {
               { includeExistingBestEfforts: true }
             ))
         ]);
+        workoutSegments = loadedSegments;
 
         const candidateIds = candidateResult.candidatesByWorkoutId.get(normalizedWorkoutId) || [];
-        profile.workoutSegmentCount = workoutSegments.rows.length;
         profile.gpsCandidateCount = candidateIds.length;
 
         const definitionsById = await timed(
@@ -1169,7 +1192,7 @@ export default class WorkoutThumbnailService {
         profile.gpsMatchCount = gpsMatches.length;
 
         const ranges = [
-          ...workoutSegments.rows,
+          ...workoutSegments,
           ...gpsMatches.map((match) => ({
             segmenttype: "gps",
             start_offset: match.startOffset,
@@ -1178,7 +1201,10 @@ export default class WorkoutThumbnailService {
         ];
         gpsTrackSegments = buildCompactRouteSegments(compactTrack);
         segmentOverlays = buildCompactSegmentOverlays(compactTrack, ranges);
+      } else {
+        workoutSegments = await storedSegmentsPromise;
       }
+      profile.workoutSegmentCount = workoutSegments.length;
       if (row?.stream) {
         try {
           stepStartedAt = performance.now();
@@ -1213,6 +1239,7 @@ export default class WorkoutThumbnailService {
         gpsTrackSegments,
         segmentOverlays,
         workoutObject,
+        segments: workoutSegments,
         localMapClient,
         localMapConfig
       });

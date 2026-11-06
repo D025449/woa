@@ -3,6 +3,46 @@
 Stand: 2026-11-06. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Standard Thumbnail Segment Phases (2026-11-06)
+
+- User approved the phase variant as standard for newly generated GPS and
+	non-GPS/indoor thumbnails. Only stored interval/microinterval/simple manual
+	segments; no other profile types or synthetic demo data. Existing GPS route
+	overlays are unchanged, compact profile stays below route/markers outside attribution.
+- Production SVG helper shared with preview; header-lane and phase-area functions
+	moved to SegmentAppearance with compatible UI re-exports. Full bands retain
+	approved phase design; compact GPS bands have no opaque extra background or
+	tiny labels. Stored parent/phase reads are workout/owner-scoped and ordered.
+- Browser URL version 3; existing rows/currentness, tile caches and route style
+	remain untouched. User still manages old-row deletion. No new migration.
+- 892 tests passed, final 39 thumbnail tests/types/syntax/scoped lint passed
+	(three old ChartView warnings). Read-only browser preview1200/390:24loaded,
+	nonblank/nooverflow, one strip/attribution intact. Actual GPS85063 has two
+	microinterval blocks,85062/85058 manual segments; non-GPS85065 interval block.
+- OneGPS60151 benchmark9/9 successful, PNG default, temporary thumbnail tables;
+	isolated report/cache retained and budget-counted. No existing thumbnail writes,
+	segment writes/scans, migration, deploy, restart or env edit. See
+	docs/workout-map.md#production-segment-and-phase-bands and updated npm guide.
+
+## Non-GPS Segment Thumbnail Preview (2026-11-06)
+
+- User reports deploying the earlier band-resize fix; deployment not independently
+	verified. Approved continuing the separate thumbnail preview, using the actual
+	ECharts Bands UI as reference, not integrating segment overlays into production.
+- Existing preview script now writes segments.html: current bands / segment
+	areas / phase detail. Reuses UI header-lane allocation, segment colors and phase
+	opacity; areas span all metric bands, headers reserve compact space. Only
+	intervals, microintervals and simple manual segments; other types excluded.
+- Actual read-only Dev examples: 85065 interval block, 83935/59436 manual segments.
+	No stored non-GPS microinterval example in selection; clearly labeled synthetic
+	12x40/20 Layout-Demo uses 85065 profile, not detected/persisted phases.
+- All 37 focused thumbnail tests, full types, scoped lint/syntax passed. Browser
+	desktop1200/mobile390: 24 loaded/nonblank images, correct320x200/152x95 sizes,
+	no overflow; phase pixels differ only for structured examples. Prior pages kept.
+- No standard thumbnail/cache/style changes, existing row writes, detection,
+	segment saves, migration, deployment, restart or env edit. See
+	docs/workout-map.md#non-gps-segment-thumbnail-preview and updated npm guide.
+
 ## Band Chart Resize Fix (2026-11-06)
 
 - User reported an intermittent blank workout chart that survived workout changes.

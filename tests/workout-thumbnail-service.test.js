@@ -9,7 +9,44 @@ import GeoapifyThumbnailService from "../src/services/geoapifyThumbnailService.j
 import pool from "../src/services/database.js";
 import LocalThumbnailMapService from "../src/services/localThumbnailMapService.js";
 import { selectGpsBenchmarkSample, createGpsBenchmarkConnection, compareGpsThumbnailPixels } from "../src/scripts/benchmark-gps-thumbnails.js";
-import { buildGpsProfileComparison, buildComparisonPage, buildBandProfileThumbnail } from "../src/scripts/preview-gps-profile-thumbnails.js";
+import { buildGpsProfileComparison, buildComparisonPage, buildBandProfileThumbnail, buildSegmentProfilePreview } from "../src/scripts/preview-gps-profile-thumbnails.js";
+import { load } from "cheerio";
+
+test("non-GPS segment preview reuses band time extent and excludes unapproved types", async () => {
+  const metric = WorkoutThumbnailService.createBandProfileThumbnail({ powers: [100, 200, 150], heartRates: [120, 130, 140], speeds: [2, 3, 4] }).content;
+  const selected = [
+    { id: 1, segmenttype: "auto", structure_kind: "intervals", start_offset: 10, end_offset: 59,
+      phases: [{ phase_kind: "work", start_offset: 10, end_offset: 39 }, { phase_kind: "recovery", start_offset: 40, end_offset: 59 }] },
+    { id: 2, segmenttype: "manual", structure_kind: "microintervals", start_offset: 20, end_offset: 49,
+      phases: [{ phase_kind: "work", start_offset: 20, end_offset: 39 }, { phase_kind: "recovery", start_offset: 40, end_offset: 49 }] },
+    { id: 3, segmenttype: "manual", structure_kind: "simple", start_offset: -10, end_offset: 110 },
+    ...["auto", "crit", "gps", "unknown"].map(segmenttype => ({ segmenttype, start_offset: 0, end_offset: 100 })),
+    { segmenttype: "manual", rowstate: "DEL", start_offset: 0, end_offset: 100 },
+    { segmenttype: "manual", start_offset: null, end_offset: 100 }
+  ];
+  const combined = buildSegmentProfilePreview(metric, selected, 101);
+  const parsed = load(combined, { xml: true });
+  assert.deepEqual(parsed("[data-segment-header]").map((_, element) => parsed(element).attr("data-segment-header")).get().sort(), ["intervals", "manual", "microintervals"]);
+  assert.equal(parsed('[data-segment-area="manual"]').length, 3);
+  assert.equal(parsed('[data-segment-area="manual"]').first().attr("x"), "18");
+  assert.equal(parsed('[data-segment-area="manual"]').first().attr("width"), "220");
+  assert.equal(parsed('[data-segment-area="intervals"]').first().attr("width"), "110");
+  assert.equal(parsed('[data-band="speed"]').length, 1);
+  assert.equal(parsed('[data-segment-lane="2"]').length, 1);
+  const phases = load(buildSegmentProfilePreview(metric, selected, 101, { showPhases: true }), { xml: true });
+  assert.equal(phases('[data-phase-opacity="0.28"]').length, 6);
+  assert.equal(phases('[data-phase-opacity="0.04"]').length, 6);
+  assert.equal(phases('[data-segment-area="manual"]').length, 3);
+  assert.doesNotMatch(phases.xml(), /NaN|Infinity/);
+  assert.equal(buildSegmentProfilePreview(metric, selected.slice(3), 101), metric);
+  assert.equal(buildSegmentProfilePreview(metric, selected, 1), metric);
+  const metadata = await sharp(Buffer.from(combined)).metadata();
+  assert.equal(metadata.width, 256);
+  assert.equal(metadata.height, 160);
+  const page = buildComparisonPage([], { segments: true, segmentExamples: [{ id: 1, metric, combined, phases: phases.xml(), demo: true }] });
+  assert.match(page, /Layout-Demo/);
+  assert.equal((page.match(/data:image\/svg\+xml;base64,/g) || []).length, 6);
+});
 
 test("production thumbnail bands select altitude fallbacks and preserve constant valid heights", () => {
   const base = { powers: [100, 200, 150], heartRates: [120, 130, 140], speeds: [2, 3, 4] };
@@ -29,6 +66,46 @@ test("production thumbnail bands select altitude fallbacks and preserve constant
   assert.doesNotMatch(height.content, /data-band="speed"/);
   assert.doesNotMatch(height.content, /NaN|Infinity|stroke="#/);
   assert.equal(WorkoutThumbnailService.createBandProfileThumbnail({ altitudes: [NaN, NaN], powers: [0, 0] }), null);
+});
+
+test("standard thumbnail phases render for indoor and GPS without changing the route layers", async () => {
+  const segments = [{ id: 1, segmenttype: "auto", structure_kind: "intervals", start_offset: 10, end_offset: 59,
+    phases: [{ phase_kind: "work", start_offset: 10, end_offset: 39 }, { phase_kind: "recovery", start_offset: 40, end_offset: 59 }] },
+    { segmenttype: "crit", start_offset: 10, end_offset: 59 }];
+  const options = { powers: Array(101).fill(200), heartRates: Array(101).fill(130), speeds: Array(101).fill(5), segments };
+  const indoor = WorkoutThumbnailService.createThumbnailPayload({ ...options, workoutType: "indoor" });
+  assert.equal(indoor.kind, "indoor-profile");
+  assert.equal(load(indoor.content, { xml: true })('[data-phase-opacity="0.28"]').length, 3);
+  assert.match(indoor.content, /data-band="speed"/);
+  assert.doesNotMatch(indoor.content, /data-segment-header="criticalPower"|data-preview/);
+  const gps = await WorkoutThumbnailService.createThumbnailPayloadAsync({ ...options, gpsTrack: [[49, 8], [49.01, 8.01]] }, {
+    renderRoute: async () => ({ kind: "route", mimeType: "image/svg+xml", width: 320, height: 200,
+      content: '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200"><rect/><image data-map-provider="local"/><circle id="endpoint"/><text y="188">OpenStreetMap contributors</text></svg>' })
+  });
+  const parsed = load(gps.content, { xml: true });
+  assert.equal(parsed('[data-phase-opacity="0.28"]').length, 2);
+  assert.equal(parsed('[data-phase-opacity="0.04"]').length, 2);
+  assert.equal(parsed('[data-route-profile-bands]').length, 1);
+  assert.equal(parsed('[data-route-profile-bands] rect[fill="#f8fafc"]').length, 0);
+  assert.ok(gps.content.indexOf('data-route-profile-bands') > gps.content.indexOf('data-map-provider'));
+  assert.ok(gps.content.indexOf('data-route-profile-bands') < gps.content.indexOf('id="endpoint"'));
+  assert.match(gps.content, /OpenStreetMap contributors/);
+  assert.doesNotMatch(gps.content, /NaN|Infinity|data-segment-header="criticalPower"/);
+});
+
+test("thumbnail segment loading scopes parents by owner and reads ordered stored phases", async () => {
+  const rows = [{ id: 1, structure_kind: "intervals", phases: [{ position: 0, phase_kind: "work" }] }];
+  let query;
+  let parameters;
+  const result = await WorkoutThumbnailService.loadWorkoutSegmentsForThumbnail(123, "owner", {
+    async query(sql, values) { query = sql; parameters = values; return { rows }; }
+  });
+  assert.equal(result, rows);
+  assert.deepEqual(parameters, [123, "owner"]);
+  assert.match(query, /ws\.wid = \$1 AND ws\.uid = \$2/);
+  assert.match(query, /ORDER BY phase\.position/);
+  assert.match(query, /phase\.segment_id = ws\.id/);
+  assert.doesNotMatch(query, /INSERT|UPDATE|DELETE/i);
 });
 
 test("GPS band preview fills separate power and altitude bands without data outlines", async () => {

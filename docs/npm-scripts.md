@@ -227,14 +227,24 @@ node -- src/scripts/preview-gps-profile-thumbnails.js --env-file .env.developmen
 It reads existing local-map thumbnails and streams in a read-only local Dev
 transaction, reuses the non-GPS metric profile and writes only the generated
 `tmp/gps-profile-preview/index.html` (retained lines), `bands.html` (filled
-power/altitude prototype) and `production.html` (production GPS/non-GPS bands)
+power/altitude prototype), `production.html` (production GPS/non-GPS bands)
+and `segments.html` (preview-only non-GPS segment/phase comparison)
 artifacts. The production page uses the real compositor with existing maps and
-GPS data, plus non-GPS streams including the Speed fallback. The bands use the
-chart's colors/opacity and separate scales. No thumbnail/cache writes,
+GPS data and stored segments/phases, plus non-GPS streams including the Speed fallback. The bands use the
+chart's colors/opacity and separate scales. The segments page reads stored
+interval/microinterval/manual parents and phases, excludes other types and
+clearly labels any synthetic microinterval layout demo. It does not detect or
+save segments or alter standard thumbnail generation. No thumbnail/cache writes,
 downloads, migrations or service starts/restarts. Open that standalone HTML
 directly; the tabs switch variants and no web server is needed. See
 [preview scope and verified examples](workout-map.md#combined-gps-and-metric-profile-preview).
 See also [production band policy](workout-map.md#production-thumbnail-bands).
+The [segment comparison](workout-map.md#non-gps-segment-thumbnail-preview)
+documents actual examples, phase styling and the demo limitation.
+The [production phase policy](workout-map.md#production-segment-and-phase-bands)
+documents the approved default; synthetic phases are never used in production.
+Old GPS strips are removed only from the preview's in-memory map copy so the
+current compositor can be inspected without replacing stored thumbnails.
 
 For `npm run start:all` with the local BW/Hessen thumbnail renderer, use the
 environment settings and data prerequisites in

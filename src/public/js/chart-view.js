@@ -16,6 +16,8 @@ import {
   selectAdaptiveChartResolution
 } from "./adaptive-chart-resolution.js";
 import { buildChartDataZoom, readChartZoomRange } from "./chart-data-zoom.js";
+import { buildSegmentHeaderLayout } from "../../shared/SegmentAppearance.js";
+export { buildSegmentHeaderLayout } from "../../shared/SegmentAppearance.js";
 
 const MIN_DISTANCE_AXIS_SPAN_METERS = 100;
 const ADAPTIVE_CHART_ZOOM_DELAY_MS = 100;
@@ -25,7 +27,6 @@ const SEGMENT_HEADER_HEIGHT_PX = 8;
 const SEGMENT_HEADER_GAP_PX = 2;
 const SEGMENT_HEADER_PADDING_TOP_PX = 4;
 const SEGMENT_HEADER_BASE_GRID_TOP_PX = 40;
-const SEGMENT_HEADER_MAX_LANES = 10;
 const SEGMENT_HEADER_OPACITY = 0.52;
 const SEGMENT_HEADER_ACTIVE_OPACITY = 0.78;
 const SEGMENT_HEADER_HOVER_OPACITY = 0.84;
@@ -54,39 +55,6 @@ function isPersistedManualSegment(segment) {
     && segment?.rowstate !== "DEL"
     && Number.isInteger(segmentId)
     && segmentId > 0;
-}
-
-export function buildSegmentHeaderLayout({
-  segments,
-  isVisible = () => true,
-  maxLanes = SEGMENT_HEADER_MAX_LANES
-}) {
-  const normalizedMaxLanes = Math.max(1, Number(maxLanes) || SEGMENT_HEADER_MAX_LANES);
-  const candidates = (Array.isArray(segments) ? segments : [])
-    .filter((segment) => segment?.rowstate !== "DEL" && isVisible(segment))
-    .map((segment) => ({
-      segment,
-      start: Math.min(Number(segment.start_offset), Number(segment.end_offset)),
-      end: Math.max(Number(segment.start_offset), Number(segment.end_offset))
-    }))
-    .filter(({ start, end }) => Number.isFinite(start) && Number.isFinite(end))
-    .sort((left, right) => left.start - right.start || right.end - left.end);
-
-  const laneEnds = [];
-  const items = candidates.map((candidate) => {
-    let lane = laneEnds.findIndex((end) => end < candidate.start);
-    if (lane < 0) {
-      lane = laneEnds.length;
-    }
-    lane = Math.min(lane, normalizedMaxLanes - 1);
-    laneEnds[lane] = Math.max(laneEnds[lane] ?? Number.NEGATIVE_INFINITY, candidate.end);
-    return { ...candidate, lane };
-  });
-
-  return {
-    items,
-    laneCount: Math.min(laneEnds.length, normalizedMaxLanes)
-  };
 }
 
 export function buildSegmentHeaderGraphicId(segment, index, workoutId = null) {

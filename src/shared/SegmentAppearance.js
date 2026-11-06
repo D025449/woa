@@ -1,6 +1,6 @@
 export const WORKOUT_ROUTE_COLOR = "#ff4d4f";
 export const WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION = "3";
-export const WORKOUT_THUMBNAIL_CACHE_VERSION = "2";
+export const WORKOUT_THUMBNAIL_CACHE_VERSION = "3";
 
 export const SEGMENT_COLORS = Object.freeze({
   criticalPower: Object.freeze({
@@ -44,4 +44,33 @@ export function getSegmentVisibilityKey(segment) {
 export function getSegmentColor(segment, variant = "solid") {
   const colors = SEGMENT_COLORS[getSegmentVisibilityKey(segment)] || SEGMENT_COLORS.manual;
   return colors[variant] || colors.solid;
+}
+
+export function buildSegmentHeaderLayout({ segments, isVisible = _segment => true, maxLanes = 10 }) {
+  const normalizedMaxLanes = Math.max(1, Number(maxLanes) || 10);
+  const candidates = (Array.isArray(segments) ? segments : [])
+    .filter(segment => segment?.rowstate !== "DEL" && isVisible(segment))
+    .map(segment => ({ segment,
+      start: Math.min(Number(segment.start_offset), Number(segment.end_offset)),
+      end: Math.max(Number(segment.start_offset), Number(segment.end_offset)) }))
+    .filter(({ start, end }) => Number.isFinite(start) && Number.isFinite(end))
+    .sort((left, right) => left.start - right.start || right.end - left.end);
+  const laneEnds = [];
+  const items = candidates.map(candidate => {
+    let lane = laneEnds.findIndex(end => end < candidate.start);
+    if (lane < 0) lane = laneEnds.length;
+    lane = Math.min(lane, normalizedMaxLanes - 1);
+    laneEnds[lane] = Math.max(laneEnds[lane] ?? Number.NEGATIVE_INFINITY, candidate.end);
+    return { ...candidate, lane };
+  });
+  return { items, laneCount: Math.min(laneEnds.length, normalizedMaxLanes) };
+}
+
+export function buildMicroIntervalPhaseAreas(segment) {
+  if (!["intervals", "microintervals"].includes(segment?.structure_kind)) return [];
+  return (segment.phases || []).map(phase => [{
+    xAxis: phase.start_offset, segmentId: segment.id,
+    itemStyle: { color: getSegmentColor(segment), opacity: phase.phase_kind === "work" ? 0.28 : 0.04 },
+    label: { show: false }
+  }, { xAxis: phase.end_offset + 1 }]);
 }
