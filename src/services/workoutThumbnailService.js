@@ -1,5 +1,6 @@
 import pool from "./database.js";
 import pLimit from "p-limit";
+import { load } from "cheerio";
 import Workout from "../shared/Workout.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
 import SegmentDBService from "./segmentDBService.js";
@@ -662,14 +663,97 @@ function buildMetricProfileThumbnail({
   };
 }
 
+function buildBandProfileThumbnail({ powers = [], heartRates = [], altitudes = [], speeds = [],
+  gps = false, compact = false, kind = "metrics-profile" } = {}) {
+  const prepare = (values, window) => {
+    const numeric = Array.from(values || [], value => value == null ? Number.NaN : Number(value));
+    const smoothed = smoothSeriesCentered(numeric, window);
+    return downsampleSeries(numeric.map((value, index) => Number.isFinite(value) ? smoothed[index] : Number.NaN));
+  };
+  const series = {
+    power: { values: prepare(powers, POWER_THUMB_STRONG_SMOOTHING_WINDOW), color: "#2563eb", label: "Power" },
+    heartRate: { values: prepare(heartRates, INDOOR_THUMB_SMOOTHING_WINDOW), color: "#16a34a", label: "HR" },
+    altitude: { values: prepare(altitudes, 1), color: "#38bdf8", label: "Altitude" },
+    speed: { values: prepare(speeds, INDOOR_THUMB_SMOOTHING_WINDOW), color: "#ef4444", label: "Speed" }
+  };
+  const available = key => {
+    const finite = series[key].values.filter(Number.isFinite);
+    return finite.length >= 2 && (key === "altitude" || finite.some(value => value > 0));
+  };
+  const secondary = available("altitude") ? "altitude" : gps ? "heartRate" : "speed";
+  const keys = (gps ? ["power", secondary] : ["power", "heartRate", secondary]).filter(available);
+  if (!keys.length) return null;
+  const bandHeight = (SVG_HEIGHT - 8) / keys.length;
+  const bodyMarkup = keys.map((key, bandIndex) => {
+    const { values, color, label } = series[key];
+    const finite = values.filter(Number.isFinite);
+    const minimum = Math.min(...finite);
+    const maximum = Math.max(...finite);
+    const padding = Math.max(10, (maximum - minimum) * 0.05);
+    const minValue = key === "altitude" ? Math.floor((minimum - padding) / 10) * 10
+      : key === "heartRate" ? Math.max(0, minimum - 10) : 0;
+    const maxValue = key === "altitude" ? Math.ceil((maximum + padding) / 10) * 10
+      : Math.max(minValue + 1, maximum * 1.05);
+    const top = 4 + bandIndex * bandHeight;
+    const plotTop = top + (compact ? 2 : 14);
+    const plotHeight = bandHeight - (compact ? 6 : 18);
+    const paths = [];
+    let start = 0;
+    while (start < values.length) {
+      while (start < values.length && !Number.isFinite(values[start])) start++;
+      let end = start;
+      while (end < values.length && Number.isFinite(values[end])) end++;
+      if (end - start >= 2) {
+        const left = 18 + start / (values.length - 1) * (SVG_WIDTH - 36);
+        const width = (end - start - 1) / (values.length - 1) * (SVG_WIDTH - 36);
+        const area = createAreaPathFromSeries(values.slice(start, end), width, plotHeight, 0, { minValue, maxValue });
+        paths.push(`<path transform="translate(${left} ${plotTop})" d="${area}" fill="${color}" fill-opacity="${key === "altitude" ? "0.3" : "0.26"}" stroke="none"/>`);
+      }
+      start = end + 1;
+    }
+    return `<g data-band="${key}">${compact ? "" : `<text x="18" y="${top + 9}" font-family="sans-serif" font-size="8" fill="${color}">${label}</text>`}${paths.join("")}</g>`;
+  }).join("");
+  return { kind, mimeType: "image/svg+xml", width: SVG_WIDTH, height: SVG_HEIGHT,
+    content: `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="160" viewBox="0 0 256 160" data-thumbnail-bands="1">${compact ? "" : '<rect width="256" height="160" fill="#f8fafc"/>'}${bodyMarkup}</svg>` };
+}
+
+function addRouteProfileBands(thumbnail, series) {
+  if (!thumbnail?.content || thumbnail.kind !== "route") return thumbnail;
+  const profile = buildBandProfileThumbnail({ ...series, gps: true, compact: true });
+  if (!profile) return thumbnail;
+  const document = load(thumbnail.content, { xml: true });
+  if (document("[data-route-profile-bands]").length) return thumbnail;
+  const root = document("svg").first();
+  const width = Number(root.attr("width")) || thumbnail.width;
+  const height = Number(root.attr("height")) || thumbnail.height;
+  const profileDocument = load(profile.content, { xml: true });
+  const markup = `<g data-route-profile-bands="1"><rect x="${width * 0.0125}" y="${height * 0.64}" width="${width * 0.975}" height="${height * 0.24}" rx="4" fill="#ffffff" fill-opacity="0.6"/><svg x="${width * 0.0125}" y="${height * 0.64}" width="${width * 0.975}" height="${height * 0.24}" viewBox="0 0 256 160" preserveAspectRatio="none">${profileDocument("svg").first().html()}</svg></g>`;
+  const mapImage = root.children('image[data-map-provider]').first();
+  const background = mapImage.length ? mapImage : root.children('rect').first();
+  if (background.length) background.after(markup);
+  else root.prepend(markup);
+  return { ...thumbnail, content: document.xml() };
+}
+
+function resolveProfileSeries(options) {
+  const extracted = WorkoutThumbnailService.extractThumbnailSeries(options.workoutObject);
+  return Object.fromEntries(["powers", "heartRates", "altitudes", "speeds"].map(key =>
+    [key, options[key] == null ? extracted[key] : Array.from(options[key])]));
+}
+
 export default class WorkoutThumbnailService {
+  static createBandProfileThumbnail(options = {}) {
+    return buildBandProfileThumbnail(options);
+  }
+
   static extractThumbnailSeries(workoutObject = null) {
     if (!workoutObject?.length || workoutObject.length < 2) {
       return {
         altitudes: [],
         powers: [],
         heartRates: [],
-        cadences: []
+        cadences: [],
+        speeds: []
       };
     }
 
@@ -677,39 +761,25 @@ export default class WorkoutThumbnailService {
     const powers = [];
     const heartRates = [];
     const cadences = [];
+    const speeds = [];
+    const readMetric = (method, index) => {
+      const value = typeof workoutObject[method] === "function" ? workoutObject[method](index) : null;
+      return value == null ? Number.NaN : Number(value);
+    };
     for (let i = 0; i < workoutObject.length; i++) {
-      const altitudeValue = typeof workoutObject.getAltitudeAt === "function"
-        ? Number(workoutObject.getAltitudeAt(i))
-        : null;
-      const powerValue = typeof workoutObject.getPowerAt === "function"
-        ? Number(workoutObject.getPowerAt(i))
-        : null;
-      const heartRateValue = typeof workoutObject.getHrAt === "function"
-        ? Number(workoutObject.getHrAt(i))
-        : null;
-      const cadenceValue = typeof workoutObject.getCadenceAt === "function"
-        ? Number(workoutObject.getCadenceAt(i))
-        : null;
-
-      if (Number.isFinite(altitudeValue)) {
-        altitudes.push(altitudeValue);
-      }
-      if (Number.isFinite(powerValue)) {
-        powers.push(powerValue);
-      }
-      if (Number.isFinite(heartRateValue)) {
-        heartRates.push(heartRateValue);
-      }
-      if (Number.isFinite(cadenceValue)) {
-        cadences.push(cadenceValue);
-      }
+      altitudes.push(readMetric("getAltitudeAt", i));
+      powers.push(readMetric("getPowerAt", i));
+      heartRates.push(readMetric("getHrAt", i));
+      cadences.push(readMetric("getCadenceAt", i));
+      speeds.push(readMetric("getSpeedAt", i));
     }
 
     return {
       altitudes,
       powers,
       heartRates,
-      cadences
+      cadences,
+      speeds
     };
   }
 
@@ -722,8 +792,19 @@ export default class WorkoutThumbnailService {
     altitudes = null,
     powers = null,
     heartRates = null,
-    cadences = null
+    cadences = null,
+    speeds = null,
+    profileStyle = "bands"
   } = {}) {
+    if (profileStyle !== "lines") {
+      const series = resolveProfileSeries({ workoutObject, altitudes, powers, heartRates, speeds });
+      if (String(workoutType || "").toLowerCase() !== "indoor") {
+        const route = buildRouteThumbnail(gpsTrackSegments, gpsTrack, segmentOverlays);
+        if (route) return addRouteProfileBands(route, series);
+      }
+      return buildBandProfileThumbnail({ ...series,
+        kind: String(workoutType || "").toLowerCase() === "indoor" ? "indoor-profile" : "metrics-profile" });
+    }
     if (String(workoutType || "").toLowerCase() === "indoor") {
       const extracted = workoutObject?.length >= 2
         ? WorkoutThumbnailService.extractThumbnailSeries(workoutObject)
@@ -792,7 +873,8 @@ export default class WorkoutThumbnailService {
     }
     const revision = getLocalThumbnailMapConfig().enabled ? LocalThumbnailMapService.getRevision() : null;
     try {
-      return await renderRoute(options, fallback) || fallback;
+      const rendered = await renderRoute(options, fallback) || fallback;
+      return options.profileStyle === "lines" ? rendered : addRouteProfileBands(rendered, resolveProfileSeries(options));
     } catch (error) {
       console.warn("[thumbnail] map.render.failed", { reason: "render-error" });
       return revision ? annotateLocalRouteFallback(fallback, error, revision) : fallback;
@@ -1022,7 +1104,7 @@ export default class WorkoutThumbnailService {
           id,
           uid,
           validgps,
-          CASE WHEN validgps THEN NULL ELSE stream END AS stream,
+          stream,
           stream_codec,
           gps_track_blob,
           gps_track_blob_codec,
@@ -1096,23 +1178,32 @@ export default class WorkoutThumbnailService {
         ];
         gpsTrackSegments = buildCompactRouteSegments(compactTrack);
         segmentOverlays = buildCompactSegmentOverlays(compactTrack, ranges);
-      } else if (row?.stream) {
-        stepStartedAt = performance.now();
-        const rawWorkoutStream = await Workout.decompress(
-          row.stream,
-          row?.stream_codec || "brotli"
-        );
-        profile.decompressWorkoutStreamMs = performance.now() - stepStartedAt;
-        stepStartedAt = performance.now();
-        const series = Workout.getWst9ThumbnailSeries(rawWorkoutStream);
-        profile.decodeWorkoutStreamMs = performance.now() - stepStartedAt;
-        profile.thumbnailSeriesMode = "direct-wst9";
-        workoutObject = {
-          length: series.recordCount,
-          getPowerAt: (index) => series.powers[index],
-          getHrAt: (index) => series.heartRates[index],
-          getCadenceAt: (index) => series.cadences[index]
-        };
+      }
+      if (row?.stream) {
+        try {
+          stepStartedAt = performance.now();
+          const rawWorkoutStream = await Workout.decompress(
+            row.stream,
+            row?.stream_codec || "brotli"
+          );
+          profile.decompressWorkoutStreamMs = performance.now() - stepStartedAt;
+          stepStartedAt = performance.now();
+          const series = Workout.getWst9ThumbnailSeries(rawWorkoutStream, { includeProfiles: true });
+          profile.decodeWorkoutStreamMs = performance.now() - stepStartedAt;
+          profile.thumbnailSeriesMode = "direct-wst9";
+          workoutObject = {
+            length: series.recordCount,
+            getPowerAt: (index) => series.powers[index],
+            getHrAt: (index) => series.heartRates[index],
+            getCadenceAt: (index) => series.cadences[index],
+            getAltitudeAt: (index) => series.altitudes[index],
+            getSpeedAt: (index) => series.speeds[index]
+          };
+        } catch (error) {
+          if (!gpsTrackSegments.length) throw error;
+          profile.thumbnailSeriesMode = "unavailable";
+          console.warn("[thumbnail] profile.stream.failed", { workoutId: normalizedWorkoutId, reason: "invalid-stream" });
+        }
       }
 
       stepStartedAt = performance.now();

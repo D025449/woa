@@ -187,8 +187,12 @@ test("direct WST9 thumbnail series decode only the required columns", () => {
   ).bytes;
   const materialized = Workout.fromBuffer(wst9);
   const direct = Workout.getWst9ThumbnailSeries(wst9);
+  const profiles = Workout.getWst9ThumbnailSeries(wst9, { includeProfiles: true });
+  const decodedProfiles = Workout.decodeWst3Buffer(wst9);
 
   assert.equal(direct.recordCount, recordCount);
+  assert.equal(direct.altitudes, undefined);
+  assert.equal(direct.speeds, undefined);
   for (let index = 0; index < recordCount; index += 1) {
     const expectedPower = materialized.getPowerAt(index);
     const expectedHr = materialized.getHrAt(index);
@@ -199,5 +203,17 @@ test("direct WST9 thumbnail series decode only the required columns", () => {
     if (Number.isFinite(expectedPower)) assert.equal(direct.powers[index], expectedPower);
     if (Number.isFinite(expectedHr)) assert.equal(direct.heartRates[index], expectedHr);
     if (Number.isFinite(expectedCadence)) assert.equal(direct.cadences[index], expectedCadence);
+    assert.equal(profiles.altitudes[index], decodedProfiles.altitudesM[index]);
+    assert.equal(profiles.speeds[index], decodedProfiles.speedsMps[index]);
   }
+  assert.ok(profiles.altitudes.some(Number.isFinite));
+  compactRecords.distancesQ[1] = 0xffffffff;
+  compactRecords.altitudesQ.fill(-32768);
+  compactRecords.speedsCmS.fill(65535);
+  const missing = Workout.getWst9ThumbnailSeries(
+    buildWorkoutStreamBlockCompactDelta8Q4PowerDistanceUint8Q02RleDeltaQ1m(compactRecords).bytes,
+    { includeProfiles: true }
+  );
+  assert.ok(missing.altitudes.every(Number.isNaN));
+  assert.ok(missing.speeds.every(Number.isNaN));
 });

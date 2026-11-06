@@ -138,7 +138,7 @@ export async function runGpsThumbnailBenchmark(argv) {
         const timings = {};
         for (const key of ["generationEndToEndMs", "generationQueueMs", "dbConnectionWaitMs", "advisoryLockMs", "dbConnectionHeldMs",
           "loadWorkoutMs", "decodeGpsTrackMs", "loadWorkoutSegmentsMs", "loadGpsCandidatesMs", "loadGpsDefinitionsMs", "matchGpsSegmentsMs",
-          "renderSvgMs", "persistThumbnailMs"]) timings[key] = summary(results.map(result => result.profile?.[key]));
+          "decompressWorkoutStreamMs", "decodeWorkoutStreamMs", "renderSvgMs", "persistThumbnailMs"]) timings[key] = summary(results.map(result => result.profile?.[key]));
         for (const key of ["ms", "workerQueueMs", "workerServiceMs", "workerStartupMs", "workerInitializationMs"]) {
           timings[`map.${key}`] = summary(results.map(result => result.profile?.localMap?.[key]));
         }

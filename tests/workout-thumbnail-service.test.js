@@ -9,6 +9,61 @@ import GeoapifyThumbnailService from "../src/services/geoapifyThumbnailService.j
 import pool from "../src/services/database.js";
 import LocalThumbnailMapService from "../src/services/localThumbnailMapService.js";
 import { selectGpsBenchmarkSample, createGpsBenchmarkConnection, compareGpsThumbnailPixels } from "../src/scripts/benchmark-gps-thumbnails.js";
+import { buildGpsProfileComparison, buildComparisonPage, buildBandProfileThumbnail } from "../src/scripts/preview-gps-profile-thumbnails.js";
+
+test("production thumbnail bands select altitude fallbacks and preserve constant valid heights", () => {
+  const base = { powers: [100, 200, 150], heartRates: [120, 130, 140], speeds: [2, 3, 4] };
+  const gps = WorkoutThumbnailService.createBandProfileThumbnail({ ...base, gps: true });
+  assert.match(gps.content, /data-band="power"/);
+  assert.match(gps.content, /data-band="heartRate"/);
+  assert.doesNotMatch(gps.content, /data-band="speed"/);
+  const flatGps = WorkoutThumbnailService.createBandProfileThumbnail({ ...base, gps: true, altitudes: [0, 0, 0] });
+  assert.match(flatGps.content, /data-band="altitude"/);
+  assert.doesNotMatch(flatGps.content, /data-band="heartRate"/);
+  const indoor = WorkoutThumbnailService.createBandProfileThumbnail(base);
+  assert.match(indoor.content, /data-band="power"/);
+  assert.match(indoor.content, /data-band="heartRate"/);
+  assert.match(indoor.content, /data-band="speed"/);
+  const height = WorkoutThumbnailService.createBandProfileThumbnail({ ...base, altitudes: [-10, -10, -10] });
+  assert.match(height.content, /data-band="altitude"/);
+  assert.doesNotMatch(height.content, /data-band="speed"/);
+  assert.doesNotMatch(height.content, /NaN|Infinity|stroke="#/);
+  assert.equal(WorkoutThumbnailService.createBandProfileThumbnail({ altitudes: [NaN, NaN], powers: [0, 0] }), null);
+});
+
+test("GPS band preview fills separate power and altitude bands without data outlines", async () => {
+  const metric = '<svg><path stroke="#2563eb" d="M 18 134 L 238 18"/></svg>';
+  const altitude = '<svg><path stroke="none" d="M 14 90 L 242 30 L 242 146 L 14 146 Z"/></svg>';
+  const bands = buildBandProfileThumbnail(metric, altitude);
+  assert.match(bands, /data-band="power"/);
+  assert.match(bands, /data-band="altitude"/);
+  assert.match(bands, /fill="#2563eb" fill-opacity="0.26" stroke="none"/);
+  assert.match(bands, /fill="#38bdf8" fill-opacity="0.3" stroke="none"/);
+  assert.ok(bands.includes(`translate(18 0) scale(${220 / 228} 1) translate(-14 0)`));
+  const route = '<svg><image data-map-provider="local"/><circle id="endpoint"/></svg>';
+  const combined = buildGpsProfileComparison(route, bands, { bands: true });
+  assert.match(combined, /data-preview-profile="bands"/);
+  assert.match(combined, /fill="#ffffff" fill-opacity="0.6"/);
+  assert.doesNotMatch(combined, /data-band-label/);
+  assert.ok(combined.indexOf('data-preview-profile') < combined.indexOf('id="endpoint"'));
+  assert.throws(() => buildBandProfileThumbnail('<svg/>', altitude), /Power and altitude profiles required/);
+});
+
+test("GPS profile preview reuses metric curves below route markers and outside attribution", async () => {
+  const route = '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200"><image data-map-provider="local"/><circle id="endpoint"/><text y="188">OpenStreetMap contributors</text></svg>';
+  const metric = '<svg xmlns="http://www.w3.org/2000/svg"><rect/><path stroke="#2563eb" d="M 18 90 L 238 20"/><path stroke="#cbd5e1"/><text>PWR</text></svg>';
+  const combined = buildGpsProfileComparison(route, metric);
+  assert.match(combined, /data-preview-profile="metrics"/);
+  assert.match(combined, /fill="#ffffff" fill-opacity="0.88"/);
+  assert.ok(combined.indexOf('data-preview-profile') < combined.indexOf('id="endpoint"'));
+  assert.match(combined, /y="128".*height="48"/);
+  assert.match(combined, /vector-effect="non-scaling-stroke"/);
+  assert.doesNotMatch(combined, /#cbd5e1|PWR/);
+  assert.match(combined, /OpenStreetMap contributors/);
+  const page = buildComparisonPage([{ id: 1, route, combined, metric }]);
+  assert.equal((page.match(/data:image\/svg\+xml;base64,/g) || []).length, 6);
+  assert.throws(() => buildGpsProfileComparison('<svg/>', metric), /Local map background required/);
+});
 
 test("GPS benchmark pixel comparison detects changed colors, alpha and dimensions", async () => {
   const image = (color, opacity = 1, width = 2) => `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="2"><rect width="2" height="2" fill="${color}" opacity="${opacity}"/></svg>`;
@@ -702,7 +757,7 @@ test("route thumbnail removes sub-pixel GPS points while preserving endpoints", 
   );
 });
 
-test("indoor thumbnail renders power, heart rate, and cadence without altitude or GPS", () => {
+test("indoor thumbnail renders power, heart rate, and altitude bands without GPS", () => {
   const workoutObject = {
     length: 240,
     getAltitudeAt: (index) => 400 + (index % 5),
@@ -717,19 +772,15 @@ test("indoor thumbnail renders power, heart rate, and cadence without altitude o
   });
 
   assert.equal(thumbnail.kind, "indoor-profile");
-  assert.match(thumbnail.content, /stroke="#2563eb"/);
-  assert.match(thumbnail.content, /stroke="#16a34a"/);
-  assert.match(thumbnail.content, /stroke="#f59e0b"/);
-  assert.ok(thumbnail.content.indexOf('stroke="#f59e0b"') < thumbnail.content.indexOf('stroke="#16a34a"'));
-  assert.ok(thumbnail.content.indexOf('stroke="#16a34a"') < thumbnail.content.indexOf('stroke="#2563eb"'));
-  assert.match(thumbnail.content, /stroke="#2563eb" stroke-width="1\.5"/);
-  assert.match(thumbnail.content, /stroke="#16a34a" stroke-width="1\.2"/);
-  assert.match(thumbnail.content, /stroke="#f59e0b" stroke-width="1\.1"/);
-  assert.doesNotMatch(thumbnail.content, /stroke="#dc2626"/);
-  assert.doesNotMatch(thumbnail.content, /rgba\(15, 118, 110/);
+  assert.match(thumbnail.content, /data-band="power"/);
+  assert.match(thumbnail.content, /data-band="heartRate"/);
+  assert.match(thumbnail.content, /data-band="altitude"/);
+  assert.ok(thumbnail.content.indexOf('data-band="power"') < thumbnail.content.indexOf('data-band="heartRate"'));
+  assert.ok(thumbnail.content.indexOf('data-band="heartRate"') < thumbnail.content.indexOf('data-band="altitude"'));
+  assert.doesNotMatch(thumbnail.content, /data-band="cadence"|stroke="#/);
 });
 
-test("workout without GPS uses the compact metrics thumbnail", () => {
+test("workout without GPS uses metric bands", () => {
   const workoutObject = {
     length: 120,
     getAltitudeAt: (index) => 300 + index,
@@ -743,8 +794,29 @@ test("workout without GPS uses the compact metrics thumbnail", () => {
   });
 
   assert.equal(thumbnail.kind, "metrics-profile");
-  assert.match(thumbnail.content, /stroke="#2563eb"/);
-  assert.match(thumbnail.content, /stroke="#16a34a"/);
-  assert.match(thumbnail.content, /stroke="#f59e0b"/);
-  assert.doesNotMatch(thumbnail.content, /stroke="#0f766e"/);
+  assert.match(thumbnail.content, /data-band="power"/);
+  assert.match(thumbnail.content, /data-band="heartRate"/);
+  assert.match(thumbnail.content, /data-band="altitude"/);
+  assert.doesNotMatch(thumbnail.content, /data-band="cadence"|stroke="#/);
+});
+
+test("GPS band integration keeps map and attribution, fills missing altitude with HR and avoids duplicate overlays", async () => {
+  const options = { gpsTrack: [[49, 8], [49.01, 8.01]], powers: [100, 200, 150], heartRates: [120, 130, 125] };
+  const result = await WorkoutThumbnailService.createThumbnailPayloadAsync(options, { renderRoute: async () => ({
+    kind: "route", width: 320, height: 200, mimeType: "image/svg+xml",
+    content: '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200"><rect width="320" height="200"/><image data-map-provider="local"/><circle id="endpoint"/><text y="188">OpenStreetMap contributors</text></svg>'
+  }) });
+  assert.match(result.content, /data-band="power"/);
+  assert.match(result.content, /data-band="heartRate"/);
+  assert.match(result.content, /fill="#ffffff" fill-opacity="0.6"/);
+  assert.match(result.content, /OpenStreetMap contributors/);
+  assert.ok(result.content.indexOf('data-route-profile-bands') > result.content.indexOf('data-map-provider'));
+  assert.ok(result.content.indexOf('data-route-profile-bands') < result.content.indexOf('id="endpoint"'));
+  const fallback = await WorkoutThumbnailService.createThumbnailPayloadAsync(options, { renderRoute: async () => null });
+  assert.equal((fallback.content.match(/data-route-profile-bands=/g) || []).length, 1);
+  const missing = WorkoutThumbnailService.createThumbnailPayload({ workoutObject: {
+    length: 3, getPowerAt: () => 100, getHrAt: () => 120, getAltitudeAt: () => null, getSpeedAt: () => 3
+  } });
+  assert.match(missing.content, /data-band="speed"/);
+  assert.doesNotMatch(missing.content, /data-band="altitude"/);
 });

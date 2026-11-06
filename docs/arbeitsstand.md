@@ -3,6 +3,64 @@
 Stand: 2026-11-06. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Production Thumbnail Bands (2026-11-06)
+
+- User approved integrating the band design for newly generated thumbnails:
+	GPS Power + Altitude, missing Altitude -> HR; non-GPS/indoor Power + HR +
+	Altitude, missing Altitude -> Speed. White map strip stays at 0.6 opacity.
+	Constant/zero/negative valid altitude remains valid; unavailable series omitted.
+- Central band renderer and GPS SVG composition implemented; line prototype
+	retained explicitly. GPS now reads stream profiles; optional WST9/WS10/WS11
+	columns and existing distance-derived Speed fallback preserve missing altitude.
+	Unreadable GPS profile stream does not block map/route generation.
+- Existing rows/currentness policy untouched; user handles deletion. Browser
+	thumbnail URL version 2 separates old v1 cache entries, not database generations.
+- All 888 tests passed; final focused decoder/service tests and types passed.
+	Desktop1200/mobile390 preview: 24 loaded/nonblank images, no overflow; real
+	GPS84965/84964/84963 and non-GPS85065/85035/85034 with Speed fallback.
+	One-GPS60151 Dev benchmark: all nine batches successful, PNG RAM default;
+	temporary thumbnail tables only, isolated retained/budget-counted cache.
+- Updated workout-map/npm guide. No old row deletion, migration, deployment,
+	normal service restart or env edit. See docs/workout-map.md#production-thumbnail-bands.
+
+## GPS Power And Altitude Band Preview (2026-11-06)
+
+- Subsequent user adjustment: band-strip white backing 0.88->0.6 opacity, map
+	shows through more clearly; retained line variant stays 0.88. Both focused
+	preview tests passed, HTML regenerated and browser screenshot reviewed.
+- User asked to retain the line prototype and preview filled power/altitude areas
+	like workout ECharts Bands. Added bands.html plus links between both variants;
+	index.html/line composition remains available. Same three Dev workouts.
+- Separate bands, no data outlines: power #2563eb opacity0.26, altitude #38bdf8
+	opacity0.3, matching chart-view's band policy. Reuses smoothed metric power path
+	and existing altitude-area generator; full stream supplies getAltitudeAt values.
+	Relative altitude baseline uses padded/rounded local minimum, not absolute zero.
+	Horizontal transformation aligns 14px altitude padding with 18px power padding.
+	Route/markers remain above strip; attribution outside. Not a full ECharts render.
+- All 886 tests passed; final alignment focused tests/types/lint passed. Desktop
+	and mobile390 browser checks/screenshots: all18 images loaded, no overflow.
+	Updated workout-map/npm docs. No production thumbnail/chart/cache changes,
+	DB writes, migration, download, deployment, restart or env-file edits.
+
+## GPS And Metric Thumbnail Visual Preview (2026-11-06)
+
+- User approved a separate visual comparison with real workouts, not production
+	composite thumbnails. Added preview-gps-profile-thumbnails.js with explicit
+	local Dev guards/runtime DB pointer and a read-only transaction. Reuses stored
+	local-map SVGs and existing non-GPS power/HR/cadence generator from stream data.
+- Generated tmp/gps-profile-preview/index.html for Dev workouts 84965/84964/84963:
+	map-only, map plus compact metric strip, and metric-only, at 320x200/152x95.
+	White 88%-opaque strip y128..176 sits below route/markers and above map, leaving
+	attribution untouched. Legend/grid omitted only in compact preview. Three-line
+	density and route/profile color overlap remain visual tradeoffs to evaluate.
+- All 885 tests, types/scoped lint/syntax passed. Browser desktop1200/mobile390
+	screenshots and canvas/image checks: all 18 images loaded, no horizontal
+	overflow, stable sizes and nonblank pixels. Preview is open as standalone HTML;
+	no server needed. Scope/method documented in workout-map/npm guide.
+- No existing thumbnail writes, map-cache generation/downloads, production access,
+	migration, normal service restart, deployment or env-file edits. Production
+	composition and thumbnail version/cache invalidation need separate approval.
+
 ## GPS PNG-RAM Default Restored (2026-11-06)
 
 - User approved restoring PNG-only RAM after reviewing 4.3x retained-memory cost

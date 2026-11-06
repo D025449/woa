@@ -198,6 +198,8 @@ benchmark cache/report directories beneath the configured cache root, preserving
 the shared storage budget/locks but refusing eviction of existing cache files.
 Runs new-cache, disk-reuse and RAM-reuse batches at concurrency 1/3/6; records
 phase timings, cache/source counters, CPU, RSS and filesystem operation counters.
+GPS generation now includes workout stream profiles; summaries also report
+`decompressWorkoutStreamMs` and `decodeWorkoutStreamMs` for that additional work.
 Render phase summaries include viewport, tile assembly, PNG decode/mosaic, label
 placement, the combined crop/resize/label-raster/WebP pipeline and final route SVG.
 Output pipeline timings do not isolate WebP encoding from its other operations.
@@ -214,6 +216,25 @@ default. See
 Caches/reports are retained and count toward the budget. Results exclude HTTP/auth
 and durable production-table persistence. See
 [measurement method, results and limitations](workout-map.md#gps-thumbnail-performance-measurement).
+
+The GPS/metric visual design comparison is another standalone internal script,
+not an npm alias:
+
+```bash
+node -- src/scripts/preview-gps-profile-thumbnails.js --env-file .env.development
+```
+
+It reads existing local-map thumbnails and streams in a read-only local Dev
+transaction, reuses the non-GPS metric profile and writes only the generated
+`tmp/gps-profile-preview/index.html` (retained lines), `bands.html` (filled
+power/altitude prototype) and `production.html` (production GPS/non-GPS bands)
+artifacts. The production page uses the real compositor with existing maps and
+GPS data, plus non-GPS streams including the Speed fallback. The bands use the
+chart's colors/opacity and separate scales. No thumbnail/cache writes,
+downloads, migrations or service starts/restarts. Open that standalone HTML
+directly; the tabs switch variants and no web server is needed. See
+[preview scope and verified examples](workout-map.md#combined-gps-and-metric-profile-preview).
+See also [production band policy](workout-map.md#production-thumbnail-bands).
 
 For `npm run start:all` with the local BW/Hessen thumbnail renderer, use the
 environment settings and data prerequisites in

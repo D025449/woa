@@ -662,7 +662,7 @@ export default class Workout {
         };
     }
 
-    static getWst9ThumbnailSeries(buffer) {
+    static getWst9ThumbnailSeries(buffer, { includeProfiles = false } = {}) {
         const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const magic = TEXT_DECODER.decode(bytes.subarray(0, 4));
@@ -717,7 +717,7 @@ export default class Workout {
         );
 
         const cadences = new Float32Array(recordCount);
-        this.#decodeUint8RunLengthDeltaBlock(
+        offset = this.#decodeUint8RunLengthDeltaBlock(
             view,
             offset,
             lengths[3],
@@ -729,11 +729,30 @@ export default class Workout {
             if (!Number.isFinite(cadences[index])) cadences[index] = 0;
         }
 
+        let profiles;
+        if (includeProfiles) {
+            const speeds = new Float32Array(recordCount);
+            speeds.fill(Number.NaN);
+            if (lengths[4] > 0) {
+                for (let index = 0; index < recordCount; index += 1) {
+                    const raw = view.getUint16(offset + index * 2, true);
+                    speeds[index] = raw === WOA_UINT16_NAN ? Number.NaN : raw / 100;
+                }
+            } else {
+                speeds.set(this.decodeWst3Buffer(bytes).speedsMps);
+            }
+            offset += lengths[4];
+            const altitudes = new Float32Array(recordCount);
+            this.#decodeInt16RunLengthDeltaBlock(view, offset, lengths[5], recordCount, altitudes);
+            profiles = { speeds, altitudes };
+        }
+
         return {
             recordCount,
             powers,
             heartRates,
-            cadences
+            cadences,
+            ...profiles
         };
     }
 

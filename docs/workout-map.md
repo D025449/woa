@@ -614,6 +614,100 @@ Its unrelated i18n/ZIP-vendor middleware is not loaded. No live Redis job, upstr
 download, production activation/rollback, deploy, normal restart or migration was
 performed. The user had separately confirmed the preceding metadata check works.
 
+### Production Thumbnail Bands
+
+Newly generated thumbnails now use separate filled bands matching the workout
+chart palette: power blue `#2563eb`, heart rate green `#16a34a`, altitude cyan
+`#38bdf8` and speed red `#ef4444`. Areas have no outlines, with opacity 0.3 for
+altitude and 0.26 for other metrics. Each band has its own vertical scale.
+
+- GPS: retain the map, route, markers and attribution. A compact lower strip
+  shows Power and Altitude; unavailable altitude selects Heart Rate instead.
+  The strip has a 0.6-opacity white backing, below route/markers and above the
+  map image. Attribution remains outside it.
+- Non-GPS, including indoor: Power, Heart Rate and Altitude; unavailable altitude
+  selects Speed instead. Unavailable individual series are omitted, not invented.
+- Altitude needs at least two finite values, but constant, zero and negative
+  elevations remain valid. Its baseline is relative, padded and rounded to 10m.
+  Other metrics also need a positive value. Null/undefined/missing altitude stays
+  unavailable rather than being converted to zero.
+
+GPS generation now also loads/decompresses its workout stream. The direct
+WST9/WS10/WS11 thumbnail reader optionally reads altitude and speed. If speed is
+not stored separately, it uses the existing full decoder's distance-derived
+speed, with its additional allocation/decoding cost. An unreadable GPS profile
+stream leaves the route/map available; non-GPS still requires a readable stream.
+The benchmark reports stream decompression and decoding separately. A local
+one-workout smoke (60151) completed all nine cold/disk/RAM batches with the PNG
+RAM default; this is an integration check, not representative latency evidence.
+Report: `tmp/woa-local-map-cache/gps-benchmark-f0e696d0-fda9-49fe-bb96-bdb3c0b6d5ca/report.json`.
+
+Existing thumbnail rows are untouched and their currentness policy is unchanged.
+The user will delete old rows manually. Browser thumbnail URL version is now 2
+to separate it from previously cached version-1 images; this does not force
+database regeneration or invalidate an already cached version-2 URL. Successful
+images still use the existing private immutable cache policy.
+
+The retained line prototype is explicitly requested through `profileStyle: "lines"`.
+The read-only preview also writes `tmp/gps-profile-preview/production.html`, using
+the actual production band generator and GPS compositor with stored maps/real GPS
+data, plus actual non-GPS streams. Dev examples: GPS 84965/84964/84963, non-GPS
+85065/85035/85034 (including the Speed fallback). Browser checks at 1200/390px:
+24 loaded, nonblank images with stable native/list sizes and no horizontal overflow.
+All 888 tests passed; focused decoder/service tests and types also passed after
+the final missing-column coverage adjustment. No existing thumbnail writes,
+migration, deployment, normal service restart or environment-file edits.
+
+### Combined GPS And Metric Profile Preview
+
+This section records the retained, initially preview-only designs. The subsequent
+approved production policy is documented above.
+Generate the standalone local HTML preview with:
+
+```bash
+node -- src/scripts/preview-gps-profile-thumbnails.js --env-file .env.development
+```
+
+It requires the explicit local Dev environment/runtime database pointer, performs
+its database queries inside a read-only transaction and selects existing local-map
+GPS thumbnails with streams. It decompresses the streams and reuses the existing
+non-GPS power/heart-rate/cadence SVG profile generator. No thumbnail rows are
+created/replaced, map tiles generated/downloaded, migrations run or services
+restarted. Output is `tmp/gps-profile-preview/index.html`, a standalone page with
+embedded images; it needs no server and contains local workout data.
+
+Three actual Dev workouts (84965, 84964, 84963) are shown as map-only, map plus
+profile and the unchanged metric profile, each at 320x200 and 152x95 list size.
+The compact strip reuses the generated metric curve paths without legend/grid,
+on an 88%-opaque white backing at y=128..176. It sits after the map background
+but before the route/markers, leaving attribution below it untouched. Curves use
+non-scaling strokes. This is a design probe: overlapping route/profile colors and
+the three-series density can reduce clarity at list size. No cache/version/style
+or production rendering policy has been changed.
+
+Verified with all 885 tests, types/scoped lint/syntax, desktop/mobile browser
+screenshots and image/canvas checks: 18 loaded images, no overflow at 1200/390px,
+320x200 native and 152x95 list dimensions, nonblank image pixels. The focused
+preview test checks curve reuse, layer order, attribution and six comparison
+images per workout. New production composite rendering remains a separate approval.
+
+The subsequent approved preview variant is `tmp/gps-profile-preview/bands.html`.
+Tabs link it to the retained line preview. It follows the workout chart's bands
+layout: separate power/altitude areas, no data outlines, palette power `#2563eb`
+at 0.26 opacity and altitude `#38bdf8` at 0.3. Power uses the existing smoothed
+metric path closed at its zero baseline. Altitude is read through `Workout.fromBuffer`
+and `getAltitudeAt`, with a relative baseline padded by max(10m, 5% of range) and
+rounded down to 10m, then reuses the existing altitude-area thumbnail path.
+This borrows the chart's visual policy, not its complete ECharts axis/render engine.
+The band strip's white backing was reduced to 0.6 opacity at the user's request,
+so the map shows through; the retained line variant stays at 0.88. Focused tests
+verify both values. The two source profiles have 18px/14px side padding; the height area is horizontally
+transformed to match power's time extent. Compact labels are omitted, full band
+profiles retain Power/Altitude labels. Route/marker layering and attribution are
+unchanged. All three Dev samples produced both bands. All 886 tests passed; the
+final alignment adjustment also passed focused tests/types/lint. Desktop/mobile
+screenshots show loaded images and no overflow; old line images remain available.
+
 ### GPS Thumbnail Performance Measurement
 
 The development-only GPS benchmark uses the real compact-track/segment matching,
