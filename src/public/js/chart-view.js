@@ -2899,14 +2899,27 @@ export default class ChartView {
   performResize() {
     if (this.chartLayoutMode === CHART_LAYOUT_BANDS) {
       const workoutObject = this.currentWorkout?.workoutObject || null;
+      const labels = this.getChartLabels();
+      const currentOption = this.chart.getOption();
+      const previousSeries = new Map((currentOption.series || []).map(series => [series.id, series]));
       const layout = this.buildChartLayoutOptions(
         workoutObject,
-        this.getChartLabels(),
+        labels,
         this.currentXAxisRange
       );
+      const series = this.buildSeriesDefinitions(labels, this.getXAxisField()).map(definition => ({
+        ...definition,
+        markArea: previousSeries.get(definition.id)?.markArea ?? definition.markArea
+      }));
+      const dataZoom = (currentOption.dataZoom || []).map(zoom => ({
+        ...zoom,
+        xAxisIndex: this.getDataZoomXAxisIndexes()
+      }));
       this.syncChartContainerHeight();
       this.chart.resize();
-      this.chart.setOption(layout, { replaceMerge: ["grid", "xAxis", "yAxis"] });
+      this.chart.setOption({ ...layout, series, dataZoom }, {
+        replaceMerge: ["grid", "xAxis", "yAxis", "series", "dataZoom"]
+      });
     } else {
       this.chart.resize();
     }

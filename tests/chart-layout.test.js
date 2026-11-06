@@ -193,6 +193,52 @@ test("switching from bands to overlay explicitly restores lines and removes metr
   assert.ok(measurementSeries.every((entry) => altitudeSeries.z < entry.z));
 });
 
+test("band resize updates overlay series and zoom together while preserving segment areas", (context) => {
+  const view = createView("overlay");
+  const previousSeries = view.buildSeriesDefinitions(labels);
+  const markArea = { silent: true, data: [[{ xAxis: 20 }, { xAxis: 40 }]] };
+  previousSeries.forEach(series => { series.markArea = markArea; });
+  const previousZoom = [
+    { id: "chart-inside-zoom", type: "inside", xAxisIndex: 0, start: 23, end: 61, moveOnMouseMove: false },
+    { id: "chart-slider-zoom", type: "slider", xAxisIndex: 0, start: 23, end: 61, realtime: false }
+  ];
+  let update;
+  let mergeOptions;
+  let resizeCount = 0;
+  view.chart = {
+    getOption: () => ({ series: previousSeries, dataZoom: previousZoom }),
+    resize: () => { resizeCount += 1; },
+    setOption: (option, options) => { update = option; mergeOptions = options; }
+  };
+  view.currentWorkout = { workoutObject: createWorkoutObject() };
+  view.currentWorkout.workoutObject.hasDistanceSeries = () => true;
+  view.currentWorkout.workoutObject.getDistanceAt = index => index * 1000;
+  view.currentXAxisRange = { min: 0, max: 100 };
+  view.xAxisMode = "distance";
+  view.chartLayoutMode = "bands";
+  view.seriesAvailability.altitude = false;
+  view.getChartLabels = () => labels;
+  view.syncChartContainerHeight = () => false;
+  view.scheduleAdaptiveResolutionUpdate = () => {};
+  const previousWindow = globalThis.window;
+  globalThis.window = { requestAnimationFrame: () => 0 };
+  context.after(() => {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  });
+
+  view.performResize();
+
+  assert.equal(resizeCount, 1);
+  assert.deepEqual(mergeOptions.replaceMerge, ["grid", "xAxis", "yAxis", "series", "dataZoom"]);
+  assert.equal(update.grid.length, 4);
+  assert.deepEqual(update.series.map(series => series.xAxisIndex), [0, 1, 2, 3]);
+  assert.deepEqual(update.series.map(series => series.yAxisIndex), [0, 1, 2, 3]);
+  assert.ok(update.series.every(series => series.encode.x === "DistanceKm"));
+  assert.ok(update.series.every(series => series.markArea === markArea));
+  assert.deepEqual(update.dataZoom, previousZoom.map(zoom => ({ ...zoom, xAxisIndex: [0, 1, 2, 3] })));
+});
+
 test("workout and analytics views expose the shared chart-layout control", async () => {
   const [workoutTemplate, analyticsTemplate] = await Promise.all([
     fs.readFile(new URL("../src/views/dashboard-new.ejs", import.meta.url), "utf8"),

@@ -3,6 +3,25 @@
 Stand: 2026-11-06. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Band Chart Resize Fix (2026-11-06)
+
+- User reported an intermittent blank workout chart that survived workout changes.
+	Captured live ECharts 5.6.0 errors originating from ChartView.performResize:
+	band axes coexisted with old overlay-series axis indexes. Reproduced the exact
+	undefined coordinate-system `type` failure using real ECharts in memory;
+	coordinated axis/series/zoom replacement passed the same check.
+- Approved fix updates grids, axes, series and dataZoom together during band
+	resize, retaining markArea by series ID, X-axis field and existing zoom options.
+	Added regression coverage for overlay-to-bands resize, unavailable altitude,
+	distance encoding, segment areas and zoom-range/interaction preservation.
+- All 889 tests passed, full types and scoped syntax/lint passed (three existing
+	ChartView unused-variable/argument warnings). Live local browser after one
+	reload: 5,776 dataset rows, three coherent bands with segment areas; three
+	layout round trips and 390/1200px resizes produced no new JavaScript errors.
+- No thumbnail changes, database writes by the fix, migration, deployment or
+	application restart. UI validation used normal view-preference handlers.
+	Segment-thumbnail preview remains pending; see docs/workout-microintervals.md#band-chart-resize-stability.
+
 ## Production Thumbnail Bands (2026-11-06)
 
 - User approved integrating the band design for newly generated thumbnails:

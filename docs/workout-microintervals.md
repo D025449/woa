@@ -140,6 +140,20 @@ work phases at offsets 952, 1375 and 1796 last 238, 235 and 234 seconds, averagi
 detected block was written to that workout during verification. Apply migration
 094 manually before using the saving/import path with the new block kind.
 
+## Band Chart Resize Stability
+
+The shared workout/analytics ChartView updates grids, axes, series and zoom
+components together when resizing the Bands layout. Replacing only the axes can
+leave overlay-series indexes pointing across different band grids, causing an
+undefined coordinate-system error in ECharts and a blank chart that persists
+across workout changes. The failure was reproduced with ECharts 5.6.0.
+
+Resize retains segment mark areas by series ID, the current time/distance field,
+zoom range and zoom interaction settings. Regression coverage checks these
+contracts. Actual local workout validation after reload exercised layout changes
+and narrow/wide resizes without new JavaScript errors. This is a chart stability
+fix, not a change to segment detection, persistence or thumbnail rendering.
+
 ## Transport and archives
 
 WPP1 version 3 appends a length-prefixed JSON structure extension to the existing
