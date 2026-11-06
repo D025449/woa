@@ -9,6 +9,7 @@ import { buildRollingFtpSnapshots, groupRollingFtpSnapshots } from "../shared/Ro
 import { encodePowerHistogram } from "../shared/PowerHistogramCodec.js";
 import { aggregatePowerDistribution } from "../shared/PowerDistribution.js";
 import { invalidateAnalyticsOverviewCache } from "./analyticsOverviewCache.js";
+import { enqueueImportedMapDemand } from "./localMapDemandService.js";
 import { attachWorkoutSegmentPhases, insertWorkoutMicrointervalBlocks, saveWorkoutSegmentChanges } from "./workoutSegmentStructureService.js";
 
 const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
@@ -2610,6 +2611,9 @@ RETURNING id, uid, start_time;
       if (result.rowCount > 0 || options?.overwriteExisting) {
         invalidateAnalyticsOverviewCache(preparedItems[0]?.fileRow?.uid);
       }
+      if (insertedRows.length && preparedItems.some(item => item.fileRow.validGps)) {
+        void enqueueImportedMapDemand();
+      }
       return {
         insertedRows,
         existingRowsByKey,
@@ -2742,6 +2746,8 @@ RETURNING id, uid;
         workoutId: result.rows[0]?.id
       });
       invalidateAnalyticsOverviewCache(fileRow.uid);
+
+      if (prepared.fileRow.validGps) void enqueueImportedMapDemand();
 
       return {
         ...result.rows[0],

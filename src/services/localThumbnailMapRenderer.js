@@ -11,7 +11,8 @@ import sharp from 'sharp';
 import simplify from 'simplify-js';
 import { getLocalThumbnailMapConfig } from '../config/storagePaths.js';
 import { MapStorageError, withMapStorageBudget } from './localMapStorageService.js';
-import { readMapArchiveSet, mapArchivePath } from './localMapArchiveSetService.js';
+import { mapArchivePath } from './localMapArchiveSetService.js';
+import { reserveMapReader, releaseMapReader, withMapReaderGate } from './localMapReaderService.js';
 import { WORKOUT_ROUTE_COLOR, WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION } from '../shared/SegmentAppearance.js';
 import { project, getLocalMapViewport } from '../shared/localThumbnailMapViewport.js';
 
@@ -26,10 +27,18 @@ export const escapeXml = value => String(value).replace(/[&<>"']/g, character =>
 export class LocalMapRenderer {
   constructor({ dataDirectory = getLocalThumbnailMapConfig().dataDirectory,
     cacheRoot = getLocalThumbnailMapConfig().cacheRoot,
+    storageCacheRoot = cacheRoot, allowCacheEviction = true,
+    readerId = undefined,
+    rawPixelCache = false,
     cacheVersion = 'osm-raster-2', maxMemoryBytes = 16 * 1024 ** 2, maxDiskBytes = 128 * 1024 ** 2 } = {}) {
     this.archives = [];
+    this.readerDirectory = dataDirectory;
+    this.readerId = null;
     try {
-      const entries = readMapArchiveSet(dataDirectory).active.archives;
+      withMapReaderGate(dataDirectory, () => {
+      const reservation = reserveMapReader(dataDirectory, readerId);
+      this.readerId = reservation.id;
+      const entries = reservation.entries;
       if (!entries.length || entries.length > 16) throw new Error('Invalid local map archive count');
       for (const entry of entries) {
       const filename = entry.filename;
@@ -45,11 +54,14 @@ export class LocalMapRenderer {
         statement: database.prepare('SELECT tile_data FROM tiles WHERE zoom_level = ? AND tile_column = ? AND tile_row = ?') });
       } catch (error) { database.close(); throw error; }
       }
+      });
     } catch (error) { this.close(); throw error; }
     this.cacheId = createHash('sha256').update(JSON.stringify({ cacheVersion,
       sources: this.archives.map(({ region, bytes, modified, sourceStamp }) => ({ region, bytes, modified, sourceStamp })) })).digest('hex').slice(0, 20);
     this.cacheDirectory = path.join(cacheRoot, this.cacheId);
-    this.storageConfig = { dataDirectory, cacheRoot };
+    this.storageConfig = { dataDirectory, cacheRoot: storageCacheRoot };
+    this.allowCacheEviction = allowCacheEviction;
+    this.rawPixelCache = rawPixelCache;
     this.maxMemoryBytes = maxMemoryBytes;
     this.maxDiskBytes = maxDiskBytes;
     this.memory = new Map();
@@ -59,6 +71,11 @@ export class LocalMapRenderer {
 
   close() {
     for (const archive of this.archives) archive.database.close();
+    this.archives = [];
+    if (this.readerId) {
+      releaseMapReader(this.readerDirectory, this.readerId);
+      this.readerId = null;
+    }
   }
 
   clearMemory() {
@@ -67,7 +84,8 @@ export class LocalMapRenderer {
   }
 
   remember(key, entry) {
-    const bytes = entry.background.length + Buffer.byteLength(JSON.stringify(entry.labels)) * 2 + 1024;
+    const bytes = entry.background.length + (entry.pixels?.data.length || 0)
+      + Buffer.byteLength(JSON.stringify({ labels: entry.labels, regions: entry.regions })) * 2 + 1024;
     const previous = this.memory.get(key);
     if (previous) { this.memoryBytes -= previous.bytes; this.memory.delete(key); }
     if (bytes > this.maxMemoryBytes) return;
@@ -78,6 +96,14 @@ export class LocalMapRenderer {
     }
     this.memory.set(key, { entry, bytes });
     this.memoryBytes += bytes;
+  }
+
+  async decodeRasterEntry(entry, timing) {
+    if (!this.rawPixelCache) return entry;
+    const startedAt = performance.now();
+    const pixels = await sharp(entry.background).raw().toBuffer({ resolveWithObject: true });
+    timing.pixelDecodeMs = performance.now() - startedAt;
+    return { ...entry, pixels };
   }
 
   async trimDisk() {
@@ -97,13 +123,18 @@ export class LocalMapRenderer {
   }
 
   async rasterTile(example, zoom, tileX, tileY, refresh = false) {
+    const tileStartedAt = performance.now();
+    const timing = { cacheReadMs: 0, vectorBuildMs: 0, tileLoadDecodeMs: 0, geometryBuildMs: 0,
+      rasterizeMs: 0, vectorSources: 0, identicalSourceRows: 0, storageReservationMs: 0,
+      cacheFileWriteMs: 0, cacheTrimMs: 0, cacheWriteMs: 0, pixelDecodeMs: 0 };
     const key = `${zoom}-${tileX}-${tileY}`;
     if (!refresh && this.memory.has(key)) {
       const { entry } = this.memory.get(key);
       this.remember(key, entry);
-      return { ...entry, cache: 'memory' };
+      timing.cacheReadMs = performance.now() - tileStartedAt;
+      return { ...entry, cache: 'memory', timing };
     }
-    if (this.pending.has(key)) return { ...await this.pending.get(key), cache: 'shared' };
+    if (this.pending.has(key)) return { ...await this.pending.get(key), cache: 'shared', timing };
     const task = (async () => {
       await mkdir(this.cacheDirectory, { recursive: true });
       const filename = path.join(this.cacheDirectory, `${key}.json`);
@@ -115,35 +146,52 @@ export class LocalMapRenderer {
             || createHash('sha256').update(background).digest('hex') !== stored.checksum) throw new Error('Invalid raster cache entry');
           const metadata = await sharp(background).metadata();
           if (metadata.width !== 256 || metadata.height !== 256 || metadata.format !== 'png') throw new Error('Invalid raster dimensions');
-          const entry = { background, labels: stored.labels, regions: stored.regions };
+          const entry = await this.decodeRasterEntry({ background, labels: stored.labels, regions: stored.regions }, timing);
           this.remember(key, entry);
           const now = new Date();
           await utimes(filename, now, now);
-          return { ...entry, cache: 'disk' };
+          timing.cacheReadMs = performance.now() - tileStartedAt;
+          return { ...entry, cache: 'disk', timing };
         } catch (error) {
           if (!['ENOENT', 'SyntaxError', 'Error'].includes(error.code || error.name)) throw error;
         }
       }
+      timing.cacheReadMs = performance.now() - tileStartedAt;
+      const buildStartedAt = performance.now();
       const world = 256 * 2 ** zoom;
       const result = await this.renderVector(example, { paintLabels: false, format: 'png',
         viewport: { width: 256, height: 256, zoom, world, left: tileX * 256, top: tileY * 256 } });
+      timing.vectorBuildMs = performance.now() - buildStartedAt;
+      timing.tileLoadDecodeMs = result.stats.tileLoadDecodeMs;
+      timing.geometryBuildMs = result.stats.geometryBuildMs;
+      timing.rasterizeMs = result.stats.rasterizeMs;
+      timing.vectorSources = result.stats.tiles;
+      timing.identicalSourceRows = result.stats.identicalSourceRows;
       const entry = { background: result.background, labels: result.mapLabels, regions: result.stats.regions };
       const stored = JSON.stringify({ cacheId: this.cacheId, png: entry.background.toString('base64'),
         checksum: createHash('sha256').update(entry.background).digest('hex'), labels: entry.labels, regions: entry.regions });
       const temporary = `${filename}.${randomUUID()}.part`;
+      const writeStartedAt = performance.now();
       try {
         await withMapStorageBudget(this.storageConfig, Buffer.byteLength(stored), async () => {
+          timing.storageReservationMs = performance.now() - writeStartedAt;
+          let stepStartedAt = performance.now();
           await writeFile(temporary, stored);
           await rename(temporary, filename);
+          timing.cacheFileWriteMs = performance.now() - stepStartedAt;
+          stepStartedAt = performance.now();
           await this.trimDisk();
-        }, { cacheWrite: true });
+          timing.cacheTrimMs = performance.now() - stepStartedAt;
+        }, { cacheWrite: true, allowCacheEviction: this.allowCacheEviction });
       } catch (error) {
         if (!(error instanceof MapStorageError)) throw error;
       } finally {
         await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; });
       }
-      this.remember(key, entry);
-      return { ...entry, cache: 'built' };
+      timing.cacheWriteMs = performance.now() - writeStartedAt;
+      const decoded = await this.decodeRasterEntry(entry, timing);
+      this.remember(key, decoded);
+      return { ...decoded, cache: 'built', timing };
     })();
     this.pending.set(key, task);
     try { return await task; } finally { this.pending.delete(key); }
@@ -156,6 +204,9 @@ export class LocalMapRenderer {
       const result = await this.renderVector(example, { viewport });
       return this.finish(example, result.background, viewport, { started, ...result.stats });
     }
+    const renderProfile = { viewportMs: performance.now() - started, tileAssemblyMs: 0,
+      mosaicDecodeCompositeMs: 0, labelPlacementMs: 0, outputPipelineMs: 0, finishSvgMs: 0 };
+    const assemblyStartedAt = performance.now();
     const { width, height, zoom, world, left, top } = viewport;
     const tilePixels = world / 2 ** zoom;
     const minTileX = Math.floor(left / tilePixels);
@@ -168,6 +219,9 @@ export class LocalMapRenderer {
     const labels = [];
     const sourceRegions = new Set();
     const hits = { memory: 0, disk: 0, built: 0, shared: 0 };
+    const tileProfile = { cacheReadMs: 0, vectorBuildMs: 0, tileLoadDecodeMs: 0, geometryBuildMs: 0,
+      rasterizeMs: 0, vectorSources: 0, identicalSourceRows: 0, storageReservationMs: 0,
+      cacheFileWriteMs: 0, cacheTrimMs: 0, cacheWriteMs: 0, pixelDecodeMs: 0 };
     let missingTiles = 0;
     for (let tileY = minTileY; tileY <= maxTileY; tileY++) {
       for (let tileX = minTileX; tileX <= maxTileX; tileX++) {
@@ -175,7 +229,11 @@ export class LocalMapRenderer {
         try { tile = await this.rasterTile(example, zoom, tileX, tileY, refreshTiles); }
         catch (error) { if (error.message !== 'No local tiles for this route.') throw error; missingTiles++; continue; }
         hits[tile.cache]++;
-        composites.push({ input: tile.background, left: (tileX - minTileX) * 256, top: (tileY - minTileY) * 256 });
+        for (const key of Object.keys(tileProfile)) tileProfile[key] += tile.timing?.[key] || 0;
+        composites.push({ input: tile.pixels?.data || tile.background,
+          ...(tile.pixels ? { raw: { width: tile.pixels.info.width, height: tile.pixels.info.height,
+            channels: tile.pixels.info.channels } } : {}),
+          left: (tileX - minTileX) * 256, top: (tileY - minTileY) * 256 });
         labels.push(...tile.labels.map(label => ({ ...label,
           screenX: label.worldX * world - left, screenY: label.worldY * world - top })));
         for (const region of tile.regions) sourceRegions.add(region);
@@ -183,23 +241,30 @@ export class LocalMapRenderer {
     }
     if (!composites.length || missingTiles) throw new Error('No local tiles for this route.');
     const tileMs = performance.now() - started;
+    renderProfile.tileAssemblyMs = performance.now() - assemblyStartedAt;
+    const mosaicStartedAt = performance.now();
     const mosaicWidth = tileColumns * 256;
     const mosaicHeight = tileRows * 256;
     const mosaic = await sharp({ create: { width: mosaicWidth, height: mosaicHeight,
       channels: 3, background: '#f2f1e9' } }).composite(composites).raw().toBuffer({ resolveWithObject: true });
+    renderProfile.mosaicDecodeCompositeMs = performance.now() - mosaicStartedAt;
     const scale = 256 / tilePixels;
     const cropLeft = Math.max(0, Math.round((left - minTileX * tilePixels) * scale));
     const cropTop = Math.max(0, Math.round((top - minTileY * tilePixels) * scale));
     const cropWidth = Math.min(mosaicWidth - cropLeft, Math.round(width * scale));
     const cropHeight = Math.min(mosaicHeight - cropTop, Math.round(height * scale));
+    const labelsStartedAt = performance.now();
     const { svg: labelSvg, count: labelCount } = this.placeLabels(labels, width, height);
+    renderProfile.labelPlacementMs = performance.now() - labelsStartedAt;
+    const outputStartedAt = performance.now();
     const background = await sharp(mosaic.data, { raw: { width: mosaicWidth, height: mosaicHeight, channels: mosaic.info.channels } })
       .extract({ left: cropLeft, top: cropTop, width: cropWidth, height: cropHeight })
       .resize(width, height).composite([{ input: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">${labelSvg}</svg>`) }])
       .webp({ quality: 55 }).toBuffer();
+    renderProfile.outputPipelineMs = performance.now() - outputStartedAt;
     return this.finish(example, background, viewport, { started, geometryMs: tileMs, tileMs,
       tiles: composites.length, missingTiles, featureCount: 0, labels: labelCount, cache: hits,
-      regions: [...sourceRegions], cacheId: this.cacheId, memoryCacheBytes: this.memoryBytes });
+      regions: [...sourceRegions], cacheId: this.cacheId, memoryCacheBytes: this.memoryBytes, tileProfile, renderProfile });
   }
 
   viewport(example) {
@@ -221,6 +286,8 @@ export class LocalMapRenderer {
     const tiles = [];
     let missingTiles = 0;
     let tileBytes = 0;
+    let identicalSourceRows = 0;
+    const sourceData = new Map();
     for (let tileY = Math.floor(top / tilePixels); tileY <= Math.floor((top + height - 1e-6) / tilePixels); tileY++) {
       for (let tileX = Math.floor(left / tilePixels); tileX <= Math.floor((left + width - 1e-6) / tilePixels); tileX++) {
         let found = false;
@@ -230,6 +297,11 @@ export class LocalMapRenderer {
           found = true;
           if (!(row.tile_data instanceof Uint8Array)) throw new Error('Invalid vector tile data');
           const raw = Buffer.from(row.tile_data);
+          const key = `${tileX}:${tileY}`;
+          const previous = sourceData.get(key) || [];
+          if (previous.some(bytes => bytes.equals(raw))) identicalSourceRows++;
+          previous.push(raw);
+          sourceData.set(key, previous);
           tileBytes += raw.length;
           const tile = new VectorTile(new PbfReader(raw[0] === 31 ? gunzipSync(raw) : raw));
           tiles.push({ tile, tileX, tileY, region: archive.region });
@@ -238,6 +310,7 @@ export class LocalMapRenderer {
       }
     }
     if (!tiles.length) throw new Error('No local tiles for this route.');
+    const tileLoadDecodeMs = performance.now() - started;
     const layers = ['land', 'water_polygons', 'water_lines', 'buildings', 'boundaries', 'streets'];
     const landColors = { forest: '#add19e', residential: '#e0dfdf', industrial: '#e8dce8',
       commercial: '#e8dce8', retail: '#f0d7dc', farmland: '#eef0d5', farmyard: '#e9e3ce',
@@ -312,9 +385,11 @@ export class LocalMapRenderer {
     const placed = paintLabels ? this.placeLabels(labels, width, height) : { svg: '', count: 0 };
     const mapSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><defs>${definitions.join('')}</defs><rect width="${width}" height="${height}" fill="#f2f1e9"/>${shapes.join('')}${placed.svg}</svg>`;
     const geometryMs = performance.now() - started;
+    const rasterStartedAt = performance.now();
     const image = sharp(Buffer.from(mapSvg));
     const background = await (format === 'png' ? image.png({ compressionLevel: 3 }) : image.webp({ quality: 55 })).toBuffer();
-    const stats = { geometryMs, zoom, tiles: tiles.length, tileBytes, missingTiles,
+    const stats = { geometryMs, tileLoadDecodeMs, geometryBuildMs: geometryMs - tileLoadDecodeMs,
+      rasterizeMs: performance.now() - rasterStartedAt, identicalSourceRows, zoom, tiles: tiles.length, tileBytes, missingTiles,
       featureCount, labels: placed.count, regions: [...new Set(tiles.map(tile => tile.region))] };
     return { background, mapLabels, stats };
   }
@@ -337,6 +412,7 @@ export class LocalMapRenderer {
 
   /** @returns {{svg: string, background: Buffer, stats: Record<string, any>}} */
   finish(example, background, viewport, { started, ...stats }) {
+    const finishStartedAt = performance.now();
     const { world, left, top, zoom } = viewport;
     const screenSegments = example.segments.map(segment => segment.map(project)
       .map(point => [point[0] * world - left, point[1] * world - top]));
@@ -355,6 +431,7 @@ export class LocalMapRenderer {
     const route = `<defs><path id="route" d="${routePath}"/></defs><g fill="none" stroke-linejoin="round" stroke-linecap="round"><use href="#route" stroke="#fff" stroke-width="5"/><use href="#route" stroke="${escapeXml(example.routeColor || WORKOUT_ROUTE_COLOR)}" stroke-width="2.6"/></g>${overlayMarkup}<circle cx="${first[0]}" cy="${first[1]}" r="3" fill="#fff" stroke="#178651" stroke-width="1.5"/><circle cx="${last[0]}" cy="${last[1]}" r="2.7" fill="#d7353c" stroke="#fff" stroke-width="1.3"/>`;
     const attribution = '<rect x="112" y="179" width="200" height="13" fill="#fff" fill-opacity="0.94"/><text x="308" y="188" text-anchor="end" font-family="sans-serif" font-size="8" fill="#34443c">&#169; OpenStreetMap contributors</text>';
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200" data-thumbnail-style="${WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION}"><image data-map-provider="local" width="320" height="200" href="data:image/webp;base64,${background.toString('base64')}"/>${route}${attribution}</svg>`;
+    if (stats.renderProfile) stats.renderProfile.finishSvgMs = performance.now() - finishStartedAt;
     return { svg, background, stats: { ...stats, ms: performance.now() - started, zoom,
       svgBytes: Buffer.byteLength(svg), webpBytes: background.length } };
   }

@@ -6,8 +6,11 @@ import { Client } from "pg";
 import { resolveRuntimeDatabaseEnvironment } from "../../ops/postgres-backup/runtime-database.mjs";
 import { getLocalThumbnailMapConfig } from "../config/storagePaths.js";
 import { MapSetupError, fetchMapCatalog, readMapWorkoutBounds, buildMapPlan, prepareMapArchives } from "../services/localMapProvisioningService.js";
-import { validateMapApproval } from "../services/localMapAdminService.js";
+import { validateMapApproval, summarizeMapDemand } from "../services/localMapAdminService.js";
 import { installMapArchiveUpdates, rollbackMapArchives } from "../services/localMapLifecycleService.js";
+import { saveMapDemand, canAutomaticallyPrepareMaps } from "../services/localMapDemandService.js";
+import { readMapArchiveSet } from "../services/localMapArchiveSetService.js";
+import { scanMapCleanup, deleteUnusedMapFiles, scanMapRetirement, retireMapRegions } from "../services/localMapCleanupService.js";
 
 const SAFE_ERROR_CODES = new Set(["28P01", "28000", "3D000", "42501", "42P01", "42703", "57014", "08001", "08006",
   "EACCES", "EPERM", "ENOENT", "ENOSPC", "EEXIST", "ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED", "ETIMEDOUT",
@@ -15,7 +18,8 @@ const SAFE_ERROR_CODES = new Set(["28P01", "28000", "3D000", "42501", "42P01", "
   "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT",
   "ERR_PARSE_ARGS_UNKNOWN_OPTION", "ERR_PARSE_ARGS_UNEXPECTED_POSITIONAL", "ERR_PARSE_ARGS_INVALID_OPTION_VALUE", "ABORT_ERR"]);
 const MAP_STAGES = new Set(["arguments", "sqlite-runtime", "environment", "runtime-database", "database-connect",
-  "database-read", "database-close", "catalog", "plan", "prepare", "request", "install", "rollback"]);
+  "database-read", "database-close", "catalog", "plan", "prepare", "request", "install", "rollback", "demand",
+  "cleanup-scan", "cleanup", "retire-scan", "retire"]);
 
 function safeErrorCode(error) {
   return [error?.code, error?.cause?.code, error?.cause?.errors?.[0]?.code]
@@ -74,15 +78,16 @@ async function readLifecycleRequest() {
 export async function runMapCommand(argv, { clientFactory = config => new Client(config), fetchFn = fetch,
   progressWriter = message => console.error(message), requestReader = readLifecycleRequest } = {}) {
   const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: {
-    "env-file": { type: "string" }, "approved-regions": { type: "string" }, quick: { type: "boolean", default: false }, json: { type: "boolean", default: false }, help: { type: "boolean", default: false }
+    "env-file": { type: "string" }, "approved-regions": { type: "string" }, "record-demand": { type: "boolean", default: false }, quick: { type: "boolean", default: false }, json: { type: "boolean", default: false }, help: { type: "boolean", default: false }
   } });
   if (values.help) {
-    console.log("Usage: npm run maps:plan|maps:prepare -- --env-file .env.production [--json] [--approved-regions id,...]\nPlan additionally accepts --quick for archive metadata/tile sampling without full SQLite integrity checks. Prepare does not accept --quick. Internal Ops commands install|rollback require a bounded JSON approval request on stdin and an explicit --env-file. No command writes database data or runs migrations.");
+    console.log("Usage: npm run maps:plan|maps:prepare -- --env-file .env.production [--json] [--approved-regions id,...]\nPlan additionally accepts --quick for archive metadata/tile sampling without full SQLite integrity checks. Prepare does not accept --quick. --record-demand explicitly persists the admin demand summary for plan/prepare; plain plan remains read-only. Internal Ops demand records regional demand and downloads missing direct regions only with WOA_MAP_AUTO_DOWNLOAD=1 and the local provider. Internal Ops commands install|rollback|cleanup|retire require a bounded JSON approval request on stdin and an explicit --env-file. Internal cleanup-scan|retire-scan produce approval previews; cleanup deletes only approved unreferenced files, and retirement preserves the former active set for rollback. Restart all cooperating app/workers with reader reservations before cleanup. No command writes database data or runs migrations.");
     return;
   }
   const command = positionals[0];
-  if (!["plan", "prepare", "install", "rollback"].includes(command) || positionals.length !== 1 || !values["env-file"]) throw new MapSetupError("Specify plan|prepare|install|rollback and an explicit --env-file; see --help");
+  if (!["plan", "prepare", "demand", "install", "rollback", "cleanup-scan", "cleanup", "retire-scan", "retire"].includes(command) || positionals.length !== 1 || !values["env-file"]) throw new MapSetupError("Specify a supported map command and an explicit --env-file; see --help");
   if (values.quick && command !== "plan") throw new MapSetupError("--quick is only supported for plan; prepare requires full archive checks");
+  if (values["record-demand"] && !["plan", "prepare"].includes(command)) throw new MapSetupError("--record-demand requires plan or prepare");
   await mapStage("sqlite-runtime", async () => {
     try { await import("node:sqlite"); }
     catch { throw new MapSetupError("Node.js with node:sqlite support is required before preparing maps"); }
@@ -95,7 +100,12 @@ export async function runMapCommand(argv, { clientFactory = config => new Client
     }
     return loaded.parsed;
   });
-  const lifecycleRequest = ["install", "rollback"].includes(command) ? await mapStage("request", requestReader) : null;
+  const lifecycleRequest = ["install", "rollback", "cleanup", "retire"].includes(command) ? await mapStage("request", requestReader) : null;
+  const config = getLocalThumbnailMapConfig();
+  if (command === "demand" && !config.enabled) {
+    console.log(JSON.stringify({ demand: { skipped: true } }));
+    return;
+  }
   const client = await mapStage("runtime-database", () => clientFactory(getMapDatabaseConfig(environment, values["env-file"])));
   const cancellation = new AbortController();
   const abort = () => cancellation.abort(new MapSetupError("Map command interrupted"));
@@ -103,10 +113,23 @@ export async function runMapCommand(argv, { clientFactory = config => new Client
   process.once("SIGTERM", abort);
   const onProgress = progress => progressWriter(formatMapProgress(progress));
   try {
+    const options = { config, signal: cancellation.signal, onProgress, fetchFn };
+    if (["cleanup-scan", "cleanup"].includes(command)) {
+      const result = await mapStage(command, () => command === "cleanup-scan" ? scanMapCleanup(options)
+        : deleteUnusedMapFiles(lifecycleRequest.snapshot, lifecycleRequest, options));
+      console.log(JSON.stringify(command === "cleanup-scan" ? { cleanup: result } : { lifecycle: result }));
+      return;
+    }
     onProgress({ phase: "database-connect" });
     await mapStage("database-connect", () => client.connect());
     onProgress({ phase: "database-read" });
     const workouts = await mapStage("database-read", () => readMapWorkoutBounds(client));
+    if (["retire-scan", "retire"].includes(command)) {
+      const result = await mapStage(command, () => command === "retire-scan" ? scanMapRetirement(workouts, options)
+        : retireMapRegions(lifecycleRequest.snapshot, lifecycleRequest, () => readMapWorkoutBounds(client), options));
+      console.log(JSON.stringify(command === "retire-scan" ? { retirement: result } : { lifecycle: result }));
+      return;
+    }
     await mapStage("database-close", () => client.end());
     if (lifecycleRequest) {
       const options = { config: getLocalThumbnailMapConfig(), fetchFn, signal: cancellation.signal, onProgress };
@@ -120,7 +143,28 @@ export async function runMapCommand(argv, { clientFactory = config => new Client
     const catalog = await mapStage("catalog", () => fetchMapCatalog({ signal: cancellation.signal, fetchFn }));
     onProgress({ phase: "plan" });
     const plan = await mapStage("plan", () => buildMapPlan(workouts, catalog, { dataDirectory: getLocalThumbnailMapConfig().dataDirectory,
-      inspectionMode: values.quick ? "sample" : "full", signal: cancellation.signal, fetchFn, onProgress }));
+      allowParentFallback: command !== "demand", inspectionMode: values.quick ? "sample" : "full", signal: cancellation.signal, fetchFn, onProgress }));
+    if (command === "demand") {
+      const automatic = canAutomaticallyPrepareMaps(plan.report, config, readMapArchiveSet(config.dataDirectory));
+      let demand = { ...summarizeMapDemand(plan.report), automaticDownloads: config.automaticDownloads,
+        downloadState: automatic ? "downloading" : plan.report.downloadBytes === 0 && !plan.report.unmappedWorkouts.length
+          ? "available" : config.automaticDownloads ? "blocked" : "manual" };
+      await mapStage("demand", () => saveMapDemand(demand, config));
+      if (automatic) {
+        try {
+          const preparation = await mapStage("prepare", () => prepareMapArchives(plan, {
+            versioned: true, missingOnly: true, signal: cancellation.signal, fetchFn, onProgress
+          }));
+          demand = { ...summarizeMapDemand({ ...plan.report, preparation }), automaticDownloads: true, downloadState: "available" };
+          await mapStage("demand", () => saveMapDemand(demand, config));
+        } catch (error) {
+          await saveMapDemand({ ...demand, downloadState: "failed" }, config).catch(() => {});
+          throw error;
+        }
+      }
+      console.log(JSON.stringify({ demand }));
+      return;
+    }
     let preparation;
     if (values["approved-regions"] !== undefined) await mapStage("prepare", () => {
       try { validateMapApproval(plan.report, values["approved-regions"].split(",")); }
@@ -128,7 +172,8 @@ export async function runMapCommand(argv, { clientFactory = config => new Client
     });
     if (command === "prepare" && plan.report.readyToPrepare) preparation = await mapStage("prepare", () => prepareMapArchives(plan,
       { signal: cancellation.signal, fetchFn, onProgress }));
-    if (values.json) console.log(JSON.stringify({ ...plan.report, preparation }, null, 2));
+    const demand = values["record-demand"] ? await mapStage("demand", () => saveMapDemand(summarizeMapDemand({ ...plan.report, preparation }), config)) : undefined;
+    if (values.json) console.log(JSON.stringify({ ...plan.report, preparation, demand }, null, 2));
     else {
       const report = plan.report;
       const gib = bytes => `${(bytes / 1024 ** 3).toFixed(2)} GiB`;

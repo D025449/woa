@@ -95,8 +95,7 @@ export function mapStorageCapacity(usage, additionalBytes, device = usage.dataDe
       && cleanedVolumesFit && volume.freeBytes + cacheBytes >= requiredFreeBytes };
 }
 
-export async function withMapStorageBudget(config, additionalBytes, operation,
-  { cacheWrite = false, statfsFn = statfs, onProgress = (_progress) => {} } = {}) {
+export async function withMapStorageLock(config, operation) {
   const directory = await canonicalDirectory(config.dataDirectory);
   const previous = pendingWrites.get(directory) || Promise.resolve();
   const task = previous.catch(() => {}).then(async () => {
@@ -106,13 +105,23 @@ export async function withMapStorageBudget(config, additionalBytes, operation,
       if (error.code === "EEXIST") throw new MapStorageError("Map storage is busy; check active operations before retrying");
       throw error;
     });
-    try {
+    try { return await operation(); }
+    finally { await lock.close(); await unlink(lockPath); }
+  });
+  pendingWrites.set(directory, task);
+  try { return await task; }
+  finally { if (pendingWrites.get(directory) === task) pendingWrites.delete(directory); }
+}
+
+export async function withMapStorageBudget(config, additionalBytes, operation,
+  { cacheWrite = false, allowCacheEviction = true, statfsFn = statfs, onProgress = (_progress) => {} } = {}) {
+  return withMapStorageLock(config, async () => {
       const checkCapacity = async bytes => {
         let usage = await readMapStorageUsage(config, { statfsFn });
         const device = cacheWrite ? usage.cacheDevice : usage.dataDevice;
         const entries = usage.cacheEntries.sort((first, second) => first.modified - second.modified);
         let removed = 0;
-        while (!mapStorageCapacity(usage, bytes, device).fits && entries.length) {
+        while (allowCacheEviction && !mapStorageCapacity(usage, bytes, device).fits && entries.length) {
           const pressure = usage.volumes.find(volume => volume.usedBytes + (volume.device === device ? bytes : 0) > volume.limitBytes
             || volume.device === device && volume.freeBytes < bytes * 1.05 + STORAGE_RESERVE_BYTES);
           const index = pressure ? entries.findIndex(entry => entry.device === pressure.device) : 0;
@@ -134,9 +143,5 @@ export async function withMapStorageBudget(config, additionalBytes, operation,
       };
       const capacity = await checkCapacity(additionalBytes);
       return await operation({ capacity, checkCapacity });
-    } finally { await lock.close(); await unlink(lockPath); }
   });
-  pendingWrites.set(directory, task);
-  try { return await task; }
-  finally { if (pendingWrites.get(directory) === task) pendingWrites.delete(directory); }
 }

@@ -3,9 +3,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkLocalMapUpdates, readMapUpdateState, mapUpdateStateKey } from "./localMapUpdateService.js";
 import { validateMapInstallation } from "./localMapLifecycleService.js";
+import { validateMapCleanupApproval } from "./localMapCleanupService.js";
 
 const projectRoot = fileURLToPath(new URL("../../", import.meta.url));
-export const MAP_OPERATIONS = new Set(["maps-scan", "maps-prepare", "maps-updates", "maps-install", "maps-rollback"]);
+export const MAP_OPERATIONS = new Set(["maps-scan", "maps-prepare", "maps-demand", "maps-updates", "maps-install", "maps-rollback",
+  "maps-cleanup-scan", "maps-cleanup", "maps-retire-scan", "maps-retire"]);
 
 export function validateMapApproval(report, approvedRegions) {
   if (!Array.isArray(approvedRegions) || !approvedRegions.length || approvedRegions.length > 16
@@ -33,8 +35,9 @@ export async function executeMapOperation(job, { spawnFn = spawn, checkUpdates =
     } catch { throw new Error("Map update check failed; server diagnostics required"); }
   }
   if (job.name === "maps-prepare") validateMapApproval({ archives: [] }, job.data.approvedRegions);
-  const command = { "maps-scan": "plan", "maps-prepare": "prepare", "maps-install": "install", "maps-rollback": "rollback" }[job.name];
-  const lifecycle = command === "install" || command === "rollback";
+  const command = { "maps-scan": "plan", "maps-prepare": "prepare", "maps-demand": "demand", "maps-install": "install", "maps-rollback": "rollback",
+    "maps-cleanup-scan": "cleanup-scan", "maps-cleanup": "cleanup", "maps-retire-scan": "retire-scan", "maps-retire": "retire" }[job.name];
+  const lifecycle = ["install", "rollback", "cleanup", "retire"].includes(command);
   let request;
   if (command === "install") {
     const snapshot = await readMapUpdateState(await job.queue.client, mapUpdateStateKey(job.queueQualifiedName));
@@ -42,10 +45,17 @@ export async function executeMapOperation(job, { spawnFn = spawn, checkUpdates =
     validateMapInstallation(snapshot, job.data.approvedRegions);
     request = JSON.stringify({ snapshot, approvedRegions: job.data.approvedRegions });
   } else if (command === "rollback") request = JSON.stringify({ expectedIdentity: job.data.expectedIdentity, previousSet: job.data.previousSet });
+  else if (["cleanup", "retire"].includes(command)) {
+    const source = await job.queue.getJob(String(job.data.snapshotJobId));
+    if (!source || source.name !== `maps-${command}-scan` || await source.getState() !== "completed") throw new Error("Cleanup snapshot unavailable");
+    validateMapCleanupApproval(source.returnvalue, job.data);
+    request = JSON.stringify({ snapshot: source.returnvalue, identity: job.data.identity });
+  }
   if (request && Buffer.byteLength(request) > 128 * 1024) throw new Error("Map lifecycle request too large");
   const args = ["--", path.join(projectRoot, "src/scripts/prepare-local-maps.js"), command,
     "--env-file", path.join(projectRoot, `.env.${process.env.NODE_ENV || "development"}`), "--json"];
   if (command === "plan") args.push("--quick");
+  if (["plan", "prepare"].includes(command)) args.push("--record-demand");
   if (command === "prepare") args.push("--approved-regions", job.data.approvedRegions.join(","));
   await job.updateProgress({ phase: "starting" });
   const child = spawnFn(process.execPath, args, { cwd: projectRoot, env: process.env, stdio: [lifecycle ? "pipe" : "ignore", "pipe", "pipe"] });
@@ -91,7 +101,7 @@ export async function executeMapOperation(job, { spawnFn = spawn, checkUpdates =
   let report;
   try { report = JSON.parse(output); }
   catch { throw new Error("Map command returned an invalid report"); }
-  const summary = lifecycle ? report.lifecycle : summarizeMapDemand(report);
+  const summary = lifecycle ? report.lifecycle : report.cleanup || report.retirement || report.demand || summarizeMapDemand(report);
   if (!summary || lifecycle && typeof summary.activeSet !== "string") throw new Error("Invalid map lifecycle report");
   await job.updateProgress({ phase: "completed", percent: 100 });
   return summary;
@@ -128,6 +138,6 @@ export function summarizeMapDemand(report, now = new Date()) {
     downloadBytes: regions.filter(region => region.status === "missing").reduce((sum, region) => sum + region.bytes, 0),
     readyToPrepare: report.readyToPrepare,
     readyToActivate: report.preparation?.readyToActivate === true,
-    regions
+    regions: [...regions, ...(report.unsupportedRegions || []).map(region => ({ ...region, status: "unsupported", bytes: null }))]
   };
 }

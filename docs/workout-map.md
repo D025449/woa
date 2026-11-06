@@ -332,7 +332,8 @@ an occupied storage lock or protected data exceeding the budget refuses download
 Only recognized completed raster entries (`<20-hex namespace>/<z>-<x>-<y>.json`)
 are eligible for oldest-modification-time-first deletion across source/style
 namespaces; successful cache reads refresh that timestamp. Every archive, possible
-rollback file, unknown file and partial is protected. No active archive or future
+rollback file, unknown file and partial is protected from capacity-driven eviction.
+Explicit archive cleanup is described below. No active archive or future
 rollback set is automatically removed. A cache miss can still render into RAM
 when storage is busy/full; it skips optional persistence without replacing a valid
 map with a route-only fallback. Existing per-namespace/RAM limits still apply.
@@ -420,8 +421,9 @@ Accepted follow-up requirements:
 - Imports remain successful without map coverage; no upload or image request may
   trigger a multi-GiB regional download or external-provider fallback.
 - Aggregate and deduplicate regional demand across workouts; expose region,
-  estimated download size, status and available disk in an admin view. Initially
-  require manual approval; automatic downloads may later use explicit quotas.
+  estimated download size, status and available disk in an admin view. Import
+  demand tracking and explicitly enabled automatic missing-region downloads are
+  now implemented below; no additional monthly or per-region size quota applies.
 - Provision missing regions in background work and permit targeted recovery of
   only marked fallbacks after successful activation. Unsupported catalog regions
   need a durable status, not endless attempts.
@@ -431,11 +433,12 @@ Accepted follow-up requirements:
   implemented below. Working maps survive download failures; successful thumbnails
   are not mass-regenerated.
 - Global storage accounting and raster cleanup are implemented above. Automatic
-  archive-set retirement remains deferred; the storage policy currently protects
-  all archives and rollback files, including unreferenced older versions.
+  archive-set retirement remains deferred. Explicit manual cleanup and retirement
+  are implemented below; active and rollback references remain protected.
 
-There is currently no dedicated regional demand table, import-triggered demand
-scan or automatic archive retirement.
+There is no dedicated regional demand table or automatic archive retirement.
+Import-triggered scans persist aggregated regional demand in a private atomic
+file, described below; workout GPS bounds remain its durable source.
 Global raster cleanup now runs on write-capacity pressure, not on a timer.
 The manual workflow derives demand from PostgreSQL GPS bounds
 and stores job snapshots in the existing Redis-backed Ops queue instead.
@@ -581,10 +584,11 @@ reactivated merely because it remains referenced after a recovery rollback.
 
 All live/previous/staged files, manifest output and older orphaned versions count
 against the unchanged 50%-volume/100-GiB limit plus free-space reserve. Cache-only
-eviction is permitted, archive deletion is not. Exactly one prior set is referenced,
-but older files remain protected on disk to avoid deleting archives still open in
-another process. Repeated updates can eventually exhaust the budget. Automatic
-verified retirement and safe orphan cleanup remain follow-ups; never manually
+eviction is permitted on capacity pressure. Explicit verified archive cleanup is
+described below. Exactly one prior set is referenced; older files are not deleted
+automatically. Open-reader reservations protect files beyond those two references.
+Repeated updates can eventually exhaust the budget until an approved cleanup.
+Automatic retirement remains deferred; never manually
 delete active/previous entries or remove locks without checking process ownership.
 Crash-left files count toward the budget and are not automatically trusted.
 
@@ -610,7 +614,365 @@ Its unrelated i18n/ZIP-vendor middleware is not loaded. No live Redis job, upstr
 download, production activation/rollback, deploy, normal restart or migration was
 performed. The user had separately confirmed the preceding metadata check works.
 
+### GPS Thumbnail Performance Measurement
+
+The development-only GPS benchmark uses the real compact-track/segment matching,
+local-map worker and thumbnail SQL pipeline:
+
+```bash
+node -- src/scripts/benchmark-gps-thumbnails.js --env-file .env.development --limit 6
+```
+
+It accepts only `.env.development`, a local database host, the local map provider,
+installed active archives and a sample limit of 1..12. It uses the runtime database
+pointer resolver, selects GPS workouts across compressed track-size quantiles and
+excludes indoor/non-GPS thumbnails. No migration or application restart is performed.
+
+Each generation connection creates a session-local `workout_thumbnails` temporary
+table without persistent sequences/triggers and verifies that unqualified relation
+lookup resolves to `pg_temp.workout_thumbnails` before continuing. Existing thumbnail
+rows are neither deleted nor overwritten. SQL upsert and COMMIT run against that
+table, which is dropped on COMMIT/ROLLBACK. Advisory-lock keys use a separate random
+benchmark namespace, not the normal workout key. This measures the application
+pipeline, **not durable production persistence latency**: transaction setup includes
+temporary-table creation/isolation verification and COMMIT includes its removal.
+There is no HTTP/session/auth/network round-trip measurement or production claim.
+
+For concurrency 1, 3 and 6, each batch uses a fresh private cache namespace under
+`WOA_MAP_CACHE_DIR/gps-benchmark-<UUID>/`. `cold` starts with an empty namespace;
+tiles may then be reused between workouts in that same batch. `disk` recreates the
+worker, emptying its RAM cache, but does not flush operating-system disk caches.
+`ram` reuses the worker/cache after that disk batch. All runs retain the real
+combined data/cache storage accounting and locks, but disable cache eviction, so
+existing raster cache entries remain untouched. Insufficient capacity can prevent
+test-cache persistence and invalidate the expected disk-reuse scenario; inspect
+the built/disk/memory counters, not just wall time. Temporary reader reservations
+protect archive files while the benchmark worker is alive. Test caches and
+`report.json` are retained for inspection and count toward the storage budget;
+remove only the known benchmark directory after verifying its workers have exited.
+
+Profiles now distinguish generation-limit wait, pool connection wait, transaction
+setup, advisory-lock wait, locked thumbnail lookup, payload creation, persistence,
+connection-held time and full generation time. Worker profiles separate queue wait,
+service time and startup/renderer initialization. Tile profiles distinguish cache
+read, vector load/decode, geometry construction, SVG rasterization, storage
+reservation, cache file write and cache trim. Byte-identical regional tile rows
+are counted diagnostically but still rendered; no source deduplication or geometry
+simplification has been applied. CPU time includes all process threads; sampled peak RSS is not
+per-request memory. OS filesystem counters are operation counts, not byte totals,
+and may be zero on macOS. Six-workout percentiles are descriptive, not robust tails.
+
+Two actual local Dev runs on 2026-11-06 rendered all six selected GPS workouts in
+all nine scenarios without fallbacks. The detailed run measured:
+
+| Cache batch, concurrency 1 | Mean map render | Mean generation pipeline | Batch, 6 workouts |
+| --- | ---: | ---: | ---: |
+| New test cache | 611.7 ms | 661.0 ms | 3,968 ms |
+| Disk reuse | 56.1 ms | 90.4 ms | 544 ms |
+| RAM reuse | 19.4 ms | 55.6 ms | 336 ms |
+
+Across the three new-cache batches, mean per-workout SVG-to-PNG rasterization was
+412-413 ms, geometry construction 83-85 ms, vector load/decode 5-14 ms, and storage
+reservation 60-68 ms. The earlier run's storage reservation was 39-49 ms; cache
+inventory size and OS/database warm-up differ. Peak sampled RSS was 287-338 MiB.
+New-cache concurrency 3 versus 6 took 3,653 versus 3,632 ms for the same six workouts,
+while mean worker wait grew from 830 to 1,315 ms. Increasing request concurrency
+does not parallelize the existing single map worker.
+
+The detailed new-cache runs processed 210 regional source tile rows, of which 60
+(28.6%) were byte-identical duplicates for the same tile coordinates. A justified
+next experiment is to skip **byte-identical** duplicate source rows before geometry
+construction/rasterization, while preserving distinct regional content, attribution
+and active archive references. Coordinate overlap alone is never sufficient, as
+the Austria retirement regression demonstrated. Require focused image/content
+comparisons and the same benchmark before claiming improvement; worker-pool or
+transaction-lifetime changes remain separate, unapproved follow-ups.
+
+Detailed report: `tmp/woa-local-map-cache/gps-benchmark-a0a3aff9-f9b9-443e-a573-e30bd9322e4c/report.json`.
+Initial report: `tmp/woa-local-map-cache/gps-benchmark-35620b18-d068-457b-9d66-cbad3c41da6d/report.json`.
+These are ignored local artifacts and are not portable sample fixtures. Verification:
+all 883 tests, full types and touched-code lint passed; fixtures cover deterministic
+worker queue/startup timings, cache hit/build phases, temporary relation isolation
+and cache-eviction refusal. Existing stored images were not regenerated.
+
+#### Warm Render Phase Follow-Up
+
+The approved follow-up adds `localMap.renderProfile` and benchmark `render.*`
+summaries without changing cache contents, Sharp operations or rendered output:
+`viewportMs`, `tileAssemblyMs`, `mosaicDecodeCompositeMs`, `labelPlacementMs`,
+`outputPipelineMs` and `finishSvgMs`. Tile assembly includes cache access and
+label/region collection; its nested `tile.cacheReadMs` must not be added again.
+The mosaic phase includes PNG decoding/compositing and raw-buffer materialization.
+The output phase deliberately preserves one lazy Sharp pipeline: crop, resize,
+label SVG rasterization/compositing and WebP encoding are measured together, not
+as individually attributed costs. Route/overlay projection, simplification,
+base64 embedding and final SVG assembly are covered by `finishSvgMs`.
+
+Two six-workout runs each completed all 54 generations without fallback. The
+second ran after all regression/static checks had finished, avoiding competition
+with those checks. All RAM scenarios used memory hits only, with no disk hits or
+tile builds. Its concurrency-1 mean times per complete map render were:
+
+| Phase | Mean |
+| --- | ---: |
+| Viewport | 0.126 ms |
+| Tile assembly, including cache lookup | 0.109 ms |
+| PNG decode / mosaic / raw buffer | 8.524 ms |
+| Label placement | 0.052 ms |
+| Crop / resize / label rendering / WebP | 10.141 ms |
+| Route / overlays / final SVG | 0.365 ms |
+| Complete map render | 19.345 ms |
+
+Nested cache lookup was only 0.074 ms for all requested tiles combined, not per
+tile. The corresponding concurrency-3/6 map means were 16.025/16.251 ms; mosaic
+6.888/6.859 ms and output 8.672/8.875 ms. Worker queue waits are separate from
+these render timings. Small phase gaps cover instrumentation/setup overhead;
+these six Dev workouts do not establish production latency or a speedup.
+
+The evidence supports a proposed decoded-pixel RAM cache experiment before
+micro-optimizing lookup/allocation code. It could avoid repeated PNG decoding,
+but not mosaic construction or the output pipeline; no entire-phase saving is
+promised. Account for raw buffer bytes in the existing RAM limit, keep the disk
+PNG cache and verify pixel/output equivalence and the same benchmark. The approved
+implementation and comparison are recorded below; duplicate-source deduplication
+remains unapproved and unimplemented. Existing stored thumbnails were not modified.
+
+Isolated report: `tmp/woa-local-map-cache/gps-benchmark-94e43a00-8982-4165-ba5f-2749fe09bcce/report.json`.
+First phase report: `tmp/woa-local-map-cache/gps-benchmark-04b06a5f-1c80-4435-8b74-f86f7c945caf/report.json`.
+Both test caches remain under the real storage budget; workers exited. All 883
+tests, full types, scoped lint/syntax and editor diagnostics passed. The existing
+cache test checks finite/non-overlapping phases and equal cold/disk/RAM backgrounds.
+
+#### Decoded-Pixel RAM Cache
+
+After explicit approval, raster cache entries retain their PNG plus a decoded
+pixel buffer, dimensions and channel count. Mosaics pass the pixel buffers to
+Sharp as raw inputs, avoiding repeated PNG decoding on RAM hits. Disk JSON/PNG
+format, checksum validation, cache version/identity, map styling, route/label
+rendering and worker concurrency remain unchanged; installed cache files need no
+conversion. After reviewing the approximately 4.3x retained-memory cost for a small
+warm-render gain, the user approved restoring PNG-only RAM as the default.
+`rawPixelCache` now defaults to `false`; explicit `true` retains the experiment
+for controlled comparisons. Timing instrumentation and image tests remain in place.
+
+The existing 16 MiB retained-entry LRU budget counts both actual PNG and raw buffer
+lengths plus estimated labels/regions/entry overhead. Oversized entries are not
+retained; eviction and `clearMemory()` still enforce/reset the budget. This is not
+a process-RSS or transient render-buffer cap. Raw RGBA tiles take 256 KiB before
+PNG/metadata overhead, so fewer tiles fit than with PNG-only entries. Decode is
+performed once per load/build, even when an entry cannot be retained. Its time is
+reported as `tile.pixelDecodeMs`, zero on RAM hits; on disk hits it is nested in
+cache-read time and always nested in tile assembly, not an additive top-level phase.
+
+Use the same development guards/cache isolation/temp-table persistence as above:
+
+```bash
+node -- src/scripts/benchmark-gps-thumbnails.js --env-file .env.development --limit 6
+node -- src/scripts/benchmark-gps-thumbnails.js --env-file .env.development --limit 6 --raw-memory --compare-pixels
+```
+
+The default measures PNG-RAM; `--png-memory` remains an explicit compatibility
+alias for that default. `--raw-memory` opts into raw pixels for the nine measured
+batches. Supplying both memory flags fails before environment/database access.
+`--compare-pixels` adds two unmeasured generation passes after those batches,
+one PNG and one raw, in a separate test-cache namespace. It verifies local-map
+backgrounds and exact full-thumbnail RGBA equality, records hashes/SVG equality,
+and fails on changed pixels. It adds 12 generations for six samples, all still
+persisted only in session-local temporary tables. Report batches state
+`rawPixelCache`; comparisons are stored separately as `imageComparisons`.
+
+Direct sequential same-code Dev measurements on 2026-11-06, without concurrent
+tests, gave these mean complete-map times for memory-only batches:
+
+| Request concurrency | PNG RAM | Raw-pixel RAM | PNG mosaic | Raw mosaic |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 20.363 ms | 16.424 ms | 8.947 ms | 3.988 ms |
+| 3 | 15.746 ms | 14.354 ms | 6.582 ms | 3.757 ms |
+| 6 | 16.824 ms | 12.981 ms | 7.104 ms | 3.397 ms |
+
+That pair shows about 9-23% lower warm render time, not HTTP/end-to-end or production
+throughput. Retained tile RAM rose from 2.12 to 9.12 MiB, below 16 MiB. Raw decode
+costs about 4-5 ms per workout on initial load/build; cold runs were not faster
+(roughly 2-5% slower complete-map means in this pair). Storage inventory grows
+between isolated runs and OS/CPU/SQL times vary, so do not attribute the whole cold
+difference to raw decoding. An earlier raw run also produced pixel-identical
+images with variable total timings; no production/tail guarantee is inferred.
+Both raw runs verified exact pixels and byte-identical SVGs for all six workouts.
+
+Paired reference: `tmp/woa-local-map-cache/gps-benchmark-70c6a23f-8a17-4e1e-9ca6-f2e32e2be103/report.json`.
+Paired raw: `tmp/woa-local-map-cache/gps-benchmark-9c42066a-11cd-4046-a8f9-d6a19bab9b11/report.json`.
+Initial raw: `tmp/woa-local-map-cache/gps-benchmark-b097351d-eac9-44ca-8741-2ade7fa5fafd/report.json`.
+All measured batches completed 54/54 generations; raw comparison runs added 12/12.
+Caches/reports are retained and budget-counted; workers exited. Verification:
+884 tests, full types, scoped lint/syntax/editor checks; expanded cache test also
+checks unchanged disk format/cache identity, raw-byte accounting and eviction.
+Pixel comparison tests reject color, alpha and dimension changes. No existing
+thumbnail writes, map downloads, migrations, deployment or normal restart occurred.
+After default restoration, all 884 tests, types and scoped lint/syntax passed;
+a one-GPS nine-batch smoke run verified `rawPixelCache=false` and zero
+`tile.pixelDecodeMs` without flags. These are default-behavior checks, not new
+performance claims; previously measured raw results above remain historical.
+
+### Manual Archive Cleanup And Region Retirement
+
+The map area at `/admin/accounts#maps` now offers two independent manual workflows.
+Page load only reads reports and starts no operation. There is no automatic archive
+deletion, upstream request, thumbnail rebuild, new npm script, dependency,
+environment variable or database migration in this stage.
+
+`Bereinigung prüfen` queues `maps-cleanup-scan` and lists recognized unreferenced
+MBTiles files with their region, relative filename, size and reader protection.
+Only regular files with validated archive names at the data root or in
+`versions/<UUID>/` are candidates. Active and previous manifest references are
+protected individually: a set can reuse files from several version directories.
+Legacy inventories without a manifest remain entirely protected. Unknown paths,
+symlinks, partials, metadata, raster caches and empty directories are not deleted.
+
+`Alte Dateien löschen` needs a checked confirmation and the matching completed scan
+job, at most one hour old. The API accepts only its job ID and opaque identity,
+not caller-provided filenames. The Ops worker transfers the private stored snapshot
+to the isolated `cleanup` CLI through bounded stdin (128 KiB). Under exclusive
+prepare, storage and reader gates, it rechecks the manifest references, every
+approved file's device/inode/size/nanosecond timestamps and current readers before
+the first deletion. Changed or newly referenced/in-use files reject the operation.
+Only approved files are unlinked, and affected directories are synced. Disk failure
+or interruption can leave a partially completed cleanup; rescan rather than reuse
+the old approval. Cleanup acquires the storage lock without a capacity reservation
+or cache eviction, so it also works above the budget. The public preview omits
+file fingerprints; results report the removed file count and bytes.
+
+`Ausmusterung prüfen` queues `maps-retire-scan`. It reads all current GPS workout
+bounds through the runtime database pointer in a read-only transaction. When GPS
+workouts exist, it fetches the official region catalog and uses the same catalog
+validation and polygon/viewport intersection helpers as installation planning.
+All intersecting region IDs and their ancestors are protected, including installed
+aggregate/parent extracts. Active archives absent from the catalog are also
+protected because their geography cannot be established. Unknown workout geography,
+an unavailable/invalid catalog, missing/unsupported bounds, invalid archives or
+incomplete current tile coverage block retirement. With zero GPS workouts no catalog
+is needed. No archive download or HEAD request is made; catalog metadata and full
+local checks can still take time.
+
+Only geographically unneeded, known regions proceed to the additional cumulative
+tile-removal check. Matching tile coordinates in another archive do not prove
+matching geographic content, especially along national borders. This check cannot
+override geographic protection: an archive requested by installation planning for
+unchanged workout demand cannot be retired just because another archive contains
+the same tile rows. The selection is conservative, not a maximum-space optimizer.
+
+`Regionen ausmustern` requires its own fresh completed scan and explicit approval.
+Under the prepare lock it rereads current workout bounds and recomputes the exact
+candidate set, geographic protection and remaining coverage with a fresh catalog.
+The preview records policy version 2 and a private catalog identity; old tile-only
+previews are hidden/rejected by the API and execution rejects changed catalog
+geometry/hierarchy. After recording/checking archive hashes it
+reads the workout inventory once more before activation; changed demand rejects
+the approval. It activates a reduced manifest atomically and retains the former
+active set as the single rollback target, replacing the older rollback pointer.
+An empty active set is permitted when there are no GPS workouts. Retirement deletes
+no archives and initially frees zero archive bytes: files retained for rollback
+remain protected until a later activation replaces that reference. A subsequent
+cleanup scan can then offer unreferenced files. Activation still obeys the existing
+manifest storage budget/reserve. Imports are not locked or transactionally coupled
+to activation; later/concurrent new demand follows the existing import-demand and
+fallback-recovery workflow. The stored demand summary is not rewritten by retirement;
+use `Bedarf prüfen` for a refreshed regional display.
+
+**Deploy and restart all cooperating app/worker processes before using cleanup.**
+Older renderer binaries do not register readers and cannot be detected by this
+protocol. A renderer registers its exact pinned archive list in a private
+`.maps-reader-<UUID>.json` while opening SQLite under `.maps-reader-gate.lock`.
+Closing a renderer or exiting its worker removes the reservation only after reads
+have ended. A crashed process's reservation is ignored only when the OS confirms
+its PID no longer exists; permission errors or reused live PIDs remain protected.
+Malformed reservations fail closed. Never manually remove a live reservation or
+gate. Crashes can leave prepare/storage/reader gates behind; verify process ownership
+before operator cleanup. While the short reader gate is occupied, new renderer
+startup fails closed through the existing temporary-fallback path rather than
+opening files concurrently with deletion. Existing rendering continues.
+
+The four internal commands use the existing serial Ops queue and manual map
+deduplication key. Large retirement scans/hash checks can delay backups. Public
+API previews redact fingerprints and the opaque workout-inventory hash; they do
+not authorize ordinary map downloads. New scans and completed mutations reset UI
+approval, and all actions are disabled during a running map operation.
+
+Verification and limitations are recorded in `docs/arbeitsstand.md`. Browser checks
+use the actual EJS/controller with simulated APIs, not live Redis or production
+deletion. Offline tests use small SQLite archives, real worker threads, real
+BullMQ Job instances and CLI subprocesses with bounded stdin.
+
 ### Admin Map Demand And Provisioning
+
+### Imported Regional Demand And Optional Automatic Downloads
+
+Successful GPS inserts through both single and bulk workout persistence enqueue
+`maps-demand` without awaiting network, planning or downloads. Transactional bulk
+overwrites enqueue only after COMMIT; duplicate/rejected inserts enqueue nothing.
+This is enabled only for `WOA_THUMBNAIL_MAP_PROVIDER=local`. The existing Ops queue
+debounces pending requests by ten seconds using a separate import-demand key;
+manual approvals are not reused or swallowed by this key. Active work can finish
+and a later job recomputes demand from all currently stored GPS workout bounds.
+Jobs have at most three attempts with exponential backoff from one minute.
+The ordinary import remains successful if queuing fails; run an admin scan to
+recover missed demand. This is best-effort post-commit dispatch, not a transactional
+outbox. No schema change or migration is needed.
+
+The isolated CLI `demand` command uses the same runtime database resolver and
+read-only transaction as preparation. It fully inspects existing archives and
+selects the finest intersecting catalog regions for the rectangular thumbnail
+viewport, including its map margin, rather than only the workout's start point.
+It never climbs to a parent if a leaf has no directly available Shortbread
+archive. Such regions are persisted as `unsupported` with aggregate workout and
+missing-thumbnail counts. The existing manual planner retains parent fallback.
+The provider's smallest available extract may itself be a whole country where
+there are no finer catalog regions; no arbitrary size limit is imposed.
+
+`WOA_MAP_AUTO_DOWNLOAD=1` explicitly enables automatic downloads of missing direct
+regions; the default is off. Configure it consistently for cooperating app/worker
+processes and deploy/restart them normally before use. No monthly transfer limit
+or separate region-size limit is configured. The combined 50%-volume/100-GiB
+storage budget and free-space reserve remain mandatory, including staging,
+rollback and demand metadata. Missing bounds, unsupported geometry/regions,
+archive-count limits, invalid archives or insufficient capacity block automatic
+preparation of the entire plan; partial unsupported plans are not downloaded.
+An existing invalid archive requires manual recovery, not automatic replacement.
+This is checked again under the prepare lock if files change after planning.
+
+Automatic preparation always uses immutable version paths, complete SQLite and
+Shortbread validation, current viewport tile checks, hashes, atomic activation
+and one previous rollback target. Existing valid archives are reused. Existing
+archive updates still require explicit admin installation approval. Successful
+and unmarked legacy thumbnails remain unchanged; marked missing-coverage
+fallbacks recover on their next actual request after the inventory changes.
+No upload/view request downloads archives or starts a bulk thumbnail rebuild.
+
+Aggregated demand lives in `WOA_MAP_DATA_DIR/map-regional-demand.json`, version 1,
+with checked time, region counts/sizes, capacity and download state. Writes use
+private mode 0600, a synced temporary file, atomic rename and directory sync under
+the shared storage lock. It contains no workout IDs, source URLs or credentials.
+Symlinks, malformed state and files over 128 KiB are rejected. Redis job expiry
+does not remove it. The CLI records the initial plan before downloads and records
+success or a safe failure state afterwards; filesystem failure can prevent that
+last status write. Exhausted protected storage may also prevent recording fresh
+demand. The last snapshot is not a live DB view: GPS edits, deletions, restores,
+crashes and missed dispatch may require a fresh admin scan. No periodic demand
+reconciliation, archive retirement or UI cancellation is added here.
+
+Admin scans/preparations pass `--record-demand` to refresh this file as well.
+Plain `maps:plan` remains read-only. The Admin UI selects the newest available
+demand snapshot, shows automatic-download configuration and unsupported regions,
+and keeps durable results after queue expiry. A file snapshot never authorizes a
+manual download: a fresh completed manual scan/prepare job and explicit approval
+are still required. Page load queues nothing. All jobs use the serial Ops worker;
+large scans/downloads can delay backups. Worker shutdown may orphan a CLI child,
+as with existing operations; verify ownership before removing stale locks.
+
+Verification is recorded in `docs/arbeitsstand.md`. Offline CLI tests use real
+small SQLite archives and mocked database/upstream responses, not production
+downloads, Redis queue execution or deployment.
+
+### Manual Admin Demand Workflow
 
 Open `/admin/accounts#maps` as an administrator. The existing
 `/admin/accounts#local-map-management` link also opens the containing map area.
@@ -678,10 +1040,12 @@ Failures expose only safe stage/code tags, not raw process output. No UI cancel
 action is implemented; killing the Ops worker alone may leave its CLI child
 running. Verify processes and lock ownership before manual cleanup/retry.
 
-Snapshots are derived views, not a durable per-region demand ledger: they share
+Manual approval job snapshots are derived views: they share
 the existing queue retention (up to 24h/50 completed and 7d/100 failed Ops jobs).
-They may be evicted earlier by other operations. With no result, run a new scan;
-the durable source remains stored workout bounds. Incomplete bounds/coverage or
+They may be evicted earlier by other operations. A separate atomic demand file
+now preserves the latest aggregate display, but never grants manual approval.
+With no fresh approval job, run a new scan; the durable source remains stored
+workout bounds. Incomplete bounds/coverage or
 archive-limit problems block prepare, as in the CLI. Existing-image preservation
 and on-demand recovery of marked fallbacks are unchanged. This provisions missing
 regions, not replacement updates to valid existing archives, and does not change

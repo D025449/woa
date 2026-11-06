@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, readdir, readFile, writeFile, rm, rename, stat, utimes } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, writeFile, rm, rename, stat, utimes, symlink, mkdir, open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -12,9 +12,224 @@ import { LocalMapRenderer, project } from "../src/services/localThumbnailMapRend
 import { LocalThumbnailMapClient } from "../src/services/localThumbnailMapService.js";
 import { readMapArchiveSet, MAP_ARCHIVE_MANIFEST, activateMapArchiveSet, mapArchiveSetIdentity } from "../src/services/localMapArchiveSetService.js";
 import { getLocalMapViewport, getLocalMapCoverageBounds } from "../src/shared/localThumbnailMapViewport.js";
-import { prepareMapArchives } from "../src/services/localMapProvisioningService.js";
+import { prepareMapArchives, buildMapPlan } from "../src/services/localMapProvisioningService.js";
 import { rollbackMapArchives, installMapArchiveUpdates, validateMapInstallation } from "../src/services/localMapLifecycleService.js";
 import { checkLocalMapUpdates } from "../src/services/localMapUpdateService.js";
+import { scanMapCleanup, deleteUnusedMapFiles, scanMapRetirement, retireMapRegions } from "../src/services/localMapCleanupService.js";
+import { readMapStorageUsage } from "../src/services/localMapStorageService.js";
+
+test("GPS worker timing separates queued work, startup and service without changing SVG output", async () => {
+  let now = 0;
+  let worker;
+  const client = new LocalThumbnailMapClient({ clock: () => now, workerFactory: () => {
+    worker = new EventEmitter();
+    return Object.assign(worker, { ref() {}, unref() {}, terminate() {}, postMessage(message) { this.message = message; } });
+  } });
+  try {
+    const first = client.render({ segments: [] });
+    now = 5;
+    const second = client.render({ segments: [] });
+    now = 10;
+    worker.emit("message", { ready: true, initializationMs: 2 });
+    now = 30;
+    worker.emit("message", { id: worker.message.id, result: { svg: "first", stats: { tiles: 4 } } });
+    const firstResult = await first;
+    assert.equal(firstResult.svg, "first");
+    assert.deepEqual(firstResult.stats, { tiles: 4, workerQueueMs: 0, workerServiceMs: 30, workerStartupMs: 10, workerInitializationMs: 2 });
+    now = 40;
+    worker.emit("message", { id: worker.message.id, result: { svg: "second", stats: { tiles: 2 } } });
+    const secondResult = await second;
+    assert.equal(secondResult.stats.workerQueueMs, 25);
+    assert.equal(secondResult.stats.workerServiceMs, 10);
+    assert.equal(secondResult.stats.workerStartupMs, 0);
+    assert.equal(secondResult.stats.workerInitializationMs, 0);
+  } finally { client.close(); }
+});
+
+test("GPS vector timings count byte-identical regional source rows without dropping either region", async () => {
+  await fixture(async config => {
+    await writeFile(path.join(config.dataDirectory, "second.mbtiles"), await readFile(path.join(config.dataDirectory, "fixture.mbtiles")));
+    const renderer = new LocalMapRenderer(config);
+    try {
+      const result = await renderer.renderVector(example);
+      assert.equal(result.stats.regions.length, 2);
+      assert.ok(result.stats.identicalSourceRows > 0);
+      assert.ok(result.stats.tileLoadDecodeMs > 0);
+      assert.ok(result.stats.geometryBuildMs > 0);
+      assert.ok(result.stats.rasterizeMs > 0);
+    } finally { renderer.close(); }
+  });
+});
+
+test("geographically required Austria cannot retire just because another archive has matching tile coordinates", async () => {
+  await fixture(async config => {
+    await rename(path.join(config.dataDirectory, "fixture.mbtiles"), path.join(config.dataDirectory, "austria.mbtiles"));
+    await writeFile(path.join(config.dataDirectory, "germany.mbtiles"), await readFile(path.join(config.dataDirectory, "austria.mbtiles")));
+    const feature = (id, west, east) => ({ type: "Feature", properties: { id, name: id,
+      urls: { pbf: `https://download.geofabrik.de/${id}-latest.osm.pbf` } }, geometry: { type: "Polygon",
+      coordinates: [[[west, 47], [east, 47], [east, 50], [west, 50], [west, 47]]] } });
+    const catalog = { type: "FeatureCollection", features: [feature("austria", 9, 10), feature("germany", 11, 12)] };
+    const workouts = [{ id: 1, bounds: { minLat: 48.72, maxLat: 48.8, minLng: 9.1, maxLng: 9.3 } }];
+    const plan = await buildMapPlan(workouts, catalog, { ...config, resolveArchive: async region => ({
+      url: `https://download.geofabrik.de/${region.properties.id}-shortbread-1.0.mbtiles`, bytes: 100 }) });
+    assert.deepEqual(plan.report.archives.map(archive => archive.id), ["austria"]);
+    const options = { config, catalogLoader: async () => catalog };
+    const snapshot = await scanMapRetirement(workouts, options);
+    assert.deepEqual(snapshot.regions.map(region => region.id), ["germany"]);
+    assert.deepEqual(snapshot.retainedRegions, ["austria"]);
+    await assert.rejects(retireMapRegions({ ...snapshot, policyVersion: undefined }, { identity: snapshot.identity }, async () => workouts, options), /policy changed/);
+    const changedCatalog = structuredClone(catalog);
+    changedCatalog.features[1].geometry.coordinates[0][1][0] = 13;
+    await assert.rejects(retireMapRegions(snapshot, { identity: snapshot.identity }, async () => workouts,
+      { config, catalogLoader: async () => changedCatalog }), /demand changed/);
+    await retireMapRegions(snapshot, { identity: snapshot.identity }, async () => workouts, options);
+    assert.deepEqual(readMapArchiveSet(config.dataDirectory).active.archives.map(archive => archive.id), ["austria"]);
+    assert.deepEqual((await scanMapRetirement(workouts, options)).regions, []);
+  });
+});
+
+test("retirement protects geographic ancestors and unknown active regions and fails closed without a valid catalog", async () => {
+  await fixture(async config => {
+    const body = await readFile(path.join(config.dataDirectory, "fixture.mbtiles"));
+    await writeFile(path.join(config.dataDirectory, "parent.mbtiles"), body);
+    await writeFile(path.join(config.dataDirectory, "unknown.mbtiles"), body);
+    const feature = (id, west, east, parent = undefined) => ({ type: "Feature", properties: { id, parent,
+      urls: { pbf: `https://download.geofabrik.de/${id}-latest.osm.pbf` } }, geometry: { type: "Polygon",
+      coordinates: [[[west, 47], [east, 47], [east, 50], [west, 50], [west, 47]]] } });
+    const catalog = { type: "FeatureCollection", features: [feature("fixture", 9, 10, "parent"), feature("parent", 11, 12)] };
+    const workouts = [{ id: 1, bounds: { minLat: 48.72, maxLat: 48.8, minLng: 9.1, maxLng: 9.3 } }];
+    const snapshot = await scanMapRetirement(workouts, { config, catalogLoader: async () => catalog });
+    assert.deepEqual(snapshot.protectedRegions, ["fixture", "parent", "unknown"]);
+    assert.deepEqual(snapshot.regions, []);
+    await assert.rejects(scanMapRetirement(workouts, { config, catalogLoader: async () => { throw new Error("offline catalog"); } }), /offline catalog/);
+    await assert.rejects(scanMapRetirement(workouts, { config, catalogLoader: async () => ({ features: [] }) }), /Invalid region catalog/);
+    await assert.rejects(scanMapRetirement(workouts, { config, catalogLoader: async () => ({ features: [feature("elsewhere", 11, 12)] }) }), /geography unknown/);
+    assert.equal(readMapArchiveSet(config.dataDirectory).active.archives.length, 3);
+  });
+});
+
+test("cleanup rechecks every file before deleting and preserves unknown paths, partials and shared references", async () => {
+  await fixture(async config => {
+    const original = readMapArchiveSet(config.dataDirectory);
+    await activateMapArchiveSet(config, { ...original.active, id: "managed" }, mapArchiveSetIdentity(config.dataDirectory));
+    await writeFile(path.join(config.dataDirectory, "orphan.mbtiles"), "old");
+    await writeFile(path.join(config.dataDirectory, "second.mbtiles"), "old");
+    await writeFile(path.join(config.dataDirectory, "keep.part"), "partial");
+    await mkdir(path.join(config.dataDirectory, "unknown"));
+    await writeFile(path.join(config.dataDirectory, "unknown", "orphan.mbtiles"), "unknown");
+    await symlink(path.join(config.dataDirectory, "fixture.mbtiles"), path.join(config.dataDirectory, "alias.mbtiles"));
+    const snapshot = await scanMapCleanup({ config });
+    assert.deepEqual(snapshot.files.map(file => file.id), ["orphan", "second"]);
+    await writeFile(path.join(config.dataDirectory, "second.mbtiles"), "changed");
+    await assert.rejects(deleteUnusedMapFiles(snapshot, { identity: snapshot.identity }, { config }), /changed/);
+    assert.equal(await readFile(path.join(config.dataDirectory, "orphan.mbtiles"), "utf8"), "old");
+    await writeFile(path.join(config.dataDirectory, ".maps-prepare.lock"), "busy");
+    const fresh = await scanMapCleanup({ config });
+    await assert.rejects(deleteUnusedMapFiles(fresh, { identity: fresh.identity }, { config }), { code: "EEXIST" });
+    await rm(path.join(config.dataDirectory, ".maps-prepare.lock"));
+    await deleteUnusedMapFiles(fresh, { identity: fresh.identity }, { config });
+    assert.ok((await stat(path.join(config.dataDirectory, "fixture.mbtiles"))).size > 0);
+    assert.equal(await readFile(path.join(config.dataDirectory, "keep.part"), "utf8"), "partial");
+    assert.equal(await readFile(path.join(config.dataDirectory, "unknown", "orphan.mbtiles"), "utf8"), "unknown");
+  });
+});
+
+test("archive cleanup succeeds above the storage budget without removing protected data", async () => {
+  await fixture(async config => {
+    const original = readMapArchiveSet(config.dataDirectory);
+    await activateMapArchiveSet(config, { ...original.active, id: "managed" }, mapArchiveSetIdentity(config.dataDirectory));
+    const usage = await readMapStorageUsage(config);
+    const protectedFile = await open(path.join(config.dataDirectory, "protected.part"), "wx");
+    try { await protectedFile.truncate(usage.limitBytes + 1); } finally { await protectedFile.close(); }
+    await writeFile(path.join(config.dataDirectory, "orphan.mbtiles"), "old");
+    const snapshot = await scanMapCleanup({ config });
+    const result = await deleteUnusedMapFiles(snapshot, { identity: snapshot.identity }, { config });
+    assert.equal(result.removedBytes, 3);
+    assert.equal((await stat(path.join(config.dataDirectory, "protected.part"))).size, usage.limitBytes + 1);
+  });
+});
+
+test("retirement preserves all current viewport tiles and refuses changed workout inventory", async () => {
+  await fixture(async config => {
+    await writeFile(path.join(config.dataDirectory, "redundant.mbtiles"), await readFile(path.join(config.dataDirectory, "fixture.mbtiles")));
+    const workouts = [{ id: 1, bounds: { minLat: 48.72, maxLat: 48.8, minLng: 9.1, maxLng: 9.3 } }];
+    const feature = (id, west, east) => ({ type: "Feature", properties: { id, urls: { pbf: `https://download.geofabrik.de/${id}-latest.osm.pbf` } },
+      geometry: { type: "Polygon", coordinates: [[[west, 47], [east, 47], [east, 50], [west, 50], [west, 47]]] } });
+    const options = { config, catalogLoader: async () => ({ type: "FeatureCollection", features: [feature("fixture", 9, 10), feature("redundant", 11, 12)] }) };
+    const snapshot = await scanMapRetirement(workouts, options);
+    assert.equal(snapshot.regions.length, 1);
+    assert.equal(snapshot.retainedRegions.length, 1);
+    await assert.rejects(retireMapRegions(snapshot, { identity: snapshot.identity }, async () => [...workouts, { ...workouts[0], id: 2 }], options), /demand changed/);
+    let reads = 0;
+    await assert.rejects(retireMapRegions(snapshot, { identity: snapshot.identity }, async () => ++reads === 1 ? workouts
+      : [...workouts, { ...workouts[0], id: 2 }], options), /during validation/);
+    await retireMapRegions(snapshot, { identity: snapshot.identity }, async () => workouts, options);
+    assert.equal(readMapArchiveSet(config.dataDirectory).active.archives.length, 1);
+    const renderer = new LocalMapRenderer(config);
+    try { assert.ok((await renderer.render(example)).stats.cache.built > 0); } finally { renderer.close(); }
+  });
+});
+
+test("cleanup protects active and previous references and reports open renderer files", async () => {
+  await fixture(async config => {
+    const original = readMapArchiveSet(config.dataDirectory);
+    const renderer = new LocalMapRenderer(config);
+    try {
+      await activateMapArchiveSet(config, { id: "empty-one", archives: [] }, mapArchiveSetIdentity(config.dataDirectory));
+      await activateMapArchiveSet(config, { id: "empty-two", archives: [] }, mapArchiveSetIdentity(config.dataDirectory));
+      const busy = await scanMapCleanup({ config });
+      assert.equal(busy.files.length, 1);
+      assert.equal(busy.files[0].protectedByReader, true);
+      assert.equal(busy.reclaimableBytes, 0);
+    } finally { renderer.close(); }
+    const snapshot = await scanMapCleanup({ config });
+    assert.equal(snapshot.files[0].filename, original.active.archives[0].filename);
+    assert.ok(snapshot.reclaimableBytes > 0);
+    await writeFile(path.join(config.dataDirectory, "keep.part"), "keep");
+    await assert.rejects(deleteUnusedMapFiles(snapshot, { identity: "changed" }, { config }), /approval/);
+    await assert.rejects(deleteUnusedMapFiles({ ...snapshot, checkedAt: new Date(Date.now() - 3600001).toISOString() },
+      { identity: snapshot.identity }, { config }), /expired/);
+    const result = await deleteUnusedMapFiles(snapshot, { identity: snapshot.identity }, { config });
+    assert.equal(result.removedFiles, 1);
+    assert.equal(result.removedBytes, snapshot.reclaimableBytes);
+    await assert.rejects(stat(path.join(config.dataDirectory, snapshot.files[0].filename)), { code: "ENOENT" });
+    assert.equal(await readFile(path.join(config.dataDirectory, "keep.part"), "utf8"), "keep");
+  });
+});
+
+test("real thumbnail workers retain their opened archives until worker exit releases the reservation", async () => {
+  await fixture(async config => {
+    const client = new LocalThumbnailMapClient();
+    try {
+      await client.render(example, config);
+      assert.equal((await readdir(config.dataDirectory)).filter(name => name.startsWith(".maps-reader-") && name.endsWith(".json")).length, 1);
+      await activateMapArchiveSet(config, { id: "empty-one", archives: [] }, mapArchiveSetIdentity(config.dataDirectory));
+      await activateMapArchiveSet(config, { id: "empty-two", archives: [] }, mapArchiveSetIdentity(config.dataDirectory));
+      assert.equal((await scanMapCleanup({ config })).files[0].protectedByReader, true);
+      const exited = new Promise(resolve => client.worker.once("exit", resolve));
+      client.close();
+      await exited;
+      assert.equal((await readdir(config.dataDirectory)).filter(name => name.startsWith(".maps-reader-") && name.endsWith(".json")).length, 0);
+      assert.equal((await scanMapCleanup({ config })).files[0].protectedByReader, false);
+    } finally { client.close(); }
+  });
+});
+
+test("retirement rechecks fresh workout demand and keeps retired archives for rollback", async () => {
+  await fixture(async config => {
+    const snapshot = await scanMapRetirement([], { config });
+    assert.deepEqual(snapshot.regions.map(region => region.id), ["fixture"]);
+    await assert.rejects(retireMapRegions(snapshot, { identity: snapshot.identity }, async () => [{ id: 1, bounds: null }], { config }), /bounds/);
+    const result = await retireMapRegions(snapshot, { identity: snapshot.identity }, async () => [], { config });
+    assert.deepEqual(result.retired, ["fixture"]);
+    const manifest = readMapArchiveSet(config.dataDirectory);
+    assert.deepEqual(manifest.active.archives, []);
+    assert.equal(manifest.previous.archives[0].id, "fixture");
+    assert.equal((await scanMapCleanup({ config })).files.length, 0);
+    await rollbackMapArchives({ expectedIdentity: mapArchiveSetIdentity(config.dataDirectory), previousSet: manifest.previous.id }, [], { config });
+    assert.equal(readMapArchiveSet(config.dataDirectory).active.archives[0].id, "fixture");
+  });
+});
 
 const example = { segments: [[[9.1, 48.72], [9.2, 48.78], [9.3, 48.8]]] };
 
@@ -179,16 +394,49 @@ test("local map raster cache persists across renderer recreation and keeps route
   await fixture(async config => {
     const renderer = new LocalMapRenderer(config);
     let first;
-    try { first = await renderer.render(example); assert.ok(first.stats.cache.built > 0); }
-    finally { renderer.close(); }
-    const restarted = new LocalMapRenderer(config);
     try {
+      assert.equal(renderer.rawPixelCache, false);
+      first = await renderer.render(example);
+      assert.ok(first.stats.cache.built > 0);
+      assert.ok(first.stats.tileProfile.vectorBuildMs > 0);
+      assert.ok(first.stats.tileProfile.storageReservationMs > 0);
+      assert.ok(first.stats.tileProfile.cacheFileWriteMs > 0);
+      assert.ok([...renderer.memory.values()].every(({ entry }) => !entry.pixels));
+      const stored = JSON.parse(await readFile(path.join(renderer.cacheDirectory,
+        (await readdir(renderer.cacheDirectory)).find(name => name.endsWith('.json'))), 'utf8'));
+      assert.equal(typeof stored.png, 'string');
+      assert.equal(stored.pixels, undefined);
+    }
+    finally { renderer.close(); }
+    const restarted = new LocalMapRenderer({ ...config, rawPixelCache: true });
+    try {
+      assert.equal(restarted.cacheId, renderer.cacheId);
       restarted.renderVector = () => { throw new Error("must reuse raster cache"); };
       const disk = await restarted.render(example);
       const memory = await restarted.render({ ...example, routeColor: "#112233" });
       assert.equal(disk.stats.cache.built, 0);
       assert.ok(disk.stats.cache.disk > 0);
       assert.ok(memory.stats.cache.memory > 0);
+      assert.ok(disk.stats.tileProfile.pixelDecodeMs > 0);
+      assert.equal(memory.stats.tileProfile.pixelDecodeMs, 0);
+      const entries = [...restarted.memory.values()];
+      assert.ok(entries.every(({ entry, bytes }) => entry.pixels.data.length === 256 * 256 * entry.pixels.info.channels
+        && bytes >= entry.pixels.data.length + entry.background.length));
+      assert.equal(restarted.memoryBytes, entries.reduce((sum, entry) => sum + entry.bytes, 0));
+      assert.ok(restarted.memoryBytes <= restarted.maxMemoryBytes);
+      assert.equal(memory.stats.tileProfile.vectorBuildMs, 0);
+      assert.equal(memory.stats.tileProfile.cacheWriteMs, 0);
+      assert.equal(disk.stats.tileProfile.vectorBuildMs, 0);
+      for (const result of [first, disk, memory]) {
+        const phases = result.stats.renderProfile;
+        assert.deepEqual(Object.keys(phases), ['viewportMs', 'tileAssemblyMs', 'mosaicDecodeCompositeMs',
+          'labelPlacementMs', 'outputPipelineMs', 'finishSvgMs']);
+        assert.ok(Object.values(phases).every(value => Number.isFinite(value) && value >= 0));
+        assert.ok(phases.mosaicDecodeCompositeMs > 0);
+        assert.ok(phases.outputPipelineMs > 0);
+        assert.ok(phases.finishSvgMs > 0);
+        assert.ok(Object.values(phases).reduce((sum, value) => sum + value, 0) <= result.stats.ms);
+      }
       assert.deepEqual(disk.background, first.background);
       assert.deepEqual(memory.background, first.background);
       assert.notEqual(memory.svg, disk.svg);
@@ -198,6 +446,16 @@ test("local map raster cache persists across renderer recreation and keeps route
       assert.equal(metadata.width, 320);
       assert.equal(metadata.height, 200);
     } finally { restarted.close(); }
+    const bounded = new LocalMapRenderer({ ...config, rawPixelCache: true, maxMemoryBytes: 300 * 1024 });
+    try {
+      const result = await bounded.render(example);
+      assert.deepEqual(result.background, first.background);
+      assert.ok(bounded.memory.size < result.stats.tiles);
+      assert.ok(bounded.memoryBytes > 0 && bounded.memoryBytes <= bounded.maxMemoryBytes);
+      bounded.clearMemory();
+      assert.equal(bounded.memoryBytes, 0);
+      assert.equal(bounded.memory.size, 0);
+    } finally { bounded.close(); }
   });
 });
 

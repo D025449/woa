@@ -5,6 +5,7 @@ const phases = {
   "storage-budget": "Speicherbudget prüfen", "cleanup-cache": "Rastercache bereinigen",
   "check-updates": "Upstream-Metadaten prüfen",
   "activate-set": "Archivsatz aktivieren", "verify-rollback": "Rollback-Archiv prüfen",
+  "delete-archive": "Altes Archiv löschen",
   reuse: "Archiv wiederverwenden", "download-request": "Download anfordern", "refresh-size": "Dateigröße neu abgleichen",
   download: "Download", "verify-download": "Download prüfen", installed: "Archiv installiert", coverage: "Kachelabdeckung prüfen",
   completed: "Abgeschlossen"
@@ -20,6 +21,8 @@ export class LocalMapAdminController {
     this.report = null;
     this.updates = null;
     this.lifecycle = null;
+    this.cleanup = null;
+    this.retirement = null;
     this.reportJobId = null;
     this.busy = false;
     this.timer = null;
@@ -42,9 +45,21 @@ export class LocalMapAdminController {
     const space = this.report && (this.report.storage ? this.report.storage.fitsAfterCleanup
       : this.report.freeDiskBytes >= this.report.downloadBytes * 1.05 + 256 * 1024 ** 2);
     const budget = !this.report?.storage || this.report.storage.fitsAfterCleanup;
-    const allowed = !this.busy && this.report?.readyToPrepare && missing.length > 0 && space && budget;
+    const allowed = !this.busy && Boolean(this.reportJobId) && this.report?.readyToPrepare && missing.length > 0 && space && budget;
     this.element("scan").disabled = this.busy;
     this.element("updates").disabled = this.busy;
+    for (const operation of ["cleanup", "retire"]) {
+      const snapshot = operation === "cleanup" ? this.cleanup : this.retirement;
+      const candidates = operation === "cleanup" ? snapshot?.files.filter(file => !file.protectedByReader) || [] : snapshot?.regions || [];
+      const allowed = !this.busy && Boolean(snapshot?.jobId) && candidates.length > 0
+        && Date.now() - Date.parse(snapshot.checkedAt) <= 3600000;
+      this.element(`${operation}-scan`).disabled = this.busy;
+      this.element(`${operation}-confirm`).disabled = !allowed;
+      this.element(operation).disabled = !allowed || !this.element(`${operation}-confirm`).checked;
+      this.element(`${operation}-label`).textContent = operation === "cleanup"
+        ? `${candidates.length} ${candidates.length === 1 ? "Datei" : "Dateien"} · ${formatMapBytes(snapshot?.reclaimableBytes)} löschen`
+        : `${candidates.length} ${candidates.length === 1 ? "Region" : "Regionen"} · ${formatMapBytes(snapshot?.bytes)} ausmustern · Rollback bleibt erhalten`;
+    }
     const candidates = this.updates?.regions.filter(region => region.canInstall) || [];
     const installable = !this.busy && candidates.length > 0 && this.lifecycle?.identity === this.updates?.identity
       && Date.now() - Date.parse(this.updates.checkedAt) <= 3600000;
@@ -74,7 +89,7 @@ export class LocalMapAdminController {
     this.element("regions").replaceChildren();
     for (const region of report?.regions || []) {
       const row = document.createElement("tr");
-      const state = region.status !== "available" ? "Fehlt" : region.integrityChecked === true ? "Vorhanden · Integrität geprüft"
+      const state = region.status === "unsupported" ? "Kein direktes Kartenarchiv" : region.status !== "available" ? "Fehlt" : region.integrityChecked === true ? "Vorhanden · Integrität geprüft"
         : region.integrityChecked === false ? "Vorhanden · Stichprobe geprüft" : "Vorhanden";
       const values = [region.name, state, formatMapBytes(region.bytes),
         region.workouts.toLocaleString("de-DE"), region.missingThumbnails.toLocaleString("de-DE")];
@@ -128,6 +143,32 @@ export class LocalMapAdminController {
     this.element("update-checked").dateTime = report?.checkedAt || "";
   }
 
+  renderMaintenance(operation, snapshot) {
+    const previous = operation === "cleanup" ? this.cleanup : this.retirement;
+    if (previous?.jobId !== snapshot?.jobId || previous?.identity !== snapshot?.identity) this.element(`${operation}-confirm`).checked = false;
+    if (operation === "cleanup") this.cleanup = snapshot;
+    else this.retirement = snapshot;
+    const entries = operation === "cleanup" ? snapshot?.files || [] : snapshot?.regions || [];
+    this.element(`${operation}-regions`).replaceChildren();
+    for (const entry of entries) {
+      const row = document.createElement("tr");
+      const values = operation === "cleanup" ? [entry.id, entry.filename, entry.protectedByReader ? "Renderer verwendet Datei" : "Löschbar", formatMapBytes(entry.bytes)]
+        : [entry.id, "Verbleibende Kachelabdeckung geprüft", formatMapBytes(entry.bytes)];
+      for (const [index, value] of values.entries()) {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        if (index === values.length - 1) cell.className = "text-end";
+        else cell.className = "admin-map-region-name";
+        row.append(cell);
+      }
+      this.element(`${operation}-regions`).append(row);
+    }
+    this.element(`${operation}-empty`).classList.toggle("d-none", entries.length > 0);
+    this.element(`${operation}-empty`).textContent = snapshot ? operation === "cleanup" ? "Keine unreferenzierten Archivdateien." : "Keine ausmusterbaren Regionen." : "Kein Prüfergebnis vorhanden.";
+    this.element(`${operation}-checked`).textContent = snapshot ? new Date(snapshot.checkedAt).toLocaleString("de-DE") : "";
+    this.element(`${operation}-checked`).dateTime = snapshot?.checkedAt || "";
+  }
+
   async refresh() {
     clearTimeout(this.timer);
     try {
@@ -136,6 +177,8 @@ export class LocalMapAdminController {
       this.reportJobId = value.reportJobId;
       this.renderReport(value.report);
       this.renderUpdates(value.updates);
+      this.renderMaintenance("cleanup", value.cleanup || null);
+      this.renderMaintenance("retire", value.retirement || null);
       if (this.lifecycle?.identity !== value.lifecycle?.identity) {
         this.element("install-confirm").checked = false;
         this.element("rollback-confirm").checked = false;
@@ -155,8 +198,14 @@ export class LocalMapAdminController {
         this.status(job.operation === "maps-updates" ? "Kartenupdates werden geprüft."
           : job.operation === "maps-install" ? "Kartenupdate wird installiert."
             : job.operation === "maps-rollback" ? "Rollback wird geprüft."
-          : job.operation === "maps-scan" ? "Kartenbedarf wird geprüft." : "Kartenmaterial wird bereitgestellt.");
+              : job.operation === "maps-cleanup-scan" ? "Alte Archivdateien werden geprüft."
+                : job.operation === "maps-cleanup" ? "Alte Archivdateien werden gelöscht."
+                  : job.operation === "maps-retire-scan" ? "Ausmusterbare Regionen werden geprüft."
+                    : job.operation === "maps-retire" ? "Regionen werden ausgemustert."
+          : ["maps-scan", "maps-demand"].includes(job.operation) ? "Kartenbedarf wird geprüft." : "Kartenmaterial wird bereitgestellt.");
       } else if (job?.state === "failed") this.status(job.error, true);
+      else if (job?.state === "completed" && job.operation === "maps-cleanup") this.status("Archivbereinigung abgeschlossen.");
+      else if (job?.state === "completed" && job.operation === "maps-retire") this.status("Regionen ausgemustert · bisheriger Satz bleibt als Rollback erhalten.");
       else if (!value.report) this.status("Noch nicht geprüft.");
       else {
         const report = value.report;
@@ -164,17 +213,22 @@ export class LocalMapAdminController {
         const coverage = report.missingTileWorkouts == null ? "Kachelabdeckung nicht geprüft" : `${report.missingTileWorkouts} mit Kachellücken`;
         this.status(issues ? `Prüfprobleme: ${report.missingBounds} ohne GPS-Grenzen · ${report.unsupportedBounds} nicht unterstützt · ${report.unmappedWorkouts} ohne Region · ${report.invalidArchives} ungültige Archive · ${coverage}`
           : report.readyToActivate ? "Kartenmaterial bereit · keine fehlenden Kacheln."
-            : report.downloadBytes > 0 ? "Fehlende Regionen warten auf Freigabe." : "Regionsarchive vorhanden · Kachelabdeckung nicht geprüft.", issues > 0);
+            : report.downloadBytes > 0 ? report.downloadState === "failed" ? "Automatischer Download fehlgeschlagen · Server-Diagnose erforderlich."
+              : value.automaticDownloads && report.downloadState === "blocked" ? "Automatischer Download gesperrt · Kartenbedarf prüfen."
+                : this.reportJobId ? "Fehlende Regionen warten auf Freigabe." : "Fehlende Regionen · für manuelle Freigabe erneut prüfen."
+              : "Regionsarchive vorhanden · Kachelabdeckung nicht geprüft.", issues > 0);
         if (report.storage && !report.storage.fitsAfterCleanup) {
           this.status("Speicherbudget oder Freiplatzreserve reicht nicht aus · neue Downloads gesperrt.", true);
         }
       }
+      this.element("automatic").textContent = value.automaticDownloads ? "Automatische Downloads: aktiv" : "Automatische Downloads: aus";
       this.controls();
       if (this.busy) this.timer = setTimeout(() => this.refresh(), 2000);
     } catch (error) {
       this.status(error.message, true);
       this.busy = false;
       this.element("confirm").checked = false;
+      for (const operation of ["cleanup", "retire"]) this.element(`${operation}-confirm`).checked = false;
       this.controls();
     }
   }
@@ -184,17 +238,22 @@ export class LocalMapAdminController {
     if (this.busy || operation === "prepare" && !this.element("confirm").checked) return;
     if (operation === "install" && !this.element("install-confirm").checked
       || operation === "rollback" && !this.element("rollback-confirm").checked) return;
+    const snapshot = operation === "cleanup" ? this.cleanup : operation === "retire" ? this.retirement : null;
+    if (["cleanup", "retire"].includes(operation) && (!snapshot?.jobId || !this.element(`${operation}-confirm`).checked
+      || this.element(operation).disabled)) return;
     this.busy = true;
     this.controls();
     try {
       const body = operation === "prepare" ? { reportJobId: this.reportJobId, approvedRegions, confirmed: true }
         : operation === "install" ? { checkedAt: this.updates.checkedAt,
           approvedRegions: this.updates.regions.filter(region => region.canInstall).map(region => region.id), confirmed: true }
-          : operation === "rollback" ? { expectedIdentity: this.lifecycle.identity, previousSet: this.lifecycle.previousSet, confirmed: true } : {};
+          : operation === "rollback" ? { expectedIdentity: this.lifecycle.identity, previousSet: this.lifecycle.previousSet, confirmed: true }
+            : snapshot ? { snapshotJobId: snapshot.jobId, identity: snapshot.identity, confirmed: true } : {};
       await this.request(`/${operation}`, body);
       this.element("confirm").checked = false;
       this.element("install-confirm").checked = false;
       this.element("rollback-confirm").checked = false;
+      for (const action of ["cleanup", "retire"]) this.element(`${action}-confirm`).checked = false;
       await this.refresh();
     } catch (error) {
       this.status(error.message, true);
@@ -204,6 +263,11 @@ export class LocalMapAdminController {
   }
 
   init() {
+    for (const operation of ["cleanup", "retire"]) {
+      this.element(`${operation}-scan`).addEventListener("click", () => this.start(`${operation}-scan`));
+      this.element(operation).addEventListener("click", () => this.start(operation));
+      this.element(`${operation}-confirm`).addEventListener("change", () => this.controls());
+    }
     this.element("scan").addEventListener("click", () => this.start("scan"));
     this.element("updates").addEventListener("click", () => this.start("updates"));
     this.element("install").addEventListener("click", () => this.start("install"));

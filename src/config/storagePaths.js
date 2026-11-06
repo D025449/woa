@@ -27,6 +27,7 @@ export function getThumbnailTempDir() {
 export function getLocalThumbnailMapConfig() {
   return {
     enabled: String(process.env.WOA_THUMBNAIL_MAP_PROVIDER || "").trim() === "local",
+    automaticDownloads: String(process.env.WOA_MAP_AUTO_DOWNLOAD || "").trim() === "1",
     dataDirectory: path.resolve(process.env.WOA_MAP_DATA_DIR || path.join(resolveAppTempRoot(), "woa-map-data")),
     cacheRoot: path.resolve(process.env.WOA_MAP_CACHE_DIR || path.join(getThumbnailTempDir(), "raster-cache"))
   };

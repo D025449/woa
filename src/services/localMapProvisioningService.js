@@ -210,19 +210,31 @@ async function freeDiskBytes(directory) {
   return Number(filesystem.bavail) * Number(filesystem.bsize);
 }
 
-/**
- * @param {any[]} workouts
- * @param {any} catalog
- * @param {MapFetchOptions & {dataDirectory?: string, cacheRoot?: string, resolveArchive?: typeof discoverMapArchive, inspectArchive?: typeof inspectMapArchive, inspectionMode?: "full" | "sample"}} options
- */
-export async function buildMapPlan(workouts, catalog, { dataDirectory = getLocalThumbnailMapConfig().dataDirectory,
-  cacheRoot = getLocalThumbnailMapConfig().cacheRoot,
-  resolveArchive = discoverMapArchive, inspectArchive = inspectMapArchive, inspectionMode = "full", signal, fetchFn = fetch, onProgress = () => {} } = {}) {
-  if (!["full", "sample"].includes(inspectionMode)) throw new MapSetupError("Invalid archive inspection mode");
+export function mapCatalogRegions(catalog) {
+  if (!Array.isArray(catalog?.features)) throw new MapSetupError("Invalid region catalog");
   const regions = catalog.features.filter(feature => ["Polygon", "MultiPolygon"].includes(feature.geometry?.type)
     && /^[a-z0-9]+(?:[-/][a-z0-9]+)*$/.test(feature.properties?.id) && feature.properties.urls?.pbf)
     .map(feature => ({ feature, bounds: bbox(feature), id: feature.properties.id, parent: feature.properties.parent }));
   if (!regions.length || new Set(regions.map(region => region.id)).size !== regions.length) throw new MapSetupError("Invalid region catalog");
+  return regions;
+}
+
+export function findMapRegionHits(regions, bounds, polygon = bboxPolygon([bounds.minLng, bounds.minLat, bounds.maxLng, bounds.maxLat])) {
+  return regions.filter(region => region.bounds[0] <= bounds.maxLng && region.bounds[2] >= bounds.minLng
+    && region.bounds[1] <= bounds.maxLat && region.bounds[3] >= bounds.minLat
+    && booleanIntersects(polygon, region.feature));
+}
+
+/**
+ * @param {any[]} workouts
+ * @param {any} catalog
+ * @param {MapFetchOptions & {dataDirectory?: string, cacheRoot?: string, resolveArchive?: typeof discoverMapArchive, inspectArchive?: typeof inspectMapArchive, inspectionMode?: "full" | "sample", allowParentFallback?: boolean}} options
+ */
+export async function buildMapPlan(workouts, catalog, { dataDirectory = getLocalThumbnailMapConfig().dataDirectory,
+  cacheRoot = getLocalThumbnailMapConfig().cacheRoot,
+  resolveArchive = discoverMapArchive, inspectArchive = inspectMapArchive, inspectionMode = "full", allowParentFallback = true, signal, fetchFn = fetch, onProgress = () => {} } = {}) {
+  if (!["full", "sample"].includes(inspectionMode)) throw new MapSetupError("Invalid archive inspection mode");
+  const regions = mapCatalogRegions(catalog);
   const byId = new Map(regions.map(region => [region.id, region]));
   const discoveries = new Map();
   async function resolve(region, visited = new Set()) {
@@ -234,6 +246,7 @@ export async function buildMapPlan(workouts, catalog, { dataDirectory = getLocal
     }
     const archive = discoveries.get(region.id);
     if (archive) return { region, archive };
+    if (!allowParentFallback) return null;
     const parent = byId.get(region.parent);
     return parent ? resolve(parent, visited) : null;
   }
@@ -243,6 +256,7 @@ export async function buildMapPlan(workouts, catalog, { dataDirectory = getLocal
   const missingBounds = [];
   const unsupportedBounds = [];
   const unmapped = [];
+  const unsupportedRegions = new Map();
   for (const [index, workout] of workouts.entries()) {
     if (index % 100 === 0) onProgress({ phase: "plan-bounds", completed: index, total: workouts.length });
     signal?.throwIfAborted();
@@ -256,9 +270,7 @@ export async function buildMapPlan(workouts, catalog, { dataDirectory = getLocal
     const key = coordinates.join(",");
     if (!selections.has(key)) {
       const polygon = bboxPolygon(coordinates);
-      const hits = regions.filter(region => region.bounds[0] <= bounds.maxLng && region.bounds[2] >= bounds.minLng
-        && region.bounds[1] <= bounds.maxLat && region.bounds[3] >= bounds.minLat
-        && booleanIntersects(polygon, region.feature));
+      const hits = findMapRegionHits(regions, bounds, polygon);
       const parents = new Set(hits.map(region => region.parent));
       const matches = [];
       const unavailableRegions = [];
@@ -275,10 +287,18 @@ export async function buildMapPlan(workouts, catalog, { dataDirectory = getLocal
         }
         return Boolean(remaining);
       });
-      selections.set(key, { matches, unavailable: unavailable || !matches.length });
+      selections.set(key, { matches, unavailable: unavailable || !matches.length, unavailableRegions });
     }
-    const { matches, unavailable } = selections.get(key);
+    const { matches, unavailable, unavailableRegions } = selections.get(key);
     if (unavailable) unmapped.push(workout.id);
+    if (unavailable) for (const region of unavailableRegions) {
+      if (!unsupportedRegions.has(region.id)) unsupportedRegions.set(region.id, {
+        id: region.id, name: region.feature.properties.name, workouts: new Set(), missingThumbnails: new Set()
+      });
+      const entry = unsupportedRegions.get(region.id);
+      entry.workouts.add(workout.id);
+      if (!workout.has_thumbnail) entry.missingThumbnails.add(workout.id);
+    }
     for (const { region, archive } of matches) {
       if (!required.has(region.id)) required.set(region.id, { id: region.id, name: region.feature.properties.name,
         url: officialUrl(archive.url), bytes: archive.bytes, workouts: new Set(), missingThumbnails: new Set() });
@@ -326,6 +346,8 @@ export async function buildMapPlan(workouts, catalog, { dataDirectory = getLocal
   const report = { dataDirectory, cacheRoot, storage, inspectionMode, gpsWorkouts: workouts.length,
     missingThumbnails: workouts.filter(workout => !workout.has_thumbnail).length,
     missingBounds, unsupportedBounds, unmappedWorkouts: unmapped, invalidUnneededArchives,
+    unsupportedRegions: [...unsupportedRegions.values()].map(entry => ({ id: entry.id, name: entry.name,
+      workouts: entry.workouts.size, missingThumbnails: entry.missingThumbnails.size })),
     archives, archiveCountAfterPrepare: finalFiles.size, archiveLimit: ARCHIVE_LIMIT,
     downloadBytes,
     freeDiskBytes: await freeDiskBytes(dataDirectory), readyToPrepare: !missingBounds.length && !unsupportedBounds.length
@@ -335,9 +357,9 @@ export async function buildMapPlan(workouts, catalog, { dataDirectory = getLocal
   return plan;
 }
 
-/** @param {any} plan @param {MapFetchOptions & {inspectArchive?: typeof inspectMapArchive, versioned?: boolean, forceRegions?: string[], expectedIdentity?: string}} options */
+/** @param {any} plan @param {MapFetchOptions & {inspectArchive?: typeof inspectMapArchive, versioned?: boolean, missingOnly?: boolean, forceRegions?: string[], expectedIdentity?: string}} options */
 export async function prepareMapArchives(plan, { fetchFn = fetch, signal, onProgress = () => {}, inspectArchive = inspectMapArchive,
-  versioned = false, forceRegions = [], expectedIdentity = null } = {}) {
+  versioned = false, missingOnly = false, forceRegions = [], expectedIdentity = null } = {}) {
   const { report, coverage } = plan;
   if (!report.readyToPrepare) throw new MapSetupError("Incomplete map plan; resolve reported bounds/coverage/archive limits first");
   const directory = report.dataDirectory;
@@ -372,7 +394,12 @@ export async function prepareMapArchives(plan, { fetchFn = fetch, signal, onProg
         onProgress({ phase: "inspect-required", archive: archive.id, completed: index + 1, total: report.archives.length });
         valid = (await inspectArchive(filename)).valid;
       }
-      if (!valid || forceRegions.includes(archive.id)) missing.push(archive);
+      if (!valid || forceRegions.includes(archive.id)) {
+        if (missingOnly && currentSet.active.archives.some(entry => entry.id === archive.id)) {
+          throw new MapSetupError("Automatic downloads cannot replace an existing archive; manual recovery required");
+        }
+        missing.push(archive);
+      }
       else onProgress({ phase: "reuse", archive: archive.id });
     }
     const needed = missing.reduce((sum, entry) => sum + entry.downloadBytes, 0);

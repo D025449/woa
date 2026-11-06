@@ -11,7 +11,7 @@ import { getLocalMapCoverageBounds, project } from "../src/shared/localThumbnail
 import { buildMapPlan as buildServiceMapPlan, readMapWorkoutBounds, discoverMapArchive, inspectMapArchive,
   prepareMapArchives, mapArchiveMetadata, compareMapArchiveMetadata } from "../src/services/localMapProvisioningService.js";
 import { mapStorageLimit, MAP_STORAGE_MAX_BYTES, readMapStorageUsage, mapStorageCapacity,
-  withMapStorageBudget } from "../src/services/localMapStorageService.js";
+  withMapStorageBudget, withMapStorageLock } from "../src/services/localMapStorageService.js";
 import { readMapArchiveSet, mapArchiveSetIdentity } from "../src/services/localMapArchiveSetService.js";
 
 test("archive metadata uses only strong bounded ETags and valid HTTP modification dates", () => {
@@ -61,6 +61,22 @@ test("global map storage is limited to fifty percent of total volume capacity an
   }
 });
 
+test("map cleanup storage lock does not require capacity or evict cache", async () => {
+  await temporary(async dataDirectory => {
+    const config = { dataDirectory, cacheRoot: path.join(dataDirectory, "cache") };
+    const namespace = path.join(config.cacheRoot, "a".repeat(20));
+    await mkdir(namespace, { recursive: true });
+    await writeFile(path.join(namespace, "1-1-1.json"), "keep");
+    await withMapStorageLock(config, async () => {
+      assert.ok((await readdir(dataDirectory)).includes(".maps-storage.lock"));
+      assert.equal(await readFile(path.join(namespace, "1-1-1.json"), "utf8"), "keep");
+    });
+    assert.ok(!(await readdir(dataDirectory)).includes(".maps-storage.lock"));
+    await writeFile(path.join(dataDirectory, ".maps-storage.lock"), "busy");
+    await assert.rejects(withMapStorageLock(config, async () => assert.fail("must refuse")), /busy/);
+  });
+});
+
 function region(id, parent, west, east) {
   return { type: "Feature", properties: { id, parent, name: id,
     urls: { pbf: `https://download.geofabrik.de/${id}-latest.osm.pbf` } },
@@ -100,6 +116,9 @@ test("shared storage counts nested roots, partials and rollback data once and tr
     assert.equal(usage.limitBytes, 300);
     assert.equal(mapStorageCapacity(usage, 150).fits, false);
     assert.equal(mapStorageCapacity(usage, 150).fitsAfterCleanup, true);
+    await assert.rejects(withMapStorageBudget(config, 150, async () => assert.fail("no eviction allowed"),
+      { statfsFn, allowCacheEviction: false }), /storage budget/);
+    assert.equal(await readFile(path.join(namespace, "1-1-1.json"), "utf8"), Buffer.alloc(100).toString("utf8"));
     let written = false;
     await withMapStorageBudget(config, 150, async () => { written = true; }, { statfsFn });
     assert.equal(written, true);
@@ -173,10 +192,41 @@ const catalog = { type: "FeatureCollection", features: [region("country", null, 
 const workout = { id: 1, bounds: { minLng: 9.15, maxLng: 9.25, minLat: 48.7, maxLat: 48.8 }, has_thumbnail: false };
 const archive = feature => ({ url: `https://download.geofabrik.de/${feature.properties.id}-shortbread-1.0.mbtiles`, bytes: 100 });
 
+test("automatic demand never escalates unavailable leaf regions to larger parent downloads", async () => {
+  await temporary(async dataDirectory => {
+    const calls = [];
+    const plan = await buildServiceMapPlan([workout, { ...workout, id: 2 }], catalog, {
+      dataDirectory, cacheRoot: path.join(dataDirectory, "cache"), allowParentFallback: false,
+      resolveArchive: async feature => {
+        calls.push(feature.properties.id);
+        return feature.properties.id === "west" ? null : archive(feature);
+      }
+    });
+    assert.deepEqual(calls.sort(), ["east", "west"]);
+    assert.equal(plan.report.readyToPrepare, false);
+    assert.deepEqual(plan.report.unmappedWorkouts, [1, 2]);
+    assert.deepEqual(plan.report.unsupportedRegions, [{ id: "west", name: "west", workouts: 2, missingThumbnails: 2 }]);
+    assert.deepEqual(plan.report.archives.map(entry => entry.id), ["east"]);
+  });
+});
+
 async function temporary(action) {
   const directory = await mkdtemp(path.join(tmpdir(), "woa-map-provision-"));
   try { await action(directory); } finally { await rm(directory, { recursive: true, force: true }); }
 }
+
+test("automatic preparation refuses existing archives that become invalid after planning before any GET", async () => {
+  await temporary(async directory => {
+    const filename = path.join(directory, "west.mbtiles");
+    await tinyArchive(filename, true);
+    const plan = await buildMapPlan([workout], catalog, { dataDirectory: directory,
+      resolveArchive: async feature => archive(feature) });
+    await writeFile(filename, "corrupted after planning");
+    await assert.rejects(prepareMapArchives(plan, { versioned: true, missingOnly: true,
+      fetchFn: async () => assert.fail("automatic repair must never download") }), /cannot replace an existing archive/);
+    assert.equal(await readFile(filename, "utf8"), "corrupted after planning");
+  });
+});
 
 function buildMapPlan(workouts, regions, options) {
   return buildServiceMapPlan(workouts, regions, { cacheRoot: path.join(options.dataDirectory, "raster-cache"), ...options });
@@ -735,6 +785,98 @@ test("CLI prepare keeps JSON on stdout and emits all progress on stderr without 
     assert.match(blocked.stderr, /Map demand changed or approval invalid/);
     assert.equal(blocked.stdout, "");
     assert.doesNotMatch(blocked.stderr, /\[maps\] download-request/);
+  });
+});
+
+test("real cleanup and retirement CLI commands require stored approval and never fetch upstream", async () => {
+  await temporary(async directory => {
+    await tinyArchive(path.join(directory, "west.mbtiles"), true);
+    const envFile = path.join(directory, ".env.development");
+    await writeFile(envFile, `DB_NAME=fixture_db\nDB_USER=fixture_user\nWOA_MAP_DATA_DIR=${directory}\nWOA_MAP_CACHE_DIR=${path.join(directory, "cache")}\n`);
+    const script = `import { runMapCommand } from "./src/scripts/prepare-local-maps.js";
+      await runMapCommand([process.env.TEST_MAP_COMMAND, "--env-file", ${JSON.stringify(envFile)}, "--json"], {
+        clientFactory: () => ({ async connect() {
+          if (process.env.TEST_MAP_COMMAND.startsWith("cleanup")) throw new Error("Cleanup must not connect to DB");
+        }, async end() {}, async query() { return { rows: [] }; } }),
+        fetchFn: async () => { throw new Error("No upstream requests allowed"); }
+      });`;
+    const run = (command, input = "") => spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+      encoding: "utf8", input, env: { ...process.env, TEST_MAP_COMMAND: command }
+    });
+    const planned = run("retire-scan");
+    assert.equal(planned.status, 0, planned.stderr);
+    const retirement = JSON.parse(planned.stdout).retirement;
+    assert.deepEqual(retirement.regions.map(region => region.id), ["west"]);
+    const retired = run("retire", JSON.stringify({ snapshot: retirement, identity: retirement.identity }));
+    assert.equal(retired.status, 0, retired.stderr);
+    assert.deepEqual(JSON.parse(retired.stdout).lifecycle.retired, ["west"]);
+    const protectedScan = run("cleanup-scan");
+    assert.equal(protectedScan.status, 0, protectedScan.stderr);
+    assert.deepEqual(JSON.parse(protectedScan.stdout).cleanup.files, []);
+    await writeFile(path.join(directory, "orphan.mbtiles"), "old unused archive");
+    const cleanupScan = run("cleanup-scan");
+    assert.equal(cleanupScan.status, 0, cleanupScan.stderr);
+    const cleanup = JSON.parse(cleanupScan.stdout).cleanup;
+    const rejected = run("cleanup", JSON.stringify({ snapshot: cleanup, identity: "stale" }));
+    assert.equal(rejected.status, 1);
+    assert.ok((await readdir(directory)).includes("orphan.mbtiles"));
+    const cleaned = run("cleanup", JSON.stringify({ snapshot: cleanup, identity: cleanup.identity }));
+    assert.equal(cleaned.status, 0, cleaned.stderr);
+    assert.equal(JSON.parse(cleaned.stdout).lifecycle.removedFiles, 1);
+    assert.ok((await readdir(directory)).includes("west.mbtiles"));
+    assert.ok(!(await readdir(directory)).includes("orphan.mbtiles"));
+  });
+});
+
+test("import demand CLI persists manual demand, installs missing regions atomically and reuses them offline", async () => {
+  await temporary(async directory => {
+    const fixture = path.join(directory, "fixture");
+    const body = await tinyArchive(fixture, true);
+    const maps = path.join(directory, "maps");
+    const envFile = path.join(directory, ".env.development");
+    const script = `import { readFile } from "node:fs/promises";
+      import { runMapCommand } from "./src/scripts/prepare-local-maps.js";
+      const body = await readFile(${JSON.stringify(fixture)});
+      await runMapCommand(["demand", "--env-file", ${JSON.stringify(envFile)}, "--json"], {
+        clientFactory: () => ({ async connect() {}, async end() {}, async query() { return { rows: [${JSON.stringify(workout)}] }; } }),
+        fetchFn: async (url, options) => {
+          if (options.method === "HEAD") return new Response(null, { headers: { "content-length": String(body.length) } });
+          if (url.endsWith(".json")) return new Response(JSON.stringify(${JSON.stringify(catalog)}));
+          if (url.endsWith(".html")) return new Response('<a href="' + url.replace(/\\.html$/, "-shortbread-1.0.mbtiles") + '">Map</a>');
+          if (process.env.TEST_REFUSE_DOWNLOAD) throw new Error("archive GET forbidden");
+          return new Response(body, { headers: { "content-length": String(body.length) } });
+        }
+      });`;
+    const configure = automatic => writeFile(envFile, `DB_NAME=fixture_db\nDB_USER=fixture_user\nWOA_THUMBNAIL_MAP_PROVIDER=local\nWOA_MAP_AUTO_DOWNLOAD=${automatic ? "1" : "0"}\nWOA_MAP_DATA_DIR=${maps}\nWOA_MAP_CACHE_DIR=${path.join(directory, "cache")}\n`);
+    const run = refuse => spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+      encoding: "utf8", env: { ...process.env, TEST_REFUSE_DOWNLOAD: refuse ? "1" : "" }
+    });
+    await configure(false);
+    const manual = run(true);
+    assert.equal(manual.status, 0, manual.stderr);
+    assert.equal(JSON.parse(manual.stdout).demand.downloadState, "manual");
+    assert.doesNotMatch(manual.stderr, /\[maps\] download-request/);
+    assert.equal(readMapArchiveSet(maps).active.archives.length, 0);
+    assert.equal(JSON.parse(await readFile(path.join(maps, "map-regional-demand.json"), "utf8")).report.regions.length, 2);
+    await configure(true);
+    const failed = run(true);
+    assert.equal(failed.status, 1);
+    assert.equal(JSON.parse(await readFile(path.join(maps, "map-regional-demand.json"), "utf8")).report.downloadState, "failed");
+    assert.equal(readMapArchiveSet(maps).active.archives.length, 0);
+    const automatic = run(false);
+    assert.equal(automatic.status, 0, automatic.stderr);
+    const demand = JSON.parse(automatic.stdout).demand;
+    assert.equal(demand.downloadState, "available");
+    assert.equal(demand.readyToActivate, true);
+    assert.deepEqual(demand.regions.map(region => region.status), ["available", "available"]);
+    assert.equal(readMapArchiveSet(maps).managed, true);
+    assert.equal(readMapArchiveSet(maps).previous.archives.length, 0);
+    assert.doesNotMatch(JSON.stringify(demand), /filename|https:|workoutId/);
+    const reused = run(true);
+    assert.equal(reused.status, 0, reused.stderr);
+    assert.equal(JSON.parse(reused.stdout).demand.downloadBytes, 0);
+    assert.doesNotMatch(reused.stderr, /\[maps\] download-request/);
+    assert.equal(readMapArchiveSet(maps).active.archives.length, 2);
   });
 });
 

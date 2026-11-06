@@ -1,7 +1,214 @@
 # Arbeitsstand
 
-Stand: 2026-11-05. Diese Datei hält Absprachen für folgende Sitzungen fest.
+Stand: 2026-11-06. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
+
+## GPS PNG-RAM Default Restored (2026-11-06)
+
+- User approved restoring PNG-only RAM after reviewing 4.3x retained-memory cost
+	for the modest raw-pixel warm gain. Renderer rawPixelCache defaults to false;
+	raw processing remains explicit opt-in. Instrumentation, pixel comparison tests,
+	disk compatibility and the 16 MiB retained-entry limit are unchanged.
+- Benchmark defaults to PNG; --raw-memory selects the experiment, --png-memory
+	remains a compatibility alias. Both memory flags together fail before env/DB
+	access. --compare-pixels still compares both paths outside measured batches.
+- All 884 tests, full types, scoped lint/syntax passed. Focused cache test now
+	verifies PNG default plus explicit raw image equivalence/eviction. Actual
+	one-GPS smoke: all nine batches successful, rawPixelCache=false, pixelDecodeMs=0.
+	This validates defaults, not new performance results. Historical raw measurements
+	remain below and in docs/workout-map.md#decoded-pixel-ram-cache; npm guide updated.
+- No existing thumbnail changes, cache deletion, migration, deployment, normal
+	restart or env edit. Benchmark worker exited; its isolated cache remains
+	budget-counted, as do earlier reports/caches.
+
+## GPS Decoded-Pixel RAM Cache (2026-11-06)
+
+- User explicitly approved the raw-pixel RAM experiment with image comparisons
+	and repeat measurement. Implemented decoded pixel buffers as Sharp raw mosaic
+	inputs; PNG disk format/cache identity/style/concurrency unchanged. Actual PNG
+	and raw byte lengths count toward the existing 16 MiB retained-entry LRU limit,
+	with metadata estimates; eviction/clear/oversized-entry behavior verified.
+- Added tile.pixelDecodeMs (zero on RAM hits), renderer rawPixelCache:false for
+	reference and benchmark --png-memory/--compare-pixels. Pixel comparisons run
+	outside timing using extra session-local temp-table generations and fail on
+	changed full-thumbnail RGBA pixels; no persistent thumbnail rows are written.
+- Three actual six-GPS runs, 54/54 measured generations each; two raw runs also
+	performed 12/12 comparison generations. All six actual thumbnails had identical
+	pixels AND SVG bytes in both comparisons. Same-code sequential PNG/raw pair:
+	RAM map means C1 20.363->16.424, C3 15.746->14.354, C6 16.824->12.981 ms,
+	mosaic 8.947->3.988 / 6.582->3.757 / 7.104->3.397 ms. Warm renders 9-23%
+	lower in that pair; no production/HTTP speedup claim. Retained tiles 2.12->9.12
+	MiB; limit unchanged. Initial decode costs ~4-5 ms/workout, cold not faster,
+	2-5% slower means in pair with storage-inventory/OS/CPU noise. Fewer tiles fit.
+- 884 tests, full types, scoped lint/syntax, editor and diff checks passed;
+	subsequent extra disk/cache-ID assertions passed focused cache test/types/lint.
+	Source deduplication remains unapproved/unimplemented. No map download,
+	migration, deployment, normal restart, env edit or existing thumbnail write.
+- See docs/workout-map.md#decoded-pixel-ram-cache and updated npm guide. Reports
+	retained under tmp/woa-local-map-cache: paired PNG gps-benchmark-70c6a23f-8a17-4e1e-9ca6-f2e32e2be103,
+	paired raw gps-benchmark-9c42066a-11cd-4046-a8f9-d6a19bab9b11, initial raw
+	gps-benchmark-b097351d-eac9-44ca-8741-2ade7fa5fafd, each report.json. All caches
+	count toward budget; workers exited. Six Dev samples are not tail guarantees.
+
+## GPS Warm Render Phase Measurement (2026-11-06)
+
+- User approved splitting warm-cache timings and repeating the isolated GPS
+	benchmark, not a cache optimization. Added renderProfile/benchmark render.*
+	phases for viewport, tile assembly, PNG decode/mosaic, label placement, combined
+	crop/resize/label-raster/WebP output and route/overlay/final SVG. Preserved Sharp
+	pipeline and image/cache behavior; combined output is not WebP-only time.
+- Two actual six-GPS runs, all 54 generations successful each; second after
+	regression checks finished. RAM scenarios were memory-only, no disk/builds.
+	Concurrency-1 map mean 19.345 ms: assembly 0.109 (nested cache 0.074), mosaic
+	8.524, output 10.141, labels 0.052, finish 0.365, viewport 0.126 ms. Values are
+	per complete map, not per tile; nested cache time must not be added to assembly.
+	Concurrency-3/6 map 16.025/16.251 ms, mosaic 6.888/6.859, output 8.672/8.875.
+- At this measurement stage, the proposed next experiment was a decoded-pixel RAM cache
+	with actual raw-byte accounting, unchanged PNG disk cache and image comparisons.
+	Its later approval/implementation is recorded above. It may save PNG decode,
+	not all mosaic/output work. No speedup claimed for this measurement stage. Source
+	deduplication also remains unimplemented. No persistent thumbnail writes,
+	migrations, provider downloads, deployments, normal restart or env edits.
+- All 883 tests, full types, scoped lint/syntax and editor diagnostics passed;
+	existing cache test verifies phases and equal cold/disk/RAM backgrounds.
+	Details: docs/workout-map.md#warm-render-phase-follow-up. Isolated report:
+	tmp/woa-local-map-cache/gps-benchmark-94e43a00-8982-4165-ba5f-2749fe09bcce/report.json;
+	first: gps-benchmark-04b06a5f-1c80-4435-8b74-f86f7c945caf under the same root.
+	Caches retained and budget-counted; workers exited. Six Dev samples are not
+	production latency or tail evidence.
+
+## GPS Thumbnail Performance Instrumentation And Baseline (2026-11-06)
+
+- User limited this task to GPS thumbnails and approved measurement/instrumentation,
+	not yet a rendering optimization. Added generation/pool/advisory-lock/persistence
+	and connection-held timings; worker queue/service/startup/init timings; tile
+	load/decode/geometry/raster/storage/write/trim timings and identical-source counts.
+	Default generation/worker concurrency and image content are unchanged.
+- Added standalone `benchmark-gps-thumbnails.js`, local Dev/explicit environment
+	only, runtime DB pointer, GPS-size-quantile sample, concurrency1/3/6 and new-cache/
+	disk/RAM batches. Actual SQL upsert/COMMIT use verified session-local temp tables
+	with no persistent sequence or normal workout advisory key. Existing thumbnail
+	rows untouched. Test caches stay under the real cache root, shared budget/locks
+	count all roots; benchmark cache writes cannot evict existing raster entries.
+- Two actual local Dev runs: six GPS workouts, all54 calls per run successful.
+	Detailed concurrency1 mean map times: new cache611.7ms, disk56.1ms, RAM19.4ms;
+	service pipeline661.0/90.4/55.6ms. New-cache rasterization412-413ms dominates,
+	geometry83-85ms, load/decode5-14ms, storage60-68ms (initial run39-49ms).
+	Concurrency3/6 new-cache batch3653/3632ms, mean worker wait830/1315ms; more
+	requests do not parallelize the map worker. Peak RSS287-338MiB. 60/210 loaded
+	regional source rows were byte-identical duplicates (28.6%).
+- Next proposed, not approved/implemented: deduplicate byte-identical tile payloads
+	before geometry/rasterization with image/content checks and repeat measurement.
+	Never deduplicate solely by coordinates or remove geographic archive references.
+	Worker pools and shorter DB transaction lifetime are separate follow-ups.
+- All883 tests passed; full types/syntax, touched-code lint, editor diagnostics
+	and diff checks passed. A final nine-call one-GPS smoke run verified budget-locked
+	report writing without cache eviction after the two full six-GPS measurements.
+	Cold batches share tiles across their six workouts; disk runs do not flush OS
+	caches. Temp-table DDL/drop affect setup/COMMIT timing; results are not durable
+	production persistence or HTTP latency. Six samples do not establish tail bounds.
+	See `docs/workout-map.md#gps-thumbnail-performance-measurement` and npm guide.
+- Initial/detailed local reports remain in `tmp/woa-local-map-cache/gps-benchmark-35620b18-d068-457b-9d66-cbad3c41da6d/report.json`
+	and `tmp/woa-local-map-cache/gps-benchmark-a0a3aff9-f9b9-443e-a573-e30bd9322e4c/report.json`.
+	Their caches are retained, count toward budget and need verified operator cleanup.
+	Benchmark workers exited. No persistent thumbnail overwrite, migration, provider
+	download, production access, deployment, normal restart or env-file edit occurred.
+
+## Retirement Geographic Demand Protection Fix (2026-11-06)
+
+- User reported Austria offered for retirement despite unchanged workout demand
+	that previously requested its installation. Confirmed the local policy mismatch:
+	installation used catalog polygon intersections, retirement only tile-row presence.
+	An offline fixture reproduced Austria wrongly selected when another region's
+	archive contained identical tile coordinates. Real localhost Austria data was
+	not queried or modified; this is a verified code-level regression reproduction.
+- User approved the correction. Shared catalog validation/viewport intersection
+	helpers now serve both planning and retirement. Retirement protects all geographic
+	hits, their ancestors and active IDs absent from the catalog; tile checks remain
+	supplementary and cannot override required geography. Invalid/unavailable catalog
+	or unknown workout geography blocks retirement. Only retirement with GPS workouts
+	fetches catalog metadata; no HEAD/archive download, cleanup network access or new
+	configuration. Zero-GPS retirement remains offline.
+- Policy-version-2 snapshots record private catalog identity. Old tile-only previews
+	are hidden/rejected; execution rechecks fresh geography/catalog identity, cumulative
+	tiles, hashes and final workout demand. Conservative protection may retain more
+	archives than a space optimizer. Prior cleanup/reader/rollback behavior is unchanged.
+	See `docs/workout-map.md#manual-archive-cleanup-and-region-retirement` and npm guide.
+- All 880 tests passed, including direct installation-vs-retirement Austria checks,
+	fresh-catalog changes, geographic ancestors, unknown archives, invalid/unavailable
+	catalogs and old API/service approvals. Full types and touched-code lint/syntax
+	passed. No UI layout change or additional browser run was required; API tests
+	verify hiding old previews. No live DB/Redis/provider metadata or archive access,
+	archive deletion/activation, migration, deploy, restart or env edit was performed.
+
+## Manual Map Cleanup And Region Retirement (2026-11-06)
+
+- User approved two explicit Admin workflows: preview/delete unreferenced archive
+	files and preview/retire redundant or unused active regions. Both use the serial
+	Ops queue/isolated CLI, distinct fresh <=1h scan-job approvals and bounded stdin.
+	Page load starts no job; no automatic deletion or new npm script/env/migration.
+- Cleanup protects file-level active/rollback references and live reader leases;
+	changed files/references/readers reject before the first unlink. Unknown paths,
+	symlinks, partials and raster cache remain untouched. Separate storage locking
+	allows cleanup above budget without capacity reservation/cache eviction.
+- Retirement checks cumulative remaining viewport tiles from fresh GPS bounds,
+	full SQLite/Shortbread and hashes, and rereads demand after hash checks. Atomic
+	reduced-set activation retains the former active set as the one rollback target;
+	retirement initially frees zero archive bytes. Imports are not locked against
+	activation; later demand uses existing import planning/fallback recovery.
+- **All cooperating app/worker processes must be deployed/restarted before use:**
+	older renderers do not register pinned-file reader leases. Worker exit releases
+	reservations; dead-PID leases are ignored only on ESRCH. Malformed/live leases
+	fail closed; crash-left gates require verified operator cleanup. Full scans/hash
+	checks can delay backups. Failed cleanup can be partial; rescan. Demand display
+	needs a fresh `Bedarf prüfen` after retirement. See
+	`docs/workout-map.md#manual-archive-cleanup-and-region-retirement` and npm guide.
+- All 878 tests passed. Focused checks cover real SQLite/CLI stdin/BullMQ Job and
+	worker exit, changed files/demand, symlinks/unknown paths, shared references,
+	expired approvals, over-budget cleanup and rollback retention. Full types/syntax,
+	scoped lint and editor diagnostics passed; post-hash recheck passed focused tests.
+	Actual EJS/controller browser checks with simulated APIs at desktop1365/mobile390
+	verified explicit calls, reload/reset, busy states, icons and no page overflow/JS
+	errors; screenshots inspected. Isolated preview: port53433; normal Dev untouched.
+- No migration, live DB data write, Redis operation, provider download, production
+	archive deletion/activation, deployment, normal service restart or env edit was
+	performed. Tests deleted only their isolated temporary fixture files.
+
+## Imported Regional Map Demand And Optional Downloads (2026-11-06)
+
+- User approved durable demand plus import-triggered background planning and
+	optional automatic downloads. No monthly transfer or per-region size quota;
+	use finest direct catalog regions and existing 50%-volume/100-GiB storage cap.
+- Successful single/bulk GPS inserts dispatch debounced `maps-demand` after
+	persistence/COMMIT without awaiting work. Existing serial Ops queue, separate
+	deduplication key, three attempts with exponential backoff. Dispatch is
+	best-effort, not a transactional outbox; admin scan recovers missed jobs.
+- Private atomic `map-regional-demand.json` preserves aggregate demand, including
+	unsupported regions, beyond queue retention. Admin scan/prepare records it via
+	explicit `--record-demand`; plain CLI plan remains read-only. Durable display
+	never grants manual approval; fresh manual job and confirmation still required.
+- `WOA_MAP_AUTO_DOWNLOAD=1` opts in (default off); only local provider. Automatic
+	planning has no parent escalation. Incomplete plans/capacity and existing bad
+	archives block automatic downloads. Missing regions use validated immutable
+	versions/atomic activation/rollback; updates remain manually approved and
+	successful/legacy thumbnails are preserved. See
+	`docs/workout-map.md#imported-regional-demand-and-optional-automatic-downloads`
+	and `docs/npm-scripts.md` for operations and limitations.
+- All 868 tests passed, including 90 focused map/admin/import-conflict tests.
+	Real offline CLI checks cover default-off, failed download with no activation,
+	versioned installation and reuse without archive GET. Types/editor checks passed
+	after correcting the new JSDoc option. Full syntax and scoped lint passed with
+	two pre-existing unused-import warnings. Actual EJS/module browser checks with
+	simulated APIs at desktop1365/mobile390 verified durable/unsupported display,
+	auto on/off status, fresh-scan/explicit-confirmation gating, reset on reload,
+	no page overflow and no JS errors; screenshots inspected. Direct CDP viewport
+	override was needed because integrated Playwright viewport sizing was inaccurate.
+	Isolated preview retained on port52451; normal Dev services were untouched.
+- No migration, DB data write, real Redis/import job, provider archive download,
+	deployment, normal service restart or environment-file change was performed.
+	Safe archive retirement, periodic demand reconciliation, import outbox and UI
+	cancellation remain open; full demand scans can delay Ops backups. Storage or
+	crash failures can leave a stale demand snapshot; next import/admin scan recovers.
 
 ## Versioned Map Installation And Rollback (2026-11-05)
 

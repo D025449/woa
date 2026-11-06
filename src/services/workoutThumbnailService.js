@@ -360,14 +360,14 @@ async function renderGeoapifyRouteThumbnail(options, fallback = null) {
 
 async function renderLocalRouteThumbnail(options, fallback) {
   const segments = normalizeRouteSegments(options.gpsTrackSegments, options.gpsTrack);
-  const result = await LocalThumbnailMapService.render({
+  const result = await (options.localMapClient || LocalThumbnailMapService).render({
     segments: segments.map(segment => segment.map(point => [point.lng, point.lat])),
     overlays: (options.segmentOverlays || []).map(overlay => ({
       segmenttype: overlay.segmenttype || "manual",
       color: getSegmentColor(overlay),
       segments: normalizeRouteSegments(overlay.segments).map(segment => segment.map(point => [point.lng, point.lat]))
     }))
-  });
+  }, options.localMapConfig || getLocalThumbnailMapConfig());
   return { ...fallback, width: 320, height: 200, content: result.svg,
     renderStats: { ...fallback.renderStats, localMap: result.stats } };
 }
@@ -799,25 +799,37 @@ export default class WorkoutThumbnailService {
     }
   }
 
-  static async getOrCreateThumbnail(workoutId, createPayload, { replaceExisting = false } = {}) {
+  static async getOrCreateThumbnail(workoutId, createPayload, { replaceExisting = false, connectionFactory = () => pool.connect() } = {}) {
     const id = Number(workoutId);
     if (!Number.isSafeInteger(id) || id <= 0) return null;
     if (!replaceExisting && thumbnailGenerationInflight.has(id)) {
       return thumbnailGenerationInflight.get(id);
     }
+    const queuedAt = performance.now();
     const generation = thumbnailGenerationLimit(async () => {
-      const connection = await pool.connect();
+      const startedAt = performance.now();
+      const connection = await connectionFactory();
+      const acquiredAt = performance.now();
+      const timing = { generationQueueMs: startedAt - queuedAt, dbConnectionWaitMs: acquiredAt - startedAt,
+        transactionBeginMs: 0, advisoryLockMs: 0, lockedLookupMs: 0, payloadCreateMs: 0 };
       const query = connection.query.bind(connection);
       try {
         await query("BEGIN");
         await query("SET LOCAL lock_timeout = '30s'");
+        timing.transactionBeginMs = performance.now() - acquiredAt;
+        let stepStartedAt = performance.now();
         await query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`woa:thumbnail:${id}`]);
+        timing.advisoryLockMs = performance.now() - stepStartedAt;
+        stepStartedAt = performance.now();
         const existing = await WorkoutThumbnailService.getThumbnail(id, query);
+        timing.lockedLookupMs = performance.now() - stepStartedAt;
         if (!replaceExisting && existing?.content && WorkoutThumbnailService.isCurrentRouteThumbnail(existing)) {
           await query("COMMIT");
           return existing;
         }
+        stepStartedAt = performance.now();
         let payload = await createPayload();
+        timing.payloadCreateMs = performance.now() - stepStartedAt;
         const failure = getLocalThumbnailMapConfig().enabled ? localFallbackMetadata(payload) : null;
         const previousFailure = failure ? localFallbackMetadata(existing) : null;
         if (!replaceExisting && failure?.state === "temporary-failure" && previousFailure?.state === "temporary-failure"
@@ -833,18 +845,23 @@ export default class WorkoutThumbnailService {
           await query("COMMIT");
           return null;
         }
-        const startedAt = performance.now();
+        const persistStartedAt = performance.now();
         const persisted = await WorkoutThumbnailService.upsertThumbnail(id, payload, query);
         await query("COMMIT");
+        const completedAt = performance.now();
+        const generationProfile = payload.kind === "route" ? { ...payload.generationProfile, ...timing,
+          persistThumbnailMs: completedAt - persistStartedAt, dbConnectionHeldMs: completedAt - acquiredAt,
+          generationEndToEndMs: completedAt - queuedAt } : payload.generationProfile;
         console.info("[thumbnail] persist.profile", {
           workoutId: id,
           kind: payload.kind,
-          persistThumbnailMs: performance.now() - startedAt,
+          persistThumbnailMs: completedAt - persistStartedAt,
+          ...(payload.kind === "route" ? generationProfile : {}),
           persisted: true,
           fallbackReason: payload.renderStats?.mapFallbackReason || null,
           retryAt: payload.renderStats?.mapRetryAt || null
         });
-        return { ...payload, ...persisted, workoutId: id };
+        return { ...payload, ...persisted, workoutId: id, ...(generationProfile ? { generationProfile } : {}) };
       } catch (error) {
         await query("ROLLBACK").catch(() => {});
         throw error;
@@ -966,7 +983,8 @@ export default class WorkoutThumbnailService {
       .filter(Boolean);
   }
 
-  static async generateThumbnailForWorkout(workoutId, { skipExistingCheck = false } = {}) {
+  static async generateThumbnailForWorkout(workoutId, { skipExistingCheck = false, connectionFactory = () => pool.connect(),
+    localMapClient = LocalThumbnailMapService, localMapConfig = getLocalThumbnailMapConfig() } = {}) {
     const normalizedWorkoutId = Number(workoutId);
     if (!Number.isInteger(normalizedWorkoutId) || normalizedWorkoutId <= 0) {
       return null;
@@ -1103,7 +1121,9 @@ export default class WorkoutThumbnailService {
         workoutType: row.workout_type,
         gpsTrackSegments,
         segmentOverlays,
-        workoutObject
+        workoutObject,
+        localMapClient,
+        localMapConfig
       });
       profile.renderSvgMs = performance.now() - stepStartedAt;
       if (payload?.renderStats) {
@@ -1119,6 +1139,6 @@ export default class WorkoutThumbnailService {
         ...payload,
         generationProfile: profile
       };
-    });
+    }, { connectionFactory });
   }
 }

@@ -8,6 +8,39 @@ import { GeoapifyThumbnailClient } from "../src/services/geoapifyThumbnailServic
 import GeoapifyThumbnailService from "../src/services/geoapifyThumbnailService.js";
 import pool from "../src/services/database.js";
 import LocalThumbnailMapService from "../src/services/localThumbnailMapService.js";
+import { selectGpsBenchmarkSample, createGpsBenchmarkConnection, compareGpsThumbnailPixels } from "../src/scripts/benchmark-gps-thumbnails.js";
+
+test("GPS benchmark pixel comparison detects changed colors, alpha and dimensions", async () => {
+  const image = (color, opacity = 1, width = 2) => `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="2"><rect width="2" height="2" fill="${color}" opacity="${opacity}"/></svg>`;
+  const reference = image("#ff0000");
+  const same = await compareGpsThumbnailPixels(reference, reference);
+  assert.equal(same.identicalPixels, true);
+  assert.equal(same.identicalSvg, true);
+  assert.equal(same.referencePixelHash, same.candidatePixelHash);
+  for (const changed of [image("#00ff00"), image("#ff0000", 0.5), image("#ff0000", 1, 3)]) {
+    assert.equal((await compareGpsThumbnailPixels(reference, changed)).identicalPixels, false);
+  }
+});
+
+test("GPS benchmark samples track sizes without duplicates and writes only a verified temporary thumbnail table", async () => {
+  const rows = Array.from({ length: 10 }, (_, index) => ({ id: index + 1 }));
+  assert.deepEqual(selectGpsBenchmarkSample(rows, 3).map(row => row.id), [1, 6, 10]);
+  assert.deepEqual(selectGpsBenchmarkSample(rows.slice(0, 2), 6).map(row => row.id), [1, 2]);
+  const statements = [];
+  const connection = await createGpsBenchmarkConnection({ async connect() { return {
+    async query(sql, values) { statements.push({ sql, values }); return { rows: sql.includes("to_regclass") ? [{ isolated: true }] : [] }; },
+    release() { statements.push({ sql: "RELEASE" }); }
+  }; } }, "fixture");
+  await connection.query("BEGIN");
+  await connection.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", ["woa:thumbnail:1"]);
+  await connection.query("COMMIT");
+  connection.release();
+  assert.match(statements[1].sql, /CREATE TEMP TABLE workout_thumbnails/);
+  assert.match(statements[1].sql, /ON COMMIT DROP/);
+  assert.doesNotMatch(statements[1].sql, /serial|nextval|LIKE|public\./i);
+  assert.match(statements[3].values[0], /^woa:gps-benchmark:fixture:/);
+  assert.equal(statements.at(-2).sql, "COMMIT");
+});
 
 test("library observes on-demand candidates and starts requests only near the viewport", async () => {
   const source = await readFile(new URL("../src/public/js/workout-library-view.js", import.meta.url), "utf8");
@@ -214,6 +247,11 @@ test("thumbnail persistence serializes creation, commits before returning and re
   assert.equal(first, concurrent);
   assert.equal(creates, 1);
   assert.equal(first.content, payload.content);
+  for (const key of ["generationQueueMs", "dbConnectionWaitMs", "transactionBeginMs", "advisoryLockMs", "lockedLookupMs",
+    "payloadCreateMs", "persistThumbnailMs", "dbConnectionHeldMs", "generationEndToEndMs"]) {
+    assert.ok(Number.isFinite(first.generationProfile[key]) && first.generationProfile[key] >= 0, key);
+  }
+  assert.ok(first.generationProfile.dbConnectionHeldMs >= first.generationProfile.payloadCreateMs);
   assert.deepEqual(statements.slice(-2), ["COMMIT", "RELEASE"]);
   assert.ok(statements.find((sql) => sql.includes("pg_advisory_xact_lock")));
   const cached = await WorkoutThumbnailService.getOrCreateThumbnail(42, async () => assert.fail("duplicate map generation"));

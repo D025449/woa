@@ -1,7 +1,10 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { LocalMapRenderer } from "../services/localThumbnailMapRenderer.js";
+import { performance } from "node:perf_hooks";
 
+const initializationStartedAt = performance.now();
 const renderer = new LocalMapRenderer(workerData);
+parentPort.postMessage({ ready: true, initializationMs: performance.now() - initializationStartedAt });
 parentPort.on("message", async ({ id, example }) => {
   try { renderer.viewport(example); }
   catch {
