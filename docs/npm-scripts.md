@@ -35,7 +35,7 @@ dokumentieren die Werkzeuge; sie sind keine Ausführungsfreigabe.
 | `start:all` | `npm run start:all`: start the app, import worker, and backup worker together. | Same prerequisites and data changes as the individual services. Logs use `[app]`, `[worker]`, and `[backup]`. In development, sets child-process app/Cognito URLs to localhost using `PORT` (default 3000). Other environment values are inherited. `Ctrl+C`/SIGTERM stops all services; after ten seconds remaining processes are forcibly stopped. Core service failures stop the other processes with an error status. |
 | `start:tunnel` | `npm run start:tunnel`: start the app, both workers, and ngrok using the fixed public URL. | Same service prerequisites and data changes as `start:all`, plus public access to the local app. Requires an installed, authenticated ngrok agent. Uses the app's `PORT` (default 3000); waits for local HTTP readiness. Tunnel failures leave local services running. `Ctrl+C` stops all processes. [Setup and details](#local-development-with-ngrok). |
 | `worker` | `npm run worker`: Import-Worker starten. | Verarbeitet Import-Jobs und den dauerhaften Wahoo-Webhook-Eingang; schreibt Trainings und Folgeaufträge. Benötigt die konfigurierte Datenbank und Queue-Infrastruktur, für Wahoo zusätzlich Migration 092 und die [Wahoo-Konfiguration](WAHOO_CONNECT.md#webhooks-und-automatischer-import). |
-| `backup:worker` | `npm run backup:worker`: Ops worker for admin backup/restore and local-map jobs. | Runs queued operations serially, including explicit map scans/download approvals, imported regional demand with optional automatic missing-region downloads via a separate map CLI process, async metadata-only update checks, and explicitly approved archive cleanup/region retirement. Requires Redis and the underlying operation prerequisites; a long map job delays backup operations. Registers the monthly update scheduler for the local provider, removes it otherwise; registration triggers no immediate scan/download. [Backup operations](../ops/postgres-backup/README.md), [map administration](workout-map.md#admin-map-demand-and-provisioning), [import demand](workout-map.md#imported-regional-demand-and-optional-automatic-downloads), [monthly monitoring](workout-map.md#map-update-metadata-monitoring), [manual cleanup](workout-map.md#manual-archive-cleanup-and-region-retirement). |
+| `backup:worker` | `npm run backup:worker`: Ops worker for admin backup/restore and local-map jobs. | Runs queued operations serially, including explicit map scans/download approvals, imported regional demand with optional automatic missing-region downloads via a separate map CLI process, and async metadata-only update checks. Requires Redis and the underlying operation prerequisites; a long map job delays backup operations. Registers the monthly update scheduler for the local provider, removes it otherwise; registration triggers no immediate scan/download. [Backup operations](../ops/postgres-backup/README.md), [map administration](workout-map.md#admin-map-demand-and-provisioning), [import demand](workout-map.md#imported-regional-demand-and-optional-automatic-downloads), [monthly monitoring](workout-map.md#map-update-metadata-monitoring). |
 | `deploy:prod` | `npm run deploy:prod -- "Commit-Nachricht"` | Führt `npm test` und `npm run check` aus, nimmt **alle Repository-Änderungen** mit `git add --all` auf, erstellt Commit und Push und ruft per SSH `./deploy.sh code-only` auf. Erwartet den Release-Branch, standardmäßig `main`. |
 | `env:prod` | `npm run env:prod`: open `~/woa/.env.production` on `cwa24-ec2` directly in Nano over SSH. | Requires a local interactive terminal, working SSH access to the `cwa24-ec2` alias, and Nano plus file access on the server. Saving changes the production environment file; no automatic restart or deployment. [Editing details](#edit-the-production-environment). |
 | `maps:plan` | `npm run maps:plan -- --env-file .env.production [--json] [--quick]`: inventory required Shortbread regions from stored workout GPS boxes. | Explicit environment file, database read access, Node with `node:sqlite`, outbound Geofabrik metadata/HEAD access. Read-only transaction; reads existing map files, creates none, downloads no archives. Full SQLite integrity inspection by default; `--quick` samples archive metadata and one vector tile instead. Phase/inspection progress on stderr; `--json` keeps script stdout machine-readable. Exit 2 for incomplete plans. [Production workflow](workout-map.md#production-planning-and-preparation-over-ssh). |
@@ -135,29 +135,6 @@ together before use; old binaries ignore the manifest. No new environment variab
 dependency, public npm command or schema migration. See
 [versioned installation and rollback](workout-map.md#versioned-installation-and-rollback).
 
-Manual archive maintenance adds internal Ops CLI commands `cleanup-scan`, `cleanup`,
-`retire-scan` and `retire`, not public npm scripts or flags. All require an explicit
-environment file. Cleanup scans inspect recognized unreferenced archive filenames;
-cleanup rechecks approved file identities, active/rollback references and live
-renderer reservations under exclusive prepare/storage/reader gates before unlinking.
-It needs no DB connection or capacity reservation and never evicts raster cache,
-so it works above the storage budget. Retirement scans/activation read fresh GPS
-bounds in read-only transactions. When GPS workouts exist, retirement fetches
-official catalog metadata and protects geographically intersecting regions and
-their ancestors using the installation planner's shared intersection helpers.
-Unknown active region IDs remain protected; invalid/unavailable catalog or unknown
-workout geography blocks retirement. Tile rows in another archive cannot override
-geographic demand. Additional cumulative tile checks, hashes and a final demand
-reread remain required. No archive download/HEAD request is made; cleanup and
-zero-GPS retirement require no upstream access. Policy-version-2 previews bind the
-catalog identity; old tile-only approvals are hidden/rejected. Each
-mutating command consumes its fresh stored scan approval on bounded stdin (128 KiB).
-Retirement retains the former active set for rollback and initially frees no bytes.
-Deploy/restart all cooperating app/worker processes first: old renderers do not
-register file readers. No automatic archive deletion, migration, new dependency,
-environment variable or thumbnail regeneration is introduced. See
-[safety, lock recovery and limitations](workout-map.md#manual-archive-cleanup-and-region-retirement).
-
 Both map commands additionally inventory file lengths in the data/cache roots and
 report the combined storage budget: 50% of total volume capacity, capped globally
 at 100 GiB; separate devices each retain their 50% limit. Plans are advisory and
@@ -182,69 +159,6 @@ review the diff, then check `npm ci --dry-run --ignore-scripts --omit=dev` local
 A dry-run checks dependency resolution, not native binaries or runtime behavior.
 
 ## Local Thumbnail Map Development
-
-GPS-only performance measurement is available as a standalone internal script,
-not a new npm alias:
-
-```bash
-node -- src/scripts/benchmark-gps-thumbnails.js --env-file .env.development --limit 6
-```
-
-Requires a local Dev database, active local map archives and `--limit 1..12`.
-Reads GPS tracks/segments and uses verified session-local temporary thumbnail
-tables for upsert/COMMIT measurement; never deletes or overwrites persistent
-thumbnail rows, runs migrations or starts/restarts services. Creates isolated
-benchmark cache/report directories beneath the configured cache root, preserving
-the shared storage budget/locks but refusing eviction of existing cache files.
-Runs new-cache, disk-reuse and RAM-reuse batches at concurrency 1/3/6; records
-phase timings, cache/source counters, CPU, RSS and filesystem operation counters.
-GPS generation now includes workout stream profiles; summaries also report
-`decompressWorkoutStreamMs` and `decodeWorkoutStreamMs` for that additional work.
-Render phase summaries include viewport, tile assembly, PNG decode/mosaic, label
-placement, the combined crop/resize/label-raster/WebP pipeline and final route SVG.
-Output pipeline timings do not isolate WebP encoding from its other operations.
-The default uses PNGs in the bounded RAM tile cache. `--raw-memory` explicitly
-enables the decoded-pixel experiment; `--png-memory` remains an alias for the
-default, and both memory flags together are rejected before environment/DB access.
-`--compare-pixels` adds two unmeasured passes
-after timing, comparing PNG/raw full-thumbnail pixels and recording hashes/SVG
-equality. It adds two generations per sample, using the same temporary DB tables
-and a separate test cache; changed pixels fail the run. `tile.pixelDecodeMs`
-records initial raw decode when opted in and is zero on RAM hits and the PNG
-default. See
-[raw cache tradeoffs and paired results](workout-map.md#decoded-pixel-ram-cache).
-Caches/reports are retained and count toward the budget. Results exclude HTTP/auth
-and durable production-table persistence. See
-[measurement method, results and limitations](workout-map.md#gps-thumbnail-performance-measurement).
-
-The GPS/metric visual design comparison is another standalone internal script,
-not an npm alias:
-
-```bash
-node -- src/scripts/preview-gps-profile-thumbnails.js --env-file .env.development
-```
-
-It reads existing local-map thumbnails and streams in a read-only local Dev
-transaction, reuses the non-GPS metric profile and writes only the generated
-`tmp/gps-profile-preview/index.html` (retained lines), `bands.html` (filled
-power/altitude prototype), `production.html` (production GPS/non-GPS bands)
-and `segments.html` (preview-only non-GPS segment/phase comparison)
-artifacts. The production page uses the real compositor with existing maps and
-GPS data and stored segments/phases, plus non-GPS streams including the Speed fallback. The bands use the
-chart's colors/opacity and separate scales. The segments page reads stored
-interval/microinterval/manual parents and phases, excludes other types and
-clearly labels any synthetic microinterval layout demo. It does not detect or
-save segments or alter standard thumbnail generation. No thumbnail/cache writes,
-downloads, migrations or service starts/restarts. Open that standalone HTML
-directly; the tabs switch variants and no web server is needed. See
-[preview scope and verified examples](workout-map.md#combined-gps-and-metric-profile-preview).
-See also [production band policy](workout-map.md#production-thumbnail-bands).
-The [segment comparison](workout-map.md#non-gps-segment-thumbnail-preview)
-documents actual examples, phase styling and the demo limitation.
-The [production phase policy](workout-map.md#production-segment-and-phase-bands)
-documents the approved default; synthetic phases are never used in production.
-Old GPS strips are removed only from the preview's in-memory map copy so the
-current compositor can be inspected without replacing stored thumbnails.
 
 For `npm run start:all` with the local BW/Hessen thumbnail renderer, use the
 environment settings and data prerequisites in

@@ -6,7 +6,6 @@ import { getLocalThumbnailMapConfig } from "../config/storagePaths.js";
 import { readMapArchiveSet, mapArchiveSetIdentity } from "../services/localMapArchiveSetService.js";
 import { validateMapInstallation } from "../services/localMapLifecycleService.js";
 import { readMapDemand } from "../services/localMapDemandService.js";
-import { validateMapCleanupApproval, mapCleanupIdentity } from "../services/localMapCleanupService.js";
 
 export function createLocalMapAdminRouter({ queue, authorize = requireAdmin }) {
   const router = express.Router();
@@ -37,25 +36,12 @@ export function createLocalMapAdminRouter({ queue, authorize = requireAdmin }) {
       const manifest = readMapArchiveSet(directory, { checkFiles: false });
       const lifecycle = { identity: mapArchiveSetIdentity(directory), activeSet: manifest.active.id,
         previousSet: manifest.previous?.id || null };
-      const lastMutation = Math.max(0, ...states.filter(entry => entry.state === "completed"
-        && ["maps-cleanup", "maps-retire", "maps-install", "maps-rollback", "maps-prepare"].includes(entry.job.name)).map(entry => entry.job.finishedOn || 0));
-      const preview = operation => {
-        const source = states.filter(entry => entry.state === "completed" && entry.job.name === `maps-${operation}-scan`
-          && entry.job.finishedOn > lastMutation).sort((first, second) => second.job.finishedOn - first.job.finishedOn)[0]?.job;
-        if (!source?.returnvalue || source.returnvalue.identity !== mapCleanupIdentity(directory)) return null;
-        const snapshot = source.returnvalue;
-        if (operation === "retire" && snapshot.policyVersion !== 2) return null;
-        return operation === "cleanup" ? { jobId: String(source.id), checkedAt: snapshot.checkedAt, identity: snapshot.identity,
-          reclaimableBytes: snapshot.reclaimableBytes, files: snapshot.files.map(({ id, filename, bytes, protectedByReader }) => ({ id, filename, bytes, protectedByReader })) }
-          : { jobId: String(source.id), checkedAt: snapshot.checkedAt, identity: snapshot.identity, regions: snapshot.regions, bytes: snapshot.bytes };
-      };
       const failureTag = String(current?.job.failedReason || "").match(/\[stage=[a-z-]+, code=[A-Z0-9_]+\]/)?.[0] || "";
       return res.json({ ok: true, report: storedReport ? demand : completed?.returnvalue || null,
         reportJobId: !storedReport && completed ? String(completed.id) : null,
         automaticDownloads: getLocalThumbnailMapConfig().automaticDownloads,
         updates: updates.report || null,
         lifecycle,
-        cleanup: preview("cleanup"), retirement: preview("retire"),
         job: current ? { id: String(current.job.id), operation: current.job.name, state: current.state,
           progress: current.job.progress || null,
           error: current.state === "failed" ? `Kartenoperation fehlgeschlagen. ${failureTag} Server-Diagnose erforderlich.` : null } : null });
@@ -77,33 +63,6 @@ export function createLocalMapAdminRouter({ queue, authorize = requireAdmin }) {
       return res.status(202).json({ ok: true, jobId: String(job.id) });
     } catch (error) { return next(error); }
   });
-
-  for (const operation of ["cleanup", "retire"]) {
-    router.post(`/${operation}-scan`, async (req, res, next) => {
-      try {
-        const job = await queue.add(`maps-${operation}-scan`, { requestedBy: String(req.user.id) },
-          { deduplication: { id: "local-map-operation" } });
-        return res.status(202).json({ ok: true, jobId: String(job.id) });
-      } catch (error) { return next(error); }
-    });
-    router.post(`/${operation}`, async (req, res, next) => {
-      try {
-        const { confirmed, snapshotJobId, identity } = req.body || {};
-        if (confirmed !== true || !/^\d{1,30}$/.test(String(snapshotJobId || ""))) return res.status(400).json({ error: "Bereinigungsfreigabe fehlt." });
-        const source = await queue.getJob(String(snapshotJobId));
-        try {
-          if (!source || source.name !== `maps-${operation}-scan` || await source.getState() !== "completed") throw new Error();
-          validateMapCleanupApproval(source.returnvalue, { identity });
-          if (identity !== mapCleanupIdentity(getLocalThumbnailMapConfig().dataDirectory)) throw new Error();
-          if (operation === "retire" && source.returnvalue.policyVersion !== 2) throw new Error();
-          if (operation === "cleanup" ? !source.returnvalue.files.some(file => !file.protectedByReader) : !source.returnvalue.regions.length) throw new Error();
-        } catch { return res.status(409).json({ error: "Bereinigung erneut prüfen und freigeben." }); }
-        const job = await queue.add(`maps-${operation}`, { requestedBy: String(req.user.id), snapshotJobId: String(source.id), identity },
-          { deduplication: { id: "local-map-operation" } });
-        return res.status(202).json({ ok: true, jobId: String(job.id) });
-      } catch (error) { return next(error); }
-    });
-  }
 
   router.post("/install", async (req, res, next) => {
     try {

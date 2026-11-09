@@ -55,6 +55,21 @@ Navigation labels are translated in all six existing browser locale files.
 
 No database changes, migrations, new dependencies, or npm scripts are required.
 
+## Workout Dashboard Type Group
+
+The workout dashboard type menu and its native select include **Radsport**
+(Cycling) immediately after All types. The group selects exactly the existing
+`road`, `mountain` and `indoor` workout types; `unknown`, `motorsport`, NULL and
+unrelated manual activity types are excluded. Existing individual choices remain
+available. This is a filter group, not a new stored workout classification.
+
+The selected filter uses `workoutType: "cycling"` in the existing per-user
+workout-library view preferences and is restored when reopening the dashboard.
+It remains separate from the broader activity-type Cycling filter, which may
+include workouts with an unknown subtype. Both combined-feed branches and their
+count/summary query use the same validated, parameterized type list before paging.
+No migration, dependency or npm script is required.
+
 ## Administration Navigation
 
 The authenticated administrator page `/admin/accounts` follows the same local

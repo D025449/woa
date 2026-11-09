@@ -12,91 +12,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { mapArchiveSetIdentity } from "../src/services/localMapArchiveSetService.js";
 import { enqueueImportedMapDemand, saveMapDemand, readMapDemand, canAutomaticallyPrepareMaps } from "../src/services/localMapDemandService.js";
-import { scanMapCleanup, mapCleanupIdentity } from "../src/services/localMapCleanupService.js";
-
-test("cleanup and retirement APIs bind explicit approval to the matching fresh scan and redact private state", async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), "woa-map-cleanup-api-"));
-  const previousDirectory = process.env.WOA_MAP_DATA_DIR;
-  process.env.WOA_MAP_DATA_DIR = directory;
-  try {
-    const cleanup = await scanMapCleanup({ config: { dataDirectory: directory, cacheRoot: path.join(directory, "cache") } });
-    cleanup.files = [{ id: "old", filename: "old.mbtiles", bytes: 100, fingerprint: "private-fingerprint", protectedByReader: false }];
-    cleanup.reclaimableBytes = 100;
-    const retirement = { policyVersion: 2, checkedAt: cleanup.checkedAt, identity: cleanup.identity, workoutIdentity: "private-workout-identity",
-      regions: [{ id: "old", bytes: 100 }], bytes: 100 };
-    const sources = [cleanup, retirement].map((returnvalue, index) => ({ id: String(index + 1),
-      name: index === 0 ? "maps-cleanup-scan" : "maps-retire-scan", timestamp: index + 1, finishedOn: Date.now() + index,
-      returnvalue, async getState() { return "completed"; } }));
-    const added = [];
-    const queue = { async getJobs() { return sources; }, async getJob(id) { return sources.find(job => job.id === id); },
-      async add(...args) { added.push(args); return { id: 3 }; } };
-    await withMapApi(queue, async url => {
-      const headers = { "x-admin": "yes", "content-type": "application/json", origin: new URL(url).origin };
-      const response = await (await fetch(url, { headers })).json();
-      assert.equal(response.cleanup.jobId, "1");
-      assert.equal(response.retirement.jobId, "2");
-      assert.doesNotMatch(JSON.stringify(response), /private-fingerprint|private-workout-identity/);
-      delete retirement.policyVersion;
-      assert.equal((await (await fetch(url, { headers })).json()).retirement, null);
-      assert.equal((await fetch(`${url}/retire`, { method: "POST", headers,
-        body: JSON.stringify({ confirmed: true, snapshotJobId: "2", identity: retirement.identity }) })).status, 409);
-      retirement.policyVersion = 2;
-      for (const [index, operation] of ["cleanup", "retire"].entries()) {
-        const payload = { confirmed: true, snapshotJobId: String(index + 1), identity: cleanup.identity };
-        assert.equal((await fetch(`${url}/${operation}`, { method: "POST", headers,
-          body: JSON.stringify({ ...payload, confirmed: false }) })).status, 400);
-        assert.equal((await fetch(`${url}/${operation}`, { method: "POST", headers,
-          body: JSON.stringify({ ...payload, snapshotJobId: String(2 - index) }) })).status, 409);
-        assert.equal((await fetch(`${url}/${operation}`, { method: "POST", headers,
-          body: JSON.stringify({ ...payload, identity: "stale" }) })).status, 409);
-        assert.equal((await fetch(`${url}/${operation}`, { method: "POST", headers: { ...headers, origin: "https://evil.invalid" },
-          body: JSON.stringify(payload) })).status, 403);
-        assert.equal((await fetch(`${url}/${operation}`, { method: "POST", headers, body: JSON.stringify(payload) })).status, 202);
-        assert.equal(added.at(-1)[0], `maps-${operation}`);
-        assert.equal(added.at(-1)[2].deduplication.id, "local-map-operation");
-        sources[index].returnvalue.checkedAt = new Date(Date.now() - 3600001).toISOString();
-        assert.equal((await fetch(`${url}/${operation}`, { method: "POST", headers, body: JSON.stringify(payload) })).status, 409);
-        sources[index].returnvalue.checkedAt = cleanup.checkedAt = new Date().toISOString();
-        assert.equal((await fetch(`${url}/${operation}-scan`, { method: "POST", headers })).status, 202);
-      }
-      await writeFile(path.join(directory, "new.mbtiles"), "changed inventory");
-      assert.notEqual(mapCleanupIdentity(directory), cleanup.identity);
-      assert.equal((await fetch(`${url}/cleanup`, { method: "POST", headers,
-        body: JSON.stringify({ confirmed: true, snapshotJobId: "1", identity: cleanup.identity }) })).status, 409);
-    });
-  } finally {
-    if (previousDirectory === undefined) delete process.env.WOA_MAP_DATA_DIR;
-    else process.env.WOA_MAP_DATA_DIR = previousDirectory;
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-test("real BullMQ cleanup jobs forward only the stored scan through bounded CLI stdin", async () => {
-  const snapshot = { checkedAt: new Date().toISOString(), identity: "a".repeat(64), files: [{ filename: "private-file" }] };
-  const source = { name: "maps-cleanup-scan", returnvalue: snapshot, async getState() { return "completed"; } };
-  const queue = { name: "ops", qualifiedName: "test:ops", keys: {}, opts: {}, toKey: key => `test:ops:${key}`,
-    async getJob(id) { assert.equal(id, "1"); return source; } };
-  const job = new Job(queue, "maps-cleanup", { snapshotJobId: "1", identity: snapshot.identity }, {}, "cleanup");
-  job.updateProgress = async () => {};
-  const result = await executeMapOperation(job, { spawnFn: (_executable, args, options) => {
-    assert.equal(args[2], "cleanup");
-    assert.equal(options.stdio[0], "pipe");
-    assert.doesNotMatch(args.join(" "), /private-file/);
-    const child = new EventEmitter();
-    Object.assign(child, { stdout: new EventEmitter(), stderr: new EventEmitter(), kill() {},
-      stdin: Object.assign(new EventEmitter(), { end(value) {
-        assert.deepEqual(JSON.parse(value), { snapshot, identity: snapshot.identity });
-        setImmediate(() => {
-          child.stdout.emit("data", Buffer.from(JSON.stringify({ lifecycle: { activeSet: "current", removedFiles: 1, removedBytes: 100 } })));
-          child.emit("close", 0);
-        });
-      } }) });
-    return child;
-  } });
-  assert.equal(result.removedBytes, 100);
-  source.name = "maps-retire-scan";
-  await assert.rejects(executeMapOperation(job, { spawnFn: () => assert.fail("wrong source must not spawn") }), /snapshot/);
-});
 
 test("regional demand survives queue expiry, is atomically replaced and refuses symlinks", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "woa-map-demand-"));
@@ -526,26 +441,6 @@ test("admin map controls require explicit approval, capacity and a completed pla
   controller.controls();
   assert.equal(controller.element("rollback").disabled, true);
   assert.equal(formatMapBytes(1024 ** 3), "1,00 GiB");
-  controller.cleanup = { jobId: "2", checkedAt: new Date().toISOString(), reclaimableBytes: 100,
-    files: [{ id: "old", protectedByReader: false }] };
-  controller.retirement = { jobId: "3", checkedAt: new Date().toISOString(), bytes: 100, regions: [{ id: "old" }] };
-  controller.report.storage = { fitsAfterCleanup: false };
-  controller.controls();
-  assert.equal(controller.element("cleanup-confirm").disabled, false);
-  assert.equal(controller.element("cleanup").disabled, true);
-  controller.element("cleanup-confirm").checked = true;
-  controller.element("retire-confirm").checked = true;
-  controller.controls();
-  assert.equal(controller.element("cleanup").disabled, false);
-  assert.equal(controller.element("retire").disabled, false);
-  controller.busy = true;
-  controller.controls();
-  assert.equal(controller.element("cleanup").disabled, true);
-  assert.equal(controller.element("retire-scan").disabled, true);
-  controller.busy = false;
-  controller.cleanup.checkedAt = new Date(Date.now() - 3600001).toISOString();
-  controller.controls();
-  assert.equal(controller.element("cleanup").disabled, true);
 });
 
 test("admin shows durable imported demand after job expiry without granting manual download approval", async () => {

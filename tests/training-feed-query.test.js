@@ -23,6 +23,27 @@ test("training feed filters both branches before union and pages the combined re
   assert.match(source, /avg_normalized_power\)\\s\+\(ASC\|DESC\).*NULLS LAST/su);
 });
 
+test("cycling group filters both feed branches and counts with the same bound type list", async () => {
+  const statements = [];
+  const db = { async query(sql, params) {
+    statements.push({ sql: String(sql), params });
+    if (String(sql).includes("COUNT(*) AS total")) return { rows: [{ total: "0" }] };
+    if (String(sql).includes("manual_activity_count")) {
+      return { rows: [{ workout_count: 0, manual_activity_count: 0, total_timer_time: 0, total_distance: 0 }] };
+    }
+    return { rows: [] };
+  } };
+  await TrainingFeedDBService.getEntriesByUser(7, 1, 24, [], [
+    { field: "activity_type", type: "=", value: "cycling" },
+    { field: "workout_type", type: "in", value: ["road", "mountain", "indoor"] }
+  ], "mine", false, db);
+  for (const statement of statements.slice(0, 2)) {
+    assert.match(statement.sql, /workout_entry WHERE activity_type = \$2 AND workout_type = ANY\(\$3::text\[\]\)/u);
+    assert.match(statement.sql, /manual_entry WHERE activity_type = \$2 AND workout_type = ANY\(\$3::text\[\]\)/u);
+    assert.deepEqual(statement.params.slice(0, 3), [7, "cycling", ["road", "mountain", "indoor"]]);
+  }
+});
+
 test("manual-only training feed keeps activity semantics and total count", async () => {
   const statements = [];
   const db = {

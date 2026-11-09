@@ -35,6 +35,22 @@ test("workout query supports terrain profile filters", () => {
   assert.deepEqual(query.params, ["altitude_invalid"]);
 });
 
+test("workout type groups use a parameterized list alongside existing filters", () => {
+  const query = FileDBService.buildQueryParts(
+    FileDBService.allowedColumns, FileDBService.numericFields, [],
+    [{ field: "validgps", type: "=", value: true },
+      { field: "workout_type", type: "in", value: ["road", "mountain", "indoor"] }]
+  );
+  assert.equal(query.whereSQL, "WHERE validgps = $1 AND workout_type = ANY($2::text[])");
+  assert.deepEqual(query.params, [true, ["road", "mountain", "indoor"]]);
+  for (const value of [[], ["road", "invalid"], "road", ["road'); DROP TABLE workouts; --"]]) {
+    const invalid = FileDBService.buildQueryParts(FileDBService.allowedColumns, FileDBService.numericFields, [],
+      [{ field: "workout_type", type: "in", value }]);
+    assert.deepEqual(invalid.params, []);
+    assert.doesNotMatch(invalid.whereSQL, /DROP|ANY/);
+  }
+});
+
 test("workout query supports intensity tag filters", () => {
   const query = FileDBService.buildQueryParts(
     FileDBService.allowedColumns,

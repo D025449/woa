@@ -466,6 +466,14 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       }
       switch (f.type) {
 
+        case "in":
+          if (f.field === "workout_type" && Array.isArray(f.value) && f.value.length > 0 && f.value.length <= 5
+            && f.value.every(type => ["road", "mountain", "indoor", "motorsport", "unknown"].includes(type))) {
+            whereParts.push(`${f.field} = ANY($${paramIndex}::text[])`);
+            params.push(f.value);
+          }
+          break;
+
         case "=":
           whereParts.push(`${f.field} = $${paramIndex}`);
           params.push(value);

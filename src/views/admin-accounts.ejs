@@ -135,52 +135,6 @@
                         <i data-lucide="rotate-ccw" aria-hidden="true"></i> Vorherigen Satz aktivieren
                     </button>
                 </div>
-                <div class="admin-map-heading mt-4">
-                    <h3 class="h5 mb-0" id="local-map-cleanup-title">Alte Archivdateien</h3>
-                    <button class="btn btn-outline-primary btn-sm" id="local-map-cleanup-scan" type="button">
-                        <i data-lucide="scan-search" aria-hidden="true"></i> Bereinigung prüfen
-                    </button>
-                </div>
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle admin-map-table" aria-labelledby="local-map-cleanup-title">
-                        <thead><tr><th>Region</th><th>Datei</th><th>Status</th><th class="text-end">Größe</th></tr></thead>
-                        <tbody id="local-map-cleanup-regions"></tbody>
-                    </table>
-                </div>
-                <div class="admin-map-empty" id="local-map-cleanup-empty">Kein Prüfergebnis vorhanden.</div>
-                <div class="admin-map-actions">
-                    <label class="form-check mb-0">
-                        <input class="form-check-input" id="local-map-cleanup-confirm" type="checkbox" disabled>
-                        <span class="form-check-label" id="local-map-cleanup-label">Löschung freigeben</span>
-                    </label>
-                    <button class="btn btn-outline-danger btn-sm" id="local-map-cleanup" type="button" disabled>
-                        <i data-lucide="trash-2" aria-hidden="true"></i> Alte Dateien löschen
-                    </button>
-                    <time id="local-map-cleanup-checked"></time>
-                </div>
-                <div class="admin-map-heading mt-4">
-                    <h3 class="h5 mb-0" id="local-map-retire-title">Nicht mehr benötigte Regionen</h3>
-                    <button class="btn btn-outline-primary btn-sm" id="local-map-retire-scan" type="button">
-                        <i data-lucide="scan-search" aria-hidden="true"></i> Ausmusterung prüfen
-                    </button>
-                </div>
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle admin-map-table" aria-labelledby="local-map-retire-title">
-                        <thead><tr><th>Region</th><th>Abdeckung</th><th class="text-end">Größe · Rollback</th></tr></thead>
-                        <tbody id="local-map-retire-regions"></tbody>
-                    </table>
-                </div>
-                <div class="admin-map-empty" id="local-map-retire-empty">Kein Prüfergebnis vorhanden.</div>
-                <div class="admin-map-actions">
-                    <label class="form-check mb-0">
-                        <input class="form-check-input" id="local-map-retire-confirm" type="checkbox" disabled>
-                        <span class="form-check-label" id="local-map-retire-label">Ausmusterung freigeben</span>
-                    </label>
-                    <button class="btn btn-outline-primary btn-sm" id="local-map-retire" type="button" disabled>
-                        <i data-lucide="archive" aria-hidden="true"></i> Regionen ausmustern
-                    </button>
-                    <time id="local-map-retire-checked"></time>
-                </div>
             </section>
 
             </div>
@@ -520,7 +474,7 @@
 
     <script type="module" src="/js/admin-facets.js?v=1"></script>
     <script src="https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
-    <script type="module" src="/js/local-map-admin.js?v=7"></script>
+    <script type="module" src="/js/local-map-admin.js?v=6"></script>
     <script type="module" src="/js/admin-accounts.js?v=admin-role-management-1"></script>
 </body>
 </html>

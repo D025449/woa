@@ -115,6 +115,10 @@ test("accepts motorsport as a persisted workout type filter", () => {
   }).workoutType, "motorsport");
 });
 
+test("accepts the cycling group as a persisted workout type filter", () => {
+  assert.equal(normalizeWorkoutLibraryState({ workoutType: "cycling" }).workoutType, "cycling");
+});
+
 test("accepts altitude quality as a persisted terrain filter", () => {
   assert.equal(normalizeWorkoutLibraryState({
     terrainProfile: "altitude_invalid"

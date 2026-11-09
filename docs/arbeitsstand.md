@@ -1,295 +1,41 @@
 # Arbeitsstand
 
-Stand: 2026-11-06. Diese Datei hält Absprachen für folgende Sitzungen fest.
+Stand: 2026-11-09. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
-## Standard Thumbnail Segment Phases (2026-11-06)
+## Map Cleanup Export Fix (2026-11-09)
 
-- User approved the phase variant as standard for newly generated GPS and
-	non-GPS/indoor thumbnails. Only stored interval/microinterval/simple manual
-	segments; no other profile types or synthetic demo data. Existing GPS route
-	overlays are unchanged, compact profile stays below route/markers outside attribution.
-- Production SVG helper shared with preview; header-lane and phase-area functions
-	moved to SegmentAppearance with compatible UI re-exports. Full bands retain
-	approved phase design; compact GPS bands have no opaque extra background or
-	tiny labels. Stored parent/phase reads are workout/owner-scoped and ordered.
-- Browser URL version 3; existing rows/currentness, tile caches and route style
-	remain untouched. User still manages old-row deletion. No new migration.
-- 892 tests passed, final 39 thumbnail tests/types/syntax/scoped lint passed
-	(three old ChartView warnings). Read-only browser preview1200/390:24loaded,
-	nonblank/nooverflow, one strip/attribution intact. Actual GPS85063 has two
-	microinterval blocks,85062/85058 manual segments; non-GPS85065 interval block.
-- OneGPS60151 benchmark9/9 successful, PNG default, temporary thumbnail tables;
-	isolated report/cache retained and budget-counted. No existing thumbnail writes,
-	segment writes/scans, migration, deploy, restart or env edit. See
-	docs/workout-map.md#production-segment-and-phase-bands and updated npm guide.
+- Fixed the module-load failure that stopped the release test gate: exported
+	`mapCatalogRegions` and `findMapRegionHits` from the existing provisioning
+	logic and reused them in planning. Cleanup and planning now share catalog
+	validation and geographic intersection rules; retirement safeguards remain
+	unchanged. See `docs/workout-map.md`.
+- All 89 focused map tests and all 892 full-suite tests passed, including
+	geographic retirement protection. `npm run check` and `npm run check:types`
+	passed; lint reports 70 existing warnings and no errors. No deployment,
+	commit, migration, production archive operation or service restart performed.
 
-## Non-GPS Segment Thumbnail Preview (2026-11-06)
+## Workout Dashboard Cycling Type Group (2026-11-09)
 
-- User reports deploying the earlier band-resize fix; deployment not independently
-	verified. Approved continuing the separate thumbnail preview, using the actual
-	ECharts Bands UI as reference, not integrating segment overlays into production.
-- Existing preview script now writes segments.html: current bands / segment
-	areas / phase detail. Reuses UI header-lane allocation, segment colors and phase
-	opacity; areas span all metric bands, headers reserve compact space. Only
-	intervals, microintervals and simple manual segments; other types excluded.
-- Actual read-only Dev examples: 85065 interval block, 83935/59436 manual segments.
-	No stored non-GPS microinterval example in selection; clearly labeled synthetic
-	12x40/20 Layout-Demo uses 85065 profile, not detected/persisted phases.
-- All 37 focused thumbnail tests, full types, scoped lint/syntax passed. Browser
-	desktop1200/mobile390: 24 loaded/nonblank images, correct320x200/152x95 sizes,
-	no overflow; phase pixels differ only for structured examples. Prior pages kept.
-- No standard thumbnail/cache/style changes, existing row writes, detection,
-	segment saves, migration, deployment, restart or env edit. See
-	docs/workout-map.md#non-gps-segment-thumbnail-preview and updated npm guide.
-
-## Band Chart Resize Fix (2026-11-06)
-
-- User reported an intermittent blank workout chart that survived workout changes.
-	Captured live ECharts 5.6.0 errors originating from ChartView.performResize:
-	band axes coexisted with old overlay-series axis indexes. Reproduced the exact
-	undefined coordinate-system `type` failure using real ECharts in memory;
-	coordinated axis/series/zoom replacement passed the same check.
-- Approved fix updates grids, axes, series and dataZoom together during band
-	resize, retaining markArea by series ID, X-axis field and existing zoom options.
-	Added regression coverage for overlay-to-bands resize, unavailable altitude,
-	distance encoding, segment areas and zoom-range/interaction preservation.
-- All 889 tests passed, full types and scoped syntax/lint passed (three existing
-	ChartView unused-variable/argument warnings). Live local browser after one
-	reload: 5,776 dataset rows, three coherent bands with segment areas; three
-	layout round trips and 390/1200px resizes produced no new JavaScript errors.
-- No thumbnail changes, database writes by the fix, migration, deployment or
-	application restart. UI validation used normal view-preference handlers.
-	Segment-thumbnail preview remains pending; see docs/workout-microintervals.md#band-chart-resize-stability.
-
-## Production Thumbnail Bands (2026-11-06)
-
-- User approved integrating the band design for newly generated thumbnails:
-	GPS Power + Altitude, missing Altitude -> HR; non-GPS/indoor Power + HR +
-	Altitude, missing Altitude -> Speed. White map strip stays at 0.6 opacity.
-	Constant/zero/negative valid altitude remains valid; unavailable series omitted.
-- Central band renderer and GPS SVG composition implemented; line prototype
-	retained explicitly. GPS now reads stream profiles; optional WST9/WS10/WS11
-	columns and existing distance-derived Speed fallback preserve missing altitude.
-	Unreadable GPS profile stream does not block map/route generation.
-- Existing rows/currentness policy untouched; user handles deletion. Browser
-	thumbnail URL version 2 separates old v1 cache entries, not database generations.
-- All 888 tests passed; final focused decoder/service tests and types passed.
-	Desktop1200/mobile390 preview: 24 loaded/nonblank images, no overflow; real
-	GPS84965/84964/84963 and non-GPS85065/85035/85034 with Speed fallback.
-	One-GPS60151 Dev benchmark: all nine batches successful, PNG RAM default;
-	temporary thumbnail tables only, isolated retained/budget-counted cache.
-- Updated workout-map/npm guide. No old row deletion, migration, deployment,
-	normal service restart or env edit. See docs/workout-map.md#production-thumbnail-bands.
-
-## GPS Power And Altitude Band Preview (2026-11-06)
-
-- Subsequent user adjustment: band-strip white backing 0.88->0.6 opacity, map
-	shows through more clearly; retained line variant stays 0.88. Both focused
-	preview tests passed, HTML regenerated and browser screenshot reviewed.
-- User asked to retain the line prototype and preview filled power/altitude areas
-	like workout ECharts Bands. Added bands.html plus links between both variants;
-	index.html/line composition remains available. Same three Dev workouts.
-- Separate bands, no data outlines: power #2563eb opacity0.26, altitude #38bdf8
-	opacity0.3, matching chart-view's band policy. Reuses smoothed metric power path
-	and existing altitude-area generator; full stream supplies getAltitudeAt values.
-	Relative altitude baseline uses padded/rounded local minimum, not absolute zero.
-	Horizontal transformation aligns 14px altitude padding with 18px power padding.
-	Route/markers remain above strip; attribution outside. Not a full ECharts render.
-- All 886 tests passed; final alignment focused tests/types/lint passed. Desktop
-	and mobile390 browser checks/screenshots: all18 images loaded, no overflow.
-	Updated workout-map/npm docs. No production thumbnail/chart/cache changes,
-	DB writes, migration, download, deployment, restart or env-file edits.
-
-## GPS And Metric Thumbnail Visual Preview (2026-11-06)
-
-- User approved a separate visual comparison with real workouts, not production
-	composite thumbnails. Added preview-gps-profile-thumbnails.js with explicit
-	local Dev guards/runtime DB pointer and a read-only transaction. Reuses stored
-	local-map SVGs and existing non-GPS power/HR/cadence generator from stream data.
-- Generated tmp/gps-profile-preview/index.html for Dev workouts 84965/84964/84963:
-	map-only, map plus compact metric strip, and metric-only, at 320x200/152x95.
-	White 88%-opaque strip y128..176 sits below route/markers and above map, leaving
-	attribution untouched. Legend/grid omitted only in compact preview. Three-line
-	density and route/profile color overlap remain visual tradeoffs to evaluate.
-- All 885 tests, types/scoped lint/syntax passed. Browser desktop1200/mobile390
-	screenshots and canvas/image checks: all 18 images loaded, no horizontal
-	overflow, stable sizes and nonblank pixels. Preview is open as standalone HTML;
-	no server needed. Scope/method documented in workout-map/npm guide.
-- No existing thumbnail writes, map-cache generation/downloads, production access,
-	migration, normal service restart, deployment or env-file edits. Production
-	composition and thumbnail version/cache invalidation need separate approval.
-
-## GPS PNG-RAM Default Restored (2026-11-06)
-
-- User approved restoring PNG-only RAM after reviewing 4.3x retained-memory cost
-	for the modest raw-pixel warm gain. Renderer rawPixelCache defaults to false;
-	raw processing remains explicit opt-in. Instrumentation, pixel comparison tests,
-	disk compatibility and the 16 MiB retained-entry limit are unchanged.
-- Benchmark defaults to PNG; --raw-memory selects the experiment, --png-memory
-	remains a compatibility alias. Both memory flags together fail before env/DB
-	access. --compare-pixels still compares both paths outside measured batches.
-- All 884 tests, full types, scoped lint/syntax passed. Focused cache test now
-	verifies PNG default plus explicit raw image equivalence/eviction. Actual
-	one-GPS smoke: all nine batches successful, rawPixelCache=false, pixelDecodeMs=0.
-	This validates defaults, not new performance results. Historical raw measurements
-	remain below and in docs/workout-map.md#decoded-pixel-ram-cache; npm guide updated.
-- No existing thumbnail changes, cache deletion, migration, deployment, normal
-	restart or env edit. Benchmark worker exited; its isolated cache remains
-	budget-counted, as do earlier reports/caches.
-
-## GPS Decoded-Pixel RAM Cache (2026-11-06)
-
-- User explicitly approved the raw-pixel RAM experiment with image comparisons
-	and repeat measurement. Implemented decoded pixel buffers as Sharp raw mosaic
-	inputs; PNG disk format/cache identity/style/concurrency unchanged. Actual PNG
-	and raw byte lengths count toward the existing 16 MiB retained-entry LRU limit,
-	with metadata estimates; eviction/clear/oversized-entry behavior verified.
-- Added tile.pixelDecodeMs (zero on RAM hits), renderer rawPixelCache:false for
-	reference and benchmark --png-memory/--compare-pixels. Pixel comparisons run
-	outside timing using extra session-local temp-table generations and fail on
-	changed full-thumbnail RGBA pixels; no persistent thumbnail rows are written.
-- Three actual six-GPS runs, 54/54 measured generations each; two raw runs also
-	performed 12/12 comparison generations. All six actual thumbnails had identical
-	pixels AND SVG bytes in both comparisons. Same-code sequential PNG/raw pair:
-	RAM map means C1 20.363->16.424, C3 15.746->14.354, C6 16.824->12.981 ms,
-	mosaic 8.947->3.988 / 6.582->3.757 / 7.104->3.397 ms. Warm renders 9-23%
-	lower in that pair; no production/HTTP speedup claim. Retained tiles 2.12->9.12
-	MiB; limit unchanged. Initial decode costs ~4-5 ms/workout, cold not faster,
-	2-5% slower means in pair with storage-inventory/OS/CPU noise. Fewer tiles fit.
-- 884 tests, full types, scoped lint/syntax, editor and diff checks passed;
-	subsequent extra disk/cache-ID assertions passed focused cache test/types/lint.
-	Source deduplication remains unapproved/unimplemented. No map download,
-	migration, deployment, normal restart, env edit or existing thumbnail write.
-- See docs/workout-map.md#decoded-pixel-ram-cache and updated npm guide. Reports
-	retained under tmp/woa-local-map-cache: paired PNG gps-benchmark-70c6a23f-8a17-4e1e-9ca6-f2e32e2be103,
-	paired raw gps-benchmark-9c42066a-11cd-4046-a8f9-d6a19bab9b11, initial raw
-	gps-benchmark-b097351d-eac9-44ca-8741-2ade7fa5fafd, each report.json. All caches
-	count toward budget; workers exited. Six Dev samples are not tail guarantees.
-
-## GPS Warm Render Phase Measurement (2026-11-06)
-
-- User approved splitting warm-cache timings and repeating the isolated GPS
-	benchmark, not a cache optimization. Added renderProfile/benchmark render.*
-	phases for viewport, tile assembly, PNG decode/mosaic, label placement, combined
-	crop/resize/label-raster/WebP output and route/overlay/final SVG. Preserved Sharp
-	pipeline and image/cache behavior; combined output is not WebP-only time.
-- Two actual six-GPS runs, all 54 generations successful each; second after
-	regression checks finished. RAM scenarios were memory-only, no disk/builds.
-	Concurrency-1 map mean 19.345 ms: assembly 0.109 (nested cache 0.074), mosaic
-	8.524, output 10.141, labels 0.052, finish 0.365, viewport 0.126 ms. Values are
-	per complete map, not per tile; nested cache time must not be added to assembly.
-	Concurrency-3/6 map 16.025/16.251 ms, mosaic 6.888/6.859, output 8.672/8.875.
-- At this measurement stage, the proposed next experiment was a decoded-pixel RAM cache
-	with actual raw-byte accounting, unchanged PNG disk cache and image comparisons.
-	Its later approval/implementation is recorded above. It may save PNG decode,
-	not all mosaic/output work. No speedup claimed for this measurement stage. Source
-	deduplication also remains unimplemented. No persistent thumbnail writes,
-	migrations, provider downloads, deployments, normal restart or env edits.
-- All 883 tests, full types, scoped lint/syntax and editor diagnostics passed;
-	existing cache test verifies phases and equal cold/disk/RAM backgrounds.
-	Details: docs/workout-map.md#warm-render-phase-follow-up. Isolated report:
-	tmp/woa-local-map-cache/gps-benchmark-94e43a00-8982-4165-ba5f-2749fe09bcce/report.json;
-	first: gps-benchmark-04b06a5f-1c80-4435-8b74-f86f7c945caf under the same root.
-	Caches retained and budget-counted; workers exited. Six Dev samples are not
-	production latency or tail evidence.
-
-## GPS Thumbnail Performance Instrumentation And Baseline (2026-11-06)
-
-- User limited this task to GPS thumbnails and approved measurement/instrumentation,
-	not yet a rendering optimization. Added generation/pool/advisory-lock/persistence
-	and connection-held timings; worker queue/service/startup/init timings; tile
-	load/decode/geometry/raster/storage/write/trim timings and identical-source counts.
-	Default generation/worker concurrency and image content are unchanged.
-- Added standalone `benchmark-gps-thumbnails.js`, local Dev/explicit environment
-	only, runtime DB pointer, GPS-size-quantile sample, concurrency1/3/6 and new-cache/
-	disk/RAM batches. Actual SQL upsert/COMMIT use verified session-local temp tables
-	with no persistent sequence or normal workout advisory key. Existing thumbnail
-	rows untouched. Test caches stay under the real cache root, shared budget/locks
-	count all roots; benchmark cache writes cannot evict existing raster entries.
-- Two actual local Dev runs: six GPS workouts, all54 calls per run successful.
-	Detailed concurrency1 mean map times: new cache611.7ms, disk56.1ms, RAM19.4ms;
-	service pipeline661.0/90.4/55.6ms. New-cache rasterization412-413ms dominates,
-	geometry83-85ms, load/decode5-14ms, storage60-68ms (initial run39-49ms).
-	Concurrency3/6 new-cache batch3653/3632ms, mean worker wait830/1315ms; more
-	requests do not parallelize the map worker. Peak RSS287-338MiB. 60/210 loaded
-	regional source rows were byte-identical duplicates (28.6%).
-- Next proposed, not approved/implemented: deduplicate byte-identical tile payloads
-	before geometry/rasterization with image/content checks and repeat measurement.
-	Never deduplicate solely by coordinates or remove geographic archive references.
-	Worker pools and shorter DB transaction lifetime are separate follow-ups.
-- All883 tests passed; full types/syntax, touched-code lint, editor diagnostics
-	and diff checks passed. A final nine-call one-GPS smoke run verified budget-locked
-	report writing without cache eviction after the two full six-GPS measurements.
-	Cold batches share tiles across their six workouts; disk runs do not flush OS
-	caches. Temp-table DDL/drop affect setup/COMMIT timing; results are not durable
-	production persistence or HTTP latency. Six samples do not establish tail bounds.
-	See `docs/workout-map.md#gps-thumbnail-performance-measurement` and npm guide.
-- Initial/detailed local reports remain in `tmp/woa-local-map-cache/gps-benchmark-35620b18-d068-457b-9d66-cbad3c41da6d/report.json`
-	and `tmp/woa-local-map-cache/gps-benchmark-a0a3aff9-f9b9-443e-a573-e30bd9322e4c/report.json`.
-	Their caches are retained, count toward budget and need verified operator cleanup.
-	Benchmark workers exited. No persistent thumbnail overwrite, migration, provider
-	download, production access, deployment, normal restart or env-file edit occurred.
-
-## Retirement Geographic Demand Protection Fix (2026-11-06)
-
-- User reported Austria offered for retirement despite unchanged workout demand
-	that previously requested its installation. Confirmed the local policy mismatch:
-	installation used catalog polygon intersections, retirement only tile-row presence.
-	An offline fixture reproduced Austria wrongly selected when another region's
-	archive contained identical tile coordinates. Real localhost Austria data was
-	not queried or modified; this is a verified code-level regression reproduction.
-- User approved the correction. Shared catalog validation/viewport intersection
-	helpers now serve both planning and retirement. Retirement protects all geographic
-	hits, their ancestors and active IDs absent from the catalog; tile checks remain
-	supplementary and cannot override required geography. Invalid/unavailable catalog
-	or unknown workout geography blocks retirement. Only retirement with GPS workouts
-	fetches catalog metadata; no HEAD/archive download, cleanup network access or new
-	configuration. Zero-GPS retirement remains offline.
-- Policy-version-2 snapshots record private catalog identity. Old tile-only previews
-	are hidden/rejected; execution rechecks fresh geography/catalog identity, cumulative
-	tiles, hashes and final workout demand. Conservative protection may retain more
-	archives than a space optimizer. Prior cleanup/reader/rollback behavior is unchanged.
-	See `docs/workout-map.md#manual-archive-cleanup-and-region-retirement` and npm guide.
-- All 880 tests passed, including direct installation-vs-retirement Austria checks,
-	fresh-catalog changes, geographic ancestors, unknown archives, invalid/unavailable
-	catalogs and old API/service approvals. Full types and touched-code lint/syntax
-	passed. No UI layout change or additional browser run was required; API tests
-	verify hiding old previews. No live DB/Redis/provider metadata or archive access,
-	archive deletion/activation, migration, deploy, restart or env edit was performed.
-
-## Manual Map Cleanup And Region Retirement (2026-11-06)
-
-- User approved two explicit Admin workflows: preview/delete unreferenced archive
-	files and preview/retire redundant or unused active regions. Both use the serial
-	Ops queue/isolated CLI, distinct fresh <=1h scan-job approvals and bounded stdin.
-	Page load starts no job; no automatic deletion or new npm script/env/migration.
-- Cleanup protects file-level active/rollback references and live reader leases;
-	changed files/references/readers reject before the first unlink. Unknown paths,
-	symlinks, partials and raster cache remain untouched. Separate storage locking
-	allows cleanup above budget without capacity reservation/cache eviction.
-- Retirement checks cumulative remaining viewport tiles from fresh GPS bounds,
-	full SQLite/Shortbread and hashes, and rereads demand after hash checks. Atomic
-	reduced-set activation retains the former active set as the one rollback target;
-	retirement initially frees zero archive bytes. Imports are not locked against
-	activation; later demand uses existing import planning/fallback recovery.
-- **All cooperating app/worker processes must be deployed/restarted before use:**
-	older renderers do not register pinned-file reader leases. Worker exit releases
-	reservations; dead-PID leases are ignored only on ESRCH. Malformed/live leases
-	fail closed; crash-left gates require verified operator cleanup. Full scans/hash
-	checks can delay backups. Failed cleanup can be partial; rescan. Demand display
-	needs a fresh `Bedarf prüfen` after retirement. See
-	`docs/workout-map.md#manual-archive-cleanup-and-region-retirement` and npm guide.
-- All 878 tests passed. Focused checks cover real SQLite/CLI stdin/BullMQ Job and
-	worker exit, changed files/demand, symlinks/unknown paths, shared references,
-	expired approvals, over-budget cleanup and rollback retention. Full types/syntax,
-	scoped lint and editor diagnostics passed; post-hash recheck passed focused tests.
-	Actual EJS/controller browser checks with simulated APIs at desktop1365/mobile390
-	verified explicit calls, reload/reset, busy states, icons and no page overflow/JS
-	errors; screenshots inspected. Isolated preview: port53433; normal Dev untouched.
-- No migration, live DB data write, Redis operation, provider download, production
-	archive deletion/activation, deployment, normal service restart or env edit was
-	performed. Tests deleted only their isolated temporary fixture files.
+- User approved **Radsport** immediately after All types, grouping only road,
+	mountain and indoor, excluding unknown and motorsport. Existing individual
+	options remain; this adds no stored workout classification.
+- Updated custom/native menus, browser selection/restoration/labels, six locale
+	files and existing server view-preference validation (`workoutType: cycling`).
+	Query builder accepts a bounded validated type list using parameterized ANY;
+	the combined workout/manual feed applies it to both branches and count/summary.
+	See `docs/user-settings.md#workout-dashboard-type-group`.
+- All 47 focused browser-state/preference/query/feed tests passed. Full suite and
+	global types were initially blocked by unrelated missing map cleanup exports;
+	resolved in the separately approved Map Cleanup Export Fix above.
+	Scoped syntax/lint passed with one pre-existing unused-import warning. Isolated
+	actual EJS filter/browser module at desktop1365/mobile390 verified menu order,
+	exact type list, individual type changes, restored selection and labels; no
+	page overflow or JS errors, screenshots inspected. Preview uses local fixture
+	persistence, not a live authenticated preference save or DB query; server
+	preference/feed tests use existing offline mocks. Preview retained at port64275.
+	No migration, DB data change, dependency, deployment or normal service restart
+	performed.
 
 ## Imported Regional Map Demand And Optional Downloads (2026-11-06)
 

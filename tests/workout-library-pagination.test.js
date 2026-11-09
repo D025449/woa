@@ -32,6 +32,26 @@ test("workout library page size is constrained to the supported options", () => 
   assert.equal(normalizeWorkoutLibraryPageSize(undefined), 24);
 });
 
+test("cycling group selects exactly road, mountain and indoor and preserves its selection", () => {
+  const view = createHeadlessView({ initialWorkoutType: "cycling" });
+  const expected = { field: "workout_type", type: "in", value: ["road", "mountain", "indoor"] };
+  assert.deepEqual(view.buildFilters().find(filter => filter.field === "workout_type"), expected);
+  assert.equal(view.getState().workoutType, "cycling");
+  view.reload = () => {};
+  view.applyWorkoutTypeValue("road");
+  assert.deepEqual(view.buildFilters().find(filter => filter.field === "workout_type"),
+    { field: "workout_type", type: "=", value: "road" });
+  view.applyWorkoutTypeValue("cycling");
+  assert.equal(view.activityTypeValue, "cycling");
+  assert.deepEqual(view.buildFilters().find(filter => filter.field === "workout_type"), expected);
+  view.applyWorkoutTypeValue("all");
+  assert.equal(view.buildFilters().some(filter => filter.field === "workout_type"), false);
+  view.applyState({ workoutType: "cycling", activityType: "cycling" });
+  assert.deepEqual(view.buildFilters().find(filter => filter.field === "workout_type"), expected);
+  const request = new URL(view.buildUrl(), "http://localhost");
+  assert.deepEqual(JSON.parse(request.searchParams.get("filter")).find(filter => filter.field === "workout_type"), expected);
+});
+
 test("workout library navigates by replacing the current page", async () => {
   const view = createHeadlessView({ initialPageSize: 48 });
   const requests = [];
@@ -75,4 +95,6 @@ test("dashboard renders workout page navigation and page-size controls", async (
   assert.match(source, /id="workout-library-page-size"/u);
   assert.match(source, /id="workout-library-page-previous"/u);
   assert.match(source, /id="workout-library-page-next"/u);
+  assert.match(source, /data-workout-type-option="all"[\s\S]*?data-workout-type-option="cycling"[\s\S]*?data-workout-type-option="indoor"/u);
+  assert.match(source, /<option value="all"><%= t\("dashboardNewPage.workoutTypeAll"\) %><\/option>\s*<option value="cycling">/u);
 });

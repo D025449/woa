@@ -6,6 +6,7 @@ import { createTranslator, getCurrentLocale } from "./i18n.js";
 const TERRAIN_PROFILE_VALUES = ["flat", "rolling", "mountainous", "altitude_missing", "altitude_invalid"];
 const INTENSITY_PROFILE_VALUES = ["recovery", "endurance", "tempo", "threshold", "vo2max", "anaerobic", "unknown"];
 const ACTIVITY_TYPE_VALUES = ["cycling", "strength_training", "mobility", "other"];
+const WORKOUT_TYPE_FILTER_VALUES = ["cycling", "indoor", "road", "mountain", "motorsport", "unknown"];
 const PAGE_SIZE_OPTIONS = [12, 24, 48, 96];
 
 export function normalizeWorkoutLibraryPageSize(value) {
@@ -237,7 +238,7 @@ export default class WorkoutLibraryView {
     this.activityTypeValue = ACTIVITY_TYPE_VALUES.includes(handlers.initialActivityType)
       ? handlers.initialActivityType
       : "all";
-    this.workoutTypeValue = ["indoor", "road", "mountain", "motorsport", "unknown"].includes(handlers.initialWorkoutType)
+    this.workoutTypeValue = WORKOUT_TYPE_FILTER_VALUES.includes(handlers.initialWorkoutType)
       ? handlers.initialWorkoutType
       : "all";
     this.gpsFilterValue = ["valid", "invalid"].includes(handlers.initialGpsFilter)
@@ -313,7 +314,7 @@ export default class WorkoutLibraryView {
     this.activityTypeValue = ACTIVITY_TYPE_VALUES.includes(state.activityType)
       ? state.activityType
       : "all";
-    this.workoutTypeValue = ["indoor", "road", "mountain", "motorsport", "unknown"].includes(state.workoutType)
+    this.workoutTypeValue = WORKOUT_TYPE_FILTER_VALUES.includes(state.workoutType)
       ? state.workoutType
       : "all";
     this.gpsFilterValue = ["valid", "invalid"].includes(state.gpsFilter)
@@ -747,7 +748,9 @@ export default class WorkoutLibraryView {
     if (ACTIVITY_TYPE_VALUES.includes(this.activityTypeValue)) {
       filters.push({ field: "activity_type", type: "=", value: this.activityTypeValue });
     }
-    if (["indoor", "road", "mountain", "motorsport", "unknown"].includes(this.workoutTypeValue)) {
+    if (this.workoutTypeValue === "cycling") {
+      filters.push({ field: "workout_type", type: "in", value: ["road", "mountain", "indoor"] });
+    } else if (WORKOUT_TYPE_FILTER_VALUES.includes(this.workoutTypeValue)) {
       filters.push({ field: "workout_type", type: "=", value: this.workoutTypeValue });
     }
     if (["valid", "invalid"].includes(this.gpsFilterValue)) {
@@ -949,7 +952,7 @@ export default class WorkoutLibraryView {
   }
 
   applyWorkoutTypeValue(value) {
-    this.workoutTypeValue = ["indoor", "road", "mountain", "motorsport", "unknown"].includes(value)
+    this.workoutTypeValue = WORKOUT_TYPE_FILTER_VALUES.includes(value)
       ? value
       : "all";
     if (this.workoutTypeValue !== "all") {
@@ -1052,6 +1055,7 @@ export default class WorkoutLibraryView {
   getWorkoutTypeLabel(type) {
     const labels = {
       all: this.pageT("workoutTypeAll"),
+      cycling: this.pageT("workoutTypeCycling"),
       indoor: this.pageT("workoutTypeIndoor"),
       road: this.pageT("workoutTypeRoad"),
       mountain: this.pageT("workoutTypeMountain"),

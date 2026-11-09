@@ -16,7 +16,7 @@ const WORKOUT_LIBRARY_SORTS = new Set([
 ]);
 const WORKOUT_LIBRARY_SCOPES = new Set(["mine", "shared", "all"]);
 const ACTIVITY_TYPES = new Set(["all", "cycling", "strength_training", "mobility", "other"]);
-const WORKOUT_TYPES = new Set(["all", "indoor", "road", "mountain", "motorsport", "unknown"]);
+const WORKOUT_TYPES = new Set(["all", "cycling", "indoor", "road", "mountain", "motorsport", "unknown"]);
 const TERRAIN_PROFILES = new Set(["all", "flat", "rolling", "mountainous", "altitude_missing", "altitude_invalid"]);
 const INTENSITY_PROFILES = new Set(["all", "recovery", "endurance", "tempo", "threshold", "vo2max", "anaerobic", "unknown"]);
 const GPS_FILTERS = new Set(["all", "valid", "invalid"]);
