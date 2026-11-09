@@ -3,6 +3,99 @@
 Stand: 2026-11-09. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Public Single-Workout FIT Download (2026-11-09)
+
+- User approved GET `/api/v1/workouts/{id}/export.fit` and explicit
+  `workouts:fit:read`, requiring both workout/GPS read scopes. Existing keys keep
+  their permissions; FIT issuance is opt-in with six-language profile controls.
+  Analytics remains deferred.
+- Implemented owned, bounded source/lap queries and isolated FIT workers using
+  the existing generator, stored device fallback, NP/calories and manual/interval
+  laps. GPS gaps retain sample timing. Downloads are regenerated, not original
+  uploaded bytes. Worker/byte/record/lap and shared-user request limits fail with
+  safe JSON errors. Contract, budgets and curl instructions:
+  `docs/public-api-v1.md`, `docs/public-api-v1.openapi.json`; profile details:
+  `docs/user-settings.md`. Existing browser download was not changed.
+- Prepared `src/migrations/097_user_api_keys_fit_scope.sql`; manual execution by
+  the user is still pending. It only extends scope validation, without upgrading
+  keys or rewriting workouts. Migration 096 execution was previously user-confirmed.
+- All 930 tests, syntax, zero-warning lint, types and diff checks passed. Coverage includes
+  generator/codec parity, devices/laps, GPS gaps, source/worker budgets, owned SQL,
+  HTTP scopes/errors and actual browser-module behavior. A synthetic maximum
+  172,800-record/slot export produced 4,147,515 FIT bytes in 169 ms.
+- Isolated actual EJS/CSS/module browser fixture verified FIT prerequisites,
+  simulated issuance, unchanged existing scopes, secret masking/dismissal and no
+  console errors; screenshot inspected. Initial approval transport failures
+  resolved after reconnection. Full profile layout, real credentials, live DB
+  constraints/query plans and production FIT data remain unverified.
+- No assistant migration, PostgreSQL operation, deployment, normal service
+  restart, dependency/npm-script change or commit.
+
+## Public Workout REST Completion (2026-11-09)
+
+- User approved finishing the existing workout REST implementation and explicitly
+  deferred Analytics. The three GET endpoints are mounted at `/api/v1` before
+  browser sessions, with Bearer scopes, owner-bound projections, encrypted
+  pagination and shared-user Redis limits. Earlier documentation lagged behind
+  the uncommitted endpoint code; reconciled it and the OpenAPI contract.
+- User confirmed legacy upload timestamps were stored in UTC. SQL now interprets
+  `uploaded_at` explicitly as UTC, independent of the database session timezone.
+  Unknown classifications use schema fallbacks; only road/mountain/indoor receive
+  derived load metrics. No stored workout data was changed.
+- Added API-local structural checks for GPS2 layouts 1-4, preventing the shared
+  decoder's incomplete-block tolerance from fabricating zero coordinates. Fixed
+  GPS error responses retaining the success GeoJSON content type; errors use JSON.
+  Hardened limiter response validation. Limits and rollout details are in
+  `docs/public-api-v1.md`; profile documentation is aligned.
+- All 919 tests, syntax, zero-warning lint, types and diff checks passed. Expanded
+  tests cover OpenAPI fields/references, UTC/filter/cursor rules, codecs/gaps,
+  corrupt GPS, slot/response/time/capacity boundaries and HTTP/auth failures. Real
+  isolated Redis Lua verified concurrent shared-key limits, separate users,
+  pruning/TTL, Retry-After and outage; the temporary instance was stopped.
+- User confirmed a successful manual API test on 2026-11-09 after receiving
+  the curl test instructions. Environment and individual exercised endpoints/
+  error cases were not specified; do not treat this as full live-matrix verification.
+- PostgreSQL constraints/concurrency/query plans, production GPS distributions
+  and real-session/proxy integration remain unverified. The user subsequently
+  confirmed manual execution of migration 096 on 2026-11-09; the target environment
+  was not specified and execution was not independently verified by the assistant.
+  No assistant PostgreSQL operation, migration, deployment, normal service restart,
+  dependency change or commit.
+  No Analytics endpoint/scope or MCP server was added.
+
+## Personal API Key Management And REST Contract (2026-11-09)
+
+- User approved REST with personal API keys/scopes, a broad allowlist of elementary
+	workout metrics including NP, TSS, IF and their FTP basis, without large blobs
+	or internal fields. Analytics GET is a confirmed later requirement, not a V1
+	endpoint or currently issuable scope.
+- Added `docs/public-api-v1.md` and `docs/public-api-v1.openapi.json`: three owned
+	imported-workout GET paths, a shared 34-field list/detail schema, cursor paging,
+	separate GPS access requiring both workout scopes and explicit account/key rules.
+	No general user-role redesign. Manual/shared activities and writes are deferred.
+- User subsequently approved the key-management slice, including five active keys
+	and 90-day validity. Implemented hash-only key storage/lookup, scope validation,
+	isolated `req.apiAuth`, live account/expiry/revocation checks, browser-session-only
+	management with CSRF/same-origin checks and final-deletion integration.
+- Added six-language management in `/profile#api-keys`: create, safe metadata,
+	one-time masked/revealable/copyable secret and confirmed revoke. No browser
+	persistence of secrets. Active keys precede bounded history. Pending deletion
+	disables issuance but permits existing reads/revocation.
+- `src/migrations/096_user_api_keys.sql` was prepared for manual execution;
+	the user subsequently confirmed execution on 2026-11-09 (target unspecified,
+	not independently verified). The table is also required by final account deletion.
+	No assistant DB operation, deployment, normal service restart, dependency change
+	or commit performed.
+- All 903 tests, syntax, strict zero-warning lint, types and diff checks passed.
+	Isolated EJS/browser checks covered creation/scopes, literal HTML-shaped names,
+	secret dismissal, confirmed revoke, pending deletion, quota, outage/retry and
+	desktop/mobile layout. Live SQL constraints/concurrency and real-session/proxy
+	integration remain unverified. Details: `docs/public-api-v1.md` and
+	`docs/user-settings.md`.
+- OpenAPI/schema validation previously passed for the draft data contract. Public
+	workout/GPS routes and their limits were subsequently completed in the section
+	above. Analytics and MCP remain deferred; no analytics scope is issuable.
+
 ## Zero-Warning Lint Cleanup (2026-11-09)
 
 - User approved removal of all 70 unused-variable warnings and a zero-warning

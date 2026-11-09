@@ -103,6 +103,19 @@
     }
   },
   "profile": {
+    "apiKeys": {
+      "title": "Claves API", "name": "Nombre", "scopes": "Permisos",
+      "readScope": "Leer entrenamientos", "gpsScope": "Leer rutas GPS",
+      "fitScope": "Descargar entrenamientos en FIT", "fitHint": "Incluye series completas de mediciones, GPS e información del dispositivo disponible. También habilita la lectura de entrenamientos y GPS.",
+      "create": "Crear clave", "refresh": "Actualizar", "once": "Guarda esta clave de forma segura. Solo se muestra una vez.",
+      "show": "Mostrar clave", "copy": "Copiar", "dismiss": "Cerrar", "empty": "No hay claves API.", "loading": "Cargando...",
+      "error": "Error en la solicitud. Int\u00e9ntalo de nuevo.", "unavailable": "La gesti\u00f3n de claves API no est\u00e1 disponible.",
+      "limitReached": "Revoca primero una clave activa.", "readOnly": "No se pueden crear claves con la eliminaci\u00f3n de cuenta pendiente.",
+      "limits": "{count} / {max} claves activas; validez de {days} d\u00edas", "never": "Nunca",
+      "active": "Activa", "expired": "Caducada", "revoked": "Revocada", "revoke": "Revocar",
+      "confirmRevoke": "\u00bfRevocar esta clave API permanentemente?", "cancel": "Cancelar", "copied": "Clave copiada.",
+      "copyError": "No se puede copiar.", "created": "Clave creada.", "revokedSuccess": "Clave revocada.", "expires": "Caduca", "lastUsed": "\u00daltimo uso"
+    },
     "facets": {
       "navigation": "Secciones de la cuenta",
       "personal": "Perfil",

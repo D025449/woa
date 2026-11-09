@@ -103,6 +103,22 @@
     }
   },
   "profile": {
+    "apiKeys": {
+      "title": "API-Schl\u00fcssel", "name": "Name", "scopes": "Berechtigungen",
+      "readScope": "Trainingsdaten lesen", "gpsScope": "GPS-Routen lesen",
+      "fitScope": "Workouts als FIT herunterladen", "fitHint": "Enthält vollständige Messreihen, GPS und gegebenenfalls Geräteinformationen. Aktiviert auch Workout- und GPS-Leserechte.",
+      "create": "Schl\u00fcssel erstellen", "refresh": "Aktualisieren",
+      "once": "Diesen Schl\u00fcssel sicher aufbewahren. Er wird nur einmal angezeigt.",
+      "show": "Schl\u00fcssel anzeigen", "copy": "Kopieren", "dismiss": "Schlie\u00dfen",
+      "empty": "Keine API-Schl\u00fcssel vorhanden.", "loading": "Wird geladen...",
+      "error": "Anfrage fehlgeschlagen. Bitte erneut versuchen.", "unavailable": "API-Schl\u00fcsselverwaltung nicht verf\u00fcgbar.",
+      "limitReached": "Zuerst einen aktiven Schl\u00fcssel widerrufen.", "readOnly": "Keine neuen Schl\u00fcssel bei vorgemerkter Kontol\u00f6schung.",
+      "limits": "{count} / {max} aktive Schl\u00fcssel; Laufzeit {days} Tage",
+      "never": "Noch nie", "active": "Aktiv", "expired": "Abgelaufen", "revoked": "Widerrufen",
+      "revoke": "Widerrufen", "confirmRevoke": "Diesen API-Schl\u00fcssel unwiderruflich sperren?", "cancel": "Abbrechen",
+      "copied": "Schl\u00fcssel kopiert.", "copyError": "Kopieren nicht verf\u00fcgbar.",
+      "created": "Schl\u00fcssel erstellt.", "revokedSuccess": "Schl\u00fcssel widerrufen.", "expires": "G\u00fcltig bis", "lastUsed": "Zuletzt verwendet"
+    },
     "facets": {
       "navigation": "Kontobereiche",
       "personal": "Profil",

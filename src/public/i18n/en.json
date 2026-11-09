@@ -103,6 +103,20 @@
     }
   },
   "profile": {
+    "apiKeys": {
+      "title": "API keys", "name": "Name", "scopes": "Permissions",
+      "readScope": "Read workouts", "gpsScope": "Read GPS routes",
+      "fitScope": "Download workouts as FIT", "fitHint": "Includes full measurement series, GPS and available device information. Also enables workout and GPS read access.",
+      "create": "Create key", "refresh": "Refresh", "once": "Store this key securely. It is shown only once.",
+      "show": "Show key", "copy": "Copy", "dismiss": "Close", "empty": "No API keys yet.", "loading": "Loading...",
+      "error": "Request failed. Please try again.", "unavailable": "API key management is unavailable.",
+      "limitReached": "Revoke an active key first.", "readOnly": "New keys are unavailable while account deletion is pending.",
+      "limits": "{count} / {max} active keys; valid for {days} days", "never": "Never",
+      "active": "Active", "expired": "Expired", "revoked": "Revoked", "revoke": "Revoke",
+      "confirmRevoke": "Permanently revoke this API key?", "cancel": "Cancel", "copied": "Key copied.",
+      "copyError": "Copy is unavailable.", "created": "Key created.", "revokedSuccess": "Key revoked.",
+      "expires": "Expires", "lastUsed": "Last used"
+    },
     "facets": {
       "navigation": "Account sections",
       "personal": "Profile",

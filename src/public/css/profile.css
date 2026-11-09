@@ -1,3 +1,47 @@
+.api-keys-list {
+  padding: 0 1.35rem;
+  margin: 1rem 0 0;
+  list-style: none;
+}
+
+.api-key-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)) auto;
+  align-items: start;
+  gap: 0.75rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--ui-border, #d6dce2);
+  overflow-wrap: anywhere;
+}
+
+.api-key-label {
+  display: block;
+  color: var(--ui-text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.api-key-actions {
+  display: grid;
+  gap: 0.5rem;
+  justify-items: start;
+}
+
+.api-key-secret {
+  padding: 0.75rem 1rem;
+  border-left: 3px solid var(--ui-brand-accent);
+  background: var(--ui-bg-subtle);
+}
+
+.api-key-secret[hidden] {
+  display: none;
+}
+
+@media (max-width: 767.98px) {
+  #api-keys > .profile-section-header { flex-direction: column; align-items: flex-start; }
+  .api-key-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .api-key-identity, .api-key-actions { grid-column: 1 / -1; }
+}
+
 body.profile-page {
   background:
     radial-gradient(circle at top left, var(--ui-page-accent-start), transparent 28%),

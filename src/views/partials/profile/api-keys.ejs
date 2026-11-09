@@ -1,0 +1,48 @@
+<section id="api-keys" class="profile-surface ui-surface">
+    <div class="profile-section-header ui-section-header">
+        <h2 class="profile-section-title ui-title"><%= t("profile.apiKeys.title") %></h2>
+        <p id="api-keys-limits" class="profile-section-copy ui-copy"></p>
+    </div>
+    <div id="api-keys-feedback" role="status" class="small mb-3" aria-live="polite"></div>
+    <form id="api-keys-form" class="profile-form">
+        <div>
+            <label for="api-key-name" class="form-label"><%= t("profile.apiKeys.name") %></label>
+            <input id="api-key-name" class="form-control" maxlength="80" required autocomplete="off">
+        </div>
+        <fieldset>
+            <legend class="form-label"><%= t("profile.apiKeys.scopes") %></legend>
+            <div class="form-check">
+                <input id="api-key-read" class="form-check-input" type="checkbox" checked>
+                <label for="api-key-read" class="form-check-label"><%= t("profile.apiKeys.readScope") %></label>
+            </div>
+            <div class="form-check">
+                <input id="api-key-gps" class="form-check-input" type="checkbox">
+                <label for="api-key-gps" class="form-check-label"><%= t("profile.apiKeys.gpsScope") %></label>
+            </div>
+            <div class="form-check">
+                <input id="api-key-fit" class="form-check-input" type="checkbox" aria-describedby="api-key-fit-hint">
+                <label for="api-key-fit" class="form-check-label"><%= t("profile.apiKeys.fitScope") %></label>
+            </div>
+            <p id="api-key-fit-hint" class="small text-muted mt-1"><%= t("profile.apiKeys.fitHint") %></p>
+        </fieldset>
+        <div class="d-flex gap-2 flex-wrap">
+            <button id="api-key-create" class="btn btn-dark" type="submit" disabled><%= t("profile.apiKeys.create") %></button>
+            <button id="api-keys-refresh" class="btn btn-outline-secondary" type="button" disabled><%= t("profile.apiKeys.refresh") %></button>
+        </div>
+    </form>
+    <div id="api-key-secret-panel" class="api-key-secret mt-3" hidden>
+        <label for="api-key-secret" class="form-label"><%= t("profile.apiKeys.once") %></label>
+        <input id="api-key-secret" class="form-control font-monospace" type="password" readonly autocomplete="off" spellcheck="false">
+        <div class="form-check my-2">
+            <input id="api-key-show" class="form-check-input" type="checkbox">
+            <label for="api-key-show" class="form-check-label"><%= t("profile.apiKeys.show") %></label>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <button id="api-key-copy" class="btn btn-outline-secondary" type="button"><%= t("profile.apiKeys.copy") %></button>
+            <button id="api-key-dismiss" class="btn btn-outline-secondary" type="button"><%= t("profile.apiKeys.dismiss") %></button>
+        </div>
+    </div>
+    <p id="api-keys-empty" class="small text-muted mt-3" hidden><%= t("profile.apiKeys.empty") %></p>
+    <ul id="api-keys-list" class="api-keys-list"></ul>
+</section>
+<script id="api-keys-messages" type="application/json"><%- JSON.stringify({ locale: typeof locale !== "undefined" ? locale : "en", ...Object.fromEntries(["loading", "error", "unavailable", "limitReached", "readOnly", "limits", "never", "active", "expired", "revoked", "revoke", "confirmRevoke", "cancel", "copied", "copyError", "created", "revokedSuccess", "expires", "lastUsed", "readScope", "gpsScope", "fitScope"].map(key => [key, t(`profile.apiKeys.${key}`)])) }).replace(/</g, "\\u003c") %></script>

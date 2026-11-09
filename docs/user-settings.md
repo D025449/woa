@@ -9,7 +9,7 @@ The authenticated `/profile` page groups settings into six local facets:
 | Preferences | Language, units, default workout scope, optional Sudoku preference | `/profile#preferences` |
 | Connections | Wahoo and Garmin | `/profile#connections` |
 | Membership | Current membership, usage, plans, and upgrade | `/profile#membership` |
-| Account | Account deletion and cancellation | `/profile#account` |
+| Account | Personal API keys, account deletion and cancellation | `/profile#account` |
 
 ## Layout and Navigation
 
@@ -53,7 +53,51 @@ visibility and URL navigation; existing profile/provider scripts retain their
 responsibilities and element IDs. Layout styles are in `src/public/css/profile.css`.
 Navigation labels are translated in all six existing browser locale files.
 
-No database changes, migrations, new dependencies, or npm scripts are required.
+The original facet navigation requires no database changes, dependencies or npm
+scripts. Personal API keys require the separately prepared migration below.
+
+## Personal API Keys
+
+`/profile#api-keys` opens key management inside the existing Account facet, with
+labels in all six supported languages. Users can create named keys, select workout
+read access and optionally GPS/FIT read access, inspect safe metadata and confirm
+revocation. GPS requires workout read access; FIT requires both. FIT is initially
+unchecked, has a six-language disclosure about full series/GPS/device data and
+automatically selects its prerequisites. Removing a prerequisite clears FIT.
+Existing keys retain their original scopes. The approved defaults are
+five active keys and fixed 90-day validity; revoked and expired keys do not count
+toward that limit. Active keys precede the bounded history so they remain visible.
+
+The full key is returned only once, masked initially and optionally revealed or
+copied. Dismissal and page exit erase the displayed value; it is not saved in
+browser storage. Only its cryptographic hash is persisted on the server.
+Pending account deletion disables creation, not revocation. Final deletion removes
+the key records as part of the existing account-deletion transaction.
+
+Management uses the authenticated browser session, a session-bound CSRF token and
+same-origin checks. Keys cannot manage other keys or authenticate profile changes.
+The separate Bearer middleware establishes trusted user ID, key ID and scopes
+for the implemented public workout list/detail/GPS/FIT routes mounted at `/api/v1`
+before browser sessions. Analytics endpoints and a local MCP server remain
+deferred. See [public-api-v1.md](public-api-v1.md) for security and rollout
+boundaries.
+
+The user confirmed manual execution of `src/migrations/096_user_api_keys.sql`
+on 2026-11-09; the target environment was not specified. The assistant did not
+execute or independently verify it. The new key routes and final account deletion
+require its table in the deployment target.
+FIT scope issuance additionally requires manually applying prepared migration
+`097_user_api_keys_fit_scope.sql`. It has not been executed by the assistant or
+confirmed by the user. It changes only the scope constraint, not existing keys.
+No new dependency or npm script is introduced. Current FIT completion passed all
+930 tests, syntax, strict lint and types. An isolated browser fixture verified FIT
+prerequisites, simulated issuance, existing scopes and secret dismissal using the
+actual EJS partial and module. Earlier key-management checks included desktop/
+mobile layout; the latest fixture does not verify the full profile layout.
+Actual database execution and real-session/proxy integration remain unverified.
+The user subsequently confirmed a successful manual API smoke test on 2026-11-09;
+the environment and individual requests were not specified. Current REST
+verification and remaining live checks are documented in [public-api-v1.md](public-api-v1.md).
 
 ## Workout Dashboard Type Group
 

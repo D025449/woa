@@ -18,6 +18,7 @@ import coachingRoutes from "./routes/coachingRoutes.js";
 import analyticsRoutes from "./routes/analyticsRoutes.js";
 import viewPreferenceRoutes from "./routes/viewPreferenceRoutes.js";
 import adminAccountBackupRoutes from "./routes/adminAccountBackupRoutes.js";
+import publicWorkoutApiRoutes from "./routes/publicWorkoutApiRoutes.js";
 
 import { Issuer, generators } from "openid-client";
 import {
@@ -49,6 +50,8 @@ export async function createApp() {
     const __dirname = path.dirname(__filename);
 
     app.set("trust proxy", 1);
+
+    app.use("/api/v1", publicWorkoutApiRoutes);
 
     app.use(express.static(path.join(__dirname, "public")));
     app.get("/favicon.ico", (req, res) => {

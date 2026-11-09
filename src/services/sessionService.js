@@ -87,6 +87,11 @@ async function ensureRedisConnected() {
   await redisConnectPromise;
 }
 
+export async function getSessionRedisClient() {
+  await ensureRedisConnected();
+  return redisClient;
+}
+
 export async function createSessionMiddleware() {
   if (!process.env.SESSION_SECRET) {
     throw new Error("SESSION_SECRET is not defined");

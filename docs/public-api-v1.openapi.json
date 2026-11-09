@@ -1,0 +1,928 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "WOA Personal Workout API",
+    "version": "1.1.0",
+    "description": "Implemented personal-key REST API for owned imported workouts: scalar list/details, reduced GPS and explicit-scope single-workout FIT export. Mounted before browser sessions. FIT scope issuance requires manually applying migration 097. Existing keys are unchanged. Deployment and live verification remain pending; Analytics and MCP are outside this release. See public-api-v1.md for resource limits and rollout prerequisites."
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "security": [
+    {
+      "PersonalApiKey": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Workouts",
+      "description": "Owned imported workouts only; no manual or group-shared entries."
+    }
+  ],
+  "paths": {
+    "/workouts": {
+      "get": {
+        "operationId": "listWorkouts",
+        "tags": [
+          "Workouts"
+        ],
+        "summary": "List owned workouts and their scalar metrics",
+        "description": "Only documented query parameters are accepted, once each. Start time DESC NULLS LAST, then numeric ID DESC. Time bounds apply to start time and exclude null start times. Repeat filters with the cursor. No total count or snapshot consistency is promised. All responses use Cache-Control: no-store.",
+        "x-required-scopes": [
+          "workouts:read"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Inclusive RFC 3339 start-time bound with UTC offset and at most six fractional digits. Must precede to when both are present.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Exclusive RFC 3339 start-time bound with UTC offset and at most six fractional digits.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/WorkoutType"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Encrypted and authenticated opaque continuation bound to the user, filters and sort, including the null-start partition. Expires after 24 hours. Limit may change.",
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of owned workouts; next_cursor is null at the end.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStore"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data",
+                    "next_cursor"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "maxItems": 100,
+                      "items": {
+                        "$ref": "#/components/schemas/Workout"
+                      }
+                    },
+                    "next_cursor": {
+                      "type": "string",
+                      "nullable": true,
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      }
+    },
+    "/workouts/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkoutId"
+        }
+      ],
+      "get": {
+        "operationId": "getWorkout",
+        "tags": [
+          "Workouts"
+        ],
+        "summary": "Get one owned workout and its scalar metrics",
+        "description": "Same field set as the list. No location, binary stream, device or internal processing data. Foreign and unknown IDs both return 404. Query parameters are not accepted.",
+        "x-required-scopes": [
+          "workouts:read"
+        ],
+        "responses": {
+          "200": {
+            "description": "Owned workout details.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStore"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "data"
+                  ],
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/Workout"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      }
+    },
+    "/workouts/{id}/gps": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkoutId"
+        }
+      ],
+      "get": {
+        "operationId": "getWorkoutGps",
+        "tags": [
+          "Workouts"
+        ],
+        "summary": "Get an owned workout's reduced GPS route",
+        "description": "Both scopes are mandatory, even for an empty route. Preserve track gaps and longitude/latitude ordering. Return geometry null if no usable line exists. No extra database coordinate fields or raw binary data. Reject query parameters. Budgets: 2 MiB stored blob, 4 MiB decompressed data, 100000 slots including gaps, 4 MiB GeoJSON and 2 seconds per worker. At most two workers per application process; excess concurrency returns 429. Exceeding a size or time budget returns 422, never silent truncation. Invalid data returns 503.",
+        "x-required-scopes": [
+          "workouts:read",
+          "workouts:gps:read"
+        ],
+        "responses": {
+          "200": {
+            "description": "A GeoJSON Feature; geometry may be null for an owned workout without a usable route.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStore"
+              }
+            },
+            "content": {
+              "application/geo+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GpsFeature"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/GpsBudgetExceeded"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      }
+    },
+    "/workouts/{id}/export.fit": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/WorkoutId"
+        }
+      ],
+      "get": {
+        "operationId": "exportWorkoutFit",
+        "tags": [
+          "Workouts"
+        ],
+        "summary": "Download one owned workout as FIT",
+        "description": "Requires all three scopes even for a workout without GPS. Query parameters are rejected. Unknown and foreign IDs return 404. Ten requests per rolling minute per user, shared across keys, plus the common user/ingress limits. Worker budgets: 15 seconds, 512 MiB old-generation heap, two simultaneous FIT workers per application process. Sources are capped at 16 MiB stored/32 MiB decoded workout data and 4 MiB stored/8 MiB decoded GPS; up to 172800 workout records/GPS slots, 1000 segments, 50000 phases and 64 KiB device metadata. The final FIT is capped at 32 MiB. Budget failure returns 422, busy workers return 429, corrupt source/dependency errors return safe JSON 503. Missing/invalid GPS slots retain their positions and prevent interpolation across gaps.",
+        "x-required-scopes": [
+          "workouts:read",
+          "workouts:gps:read",
+          "workouts:fit:read"
+        ],
+        "responses": {
+          "200": {
+            "description": "Complete regenerated FIT activity using the shared export generator: measurement series, available GPS with retained gaps, laps and available device metadata. Not a byte-for-byte original upload.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStore"
+              },
+              "Content-Disposition": {
+                "$ref": "#/components/headers/FitAttachment"
+              }
+            },
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "422": {
+            "$ref": "#/components/responses/FitBudgetExceeded"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "PersonalApiKey": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "WOA personal API key",
+        "description": "High-entropy user-issued key. HTTP Bearer security lists no OAuth scopes; x-required-scopes declares the additional application-level AND requirement. No cookies or query-string credentials."
+      }
+    },
+    "parameters": {
+      "WorkoutId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "Positive decimal PostgreSQL BIGINT represented as a string. Out-of-range IDs are invalid.",
+        "schema": {
+          "$ref": "#/components/schemas/Id"
+        }
+      }
+    },
+    "headers": {
+      "NoStore": {
+        "description": "Always no-store, including error responses.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "no-store"
+          ]
+        }
+      },
+      "BearerChallenge": {
+        "description": "HTTP Bearer authentication challenge.",
+        "schema": {
+          "type": "string",
+          "example": "Bearer realm=\"woa-api\""
+        }
+      },
+      "RetryAfter": {
+        "description": "Seconds until retry is permitted.",
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "Allow": {
+        "description": "Only GET is supported on public API paths. HEAD, OPTIONS and writes return 405.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "GET"
+          ]
+        }
+      },
+      "FitAttachment": {
+        "description": "Attachment filename derived from workout start in UTC; safe workout-ID fallback.",
+        "schema": {
+          "type": "string",
+          "example": "attachment; filename=\"2026-11-09-09-00-00.fit\""
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "invalid_request: invalid or unexpected parameter, date range, ID or cursor.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "unauthorized: missing, invalid, expired or revoked key; do not reveal which credential check failed.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "WWW-Authenticate": {
+            "$ref": "#/components/headers/BearerChallenge"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "insufficient_scope or account_unavailable. Unknown account states fail closed.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "workout_not_found: absent and foreign workouts are indistinguishable.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "GpsBudgetExceeded": {
+        "description": "gps_response_too_large: the complete route cannot be returned within the response budget. No truncated success response.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "rate_limited: user or protective request allowance exceeded.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "Retry-After": {
+            "$ref": "#/components/headers/RetryAfter"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unavailable": {
+        "description": "service_unavailable: an authentication or storage dependency is unavailable. Authorization is never bypassed.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "MethodNotAllowed": {
+        "description": "method_not_allowed: only GET is supported.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          },
+          "Allow": {
+            "$ref": "#/components/headers/Allow"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "FitBudgetExceeded": {
+        "description": "fit_response_too_large: source/record/lap/response/time/heap budget exceeded. Never returns a partial FIT file.",
+        "headers": {
+          "Cache-Control": {
+            "$ref": "#/components/headers/NoStore"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Id": {
+        "type": "string",
+        "pattern": "^[1-9][0-9]{0,18}$",
+        "description": "Positive decimal ID, additionally bounded by PostgreSQL signed BIGINT (9223372036854775807).",
+        "example": "123"
+      },
+      "NullableTimestamp": {
+        "type": "string",
+        "format": "date-time",
+        "nullable": true,
+        "description": "UTC RFC 3339 timestamp or null."
+      },
+      "NullableMetric": {
+        "type": "number",
+        "minimum": 0,
+        "nullable": true,
+        "description": "Finite non-negative measurement; null means missing or not applicable. Units are explicit in the containing field name/documentation."
+      },
+      "IntensityTag": {
+        "type": "string",
+        "enum": [
+          "recovery",
+          "endurance",
+          "tempo",
+          "threshold",
+          "vo2max",
+          "anaerobic"
+        ]
+      },
+      "WorkoutType": {
+        "type": "string",
+        "enum": [
+          "road",
+          "mountain",
+          "indoor",
+          "motorsport",
+          "unknown"
+        ]
+      },
+      "Workout": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Allowlisted scalar summary, identical on list and detail. Derived metrics follow the documented historical FTP policy. No streams, location coordinates, device identifiers, model blobs or processing internals.",
+        "example": {
+          "id": "123",
+          "uploaded_at": "2026-11-08T12:00:00Z",
+          "start_time": "2026-11-08T09:30:00Z",
+          "end_time": "2026-11-08T11:10:00Z",
+          "elapsed_time_seconds": 6000,
+          "timer_time_seconds": 5400,
+          "distance_meters": 42000,
+          "total_cycles": 7200,
+          "work_joules": 999000,
+          "calories_kcal": 1000,
+          "ascent_meters": 520,
+          "descent_meters": 515,
+          "avg_speed_mps": 7.7778,
+          "max_speed_mps": 15.5,
+          "avg_power_watts": 185,
+          "max_power_watts": 650,
+          "normalized_power_watts": 200,
+          "avg_heart_rate_bpm": 138,
+          "max_heart_rate_bpm": 172,
+          "avg_cadence_rpm": 80,
+          "max_cadence_rpm": 115,
+          "tss": 96,
+          "intensity_factor": 0.8,
+          "ftp_used_watts": 250,
+          "workout_type": "road",
+          "terrain_profile": "rolling",
+          "intensity_profile": "endurance",
+          "intensity_tags": [
+            "endurance",
+            "tempo"
+          ],
+          "intensity_structure": "variable",
+          "intensity_dose": "moderate",
+          "perceived_exertion": 5,
+          "gps_available": true,
+          "gps_source": "recorded",
+          "gps_sample_interval_seconds": 5
+        },
+        "required": [
+          "id",
+          "uploaded_at",
+          "start_time",
+          "end_time",
+          "elapsed_time_seconds",
+          "timer_time_seconds",
+          "distance_meters",
+          "total_cycles",
+          "work_joules",
+          "calories_kcal",
+          "ascent_meters",
+          "descent_meters",
+          "avg_speed_mps",
+          "max_speed_mps",
+          "avg_power_watts",
+          "max_power_watts",
+          "normalized_power_watts",
+          "avg_heart_rate_bpm",
+          "max_heart_rate_bpm",
+          "avg_cadence_rpm",
+          "max_cadence_rpm",
+          "tss",
+          "intensity_factor",
+          "ftp_used_watts",
+          "workout_type",
+          "terrain_profile",
+          "intensity_profile",
+          "intensity_tags",
+          "intensity_structure",
+          "intensity_dose",
+          "perceived_exertion",
+          "gps_available",
+          "gps_source",
+          "gps_sample_interval_seconds"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "uploaded_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Legacy timezone-less upload timestamp interpreted as UTC, as confirmed by the user, and normalized to UTC. No database-session or host timezone dependence."
+          },
+          "start_time": {
+            "$ref": "#/components/schemas/NullableTimestamp"
+          },
+          "end_time": {
+            "$ref": "#/components/schemas/NullableTimestamp"
+          },
+          "elapsed_time_seconds": {
+            "$ref": "#/components/schemas/NullableMetric"
+          },
+          "timer_time_seconds": {
+            "$ref": "#/components/schemas/NullableMetric"
+          },
+          "distance_meters": {
+            "$ref": "#/components/schemas/NullableMetric"
+          },
+          "total_cycles": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          },
+          "work_joules": {
+            "$ref": "#/components/schemas/NullableMetric"
+          },
+          "calories_kcal": {
+            "$ref": "#/components/schemas/NullableMetric"
+          },
+          "ascent_meters": {
+            "$ref": "#/components/schemas/NullableMetric"
+          },
+          "descent_meters": {
+            "$ref": "#/components/schemas/NullableMetric"
+          },
+          "avg_speed_mps": {
+            "$ref": "#/components/schemas/NullableMetric"
+          },
+          "max_speed_mps": {
+            "$ref": "#/components/schemas/NullableMetric"
+          },
+          "avg_power_watts": {
+            "$ref": "#/components/schemas/NullableMetric"
+          },
+          "max_power_watts": {
+            "$ref": "#/components/schemas/NullableMetric"
+          },
+          "normalized_power_watts": {
+            "$ref": "#/components/schemas/NullableMetric"
+          },
+          "avg_heart_rate_bpm": {
+            "$ref": "#/components/schemas/NullableMetric"
+          },
+          "max_heart_rate_bpm": {
+            "$ref": "#/components/schemas/NullableMetric"
+          },
+          "avg_cadence_rpm": {
+            "$ref": "#/components/schemas/NullableMetric"
+          },
+          "max_cadence_rpm": {
+            "$ref": "#/components/schemas/NullableMetric"
+          },
+          "tss": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true,
+            "description": "Estimated TSS with rounded historical yearly FTP for road, mountain and indoor workouts. Unknown/motorsport classifications and missing prerequisites yield null. Valid computed zero remains zero."
+          },
+          "intensity_factor": {
+            "$ref": "#/components/schemas/NullableMetric"
+          },
+          "ftp_used_watts": {
+            "type": "number",
+            "minimum": 0,
+            "exclusiveMinimum": true,
+            "nullable": true,
+            "description": "Historical FTP used for derived load metrics, or null. Can change with FTP history."
+          },
+          "workout_type": {
+            "$ref": "#/components/schemas/WorkoutType"
+          },
+          "terrain_profile": {
+            "type": "string",
+            "enum": [
+              "flat",
+              "rolling",
+              "mountainous",
+              "altitude_missing",
+              "altitude_invalid"
+            ]
+          },
+          "intensity_profile": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "recovery",
+              "endurance",
+              "tempo",
+              "threshold",
+              "vo2max",
+              "anaerobic"
+            ]
+          },
+          "intensity_tags": {
+            "type": "array",
+            "uniqueItems": true,
+            "maxItems": 6,
+            "items": {
+              "$ref": "#/components/schemas/IntensityTag"
+            }
+          },
+          "intensity_structure": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "steady",
+              "variable",
+              "intervals"
+            ]
+          },
+          "intensity_dose": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "low",
+              "moderate",
+              "high"
+            ]
+          },
+          "perceived_exertion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "nullable": true
+          },
+          "gps_available": {
+            "type": "boolean"
+          },
+          "gps_source": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "recorded",
+              "manual_lookup",
+              null
+            ]
+          },
+          "gps_sample_interval_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "exclusiveMinimum": true,
+            "nullable": true
+          }
+        }
+      },
+      "GpsFeature": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "properties",
+          "geometry"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "Feature"
+            ]
+          },
+          "properties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "workout_id"
+            ],
+            "properties": {
+              "workout_id": {
+                "$ref": "#/components/schemas/Id"
+              }
+            }
+          },
+          "geometry": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "coordinates"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "MultiLineString"
+                ]
+              },
+              "coordinates": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "array",
+                  "minItems": 2,
+                  "items": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {
+                      "type": "number"
+                    },
+                    "description": "Exactly longitude then latitude, bounded to [-180,180] and [-90,90] respectively; validate positions semantically."
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message",
+              "request_id"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "invalid_request",
+                  "unauthorized",
+                  "insufficient_scope",
+                  "account_unavailable",
+                  "workout_not_found",
+                  "gps_response_too_large",
+                  "rate_limited",
+                  "service_unavailable",
+                  "not_found",
+                  "method_not_allowed",
+                  "fit_response_too_large"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "description": "Safe English explanation, not a stack trace or raw dependency error."
+              },
+              "request_id": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

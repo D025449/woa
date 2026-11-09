@@ -101,6 +101,19 @@
     }
   },
   "profile": {
+    "apiKeys": {
+      "title": "Chaves API", "name": "Nome", "scopes": "Permiss\u00f5es",
+      "readScope": "Ler treinos", "gpsScope": "Ler percursos GPS",
+      "fitScope": "Transferir treinos em FIT", "fitHint": "Inclui séries completas de medições, GPS e informações disponíveis sobre os dispositivos. Também ativa a leitura de treinos e GPS.",
+      "create": "Criar chave", "refresh": "Atualizar", "once": "Guarde esta chave em seguran\u00e7a. S\u00f3 ser\u00e1 mostrada uma vez.",
+      "show": "Mostrar chave", "copy": "Copiar", "dismiss": "Fechar", "empty": "Sem chaves API.", "loading": "A carregar...",
+      "error": "O pedido falhou. Tente novamente.", "unavailable": "A gest\u00e3o de chaves API est\u00e1 indispon\u00edvel.",
+      "limitReached": "Revogue primeiro uma chave ativa.", "readOnly": "Sem novas chaves enquanto a elimina\u00e7\u00e3o da conta estiver pendente.",
+      "limits": "{count} / {max} chaves ativas; validade de {days} dias", "never": "Nunca",
+      "active": "Ativa", "expired": "Expirada", "revoked": "Revogada", "revoke": "Revogar",
+      "confirmRevoke": "Revogar permanentemente esta chave API?", "cancel": "Cancelar", "copied": "Chave copiada.",
+      "copyError": "C\u00f3pia indispon\u00edvel.", "created": "Chave criada.", "revokedSuccess": "Chave revogada.", "expires": "Expira", "lastUsed": "\u00daltima utiliza\u00e7\u00e3o"
+    },
     "facets": {
       "navigation": "Seções da conta",
       "personal": "Perfil",

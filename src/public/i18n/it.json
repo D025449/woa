@@ -101,6 +101,19 @@
     }
   },
   "profile": {
+    "apiKeys": {
+      "title": "Chiavi API", "name": "Nome", "scopes": "Permessi",
+      "readScope": "Leggere gli allenamenti", "gpsScope": "Leggere i percorsi GPS",
+      "fitScope": "Scarica gli allenamenti in FIT", "fitHint": "Include le serie complete di misurazioni, GPS e le informazioni disponibili sui dispositivi. Abilita anche la lettura di allenamenti e GPS.",
+      "create": "Crea chiave", "refresh": "Aggiorna", "once": "Conserva questa chiave al sicuro. Viene mostrata una sola volta.",
+      "show": "Mostra chiave", "copy": "Copia", "dismiss": "Chiudi", "empty": "Nessuna chiave API.", "loading": "Caricamento...",
+      "error": "Richiesta non riuscita. Riprova.", "unavailable": "Gestione delle chiavi API non disponibile.",
+      "limitReached": "Revoca prima una chiave attiva.", "readOnly": "Nessuna nuova chiave durante l'eliminazione dell'account.",
+      "limits": "{count} / {max} chiavi attive; validit\u00e0 {days} giorni", "never": "Mai",
+      "active": "Attiva", "expired": "Scaduta", "revoked": "Revocata", "revoke": "Revoca",
+      "confirmRevoke": "Revocare definitivamente questa chiave API?", "cancel": "Annulla", "copied": "Chiave copiata.",
+      "copyError": "Copia non disponibile.", "created": "Chiave creata.", "revokedSuccess": "Chiave revocata.", "expires": "Scadenza", "lastUsed": "Ultimo utilizzo"
+    },
     "facets": {
       "navigation": "Sezioni dell'account",
       "personal": "Profilo",

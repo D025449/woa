@@ -8,8 +8,10 @@ import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.j
 import AccountDeletionService from "../services/accountDeletionService.js";
 import ProfileDBService from "../services/profileDBService.js";
 import { normalizeSupportedLocale } from "../i18n/index.js";
+import apiKeyRoutes from "./apiKeyRoutes.js";
 
 const router = express.Router();
+router.use("/api-keys", apiKeyRoutes);
 
 // authMiddleware may continue anonymously; explicitly require a user here.
 router.use("/garmin", authMiddleware, (req, res, next) => {
