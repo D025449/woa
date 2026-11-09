@@ -1,5 +1,4 @@
 //import { ServerSideEncryption } from "@aws-sdk/client-s3";
-import Utils from "./Utils.js";
 
 export default class SegmentService {
 
@@ -76,9 +75,9 @@ export default class SegmentService {
     }
 
 
-    static async createAddNewSegment(workout, startEnd, segmenttype = 'manual') {
+    static async createAddNewSegment(workout, startEnd) {
 
-        const newSeg = workout.workoutObject.createNewSegment(startEnd, segmenttype = 'manual');
+        const newSeg = workout.workoutObject.createNewSegment(startEnd, 'manual');
         if (newSeg) {
             await SegmentService.storeSegment(workout, newSeg);
 

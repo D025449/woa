@@ -1,8 +1,7 @@
 import { attachWorkoutSegmentPhases } from './workoutSegmentStructureService.js';
 import pool from "./database.js";
 import Workout from "../shared/Workout.js";
-import S3Service from "./s3Service.js";
-import pgPromise from "pg-promise";
+import "./s3Service.js";
 import WorkoutSharingService from "./workoutSharingService.js";
 import ElevationService from "./ElevationService.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
@@ -135,10 +134,6 @@ function computeBBox(track) {
   return { minLat, maxLat, minLng, maxLng };
 }
 
-function buildLinestringWkt(track) {
-  return `LINESTRING(${track.map((point) => `${point.lng} ${point.lat}`).join(", ")})`;
-}
-
 function interpolateScalarAtDistance(track, cumulativeMeters, distanceMeters, fieldName) {
   if (!Array.isArray(track) || track.length === 0) {
     return null;
@@ -187,19 +182,6 @@ function interpolateScalarAtDistance(track, cumulativeMeters, distanceMeters, fi
 
   const fallbackValue = Number(track[track.length - 1]?.[fieldName]);
   return Number.isFinite(fallbackValue) ? fallbackValue : null;
-}
-
-function parseGeoJsonTrack(geoJsonTrack) {
-  const coordinates = Array.isArray(geoJsonTrack?.coordinates)
-    ? geoJsonTrack.coordinates
-    : [];
-
-  return coordinates
-    .map((point) => ({
-      lat: Number(Array.isArray(point) ? point[1] : null),
-      lng: Number(Array.isArray(point) ? point[0] : null)
-    }))
-    .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
 }
 
 async function hydrateTrackRow(row, options = {}) {

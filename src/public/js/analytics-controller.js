@@ -613,7 +613,7 @@ export default class Controller {
         if (!isCurrentPeriod) return;
       }
       if (hasWorkoutTarget) {
-        await this.openWorkoutDetail(workoutId, selection.data, selection.seriesName);
+        await this.openWorkoutDetail(workoutId, selection.data);
       }
     } catch (err) {
       console.error("Analytics period drill-down failed:", err);
@@ -682,8 +682,7 @@ export default class Controller {
     const isSelected = this.isSamePeriod(period, this.selectedPeriod);
     this.renderPeriodSnapshot(period, {
       aggregate: isSelected ? this.periodAggregate : null,
-      total: isSelected ? this.periodTotal : null,
-      preview: !isSelected
+      total: isSelected ? this.periodTotal : null
     });
     this.schedulePeriodWorkoutPreview(period);
   }
@@ -701,7 +700,7 @@ export default class Controller {
             this.periodSummaryElement.textContent = "";
             this.periodSummaryElement.hidden = true;
           } else {
-            this.renderPeriodSnapshot(this.selectedPeriod, { preview: false });
+            this.renderPeriodSnapshot(this.selectedPeriod);
           }
           return;
         }
@@ -1085,7 +1084,7 @@ export default class Controller {
     metric.addEventListener("click", async () => {
       metric.disabled = true;
       try {
-        await this.openWorkoutDetail(workoutId, target, label);
+        await this.openWorkoutDetail(workoutId, target);
       } finally {
         metric.disabled = false;
       }
@@ -1136,12 +1135,11 @@ export default class Controller {
     if (!this.selectedPeriod) return;
     this.renderPeriodSnapshot(this.selectedPeriod, {
       aggregate: this.periodAggregate,
-      total: this.periodTotal,
-      preview: false
+      total: this.periodTotal
     });
   }
 
-  renderPeriodSnapshot(period, { aggregate = null, total = null, preview = false } = {}) {
+  renderPeriodSnapshot(period, { aggregate = null, total = null } = {}) {
     if (!period || !this.periodKpisElement || !this.periodPowerValuesElement) return;
     this.renderedPeriod = period;
     const loadSummary = this.ctlChartView?.getPeriodSummary(period) || {};
@@ -1218,7 +1216,7 @@ export default class Controller {
     this.periodZonesElement.hidden = zones.length === 0;
   }
 
-  async openWorkoutDetail(workoutId, cpRow = null, seriesName = "") {
+  async openWorkoutDetail(workoutId, cpRow = null) {
     const workout = await WorkoutService.loadWorkoutByRow(workoutId);
     if (!workout) return false;
     this.detailWorkout = workout;
@@ -1340,7 +1338,7 @@ export default class Controller {
     if (chartKey === "powerCurve" && patch.seriesVisibility) {
       this.renderWorkoutDetailSegments();
       if (this.hoveredPeriod) {
-        this.renderPeriodSnapshot(this.hoveredPeriod, { preview: true });
+        this.renderPeriodSnapshot(this.hoveredPeriod);
       } else {
         this.renderPeriodHeaderDetails();
       }

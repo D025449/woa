@@ -560,7 +560,7 @@ export default class MapView {
           const { latitude, longitude } = pos.coords;
           this.setMap(latitude, longitude);
         },
-        async (err) => {
+        async () => {
           console.warn(this.t("geoDenied"));
 
           // 2. Fallback via IP
@@ -585,7 +585,7 @@ export default class MapView {
         const data = await res.json();
 
         this.setMap(data.latitude, data.longitude, 10);
-      } catch (e) {
+      } catch {
         this.setMap(50.1109, 8.6821, 10);
       }
     }
@@ -603,7 +603,7 @@ export default class MapView {
   // BUILD SEGMENTS
   // -----------------------------
   buildMarkAreas(workout) {
-    const { track, segments } = workout;
+    const { segments } = workout;
     const markAreas = [];
 
     if (segments != null) {

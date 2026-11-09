@@ -3,6 +3,25 @@
 Stand: 2026-11-09. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Zero-Warning Lint Cleanup (2026-11-09)
+
+- User approved removal of all 70 unused-variable warnings and a zero-warning
+	release gate. Removed dead imports, bindings and private helpers across server,
+	browser and shared code. Preserved constructor/module initialization and the
+	four-argument Express error-handler signatures; no ESLint rule was disabled.
+- Removed unused historical compact encoders and ineffective internal encoder
+	selection options. Public exports and legacy readers remain; both WOA creators
+	already use WS11. See `docs/woa-workout-stream-format.md`.
+- `check:lint` now uses `eslint src --max-warnings 0`; `check` and release inherit
+	this limit. Verified clean success and exit 1 for one stdin-only warning, without
+	creating a probe file. See `docs/npm-scripts.md`; README link remains valid.
+- All 892 tests, syntax, strict lint (zero warnings/errors), types and diff checks
+	passed. Twelve comparisons against Git HEAD using `sample.fit` produced identical
+	WOA bytes: sync/async, three GPS encodings, identity/gzip and legacy option keys.
+- The incomplete segment-delete route received only unused-binding cleanup, not
+	a functional repair. No live UI smoke test, live DB change, migration, deployment,
+	commit or normal service restart performed.
+
 ## Map Cleanup Export Fix (2026-11-09)
 
 - Fixed the module-load failure that stopped the release test gate: exported
@@ -12,7 +31,7 @@ Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 	unchanged. See `docs/workout-map.md`.
 - All 89 focused map tests and all 892 full-suite tests passed, including
 	geographic retirement protection. `npm run check` and `npm run check:types`
-	passed; lint reports 70 existing warnings and no errors. No deployment,
+	passed; lint then reported 70 warnings, resolved in the cleanup above. No deployment,
 	commit, migration, production archive operation or service restart performed.
 
 ## Workout Dashboard Cycling Type Group (2026-11-09)

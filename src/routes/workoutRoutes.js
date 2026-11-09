@@ -4,10 +4,8 @@ import { zipSync } from "fflate";
 
 import authMiddleware from "../middleware/authMiddleware.js";
 import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
-import pool from "../services/database.js";
 import { FileDBService } from "../services/fileDBService.js";
 import WorkoutDBService from "../services/workoutDBService.js";
-import CollaborationDBService from "../services/collaborationDBService.js";
 import WorkoutSharingService from "../services/workoutSharingService.js";
 import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../shared/gpsSampling.js";
 import SegmentDBService from "../services/segmentDBService.js";

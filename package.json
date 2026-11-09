@@ -38,7 +38,7 @@
     "migrate:gps-segment-elevation-profiles": "node src/scripts/rebuild-gps-segment-elevation-profiles.js",
     "hooks:install": "git config core.hooksPath .githooks && chmod +x .githooks/pre-push && echo 'Git hooks installed (.githooks)'",
     "check:syntax": "rg --files src -g '*.js' | xargs -n1 node --check",
-    "check:lint": "eslint src",
+    "check:lint": "eslint src --max-warnings 0",
     "check:types": "tsc --noEmit -p tsconfig.checkjs.json",
     "check": "npm run check:syntax && npm run check:lint",
     "test": "node --test tests/*.test.js"

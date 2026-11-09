@@ -129,7 +129,7 @@ export function createUploadUI() {
         try {
             const storedValue = window.localStorage.getItem(FILE_STATUS_FILTER_STORAGE_KEY);
             return storedValue === 'failed' ? 'failed' : 'all';
-        } catch (_error) {
+        } catch {
             return 'all';
         }
     }
@@ -137,7 +137,7 @@ export function createUploadUI() {
     function persistFileStatusFilter(value) {
         try {
             window.localStorage.setItem(FILE_STATUS_FILTER_STORAGE_KEY, value === 'failed' ? 'failed' : 'all');
-        } catch (_error) {
+        } catch {
             // Ignore storage failures and keep the UI usable.
         }
     }

@@ -692,7 +692,7 @@ export default class CTLChartView {
         return getISOWeekStartDate(year, week);
       }
 
-    } catch (e) {
+    } catch {
       console.warn("Date parse failed:", value);
       return null;
     }

@@ -194,7 +194,7 @@ export default class FTPChartView {
         return this.getDateOfISOWeek(year, week);
       }
 
-    } catch (e) {
+    } catch {
       console.warn("Date parse failed:", value);
       return null;
     }

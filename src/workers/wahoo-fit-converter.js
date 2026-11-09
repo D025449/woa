@@ -20,8 +20,7 @@ try {
     sourceName: "wahoo.fit", sampleRateSeconds: 5,
     intensityModelFeatureBytes: encodeWorkoutIntensityModelFeatures(features),
     powerHistogramBytes: features.powerHistogramBytes,
-    gpsCoordinateEncoding: "bitmap-columnar", powerEncoding: "delta8-q4w",
-    distanceEncoding: "uint8-q05m", altitudeEncoding: "rle-delta-q1m",
+    gpsCoordinateEncoding: "bitmap-columnar",
     streamCodec: "gzip", gpsTrackBlobCodec: "identity",
     compressWorkoutStream: async bytes => gzipSync(bytes, { level: 4 }), compressGpsTrack: null
   });

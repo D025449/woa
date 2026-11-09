@@ -322,10 +322,16 @@ Implementierung und Standardwerte: [`benchmark-fflate-zip.js`](../src/scripts/be
 | --- | --- |
 | `hooks:install` | Setzt lokal `core.hooksPath` auf `.githooks` und macht den Pre-Push-Hook ausführbar. Ändert die lokale Git-Konfiguration. |
 | `check:syntax` | `node --check` für alle `.js`-Dateien unter `src`; benötigt `rg` und `xargs`. |
-| `check:lint` | ESLint für `src`, ohne automatische Korrekturen. |
+| `check:lint` | Runs `eslint src --max-warnings 0`, without automatic fixes. Any warning or error fails the check. |
 | `check:types` | TypeScript-Prüfung mit `tsconfig.checkjs.json`, ohne Ausgabedateien. |
 | `check` | Führt `check:syntax` und anschließend `check:lint` aus; enthält weder Tests noch Typprüfung. |
 | `test` | `npm test`: Node-Test-Runner für `tests/*.test.js`. |
 
 Für die Entwicklungsprüfungen müssen auch die Dev-Abhängigkeiten installiert sein.
 Die Existenz eines Prüfbefehls sagt nichts über seinen aktuellen Erfolgsstatus aus.
+
+The zero-warning limit also applies through `npm run check` and the production
+release test/check gate. ESLint rules are unchanged; warnings are not suppressed.
+Unused catch bindings should be omitted. Required positional parameters, such as
+the fourth argument of Express error middleware, retain their position and may
+use an underscore-prefixed name when intentionally unused.

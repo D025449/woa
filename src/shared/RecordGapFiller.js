@@ -38,10 +38,6 @@ export default class RecordGapFiller {
   // RECORD INTERPOLATION
   // ================================
   static interpolateRecord(r0, r1, t, timestampSec) {
-    const isStopped =
-      (r0.speed === 0 || r0.speed === undefined) &&
-      (r1.speed === 0 || r1.speed === undefined);
-
     return {
       timestamp: new Date(timestampSec * 1000).toISOString(),
 

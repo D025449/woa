@@ -133,7 +133,7 @@ test("analytics uses one grouping control and a two-level workout drill-down", a
   assert.match(powerChart, /metric\?\.fileId/u);
   assert.match(powerChart, /color: getCPSeriesColor\(Number\(key\.slice\(2\)\)\)/u);
   assert.match(controller, /createPeriodPowerMetric\(label, value, target\)/u);
-  assert.match(controller, /this\.openWorkoutDetail\(workoutId, target, label\)/u);
+  assert.match(controller, /this\.openWorkoutDetail\(workoutId, target\)/u);
   assert.match(controller, /endOffset > startOffset/u);
   assert.match(powerChart, /\[label, Number\(metric\.power\), metric\]/u);
   assert.match(controller, /openWorkoutDetail/u);

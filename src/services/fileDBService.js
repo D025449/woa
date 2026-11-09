@@ -1,6 +1,5 @@
 import { isIntervalBlock } from '../shared/WorkoutSegmentStructure.js';
 import pool from "./database.js";
-import pgPromise from "pg-promise";
 import WorkoutSharingService from "./workoutSharingService.js";
 import GpsTrackBlobService from "./gpsTrackBlobService.js";
 import { toPostgresBox } from "../shared/postgresSpatial.js";

@@ -39,8 +39,6 @@ import {
     requestPasswordReset
 } from "./services/passwordResetService.js";
 
-let client;
-
 export async function createApp() {
 
     const app = express();
@@ -123,7 +121,7 @@ export async function createApp() {
     app.use('/api/uploads', woaUploadsRouter);
 
 
-    app.use((err, req, res, next) => {
+    app.use((err, req, res, _next) => {
         console.error(err);
         res.status(500).json({
             error: err.message || 'Interner Serverfehler'
@@ -141,7 +139,7 @@ export async function createApp() {
 
     const issuer = await Issuer.discover(issuerUrl);
 
-    client = new issuer.Client({
+    new issuer.Client({
         client_id: process.env.COGNITO_CLIENT_ID,
         client_secret: process.env.COGNITO_CLIENT_SECRET,
         redirect_uris: [process.env.COGNITO_REDIRECT_URI],

@@ -110,7 +110,6 @@ export function decodeWoaTransportContainer(buffer) {
   const entryCount = readUint32LE(bytes, offset);
   offset += 4;
   const entries = [];
-  let index = 0;
 
   while (offset < bytes.byteLength) {
     if (offset + 8 > bytes.byteLength) {
@@ -138,7 +137,6 @@ export function decodeWoaTransportContainer(buffer) {
       bytes: bytes.subarray(offset, payloadEnd)
     });
     offset = payloadEnd;
-    index += 1;
   }
 
   if (version === VERSION && entryCount !== entries.length) {

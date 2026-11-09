@@ -9,7 +9,6 @@ const GPS2_TIERED_INT16_MARKER = 126;
 const GPS2_TIERED_EXTENDED_MARKER = 127;
 const GPS_TRACK_BLOB_HEADER_BYTES = 32;
 const GPS2_HEADER_BYTES = 20;
-const DELTA_BLOCK_SIZE = 128;
 const INT32_NAN = -0x80000000;
 const TEXT_DECODER = new TextDecoder();
 
@@ -98,13 +97,6 @@ function toSegmentGeoJson(segments = []) {
   return {
     type: "MultiLineString",
     coordinates
-  };
-}
-
-function toGeoJson(points = []) {
-  return {
-    type: "LineString",
-    coordinates: points.map((point) => [point.lng, point.lat])
   };
 }
 

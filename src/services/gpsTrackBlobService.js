@@ -9,7 +9,6 @@ const GPS2_TIERED_INT16_MARKER = 126;
 const GPS2_TIERED_EXTENDED_MARKER = 127;
 const GPS_TRACK_BLOB_HEADER_BYTES = 32;
 const GPS2_HEADER_BYTES = 20;
-const DELTA_BLOCK_SIZE = 128;
 const INT32_NAN = -0x80000000;
 const TEXT_DECODER = new TextDecoder();
 const DEFAULT_GPS_TRACK_BLOB_CODEC = "identity";
@@ -393,82 +392,6 @@ function toGeoJson(points = []) {
     type: "LineString",
     coordinates: points.map((point) => [point.lng, point.lat])
   };
-}
-
-function buildGpsCoordinatePayload(points) {
-  const quantized = points.map((point) => ({
-    lat: Number.isFinite(Number(point.lat)) ? Math.round(Number(point.lat) * GPS_TRACK_BLOB_SCALE) : INT32_NAN,
-    lng: Number.isFinite(Number(point.lng)) ? Math.round(Number(point.lng) * GPS_TRACK_BLOB_SCALE) : INT32_NAN
-  }));
-
-  const chunks = [];
-  let totalBytes = 0;
-
-  for (let start = 0; start < quantized.length; start += DELTA_BLOCK_SIZE) {
-    const count = Math.min(DELTA_BLOCK_SIZE, quantized.length - start);
-    let canDeltaEncode = count > 0;
-
-    for (let offset = 0; offset < count; offset += 1) {
-      const current = quantized[start + offset];
-      if (current.lat === INT32_NAN || current.lng === INT32_NAN) {
-        canDeltaEncode = false;
-        break;
-      }
-      if (offset > 0) {
-        const previous = quantized[start + offset - 1];
-        const deltaLat = current.lat - previous.lat;
-        const deltaLng = current.lng - previous.lng;
-        if (deltaLat < -32767 || deltaLat > 32767 || deltaLng < -32767 || deltaLng > 32767) {
-          canDeltaEncode = false;
-          break;
-        }
-      }
-    }
-
-    if (canDeltaEncode) {
-      const chunk = new Uint8Array(1 + 2 + 4 + 4 + Math.max(0, count - 1) * 4);
-      const view = new DataView(chunk.buffer);
-      chunk[0] = 1;
-      view.setUint16(1, count, true);
-      view.setInt32(3, quantized[start].lat, true);
-      view.setInt32(7, quantized[start].lng, true);
-      let offset = 11;
-      for (let index = 1; index < count; index += 1) {
-        const current = quantized[start + index];
-        const previous = quantized[start + index - 1];
-        view.setInt16(offset, current.lat - previous.lat, true);
-        offset += 2;
-        view.setInt16(offset, current.lng - previous.lng, true);
-        offset += 2;
-      }
-      chunks.push(chunk);
-      totalBytes += chunk.byteLength;
-      continue;
-    }
-
-    const chunk = new Uint8Array(1 + 2 + count * 8);
-    const view = new DataView(chunk.buffer);
-    chunk[0] = 0;
-    view.setUint16(1, count, true);
-    let offset = 3;
-    for (let index = 0; index < count; index += 1) {
-      view.setInt32(offset, quantized[start + index].lat, true);
-      offset += 4;
-      view.setInt32(offset, quantized[start + index].lng, true);
-      offset += 4;
-    }
-    chunks.push(chunk);
-    totalBytes += chunk.byteLength;
-  }
-
-  const payload = new Uint8Array(totalBytes);
-  let writeOffset = 0;
-  for (const chunk of chunks) {
-    payload.set(chunk, writeOffset);
-    writeOffset += chunk.byteLength;
-  }
-
-  return payload;
 }
 
 function decodeGpsCoordinatePayload(bytes, pointCount, layoutVersion = 1) {

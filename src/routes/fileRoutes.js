@@ -10,7 +10,6 @@ import { gzip } from "node:zlib";
 import authMiddleware from "../middleware/authMiddleware.js";
 import requireActiveAccountWrite from "../middleware/requireActiveAccountWrite.js";
 import { FileDBService } from "../services/fileDBService.js";
-import CollaborationDBService from "../services/collaborationDBService.js";
 import EntitlementService from "../services/entitlementService.js";
 import TrainingFeedDBService from "../services/trainingFeedDBService.js";
 import TrainingActivityDBService from "../services/trainingActivityDBService.js";
@@ -631,10 +630,7 @@ router.get("/cp-best-efforts", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.post("segments/delete/:id", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
-
-    const workoutId = req.params.id;
-    const uid = req.user?.id;
+router.post("segments/delete/:id", authMiddleware, requireActiveAccountWrite, async (req, res) => {
 
     const segments = req.body.segment ? [req.body.segment] : req.body.segments;
 

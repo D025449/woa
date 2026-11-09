@@ -1,8 +1,22 @@
 # WOA Workout-Stream-Format
 
-Aktueller Standard für den Workout-Stream im WOA1-Container ist `WST6`.
+Current writers use the `WS11` magic, implemented by
+`buildWorkoutStreamBlockWst11`. The WST6 layout below is historical documentation,
+not the current writer specification.
 
 Diese Datei beschreibt nur den Workout-Stream-Block, nicht den äußeren WOA1-Container und nicht den GPS-Track-Block.
+
+## Current Writer Selection
+
+`createWoa1FileFromCompact` and `createWoa1FileFromCompactAsync` always write
+WS11. Legacy option keys `powerEncoding`, `distanceEncoding` and
+`altitudeEncoding` are ignored; they do not select an older stream version.
+Internal callers no longer pass these ineffective options. Compression, GPS
+encoding and block-size options remain active.
+
+The lint cleanup removed unused private historical writer helpers, not exported
+helpers or legacy readers. Existing stored streams remain readable; no data
+migration or rewriting is required.
 
 ## Überblick
 

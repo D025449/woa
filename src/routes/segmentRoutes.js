@@ -16,11 +16,6 @@ import {
   enqueueSegmentElevationProfiles
 } from "../services/segment-best-efforts-service.js";
 import SegmentElevationProfileService from "../services/segmentElevationProfileService.js";
-import CollaborationDBService from "../services/collaborationDBService.js";
-
-import pool from "../services/database.js";
-
-import { FileDBService } from "../services/fileDBService.js";
 import { fetchBicycleRoute } from "../services/bicycleRoutingService.js";
 import {
   buildSegmentArchive,
@@ -53,12 +48,6 @@ const receiveSegmentArchive = (req, res, next) => {
     next(error);
   });
 };
-
-const checkAuth = (req, res, next) => {
-  req.isAuthenticated = !!req.session.userInfo;
-  next();
-};
-
 
 async function reverseGeocode(lat1, lng1) {
   const urln = `https://nominatim.openstreetmap.org/reverse?lat=${lat1}&lon=${lng1}&format=json`;
@@ -636,7 +625,6 @@ router.post("/track-lookup-v2", authMiddleware, requireActiveAccountWrite, async
 
 router.post("/save/:id/segments", authMiddleware, requireActiveAccountWrite, async (req, res, next) => {
   try {
-    const transaction_id = req.params.id;
     const uid = req.user?.id;
 
     const segments = Array.isArray(req.body)

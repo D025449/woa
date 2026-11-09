@@ -348,7 +348,7 @@ export default class Controller {
         this.mapView.highlightSegment({ start, end });
       },
 
-      createMarkArea: (start, end) => {
+      createMarkArea: () => {
         // bewusst unverändert gelassen
       },
 
@@ -2504,7 +2504,7 @@ export default class Controller {
       if (requestToken !== this.similarWorkoutsRequestToken || String(workout.id) !== String(this.currentWorkoutId)) {
         return;
       }
-      this.renderSimilarWorkouts(result?.edges || [], workout);
+      this.renderSimilarWorkouts(result?.edges || []);
     } catch (err) {
       if (requestToken !== this.similarWorkoutsRequestToken || String(workout.id) !== String(this.currentWorkoutId)) {
         return;
@@ -2551,7 +2551,7 @@ export default class Controller {
     this.applyDetailSectionHeights();
   }
 
-  renderSimilarWorkouts(edges = [], workout = null) {
+  renderSimilarWorkouts(edges = []) {
     if (!this.similarWorkoutsPanelElement || !this.similarWorkoutsListElement || !this.similarWorkoutsCopyElement) {
       return;
     }

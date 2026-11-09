@@ -358,7 +358,7 @@ export default class CPChartView {
         return getISOWeekStartDate(year, week);
       }
 
-    } catch (e) {
+    } catch {
       console.warn("Date parse failed:", value);
       return null;
     }

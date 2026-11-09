@@ -71,17 +71,6 @@ function buildGoalSummary(input) {
   return "goalSummary.eventPreparation";
 }
 
-function buildIntensityDistribution(planningStyle) {
-  switch (planningStyle) {
-    case "conservative":
-      return { hard: 1, medium: 1 };
-    case "ambitious":
-      return { hard: 2, medium: 2 };
-    default:
-      return { hard: 2, medium: 1 };
-  }
-}
-
 function buildGoalProfile({ primaryGoal, powerFocus, planningStyle, athleteDataMode }) {
   const cautious = athleteDataMode === "historical";
 

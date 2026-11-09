@@ -215,7 +215,7 @@ router.post("/paypal/webhook", async (req, res, next) => {
   }
 });
 
-router.use((err, req, res, next) => {
+router.use((err, req, res, _next) => {
   if (err?.statusCode) {
     return res.status(err.statusCode).json({ error: err.message });
   }

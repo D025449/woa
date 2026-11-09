@@ -954,8 +954,7 @@ export default class ChartView {
     }
     const result = this.getChartDataset(obj);
     const source = result.data;
-    const sd = obj.getStartTime();
-    const xRange = this.getXAxisRange(result.rowCount, workout);
+    const xRange = this.getXAxisRange(result.rowCount);
     this.currentXAxisRange = xRange;
     const xField = this.getXAxisField();
     const labels = this.getChartLabels();
@@ -1011,9 +1010,8 @@ export default class ChartView {
     this.seriesAvailability = getAvailableWorkoutSeries(obj);
     const result = this.getChartDataset(obj);
     const source = result.data;
-    const xRange = this.getXAxisRange(result.rowCount, workout);
+    const xRange = this.getXAxisRange(result.rowCount);
     this.currentXAxisRange = xRange;
-    const sd = obj.getStartTime();
     const xField = this.getXAxisField();
     const labels = this.getChartLabels();
     const zoomRange = readChartZoomRange(this.chart);
@@ -1413,7 +1411,7 @@ export default class ChartView {
     return out;
   }
 
-  getXAxisRange(rowCount, workout) {
+  getXAxisRange(rowCount) {
     if (this.xAxisMode !== "distance" || !this.hasDistanceXAxis()) {
       return { min: 0, max: rowCount };
     }

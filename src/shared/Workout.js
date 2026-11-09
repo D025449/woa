@@ -23,8 +23,6 @@ const WOA_UINT8_NAN = 0xFF;
 const WOA_UINT16_NAN = 0xFFFF;
 const WOA_UINT32_NAN = 0xFFFFFFFF;
 const WOA_INT16_NAN = -0x8000;
-const WOA_INT32_NAN = -0x80000000;
-const WOA_MICRO_DEGREES = 1e7;
 const WOA_DELTA_BLOCK_SIZE = 128;
 let nodeZlibPromise = null;
 

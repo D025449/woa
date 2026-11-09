@@ -654,7 +654,7 @@ export default class MapView {
   // BUILD SEGMENTS
   // -----------------------------
   buildMarkAreas(workout) {
-    const { track, segments } = workout;
+    const { segments } = workout;
     const markAreas = [];
 
     if (segments != null) {
