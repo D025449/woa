@@ -81,6 +81,11 @@ test('HTTP MCP discovery, protocol, consent, CSRF and session-only revocation', 
     const consent = await request('/oauth/mcp/authorize?' + authParams, { headers: { cookie } }), html = await consent.text(); assert.equal(consent.status, 200); assert.ok(html.includes('&lt;AI app&gt;')); assert.ok(consent.headers.get('content-security-policy').includes("frame-ancestors 'none'"));
     assert.equal(consent.headers.get('referrer-policy'), 'same-origin');
     assert.equal(consent.headers.get('cache-control'), 'no-store');
+    assert.equal(consent.headers.get('content-security-policy').split(';').map(value => value.trim()).find(value => value.startsWith('form-action ')),
+      "form-action 'self' https://client.example");
+    const unregisteredParams = new URLSearchParams(authParams); unregisteredParams.set('redirect_uri', 'https://evil.example/callback');
+    const unregisteredConsent = await request('/oauth/mcp/authorize?' + unregisteredParams, { headers: { cookie } });
+    assert.equal(unregisteredConsent.status, 400); assert.equal(unregisteredConsent.headers.get('content-security-policy'), null);
     const csrfToken = html.match(/name="csrf_token" value="([a-f0-9]{64})"/)[1];
     const postConsent = (origin, token = csrfToken) => request('/oauth/mcp/authorize', { method: 'POST',
       headers: { cookie, ...(origin === undefined ? {} : { origin }), 'content-type': 'application/x-www-form-urlencoded' },
@@ -97,16 +102,20 @@ test('HTTP MCP discovery, protocol, consent, CSRF and session-only revocation', 
     const callback = new URL(allowed.headers.get('location')); assert.equal(callback.searchParams.get('code'), code); assert.equal(callback.searchParams.get('iss'), config.origin); assert.equal(callback.searchParams.get('state'), 'opaque-state'); assert.equal((await postConsent(config.origin)).status, 403);
     const nativeParams = new URLSearchParams(authParams); nativeParams.set('client_id', 'woa-codex'); nativeParams.set('redirect_uri', 'http://127.0.0.1:49152/callback');
     for (const decision of ['allow', 'deny']) {
+      const nativePort = decision === 'allow' ? '49152' : '49153';
+      nativeParams.set('redirect_uri', `http://127.0.0.1:${nativePort}/callback`);
       const nativeConsent = await request('/oauth/mcp/authorize?' + nativeParams, { headers: { cookie } });
       const nativeHtml = await nativeConsent.text(); assert.equal(nativeConsent.status, 200);
       assert.equal(nativeConsent.headers.get('referrer-policy'), 'same-origin');
+      assert.equal(nativeConsent.headers.get('content-security-policy').split(';').map(value => value.trim()).find(value => value.startsWith('form-action ')),
+        `form-action 'self' http://127.0.0.1:${nativePort}`);
       const nativeCsrf = nativeHtml.match(/name="csrf_token" value="([a-f0-9]{64})"/)[1];
       const nativeResult = await request('/oauth/mcp/authorize', { method: 'POST', headers: { cookie, origin: config.origin, 'content-type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ csrf_token: nativeCsrf, decision }) });
       assert.equal(nativeResult.status, 303);
       assert.equal(nativeResult.headers.get('referrer-policy'), 'no-referrer');
       const nativeCallback = new URL(nativeResult.headers.get('location'));
-      assert.equal(nativeCallback.origin, 'http://127.0.0.1:49152'); assert.equal(nativeCallback.pathname, '/callback');
+      assert.equal(nativeCallback.origin, `http://127.0.0.1:${nativePort}`); assert.equal(nativeCallback.pathname, '/callback');
       assert.equal(nativeCallback.searchParams.get('iss'), config.origin); assert.equal(nativeCallback.searchParams.get('state'), 'opaque-state');
       if (decision === 'allow') assert.equal(nativeCallback.searchParams.get('code'), code);
       else { assert.equal(nativeCallback.searchParams.get('error'), 'access_denied'); assert.equal(nativeCallback.searchParams.has('code'), false); }

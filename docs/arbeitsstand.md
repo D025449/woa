@@ -3,6 +3,23 @@
 Stand: 2026-11-10. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## MCP Consent Callback CSP (2026-11-10)
+
+- User reported first consent click staying on the form and second click denied.
+  An isolated browser fixture reproduced that sequence: `form-action 'self'`
+  blocked the cross-origin 303 callback after consent consumption. User approved
+  adding the validated callback origin with its actual port to the consent CSP.
+  No wildcards; exact redirect/path/query/PKCE and origin/session/CSRF checks
+  remain. Details and reproduction limits: docs/mcp-server.md.
+- Real Express/EJS form with synthetic local session/stubbed issuance reached
+  the separate-port callback on the first click for both allow and deny. No real
+  grant, token exchange or database operation. All 14 focused MCP tests, syntax,
+  zero-warning lint, types and diff checks passed. Tests cover selected HTTPS
+  origin, actual varying native ports and rejected unregistered callbacks.
+- No full-suite rerun, migration, deployment, service restart or commit. Fresh
+  production login/consent, token exchange, tools and refresh remain pending
+  rollout. Temporary testservers were stopped after verification.
+
 ## Dedicated OAuth And Analytics Pool Credentials (2026-11-10)
 
 - User reported `server_error` after consent and approved fixing both affected

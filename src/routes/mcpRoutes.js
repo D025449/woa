@@ -133,8 +133,10 @@ export function createMcpRouters(config, { oauth = new McpOAuthService(config), 
     req.session.mcpConsent = { request, token, owner: String(req.user.id), expires: Date.now() + 10 * 60 * 1000 };
     await saveSession(req);
     // Preserve the Origin on the same-origin form POST without exposing cross-origin referrers.
+    // Browsers also apply form-action to redirects; permit only the validated callback origin/port.
+    const callbackOrigin = new URL(request.redirectUri).origin;
     res.set({ "Referrer-Policy": "same-origin",
-      "Content-Security-Policy": "default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+      "Content-Security-Policy": `default-src 'none'; style-src 'self'; form-action 'self' ${callbackOrigin}; base-uri 'none'; frame-ancestors 'none'`,
       "X-Frame-Options": "DENY" });
     res.render("mcp-consent", { clientName: request.clientName, scopes: request.scopes, csrfToken: token });
   }));

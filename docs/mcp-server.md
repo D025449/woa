@@ -43,6 +43,13 @@ origin check with `access_denied`. Session ownership, expiry, CSRF and exact-ori
 checks remain mandatory; missing/null/foreign origins are rejected. Login and
 OAuth callback redirects, token responses and other MCP responses keep
 `no-referrer` and `no-store`.
+The consent page's CSP permits form submission to `'self'` and the validated
+callback origin, including its actual port. Browsers can apply `form-action` to
+the POST's 303 redirect; `'self'` alone blocks the cross-origin callback after
+consent is consumed, leaving the form visible and a second click denied. The
+callback origin is derived only after registered redirect validation, without
+wildcards or general HTTP/HTTPS allowances. Exact redirect/path/query/PKCE
+binding and POST origin/session/CSRF checks still apply.
 Discovery is available at:
 
 - /.well-known/oauth-protected-resource/mcp (also available at the root variant)
@@ -234,6 +241,18 @@ MCP resource and S256 request; the process was stopped before any consent/token
 exchange. Real consent/refresh/tools in Codex remain pending production rollout.
 
 ## Verification (2026-11-10)
+
+Consent redirect CSP regression: an isolated browser fixture reproduced first
+click staying on the form and second click returning `access_denied` with
+`form-action 'self'`. The corrected real Express router/EJS form, using a local
+synthetic session and stubbed code issuance, reached the separate-port callback
+on the first click for both allow and deny. No real login, grant, token exchange
+or database operation was involved. All 14 focused MCP tests, syntax,
+zero-warning lint, types and diff checks passed. HTTP coverage verifies the
+selected HTTPS/native callback origin, varying actual native ports, rejected
+unregistered callbacks and preserved origin/CSRF/response policies. No full-suite
+rerun, migration, deployment or service restart in this slice; fresh production
+login/consent and token exchange remain to be verified after rollout.
 
 Dedicated pool credential regression: the OAuth pool previously copied
 `pool.options` with object spread, which omits pg's non-enumerable password.
