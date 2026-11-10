@@ -3,6 +3,44 @@
 Stand: 2026-11-10. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Codex Native OAuth Compatibility (2026-11-10)
+
+- User identified the desktop UI as Codex and approved a separate public
+  woa-codex client plus native loopback compatibility. Added shared callback
+  validation for public http://127.0.0.1 registrations: variable port only when
+  none is registered, with exact scheme/literal host/path/query; fixed ports
+  remain fixed. Non-loopback callbacks and resource/issuer remain HTTPS.
+  Authorization and consent both use it; code exchange retains the exact actual
+  redirect/port and PKCE binding. No migration, DCR or CIMD added.
+- Updated local /Users/D025449/.codex/config.toml for existing woa_training only:
+  oauth.client_id=woa-codex, callback_url=http://127.0.0.1/callback. No secrets,
+  bearer token or unrelated settings changed. Installed CLI no-browser probe
+  verified the actual client/callback/resource/S256 request, then stopped before
+  login/consent/token issuance. CLI get omits OAuth fields; probe confirms use.
+- All 968 tests passed with approved temporary local ports; 14 focused MCP tests
+  passed. Syntax, zero-warning lint, types and diff checks passed. Setup/client
+  JSON and login command are in docs/mcp-server.md. The server client must be
+  appended to production configuration after the new code is deployed. Neither
+  production client configuration nor code deployment/restart was performed in
+  this slice. Actual user consent, tools and refresh remain pending that rollout.
+
+## Production MCP Setup Check (2026-11-10)
+
+- User chose production at https://cwa24.de, confirmed saving MCP settings and
+  subsequently confirmed performing the app restart. No assistant restart or
+  deployment. SSH read-only checks found MCP code, matching origin and the
+  configured woa-chatgpt client with a valid secret-digest format and the official
+  issuer-aware ChatGPT callback. No secrets/digests were printed or recorded.
+- Public resource and authorization-server discovery returned HTTP 200 with
+  matching resource/issuer, PKCE S256 and issuer-response support. Unauthenticated
+  /mcp returned HTTP 401 with resource_metadata and no-store. A read-only schema
+  query on the active production DB found both MCP tables and consent_hash. This
+  does not verify all migration constraints or a successful token exchange.
+- Next: user connects ChatGPT using OAuth/client ID woa-chatgpt and the privately
+  generated client secret, grants WOA consent and exercises tools/revocation.
+  Mac availability and actual ChatGPT OAuth remain unverified. Approval-review
+  stream failures on individual read checks resolved on retry.
+
 ## Hosted Training MCP And OAuth (2026-11-10)
 
 - User approved hosted read-only MCP with existing WOA login/consent, six tools

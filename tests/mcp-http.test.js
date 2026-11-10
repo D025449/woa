@@ -12,7 +12,8 @@ import { createI18nMiddleware } from '../src/i18n/index.js';
 
 test('HTTP MCP discovery, protocol, consent, CSRF and session-only revocation', async () => {
   const config = readMcpConfig({ MCP_PUBLIC_ORIGIN: 'https://woa.example', MCP_OAUTH_CLIENTS: JSON.stringify([
-    { client_id: 'chatgpt', client_name: '<AI app>', redirect_uris: ['https://client.example/callback'] }
+    { client_id: 'chatgpt', client_name: '<AI app>', redirect_uris: ['https://client.example/callback'] },
+    { client_id: 'woa-codex', client_name: 'Codex', redirect_uris: ['http://127.0.0.1/callback'] }
   ]) });
   const code = 'woa_mcp_' + 'a'.repeat(43), context = { userId: '71', grantId: '123', scopes: ['workouts:read', 'analytics:read', 'offline_access'] };
   const authParams = new URLSearchParams({ response_type: 'code', client_id: 'chatgpt', redirect_uri: 'https://client.example/callback', resource: config.resource,
@@ -79,6 +80,20 @@ test('HTTP MCP discovery, protocol, consent, CSRF and session-only revocation', 
     const postConsent = origin => request('/oauth/mcp/authorize', { method: 'POST', headers: { cookie, origin, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ csrf_token: csrfToken, decision: 'allow' }) });
     assert.equal((await postConsent('https://evil.example')).status, 403); const allowed = await postConsent(config.origin); assert.equal(allowed.status, 303);
     const callback = new URL(allowed.headers.get('location')); assert.equal(callback.searchParams.get('code'), code); assert.equal(callback.searchParams.get('iss'), config.origin); assert.equal(callback.searchParams.get('state'), 'opaque-state'); assert.equal((await postConsent(config.origin)).status, 403);
+    const nativeParams = new URLSearchParams(authParams); nativeParams.set('client_id', 'woa-codex'); nativeParams.set('redirect_uri', 'http://127.0.0.1:49152/callback');
+    for (const decision of ['allow', 'deny']) {
+      const nativeConsent = await request('/oauth/mcp/authorize?' + nativeParams, { headers: { cookie } });
+      const nativeHtml = await nativeConsent.text(); assert.equal(nativeConsent.status, 200);
+      const nativeCsrf = nativeHtml.match(/name="csrf_token" value="([a-f0-9]{64})"/)[1];
+      const nativeResult = await request('/oauth/mcp/authorize', { method: 'POST', headers: { cookie, origin: config.origin, 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ csrf_token: nativeCsrf, decision }) });
+      assert.equal(nativeResult.status, 303);
+      const nativeCallback = new URL(nativeResult.headers.get('location'));
+      assert.equal(nativeCallback.origin, 'http://127.0.0.1:49152'); assert.equal(nativeCallback.pathname, '/callback');
+      assert.equal(nativeCallback.searchParams.get('iss'), config.origin); assert.equal(nativeCallback.searchParams.get('state'), 'opaque-state');
+      if (decision === 'allow') assert.equal(nativeCallback.searchParams.get('code'), code);
+      else { assert.equal(nativeCallback.searchParams.get('error'), 'access_denied'); assert.equal(nativeCallback.searchParams.has('code'), false); }
+    }
     const connections = await request('/api/profile/mcp-connections', { headers: { cookie } }), payload = await connections.json(); assert.equal(connections.status, 200); assert.equal(payload.data[0].id, '123'); assert.ok(!JSON.stringify(payload).includes(code));
     assert.equal((await request('/api/profile/mcp-connections', { headers: { cookie, authorization: 'Bearer ' + code } })).status, 401);
     assert.equal((await request('/api/profile/mcp-connections/123', { method: 'DELETE', headers: { cookie, origin: config.origin, 'x-csrf-token': 'f'.repeat(64) } })).status, 403);

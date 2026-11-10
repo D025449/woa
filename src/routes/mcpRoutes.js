@@ -1,7 +1,7 @@
 import express from "express";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { MCP_SCOPES, oauthFailure } from "../services/mcpConfig.js";
+import { MCP_SCOPES, oauthFailure, mcpRedirectMatches } from "../services/mcpConfig.js";
 import McpOAuthService from "../services/mcpOAuthService.js";
 import { createTrainingMcpServer } from "../services/mcpServerService.js";
 import publicApiRateLimit from "../middleware/publicApiRateLimit.js";
@@ -145,7 +145,7 @@ export function createMcpRouters(config, { oauth = new McpOAuthService(config), 
     await saveSession(req);
     const request = pending.request;
     const client = config.clients.find(client => client.client_id === request.clientId);
-    if (!client?.redirect_uris.includes(request.redirectUri)) oauthFailure(400, "invalid_request");
+    if (!mcpRedirectMatches(client, request.redirectUri)) oauthFailure(400, "invalid_request");
     const target = new URL(request.redirectUri);
     target.searchParams.set("iss", config.origin);
     if (request.state !== null) target.searchParams.set("state", request.state);

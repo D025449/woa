@@ -6,7 +6,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createTrainingMcpServer, MCP_TOOL_NAMES } from '../src/services/mcpServerService.js';
 import McpOAuthService, { mcpTokenHash } from '../src/services/mcpOAuthService.js';
-import { readMcpConfig, mcpScopes } from '../src/services/mcpConfig.js';
+import { readMcpConfig, mcpScopes, mcpRedirectMatches } from '../src/services/mcpConfig.js';
 
 export const config = readMcpConfig({ MCP_PUBLIC_ORIGIN: 'https://woa.example', MCP_OAUTH_CLIENTS: JSON.stringify([
   { client_id: 'chatgpt', client_name: '<AI app>', redirect_uris: ['https://client.example/callback'] },
@@ -50,6 +50,45 @@ test('consent locks owner/quota, stores only hashes and rejects pending deletion
     if (expected) { await assert.rejects(oauth.authorize('71', request), { code: expected }); assert.equal(db.calls.at(-1).sql, 'ROLLBACK'); }
     else { const result = await oauth.authorize('71', request); assert.equal(db.calls.find(call => call.sql.includes('INSERT INTO mcp_oauth_tokens')).args[0], mcpTokenHash(result)); assert.ok(!JSON.stringify(db.calls).includes(result)); assert.equal(db.calls.find(call => call.sql.includes('INSERT INTO user_mcp_grants')).args[0], '71'); assert.equal(db.calls.at(-1).sql, 'COMMIT'); }
     assert.ok(db.calls.some(call => call.sql.includes('FOR UPDATE'))); assert.ok(db.released);
+  }
+});
+
+test('Codex public clients bind literal loopback host/path/query while allowing ephemeral ports', () => {
+  const nativeClient = { client_id: 'woa-codex', client_name: 'Codex', redirect_uris: ['http://127.0.0.1/callback'] };
+  const nativeConfig = readMcpConfig({ MCP_PUBLIC_ORIGIN: config.origin, MCP_OAUTH_CLIENTS: JSON.stringify([nativeClient]) });
+  const oauth = new McpOAuthService(nativeConfig, {});
+  assert.equal(oauth.client('woa-codex').secret_sha256, undefined);
+  for (const redirect of ['http://127.0.0.1/callback', 'http://127.0.0.1:49152/callback', 'http://127.0.0.1:65535/callback']) {
+    const params = authParams({ client_id: 'woa-codex', redirect_uri: redirect });
+    assert.equal(oauth.authorization(params).redirectUri, redirect);
+  }
+  for (const redirect of ['http://localhost:49152/callback', 'http://127.0.0.2:49152/callback', 'http://[::1]:49152/callback',
+    'http://2130706433:49152/callback', 'http://127.0.0.1.evil.example:49152/callback', 'http://127.0.0.1:49152/other',
+    'http://127.0.0.1:49152/callback/extra', 'http://127.0.0.1:49152/callback?extra=1', 'http://127.0.0.1:49152/callback#fragment',
+    'http://user@127.0.0.1:49152/callback', 'https://127.0.0.1:49152/callback', 'http://127.0.0.1:49152/c%61llback']) {
+    assert.equal(mcpRedirectMatches(nativeClient, redirect), false, redirect);
+    assert.throws(() => oauth.authorization(authParams({ client_id: 'woa-codex', redirect_uri: redirect })));
+  }
+  const fixed = { ...nativeClient, redirect_uris: ['http://127.0.0.1:49152/callback'] };
+  assert.equal(mcpRedirectMatches(fixed, fixed.redirect_uris[0]), true);
+  assert.equal(mcpRedirectMatches(fixed, 'http://127.0.0.1:49153/callback'), false);
+  const queryBound = { ...nativeClient, redirect_uris: ['http://127.0.0.1/callback?registered=1'] };
+  assert.equal(mcpRedirectMatches(queryBound, 'http://127.0.0.1:49153/callback?registered=1'), true);
+  assert.equal(mcpRedirectMatches(queryBound, 'http://127.0.0.1:49153/callback?registered=2'), false);
+  assert.equal(mcpRedirectMatches(config.clients[0], 'https://client.example:49152/callback'), false);
+  assert.throws(() => readMcpConfig({ MCP_PUBLIC_ORIGIN: config.origin, MCP_OAUTH_CLIENTS: JSON.stringify([{ ...nativeClient, secret_sha256: mcpTokenHash('secret') }]) }));
+});
+
+test('Codex exchange binds the actual consented callback port as well as PKCE and client', async () => {
+  const nativeClient = { client_id: 'woa-codex', client_name: 'Codex', redirect_uris: ['http://127.0.0.1/callback'] };
+  const nativeConfig = readMcpConfig({ MCP_PUBLIC_ORIGIN: config.origin, MCP_OAUTH_CLIENTS: JSON.stringify([nativeClient]) });
+  for (const port of [49152, 49153]) {
+    const db = scriptedDb(sql => sql.includes('FOR UPDATE OF') ? { rows: [grantRow({ client_id: 'woa-codex', redirect_uri: 'http://127.0.0.1:49152/callback' })] }
+      : sql.includes('RETURNING GREATEST') ? { rows: [{ expires_in: 900 }] } : null);
+    const input = { ...exchangeInput, redirect_uri: 'http://127.0.0.1:' + port + '/callback' };
+    const oauth = new McpOAuthService(nativeConfig, db);
+    if (port === 49152) { assert.equal((await oauth.exchange(input, nativeClient)).token_type, 'Bearer'); assert.equal(db.calls.at(-1).sql, 'COMMIT'); }
+    else { await assert.rejects(oauth.exchange(input, nativeClient), { code: 'invalid_grant' }); assert.ok(!db.calls.some(call => call.sql.includes('SET consumed_at'))); }
   }
 });
 

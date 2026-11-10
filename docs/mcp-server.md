@@ -47,7 +47,14 @@ Discovery is available at:
 Issuer is the configured HTTPS origin, resource/audience is exactly origin/mcp.
 Both authorization and token requests must supply that resource. Authorization
 code + PKCE S256 is mandatory, including confidential clients. Redirect URIs
-match operator-configured strings exactly. Authorization responses include iss
+match operator-configured HTTPS strings exactly. Public native clients may also
+register literal http://127.0.0.1 callbacks. A registration without a port accepts
+the client's selected loopback port under RFC 8252; scheme, literal host, path and
+query still match exactly. A registration with an explicit port binds that port.
+No localhost DNS aliases, alternate IP spellings, IPv6, credentials or fragments
+are accepted. HTTP loopback registration is limited to public clients without a
+secret; the MCP endpoint, issuer and all non-loopback callbacks still use HTTPS.
+Authorization responses include iss
 and preserve state. Invalid/untrusted redirect requests receive local errors,
 not redirects. Tokens cannot be used as personal REST keys.
 
@@ -101,7 +108,9 @@ to 100 entries, active first. Account deletion always removes its grants.
    Missing origin disables the MCP routes; incomplete enabled configuration fails
    startup instead of exposing an unauthenticated endpoint.
 3. Register the exact redirect URI shown by the target AI app's current OAuth
-   setup. Do not guess callback addresses or allow wildcard redirects. Example
+   setup. Native Codex clients use the literal loopback registration described
+   below, with variable ports only when no port is registered. Do not guess
+   callback addresses or allow wildcard hosts/paths. Example
    shape below uses placeholders, not functioning client credentials:
 
     [{"client_id":"woa-chatgpt","client_name":"ChatGPT","redirect_uris":["https://CLIENT_CALLBACK_FROM_SETUP"],"secret_sha256":"SHA256_OF_A_RANDOM_CLIENT_SECRET"}]
@@ -133,6 +142,11 @@ to 100 entries, active first. Account deletion always removes its grants.
 
 ## ChatGPT Mac First, Then Browser
 
+The user subsequently identified the current desktop surface as Codex. Follow
+the dedicated Codex setup below for that surface; the web-client setup remains
+separate. The current [Codex MCP documentation](https://developers.openai.com/codex/mcp)
+also describes shared MCP configuration between local desktop/CLI/IDE clients.
+
 The official [connection guide](https://developers.openai.com/apps-sdk/deploy/connect-chatgpt)
 describes ChatGPT Plugins → plus → Add custom MCP server, entering the public
 HTTPS URL including /mcp and configuring authentication. Account/workspace
@@ -159,7 +173,70 @@ marketplace submission or guaranteed client eligibility. No real ChatGPT login,
 live OAuth round trip, production proxy or database migration was performed by
 the assistant during implementation.
 
+## Codex Desktop OAuth (2026-11-10)
+
+Use a separate predefined public client, not the confidential web client. Append
+this object to the existing MCP_OAUTH_CLIENTS JSON array in production, preserving
+all existing client objects and their secret digests:
+
+~~~json
+{"client_id":"woa-codex","client_name":"Codex","redirect_uris":["http://127.0.0.1/callback"]}
+~~~
+
+Apply the updated server code before adding this object/restarting production:
+the original server version required all registered callbacks to use HTTPS. No
+new migration is required. Public native clients have no client secret; every
+authorization still requires WOA login, explicit consent, resource binding and
+PKCE S256. The selected port is stored with the code and must match exactly at
+token exchange. Code/refresh replay, expiry and owner checks are unchanged.
+
+The user's configured local HTTP server is named woa_training (lowercase), with
+URL https://cwa24.de/mcp. Its OAuth subtable is:
+
+~~~toml
+[mcp_servers.woa_training.oauth]
+client_id = "woa-codex"
+callback_url = "http://127.0.0.1/callback"
+~~~
+
+The assistant added that subtable to the existing local configuration after
+approval; other servers/settings were preserved. The URL/header form does not
+require a bearer token or client secret. A predefined client ID skips CIMD/DCR;
+those registration methods remain unsupported by this server. Codex selects its
+local listener port automatically. Avoid explicit ports in callback_url unless
+the same port is also configured as callback_port.
+
+After the production client/code is active, run in the user's terminal:
+
+~~~bash
+codex mcp login woa_training --scopes workouts:read,analytics:read,offline_access
+~~~
+
+Complete WOA login/consent in the opened browser. Codex handles credential
+storage/refresh; never paste tokens into chat or the header form. Reload the
+desktop connection/new chat if needed, inspect /mcp and call the training tools.
+For another computer, configure its own local server/client subtable and sign in
+with that user's WOA account; no shared per-user API key or secret is needed.
+
+Verification: all 968 tests passed with temporary local test ports, including 14
+MCP tests. New coverage binds loopback host/path/query, ephemeral/fixed ports,
+actual code-exchange port, PKCE, public-only registration and allow/deny consent
+responses. Syntax, zero-warning lint and types passed. An installed Codex CLI
+no-browser probe generated the expected woa-codex client, loopback callback,
+MCP resource and S256 request; the process was stopped before any consent/token
+exchange. Real consent/refresh/tools in Codex remain pending production rollout.
+
 ## Verification (2026-11-10)
+
+Production setup was subsequently checked at https://cwa24.de after the user
+confirmed saving settings and restarting the app. Read-only SSH checks confirmed
+the deployed MCP files and expected client/origin configuration without exposing
+secrets. Both public metadata endpoints returned 200 with matching issuer and
+resource. Unauthenticated /mcp returned 401 with resource_metadata/no-store. A
+read-only schema query against the active production DB found both tables and
+consent_hash; it did not validate every migration constraint. No assistant
+migration, deployment or restart. Real ChatGPT OAuth/tool/revocation verification
+and Mac client availability are still pending.
 
 Final focused suite: 12 tests passed for SDK initialization/tools, strict schemas,
 permissions/owner isolation, consent/client/PKCE/resource binding, hash-only

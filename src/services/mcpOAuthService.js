@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import pool from "./database.js";
 import { Pool } from "pg";
-import { oauthFailure, mcpScopes } from "./mcpConfig.js";
+import { oauthFailure, mcpScopes, mcpRedirectMatches } from "./mcpConfig.js";
 import { publicWorkoutId } from "./publicWorkoutApiService.js";
 
 export const mcpTokenHash = value => createHash("sha256").update(value).digest("hex");
@@ -28,7 +28,7 @@ export default class McpOAuthService {
     const allowed = ["response_type", "client_id", "redirect_uri", "scope", "state", "code_challenge", "code_challenge_method", "resource"];
     for (const key of params.keys()) if (!allowed.includes(key) || params.getAll(key).length !== 1) oauthFailure(400, "invalid_request");
     const client = this.config.clients.find(value => value.client_id === params.get("client_id"));
-    if (!client || !client.redirect_uris.includes(params.get("redirect_uri"))) oauthFailure(400, "invalid_request");
+    if (!mcpRedirectMatches(client, params.get("redirect_uri"))) oauthFailure(400, "invalid_request");
     if (params.get("response_type") !== "code" || params.get("resource") !== this.config.resource
       || params.get("code_challenge_method") !== "S256" || !/^[A-Za-z0-9_-]{43}$/.test(params.get("code_challenge") || "")
       || (params.has("state") && (!params.get("state") || params.get("state").length > 1024))) oauthFailure(400, "invalid_request");
