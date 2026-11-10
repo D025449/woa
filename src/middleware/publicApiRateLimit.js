@@ -14,23 +14,25 @@ redis.call('PEXPIRE', KEYS[1], 60000)
 return {1, 0}
 `;
 
-export default function publicApiRateLimit(bucket, limit, identify, { getClient = getSessionRedisClient } = {}) {
+export async function consumePublicApiAllowance(bucket, limit, identity, { getClient = getSessionRedisClient } = {}) {
+  if (typeof identity !== "string" || !identity) throw new Error("Missing rate-limit identity");
+  const digest = createHash("sha256").update(identity).digest("hex");
+  const client = await getClient();
+  const result = await client.eval(SCRIPT, { keys: [`woa:api:v1:${bucket}:${digest}`],
+    arguments: [String(limit), randomUUID()] });
+  if (!Array.isArray(result) || result.length !== 2 || typeof result[0] !== "number" || ![0, 1].includes(result[0])
+    || typeof result[1] !== "number" || !Number.isInteger(result[1])
+    || (result[0] === 1 ? result[1] !== 0 : result[1] < 1 || result[1] > 60)) throw new Error("Invalid rate-limit result");
+  return { allowed: result[0] === 1, retryAfter: result[1] };
+}
+
+export default function publicApiRateLimit(bucket, limit, identify, options = {}) {
   return async (req, res, next) => {
     res.set("Cache-Control", "no-store");
     try {
-      const identity = identify(req);
-      if (typeof identity !== "string" || !identity) throw new Error("Missing rate-limit identity");
-      const digest = createHash("sha256").update(identity).digest("hex");
-      const client = await getClient();
-      const result = await client.eval(SCRIPT, { keys: [`woa:api:v1:${bucket}:${digest}`],
-        arguments: [String(limit), randomUUID()] });
-      if (!Array.isArray(result) || result.length !== 2 || typeof result[0] !== "number" || ![0, 1].includes(result[0])
-        || typeof result[1] !== "number" || !Number.isInteger(result[1])
-        || (result[0] === 1 ? result[1] !== 0 : result[1] < 1 || result[1] > 60)) {
-        throw new Error("Invalid rate-limit result");
-      }
-      if (Number(result[0]) === 1) return next();
-      const retry = Math.max(1, Math.min(60, Number(result[1]) || 60));
+      const result = await consumePublicApiAllowance(bucket, limit, identify(req), options);
+      if (result.allowed) return next();
+      const retry = result.retryAfter;
       res.set("Retry-After", String(Math.ceil(retry)));
       return res.status(429).json({ error: { code: "rate_limited", message: "Request allowance exceeded.", request_id: randomUUID() } });
     } catch {

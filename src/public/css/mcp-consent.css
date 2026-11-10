@@ -1,0 +1,8 @@
+body { margin: 0; padding: 2rem 1rem; color: #14243a; background: #f3f6fa; font-family: system-ui, sans-serif; line-height: 1.5; }
+main { max-width: 36rem; margin: 3vh auto; padding: 2rem; background: white; border: 1px solid #dae2ed; border-radius: 1rem; }
+h1 { font-size: 1.6rem; }
+form { display: flex; flex-wrap: wrap; gap: 1rem; }
+button { padding: .75rem 1rem; font: inherit; cursor: pointer; border: 1px solid #14243a; border-radius: .4rem; background: white; color: #14243a; }
+button[value=allow] { background: #14243a; color: white; }
+a { color: #164ca3; }
+:focus-visible { outline: 3px solid #346de3; outline-offset: 3px; }

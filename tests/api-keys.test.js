@@ -31,7 +31,7 @@ test("API keys validate scope dependencies and reject unknown, duplicate and emp
   assert.deepEqual(normalizeApiKeyScopes(["workouts:gps:read", "workouts:read"]), ["workouts:read", "workouts:gps:read"]);
   assert.deepEqual(normalizeApiKeyScopes(["workouts:fit:read", "workouts:gps:read", "workouts:read"]),
     ["workouts:read", "workouts:gps:read", "workouts:fit:read"]);
-  for (const scopes of [null, [], ["analytics:read"], ["workouts:gps:read"], ["workouts:fit:read"],
+  for (const scopes of [null, [], ["analytics:write"], ["workouts:gps:read"], ["workouts:fit:read"],
     ["workouts:read", "workouts:fit:read"], ["*"], ["workouts:read", "workouts:read"]]) {
     assert.throws(() => normalizeApiKeyScopes(scopes), { statusCode: 400 });
   }
@@ -79,6 +79,16 @@ test("new FIT keys store only explicitly selected normalized scopes", async () =
   assert.deepEqual(result.key.scopes, stored);
 });
 
+test("analytics keys can be issued and resolved independently without upgrading stored workout keys", async () => {
+  const database = creationDatabase();
+  const result = await Service.create(42, { name: "Analytics", scopes: ["analytics:read"] }, database);
+  assert.deepEqual(result.key.scopes, ["analytics:read"]);
+  const row = { id: "9", user_id: "42", scopes: ["analytics:read"], account_status: "active" };
+  const resolved = await Service.resolve(result.secret, { async query() { return { rows: [row] }; } });
+  assert.deepEqual(resolved.scopes, ["analytics:read"]);
+  assert.deepEqual(normalizeApiKeyScopes(["workouts:read"]), ["workouts:read"]);
+});
+
 test("API key invalid inputs fail before acquiring a database client", async () => {
   const database = creationDatabase();
   for (const name of [undefined, null, {}, "", "  ", "x".repeat(81), "a\nb"]) {
@@ -110,7 +120,7 @@ test("API key lookup fails closed for absent, deleted, malformed-scope and concu
   const secret = `woa_pk_${"a".repeat(43)}`;
   const row = { id: "9", user_id: "42", scopes: ["workouts:read"], account_status: "active" };
   for (const [rows, statusCode] of [[[], 401], [[{ ...row, account_status: "deleted" }], 403],
-    [[{ ...row, scopes: ["analytics:read"] }], 401]]) {
+    [[{ ...row, scopes: ["analytics:write"] }], 401]]) {
     await assert.rejects(Service.resolve(secret, { async query() { return { rows }; } }), { statusCode });
   }
   let calls = 0;
@@ -182,7 +192,7 @@ test("Bearer middleware uses only key identity, enforces both GPS scopes and hid
     assert.ok(!(await denied.text()).includes(secret));
     if (statusCode === 401) assert.match(denied.headers.get("www-authenticate"), /Bearer/);
   }
-  assert.throws(() => apiKeyAuth(["analytics:read"]), TypeError);
+  assert.throws(() => apiKeyAuth(["analytics:write"]), TypeError);
 });
 
 test("key management requires browser identity, same origin and a session-bound CSRF token", async t => {

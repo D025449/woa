@@ -1,9 +1,9 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "WOA Personal Workout API",
-    "version": "1.1.0",
-    "description": "Implemented personal-key REST API for owned imported workouts: scalar list/details, reduced GPS and explicit-scope single-workout FIT export. Mounted before browser sessions. FIT scope issuance requires manually applying migration 097. Existing keys are unchanged. Deployment and live verification remain pending; Analytics and MCP are outside this release. See public-api-v1.md for resource limits and rollout prerequisites."
+    "title": "WOA Personal Workout And Analytics API",
+    "version": "1.3.0",
+    "description": "Personal-key REST API for owned workouts and four owned analytics endpoints: summary, training load, recorded power profile and CP8/CP15 FTP history. Power profile additionally requires workouts:read for source IDs. Manual activities contribute to volume/load, never recorded performance. Migration 098 execution and initial analytics smoke test were user-confirmed on 2026-11-10; no new scope or migration for performance endpoints. MCP remains deferred. See public-api-v1.md for semantics, budgets and rollout."
   },
   "servers": [
     {
@@ -19,6 +19,10 @@
     {
       "name": "Workouts",
       "description": "Owned imported workouts only; no manual or group-shared entries."
+    },
+    {
+      "name": "Analytics",
+      "description": "Owned training aggregates and recorded performance. Source workout IDs/offsets are returned only by power profile with additional workouts:read. No GPS, notes, devices or raw samples."
     }
   ],
   "paths": {
@@ -326,6 +330,393 @@
           }
         }
       }
+    },
+    "/analytics/summary": {
+      "get": {
+        "operationId": "getAnalyticsSummary",
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Owned period summary",
+        "description": "Only from/to UTC dates are accepted once each. Scope analytics:read is sufficient; no workout IDs or GPS are returned. Imported non-motorsport workouts and all manual activity types contribute volume. TSS applies to classified imported cycling and manual cycling; manual estimates are distinguishable. UTC start-day attribution, full history, 42/7-day daily rounded recurrence, TSB=CTL-ATL after the day. Missing TSS is counted and contributes zero to the recurrence. No load is reported before the first known TSS. FTP uses the existing yearly function with UTC interpolation, positive values only, no backward extrapolation before the first year and last-value carry-forward. Retrospective yearly estimates may change with imported data. Ten analytics requests per rolling minute/user shared across both endpoints/keys, plus shared 60/user and 120/IP limits. At most two active calculations/process; 50000 source rows, 20000 history days, 500 FTP rows, 1 MiB response and 5 seconds per SQL statement. Exceeding budgets returns 422 without truncation; SQL/dependency failures return safe 503.",
+        "x-required-scopes": [
+          "analytics:read"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Inclusive UTC start date. Defaults to 28 days before to.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Exclusive UTC end date. Defaults to tomorrow UTC, including the partial current day. Cannot exceed tomorrow. Interval must contain 1-366 days.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owned activity analytics; load includes full bounded history before from and rest days through to.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStore"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "meta",
+                    "data"
+                  ],
+                  "properties": {
+                    "meta": {
+                      "$ref": "#/components/schemas/AnalyticsMeta"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/AnalyticsSummary"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "422": {
+            "$ref": "#/components/responses/AnalyticsBudgetExceeded"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/analytics/training-load": {
+      "get": {
+        "operationId": "getAnalyticsTrainingLoad",
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Owned daily training load",
+        "description": "Only from/to UTC dates are accepted once each. Scope analytics:read is sufficient; no workout IDs or GPS are returned. Imported non-motorsport workouts and all manual activity types contribute volume. TSS applies to classified imported cycling and manual cycling; manual estimates are distinguishable. UTC start-day attribution, full history, 42/7-day daily rounded recurrence, TSB=CTL-ATL after the day. Missing TSS is counted and contributes zero to the recurrence. No load is reported before the first known TSS. FTP uses the existing yearly function with UTC interpolation, positive values only, no backward extrapolation before the first year and last-value carry-forward. Retrospective yearly estimates may change with imported data. Ten analytics requests per rolling minute/user shared across both endpoints/keys, plus shared 60/user and 120/IP limits. At most two active calculations/process; 50000 source rows, 20000 history days, 500 FTP rows, 1 MiB response and 5 seconds per SQL statement. Exceeding budgets returns 422 without truncation; SQL/dependency failures return safe 503.",
+        "x-required-scopes": [
+          "analytics:read"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Inclusive UTC start date. Defaults to 28 days before to.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Exclusive UTC end date. Defaults to tomorrow UTC, including the partial current day. Cannot exceed tomorrow. Interval must contain 1-366 days.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owned activity analytics; load includes full bounded history before from and rest days through to.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStore"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "meta",
+                    "data"
+                  ],
+                  "properties": {
+                    "meta": {
+                      "$ref": "#/components/schemas/AnalyticsMeta"
+                    },
+                    "data": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 366,
+                      "items": {
+                        "$ref": "#/components/schemas/AnalyticsDay"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "422": {
+            "$ref": "#/components/responses/AnalyticsBudgetExceeded"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/analytics/power-profile": {
+      "get": {
+        "operationId": "getPowerProfile",
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Owned recorded power profile",
+        "description": "Owned classified cycling stored critical segments only, no manual modeled activity. Existing UTC from/to defaults and 366-day bound apply. At most 50000 scalar source efforts, 1 MiB JSON, 5 seconds per SQL statement, two shared analytics calculations/process and shared analytics 10/minute/user limits. No stream decoding, new performance calculation or silent truncation. Distinct allowlisted durations only. Each selected duration returns one winner or null fields. Tie order: power descending, exact UTC start timestamp descending, exact BIGINT workout and segment IDs descending. W/kg uses the returned power and historical source-date weight, falling back to profile weight; missing weight yields null. Requires workouts:read because workout IDs and source offsets are returned; missing it does not consume the analytics bucket.",
+        "x-required-scopes": [
+          "analytics:read",
+          "workouts:read"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Inclusive UTC start date. Defaults to 28 days before to.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Exclusive UTC end date. Defaults to tomorrow UTC, including the partial current day. Cannot exceed tomorrow. Interval must contain 1-366 days.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "durations",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "example": "5,60,480,1200",
+              "description": "Comma-separated distinct supported seconds, no spaces; defaults to all 13 durations."
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owned recorded performance analytics.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStore"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "meta",
+                    "data"
+                  ],
+                  "properties": {
+                    "meta": {
+                      "$ref": "#/components/schemas/PowerProfileMeta"
+                    },
+                    "data": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 13,
+                      "items": {
+                        "$ref": "#/components/schemas/PowerProfilePoint"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "422": {
+            "$ref": "#/components/responses/AnalyticsBudgetExceeded"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/analytics/ftp-history": {
+      "get": {
+        "operationId": "getFtpHistory",
+        "tags": [
+          "Analytics"
+        ],
+        "summary": "Owned CP8/CP15 FTP history",
+        "description": "Owned classified cycling stored critical segments only, no manual modeled activity. Existing UTC from/to defaults and 366-day bound apply. At most 50000 scalar source efforts, 1 MiB JSON, 5 seconds per SQL statement, two shared analytics calculations/process and shared analytics 10/minute/user limits. No stream decoding, new performance calculation or silent truncation. UTC calendar grouping, default month. Per bucket, continuous p95 of positive recorded CP8 and CP15 efforts; existing log extrapolation to CP20 multiplied by 0.95. All inputs restricted to the requested date interval, so clipped buckets are marked partial. Empty buckets and missing/nonpositive estimates return null. No rolling-window FTP and no waveform or source IDs.",
+        "x-required-scopes": [
+          "analytics:read"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Inclusive UTC start date. Defaults to 28 days before to.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Exclusive UTC end date. Defaults to tomorrow UTC, including the partial current day. Cannot exceed tomorrow. Interval must contain 1-366 days.",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "grouping",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "week",
+                "month",
+                "quarter",
+                "year"
+              ],
+              "default": "month"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Owned recorded performance analytics.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/NoStore"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "meta",
+                    "data"
+                  ],
+                  "properties": {
+                    "meta": {
+                      "$ref": "#/components/schemas/FtpHistoryMeta"
+                    },
+                    "data": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 54,
+                      "items": {
+                        "$ref": "#/components/schemas/FtpHistoryPoint"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "422": {
+            "$ref": "#/components/responses/AnalyticsBudgetExceeded"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -526,6 +917,16 @@
             "$ref": "#/components/headers/NoStore"
           }
         },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "AnalyticsBudgetExceeded": {
+        "description": "Analytics source/history/FTP/response budget exceeded; no partial result.",
         "content": {
           "application/json": {
             "schema": {
@@ -908,7 +1309,8 @@
                   "service_unavailable",
                   "not_found",
                   "method_not_allowed",
-                  "fit_response_too_large"
+                  "fit_response_too_large",
+                  "analytics_response_too_large"
                 ]
               },
               "message": {
@@ -920,6 +1322,606 @@
                 "minLength": 1
               }
             }
+          }
+        }
+      },
+      "AnalyticsStatistics": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "activity_count",
+          "imported_activity_count",
+          "manual_activity_count",
+          "missing_duration_count",
+          "known_tss_count",
+          "missing_tss_count",
+          "tss_not_applicable_count",
+          "timer_time_seconds",
+          "tss",
+          "recorded_derived_tss",
+          "manual_estimated_tss"
+        ],
+        "properties": {
+          "activity_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "imported_activity_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "manual_activity_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "missing_duration_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "known_tss_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "missing_tss_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tss_not_applicable_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "timer_time_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true,
+            "description": "Sum of known durations, or null if every activity duration is missing. Activities are assigned entirely to their UTC start day."
+          },
+          "tss": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true,
+            "description": "Sum of known applicable TSS; null if all applicable TSS are missing, zero for a rest day or no applicable activities. Inspect missing_tss_count for partial sums."
+          },
+          "recorded_derived_tss": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Known TSS derived from imported cycling NP, duration and yearly interpolated FTP; not directly measured TSS."
+          },
+          "manual_estimated_tss": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Known TSS from manually entered estimates or modeled manual cycling power; never a measured performance record."
+          }
+        }
+      },
+      "AnalyticsMeta": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "time_zone",
+          "generated_at",
+          "current_day_partial",
+          "history_from",
+          "history_missing_tss_count",
+          "ctl_time_constant_days",
+          "atl_time_constant_days",
+          "load_method",
+          "ftp_method"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "time_zone": {
+            "type": "string",
+            "enum": [
+              "UTC"
+            ]
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "current_day_partial": {
+            "type": "boolean"
+          },
+          "history_from": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "description": "First included day with known applicable TSS, or null if none. CTL/ATL start from zero on this day."
+          },
+          "history_missing_tss_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Applicable activities with missing TSS anywhere before to, including the history before from. Missing contributions use zero for CTL/ATL, so load is incomplete if this is nonzero."
+          },
+          "ctl_time_constant_days": {
+            "type": "integer",
+            "enum": [
+              42
+            ]
+          },
+          "atl_time_constant_days": {
+            "type": "integer",
+            "enum": [
+              7
+            ]
+          },
+          "load_method": {
+            "type": "string",
+            "enum": [
+              "daily_rounded_ema"
+            ]
+          },
+          "ftp_method": {
+            "type": "string",
+            "enum": [
+              "yearly_utc_interpolation"
+            ]
+          }
+        }
+      },
+      "AnalyticsSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "activity_count",
+          "imported_activity_count",
+          "manual_activity_count",
+          "missing_duration_count",
+          "known_tss_count",
+          "missing_tss_count",
+          "tss_not_applicable_count",
+          "timer_time_seconds",
+          "tss",
+          "recorded_derived_tss",
+          "manual_estimated_tss",
+          "latest_load",
+          "ftp_watts"
+        ],
+        "properties": {
+          "activity_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "imported_activity_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "manual_activity_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "missing_duration_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "known_tss_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "missing_tss_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tss_not_applicable_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "timer_time_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true,
+            "description": "Sum of known durations, or null if every activity duration is missing. Activities are assigned entirely to their UTC start day."
+          },
+          "tss": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true,
+            "description": "Sum of known applicable TSS; null if all applicable TSS are missing, zero for a rest day or no applicable activities. Inspect missing_tss_count for partial sums."
+          },
+          "recorded_derived_tss": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Known TSS derived from imported cycling NP, duration and yearly interpolated FTP; not directly measured TSS."
+          },
+          "manual_estimated_tss": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Known TSS from manually entered estimates or modeled manual cycling power; never a measured performance record."
+          },
+          "latest_load": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "date",
+              "ctl",
+              "atl",
+              "tsb"
+            ],
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              },
+              "ctl": {
+                "type": "integer",
+                "nullable": true
+              },
+              "atl": {
+                "type": "integer",
+                "nullable": true
+              },
+              "tsb": {
+                "type": "integer",
+                "nullable": true
+              }
+            }
+          },
+          "ftp_watts": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true
+          }
+        }
+      },
+      "AnalyticsDay": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "date",
+          "activity_count",
+          "imported_activity_count",
+          "manual_activity_count",
+          "missing_duration_count",
+          "known_tss_count",
+          "missing_tss_count",
+          "tss_not_applicable_count",
+          "timer_time_seconds",
+          "tss",
+          "recorded_derived_tss",
+          "manual_estimated_tss",
+          "ctl",
+          "atl",
+          "tsb",
+          "current_day_partial"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "activity_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "imported_activity_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "manual_activity_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "missing_duration_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "known_tss_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "missing_tss_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tss_not_applicable_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "timer_time_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true,
+            "description": "Sum of known durations, or null if every activity duration is missing. Activities are assigned entirely to their UTC start day."
+          },
+          "tss": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true,
+            "description": "Sum of known applicable TSS; null if all applicable TSS are missing, zero for a rest day or no applicable activities. Inspect missing_tss_count for partial sums."
+          },
+          "recorded_derived_tss": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Known TSS derived from imported cycling NP, duration and yearly interpolated FTP; not directly measured TSS."
+          },
+          "manual_estimated_tss": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Known TSS from manually entered estimates or modeled manual cycling power; never a measured performance record."
+          },
+          "ctl": {
+            "type": "integer",
+            "nullable": true
+          },
+          "atl": {
+            "type": "integer",
+            "nullable": true
+          },
+          "tsb": {
+            "type": "integer",
+            "nullable": true
+          },
+          "current_day_partial": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PowerProfileMeta": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "time_zone",
+          "generated_at",
+          "current_day_partial",
+          "durations_seconds",
+          "power_method"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "time_zone": {
+            "type": "string",
+            "enum": [
+              "UTC"
+            ]
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "current_day_partial": {
+            "type": "boolean"
+          },
+          "durations_seconds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 13,
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "enum": [
+                5,
+                15,
+                60,
+                120,
+                240,
+                300,
+                360,
+                480,
+                720,
+                900,
+                960,
+                1200,
+                1800
+              ]
+            }
+          },
+          "power_method": {
+            "type": "string",
+            "enum": [
+              "stored_critical_efforts"
+            ]
+          }
+        }
+      },
+      "PowerProfilePoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "duration_seconds",
+          "power_watts",
+          "watts_per_kg",
+          "weight_kg",
+          "weight_source",
+          "weight_date",
+          "workout_id",
+          "workout_start_time",
+          "start_offset_seconds",
+          "end_offset_seconds"
+        ],
+        "properties": {
+          "duration_seconds": {
+            "type": "integer",
+            "enum": [
+              5,
+              15,
+              60,
+              120,
+              240,
+              300,
+              360,
+              480,
+              720,
+              900,
+              960,
+              1200,
+              1800
+            ]
+          },
+          "power_watts": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true
+          },
+          "watts_per_kg": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true
+          },
+          "weight_kg": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true,
+            "maximum": 500
+          },
+          "weight_source": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "history",
+              "profile",
+              null
+            ]
+          },
+          "weight_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "workout_id": {
+            "type": "string",
+            "nullable": true,
+            "pattern": "^[1-9][0-9]{0,18}$"
+          },
+          "workout_start_time": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "start_offset_seconds": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          },
+          "end_offset_seconds": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          }
+        }
+      },
+      "FtpHistoryMeta": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "time_zone",
+          "generated_at",
+          "current_day_partial",
+          "grouping",
+          "ftp_method"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "time_zone": {
+            "type": "string",
+            "enum": [
+              "UTC"
+            ]
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "current_day_partial": {
+            "type": "boolean"
+          },
+          "grouping": {
+            "type": "string",
+            "enum": [
+              "week",
+              "month",
+              "quarter",
+              "year"
+            ]
+          },
+          "ftp_method": {
+            "type": "string",
+            "enum": [
+              "period_cp8_cp15_p95"
+            ]
+          }
+        }
+      },
+      "FtpHistoryPoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "period_from",
+          "period_to",
+          "partial_period",
+          "cp8_watts",
+          "cp15_watts",
+          "ftp_watts",
+          "cp8_effort_count",
+          "cp15_effort_count",
+          "confidence"
+        ],
+        "properties": {
+          "period_from": {
+            "type": "string",
+            "format": "date"
+          },
+          "period_to": {
+            "type": "string",
+            "format": "date"
+          },
+          "partial_period": {
+            "type": "boolean"
+          },
+          "cp8_watts": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true
+          },
+          "cp15_watts": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true
+          },
+          "ftp_watts": {
+            "type": "number",
+            "minimum": 0,
+            "nullable": true
+          },
+          "cp8_effort_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cp15_effort_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "confidence": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Minimum of the positive CP8/CP15 stored effort counts, matching the existing method. Not a probability or confidence percentage."
           }
         }
       }

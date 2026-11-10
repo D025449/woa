@@ -13,8 +13,9 @@ import fs from "node:fs";
 
 const contract = JSON.parse(fs.readFileSync(new URL("../docs/public-api-v1.openapi.json", import.meta.url), "utf8"));
 
-test("OpenAPI describes only the public workout paths and resolves all local references", () => {
-  assert.deepEqual(Object.keys(contract.paths).sort(), ["/workouts", "/workouts/{id}", "/workouts/{id}/export.fit", "/workouts/{id}/gps"]);
+test("OpenAPI describes the public workout and analytics paths and resolves all local references", () => {
+  assert.deepEqual(Object.keys(contract.paths).sort(), ["/analytics/ftp-history", "/analytics/power-profile", "/analytics/summary", "/analytics/training-load",
+    "/workouts", "/workouts/{id}", "/workouts/{id}/export.fit", "/workouts/{id}/gps"]);
   const visit = value => {
     if (!value || typeof value !== "object") return;
     if (value.$ref) {
@@ -24,9 +25,9 @@ test("OpenAPI describes only the public workout paths and resolves all local ref
     for (const child of Object.values(value)) visit(child);
   };
   visit(contract);
-  for (const path of Object.values(contract.paths)) {
+  for (const [name, path] of Object.entries(contract.paths)) {
     assert.deepEqual(path.get.security || contract.security, [{ PersonalApiKey: [] }]);
-    assert.ok(path.get["x-required-scopes"].includes("workouts:read"));
+    assert.ok(path.get["x-required-scopes"].includes(name.startsWith("/analytics/") ? "analytics:read" : "workouts:read"));
   }
 });
 

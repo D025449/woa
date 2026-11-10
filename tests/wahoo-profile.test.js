@@ -39,9 +39,12 @@ test("personal API key controls render in the account facet in all supported lan
     assert.equal(data.readScope, messages.profile.apiKeys.readScope);
     assert.equal(data.gpsScope, messages.profile.apiKeys.gpsScope);
     assert.equal(data.fitScope, messages.profile.apiKeys.fitScope);
+    assert.equal(data.analyticsScope, messages.profile.apiKeys.analyticsScope);
     assert.ok(html.includes(messages.profile.apiKeys.fitHint));
     assert.match(html, /id="api-key-fit"[^>]*type="checkbox"/);
+    assert.match(html, /id="api-key-analytics"[^>]*type="checkbox"/);
+    assert.ok(html.includes(messages.profile.apiKeys.analyticsHint));
     assert.doesNotMatch(html, /profile\.apiKeys\./);
-    assert.match(html, /\/js\/api-keys-ui\.js\?v=2/);
+    assert.match(html, /\/js\/api-keys-ui\.js\?v=3/);
   }
 });

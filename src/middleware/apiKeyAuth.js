@@ -5,10 +5,9 @@ export default function apiKeyAuth(requiredScopes = []) {
   if (!Array.isArray(requiredScopes) || requiredScopes.some(scope => !API_KEY_SCOPES.includes(scope))) {
     throw new TypeError("Unknown API scope requirement");
   }
-  const required = requiredScopes.includes("workouts:fit:read")
-    ? ["workouts:read", "workouts:gps:read", "workouts:fit:read"]
-    : requiredScopes.includes("workouts:gps:read")
-    ? ["workouts:read", "workouts:gps:read"] : [...requiredScopes];
+  const required = new Set(requiredScopes);
+  if (required.has("workouts:fit:read")) required.add("workouts:gps:read");
+  if (required.has("workouts:gps:read")) required.add("workouts:read");
   return async (req, res, next) => {
     delete req.apiAuth;
     res.set("Cache-Control", "no-store");
@@ -21,7 +20,7 @@ export default function apiKeyAuth(requiredScopes = []) {
     if (!match) return reject(401, "unauthorized", "API key required.");
     try {
       const context = await ApiKeyService.resolve(match[1]);
-      if (required.some(scope => !context.scopes.includes(scope))) {
+      if ([...required].some(scope => !context.scopes.includes(scope))) {
         return reject(403, "insufficient_scope", "Required API scope is missing.");
       }
       req.apiAuth = context;

@@ -7,7 +7,7 @@ The authenticated `/profile` page groups settings into six local facets:
 | Profile | Personal data, including the independent fallback weight | `/profile#personal` |
 | Body weight | Dated body-weight history, editing, and deletion | `/profile#weight-history` |
 | Preferences | Language, units, default workout scope, optional Sudoku preference | `/profile#preferences` |
-| Connections | Wahoo and Garmin | `/profile#connections` |
+| Connections | AI apps (MCP), Wahoo and Garmin | `/profile#connections` |
 | Membership | Current membership, usage, plans, and upgrade | `/profile#membership` |
 | Account | Personal API keys, account deletion and cancellation | `/profile#account` |
 
@@ -56,14 +56,28 @@ Navigation labels are translated in all six existing browser locale files.
 The original facet navigation requires no database changes, dependencies or npm
 scripts. Personal API keys require the separately prepared migration below.
 
+## Connected AI Apps
+
+AI connections are managed separately under `/profile#mcp-connections` in the
+Connections facet. The list shows app name, read permissions, status, expiry and
+last use, with a confirmed revoke action. No tokens/client secrets are exposed.
+MCP is disabled without server configuration; the panel reports that state.
+Migration 099 must be applied manually before enabling it or using updated final
+account deletion. Consent and connection management details: [mcp-server.md](mcp-server.md).
+
 ## Personal API Keys
 
 `/profile#api-keys` opens key management inside the existing Account facet, with
 labels in all six supported languages. Users can create named keys, select workout
-read access and optionally GPS/FIT read access, inspect safe metadata and confirm
+read access and optionally GPS/FIT read access or independent analytics access, inspect safe metadata and confirm
 revocation. GPS requires workout read access; FIT requires both. FIT is initially
 unchecked, has a six-language disclosure about full series/GPS/device data and
 automatically selects its prerequisites. Removing a prerequisite clears FIT.
+Analytics is unchecked by default and can be selected alone after clearing workout
+read. It permits summary/training-load aggregates including manual activities
+and FTP history; power-profile source references require workout read as well.
+It grants no GPS or individual workout reads by itself. Labels and disclosure are
+translated in all six languages. At least one valid scope must be selected.
 Existing keys retain their original scopes. The approved defaults are
 five active keys and fixed 90-day validity; revoked and expired keys do not count
 toward that limit. Active keys precede the bounded history so they remain visible.
@@ -78,8 +92,13 @@ Management uses the authenticated browser session, a session-bound CSRF token an
 same-origin checks. Keys cannot manage other keys or authenticate profile changes.
 The separate Bearer middleware establishes trusted user ID, key ID and scopes
 for the implemented public workout list/detail/GPS/FIT routes mounted at `/api/v1`
-before browser sessions. Analytics endpoints and a local MCP server remain
-deferred. See [public-api-v1.md](public-api-v1.md) for security and rollout
+before browser sessions. The separate analytics summary/training-load routes use
+`analytics:read` and are also mounted before sessions. FTP history uses that same
+scope. Power profile additionally requires workout read because it returns source
+workout IDs. Users can select both existing checkboxes; no new scope or migration
+is added for these performance endpoints. The separate hosted MCP server uses
+OAuth and the same read services; see [mcp-server.md](mcp-server.md).
+See [public-api-v1.md](public-api-v1.md) for security and rollout
 boundaries.
 
 The user confirmed manual execution of `src/migrations/096_user_api_keys.sql`
@@ -89,7 +108,22 @@ require its table in the deployment target.
 FIT scope issuance additionally requires manually applying prepared migration
 `097_user_api_keys_fit_scope.sql`. It has not been executed by the assistant or
 confirmed by the user. It changes only the scope constraint, not existing keys.
-No new dependency or npm script is introduced. Current FIT completion passed all
+Analytics issuance requires migration `098_user_api_keys_analytics_scope.sql`;
+the user confirmed its manual execution and a successful API smoke test on
+2026-11-10 (target and individual requests unspecified, not independently verified).
+It extends the scope constraint, permits
+analytics-only keys and preserves existing key permissions. Apply pending
+migrations in order in each deployment target before using the updated UI.
+No new dependency or npm script is introduced. Analytics completion passed all
+954 tests after adding power profile/FTP history; syntax, zero-warning lint, types
+and diff checks passed. The initial summary/load completion passed all
+945 tests, syntax, zero-warning lint, types and diff checks, including scope
+dependencies/analytics-only issuance and rendering in all six languages.
+An isolated actual EJS/module browser fixture also verified independent selection,
+no-scope issuance blocking, simulated analytics-only creation, unchanged existing
+key labels and secret masking/dismissal without console errors. It uses simulated
+APIs and does not verify full profile layout or real credential creation.
+Previous FIT completion passed all
 930 tests, syntax, strict lint and types. An isolated browser fixture verified FIT
 prerequisites, simulated issuance, existing scopes and secret dismissal using the
 actual EJS partial and module. Earlier key-management checks included desktop/

@@ -1,0 +1,13 @@
+<section id="mcp-connections" class="profile-surface ui-surface" aria-labelledby="mcp-connections-title">
+  <div class="profile-section-header ui-section-header">
+    <h2 id="mcp-connections-title" class="profile-section-title ui-title"><%= t('profile.mcp.title') %></h2>
+    <p class="profile-section-copy ui-copy"><%= t('profile.mcp.copy') %></p>
+  </div>
+  <div class="profile-form">
+    <p id="mcp-server-url" class="small text-break"></p>
+    <button id="mcp-connections-refresh" type="button" class="btn btn-outline-dark"><%= t('profile.mcp.refresh') %></button>
+    <p id="mcp-connections-feedback" role="status"></p>
+    <ul id="mcp-connections-list" class="list-unstyled"></ul>
+  </div>
+  <script id="mcp-connections-messages" type="application/json"><%- JSON.stringify({ ...Object.fromEntries(["empty", "error", "disabled", "revoke", "confirmRevoke", "cancel", "revokedSuccess", "active", "expired", "revoked", "expires", "lastUsed", "never"].map(key => [key, t(`profile.mcp.${key}`)])), scopeLabels: { "workouts:read": t("profile.apiKeys.readScope"), "analytics:read": t("profile.apiKeys.analyticsScope") } }).replace(/</g, "\u003c") %></script>
+</section>

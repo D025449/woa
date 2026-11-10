@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="<%= typeof locale !== 'undefined' ? locale : 'en' %>">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title><%= t('profile.mcp.consentTitle') %> · WOA</title><link rel="stylesheet" href="/css/mcp-consent.css"></head>
+<body><main>
+  <h1><%= t('profile.mcp.consentTitle') %></h1>
+  <p><strong><%= clientName %></strong></p>
+  <p><%= t('profile.mcp.consentCopy') %></p>
+  <ul>
+    <% if (scopes.includes('workouts:read')) { %><li><%= t('profile.mcp.workouts') %></li><% } %>
+    <% if (scopes.includes('analytics:read')) { %><li><%= t('profile.mcp.analytics') %></li><% } %>
+    <% if (scopes.includes('offline_access')) { %><li><%= t('profile.mcp.offline') %></li><% } %>
+  </ul>
+  <p><%= t('profile.mcp.consentHelp') %></p>
+  <form method="post" action="/oauth/mcp/authorize">
+    <input type="hidden" name="csrf_token" value="<%= csrfToken %>">
+    <button name="decision" value="allow"><%= t('profile.mcp.allow') %></button>
+    <button name="decision" value="deny"><%= t('profile.mcp.deny') %></button>
+  </form>
+  <p><a href="/profile#mcp-connections"><%= t('profile.mcp.title') %></a></p>
+</main></body></html>

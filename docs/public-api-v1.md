@@ -2,22 +2,26 @@
 
 ## Status And Scope
 
-Personal-key storage, profile management and the four public workout endpoints
-are implemented. `/api/v1` is mounted before browser sessions and browser
+Personal-key storage, profile management, four public workout endpoints and four
+public analytics endpoints are implemented. `/api/v1` is mounted before browser sessions and browser
 authentication. Deployment and live PostgreSQL/proxy verification remain pending.
 The machine-readable contract is
 [public-api-v1.openapi.json](public-api-v1.openapi.json).
 
 V1 exposes owned imported workouts, with a broad set of elementary metrics and
 classifications, plus an explicitly authorized single-workout FIT download.
-Manual training activities, group-shared workouts, writes, imports and other
+Manual training activities contribute to analytics aggregates; individual manual
+activity reads/FIT downloads, group-shared workouts, writes, imports and other
 raw time-series/binary download endpoints are outside this version.
 An administrator key grants no access to another user's workouts.
 
-**Analytics GET access is a confirmed follow-up requirement.** Its endpoints,
-aggregation semantics, cost limits and scopes will be designed separately.
-Do not grant an `analytics:read` scope yet or expose dashboard analytics implicitly.
-Workout-level TSS, IF and NP belong to `workouts:read`, not to that later scope.
+User approved the first analytics slice on 2026-11-10: period summary and daily
+training load. `analytics:read` is independently issuable after manual migration
+098. Power-profile and FTP-history endpoints were added after the successful
+user-reported initial analytics test. Workout-level TSS,
+IF and NP remain part of `workouts:read`; power profile additionally returns
+source IDs with both read permissions. The opt-in [MCP server](mcp-server.md)
+reuses these services through dedicated OAuth, not personal-key authentication.
 
 ## Authentication And Scopes
 
@@ -32,6 +36,7 @@ Never log the Authorization header or include keys in URLs or examples.
 | `workouts:read` | Owned workout summaries and details without location data |
 | `workouts:gps:read` | Owned workout GPS, additionally requiring `workouts:read` |
 | `workouts:fit:read` | Full owned FIT export, additionally requiring both workout and GPS scopes |
+| `analytics:read` | Owned summary, daily training load and FTP history; power profile additionally requires workout read; no GPS prerequisite |
 
 Scopes are an allowlist, not a hierarchy or wildcard language. Unknown scopes
 must be rejected at issuance. Each request checks both the key and current user
@@ -56,10 +61,13 @@ atomic Lua operation, with Redis time as the clock:
 | All authenticated public requests | 60/minute | User, shared across all keys |
 | GPS, after both scope checks | 10/minute | User, shared across all keys |
 | FIT, after all three scope checks | 10/minute | User, shared across all keys |
+| Analytics, after its scope check | 10/minute | User, shared across all four endpoints, keys and MCP connections |
 
 Rejected ingress attempts do not consume a user bucket; a missing GPS scope
 does not consume the GPS bucket; missing FIT permissions do not consume the FIT
-bucket. Redis failures or malformed limiter results
+bucket. Missing analytics permission does not consume the analytics or authenticated
+user bucket. All families share the ingress and authenticated user limits.
+Redis failures or malformed limiter results
 return 503. Allowance exhaustion returns 429 and `Retry-After`. Buckets expire
 after 60 seconds and store hashed identities, never API secrets. All application
 instances must share Redis for these request limits. These are pilot defaults,
@@ -85,6 +93,10 @@ this draft. A general account-suspension policy is not implemented here.
 | `GET /api/v1/workouts/{id}` | `workouts:read` |
 | `GET /api/v1/workouts/{id}/gps` | Both workout scopes |
 | `GET /api/v1/workouts/{id}/export.fit` | All three scopes |
+| `GET /api/v1/analytics/summary` | `analytics:read` |
+| `GET /api/v1/analytics/training-load` | `analytics:read` |
+| `GET /api/v1/analytics/power-profile` | `analytics:read` and `workouts:read` |
+| `GET /api/v1/analytics/ftp-history` | `analytics:read` |
 
 The list accepts only `from`, `to`, `type`, `limit` and `cursor`; reject unknown,
 duplicated, malformed or conflicting parameters with HTTP 400. `from` is inclusive
@@ -180,6 +192,7 @@ Bearer challenge and HTTP 429 carries `Retry-After` seconds.
 | 405 | Only GET is supported |
 | 422 | GPS cannot be returned within the configured response budget; never silently truncate |
 | 422 | FIT export exceeds a source, record, lap, response or worker budget |
+| 422 | Analytics exceeds a source-row, FTP-row, history-span or JSON budget |
 | 429 | Rate/resource allowance exceeded |
 | 503 | Authentication/storage service unavailable; never bypass authorization |
 
@@ -285,6 +298,208 @@ Use a newly issued FIT-enabled key and an owned workout ID. On failure, the
 download file may contain a JSON error; check the curl exit status before opening
 it as FIT. Never paste real keys into documentation or chat.
 
+## Analytics Summary And Training Load
+
+`GET /api/v1/analytics/summary` returns `{ meta, data }`, where `data` contains
+period counts/duration/TSS coverage, `latest_load` for the last included date and
+`ftp_watts` as of that date. `GET /api/v1/analytics/training-load` returns the same
+metadata and a chronological daily `data` array, including days without activity.
+Both require only `analytics:read`; they expose no workout/manual IDs, names,
+notes, coordinates, device data, raw samples or performance records. Existing
+keys receive no analytics rights automatically.
+
+### Dates And Included Activities
+
+- Only `from` and `to` are accepted, once each, as valid `YYYY-MM-DD` UTC dates.
+  `from` is inclusive and `to` exclusive. Intervals contain 1-366 days. `to` cannot
+  exceed tomorrow UTC. Without parameters, include the latest 28 UTC calendar days
+  through today; providing only `to` uses its preceding 28 days. Unknown parameters,
+  offsets/timestamps, duplicate parameters and invalid intervals return 400.
+- All owned imported non-motorsport workouts and all manual activity types count
+  toward volume. Null/invalid start times and future-start activities are excluded.
+  The full duration/load is attributed to the UTC start day, even across midnight.
+  Strength/mobility/other manual activities contribute duration, not cycling TSS.
+- TSS applies to imported `road`, `mountain` and `indoor` workouts and manual
+  `cycling` activities. Unknown imported types have no applicable cycling TSS.
+  Explicit manual/legacy-null-source TSS is used when present, including zero.
+  Otherwise, imported and modeled manual cycling use NP, duration and historical
+  yearly FTP: `round(duration_seconds / 3600 * (NP / FTP)^2 * 100)`. Valid zero
+  power/duration yields zero TSS if FTP exists. Missing prerequisites yield missing
+  TSS, never a manufactured valid zero. Manual inputs remain estimates.
+- `recorded_derived_tss` sums known TSS calculated from imported measurements;
+  `manual_estimated_tss` sums known manual/model-derived TSS. `tss` is their sum.
+  `known_tss_count`, `missing_tss_count` and `tss_not_applicable_count` explain
+  coverage. If every applicable TSS is missing, `tss` is null; a rest day/no
+  applicable activities has zero TSS. Partial sums retain their missing count.
+  Duration likewise sums known seconds and reports `missing_duration_count`;
+  it is null when all activity durations are missing. Summary counts refer only
+  to the requested calendar interval, not the latest N activities.
+
+### Load And FTP Semantics
+
+The API reuses the existing daily-rounded CTL/ATL recurrence with time constants
+42 and 7 days. Each day updates and rounds CTL/ATL; TSB is the updated CTL minus
+updated ATL. The starting state is zero on the first available day with known
+applicable TSS. Complete bounded history before `from` contributes to load;
+requesting a shorter display interval never resets load. Rest days continue
+through the exclusive end date, including after the last recorded activity.
+Before the first known TSS, or with no known TSS anywhere, CTL/ATL/TSB are null.
+This rounding matches the current application and can retain small nonzero
+values after prolonged inactivity. It is not a new unrounded physiological model.
+
+Missing TSS contributes zero to the recurrence.
+`meta.history_missing_tss_count` counts missing applicable TSS across all included
+history, so consumers can recognize incomplete load even when the requested
+interval has complete coverage. `meta.history_from` records the first known TSS
+date. `current_day_partial` flags a result/day containing today, since its data
+can still change. Load reflects stored activities, not proof of complete training
+history. Source edits/deletion or new FTP data may change retrospective results.
+
+FTP comes from the existing owned `get_ftp_by_period2(user, year)` calculation,
+using positive valid yearly values. Interpolation uses UTC January 1 anchors,
+carries the latest value forward and returns null before the first available
+year. No future-year values beyond the last requested year are fetched. Existing
+yearly estimates can include later efforts within that year; this is a retrospective
+estimate, not the FTP known at the time. `meta.ftp_method` makes the method explicit.
+The existing browser calculations are unchanged; timezone handling, pre-first-year
+fallback and rest days after the last activity can therefore differ from the UI.
+`TrainingContextService` still has the separately documented last-7/28-activities
+issue; this API does not reuse it or change the coaching context in this slice.
+
+### Analytics Budgets And Setup
+
+| Resource | Maximum |
+| --- | --- |
+| Requested UTC calendar days | 366 |
+| Combined owned scalar source rows, including history | 50,000 |
+| Daily load history span through `to` | 20,000 days |
+| Yearly FTP rows | 500 |
+| Response JSON | 1 MiB |
+| Concurrent analytics calculations per process | 2 |
+| Dedicated analytics DB connections per process | 2 |
+| Analytics connection wait / individual SQL statement | 5 seconds / 5 seconds |
+
+All four analytics endpoints share the 10/minute/user analytics bucket, plus the same
+60/minute/user and 120/minute/IP buckets as workout endpoints. Redis enforces
+rolling limits across keys/processes. Computation concurrency is per process.
+Scalar projections bind the authenticated owner independently in both UNION
+branches and fetch at most the row limit plus one. Source and FTP reads share a
+repeatable-read, read-only transaction. A dedicated bounded-wait pool uses the
+existing database configuration; it does not change the shared application pool.
+The connection is released before aggregation. No stream decompression, worker,
+cache, write or new dependency is required.
+
+Oversized source/history/FTP/response returns 422 `analytics_response_too_large`
+without a truncated successful result. Busy computation or rate limits return
+429 with `Retry-After`. SQL timeouts, unavailable connections and other dependency
+failures return safe JSON 503. All responses are `no-store`; errors use the
+existing `{ error: { code, message, request_id } }` envelope.
+
+Manually review and execute prepared migration
+`src/migrations/098_user_api_keys_analytics_scope.sql` after any earlier pending
+migrations. It only extends the scope constraint and allows analytics-only keys.
+The assistant has not executed it. Issue a new key in `/profile#api-keys` with
+the analytics checkbox selected; workout/GPS permissions are optional.
+
+```zsh
+curl --fail-with-body -H "Authorization: Bearer $WOA_API_KEY" \
+  "$WOA_API_BASE/api/v1/analytics/summary?from=2026-11-01&to=2026-11-11"
+curl --fail-with-body -H "Authorization: Bearer $WOA_API_KEY" \
+  "$WOA_API_BASE/api/v1/analytics/training-load?from=2026-11-01&to=2026-11-11"
+```
+
+For live rollout, check owned mixed/manual-only/no-data accounts, missing FTP/TSS,
+UTC midnight and historical windows, shared limits and real PostgreSQL query
+latency. Tests use offline SQL fixtures; no database constraint/query-plan/live
+credential verification is implied.
+
+## Recorded Power Profile And FTP History
+
+These endpoints use the same UTC `from`/`to` date rules, 28-day default, 366-day
+maximum, read-only repeatable-read snapshot, 5-second SQL/connection budgets,
+two shared concurrent analytics calculations and 1 MiB response budget as the
+first analytics slice. All four endpoints share the 10/minute/user analytics
+bucket. No new scope, key upgrade or migration is introduced.
+
+Only owned imported `road`, `mountain` and `indoor` workouts with stored `crit`
+segments supply performance data. Both workout and segment ownership are bound
+in SQL. Manual activities, manual/interval segments, shared workouts, unknown
+types and motorsport do not supply performance records. At most 50,000 scalar
+effort rows are fetched; exceeding that limit returns 422 without truncation.
+Queries use transaction-local `work_mem = 8MB`. No streams are fetched or decoded
+and no new critical-power calculation is triggered. Invalid scalar inputs are
+ignored; empty/missing estimates remain null.
+
+### Power Profile
+
+`GET /api/v1/analytics/power-profile` returns `{ meta, data }` with one record
+per selected duration. Optional `durations` accepts distinct comma-separated
+seconds without spaces from this fixed allowlist:
+`5,15,60,120,240,300,360,480,720,900,960,1200,1800`; defaults to all. Unsupported,
+duplicate, empty or malformed values yield 400.
+
+For each duration, select the highest stored average power in the requested
+workout-start interval. Ties prefer the newer exact UTC start timestamp, then
+the larger exact BIGINT workout and segment IDs. SQL supplies a microsecond
+sort key; IDs remain decimal strings. Fields include `duration_seconds`,
+`power_watts`, `watts_per_kg`, `weight_kg`, `weight_source`, `weight_date`,
+`workout_id`, `workout_start_time`, `start_offset_seconds` and
+`end_offset_seconds`. No heart-rate, GPS or device fields are added.
+
+W/kg uses the returned power and the historical weight valid on the source
+workout UTC date, falling back to the current profile weight as in the existing
+weight resolver. History/profile provenance is explicit. Missing or invalid
+weight yields null W/kg. Weight queries are bounded to the distinct winner dates,
+at most 13. Scalars are rounded to three decimals.
+
+A duration without a stored matching effort has null power/source fields. In
+particular, 300/1200-second rows may be absent from earlier imported data; these
+requests do not backfill or synthesize efforts. Valid recorded zero remains zero.
+The endpoint requires both `analytics:read` and `workouts:read` because it returns
+source workout IDs and offsets. Missing workout permission returns 403 before
+consuming the analytics bucket; the common authenticated user bucket still applies.
+
+### FTP History
+
+`GET /api/v1/analytics/ftp-history` accepts optional `grouping`:
+`week`, `month`, `quarter` or `year`, default `month`. Weeks begin Monday UTC.
+It returns chronological calendar buckets intersecting the requested interval,
+including empty buckets, with `period_from`, exclusive `period_to`,
+`partial_period`, `cp8_watts`, `cp15_watts`, `ftp_watts`, `cp8_effort_count`,
+`cp15_effort_count` and `confidence`. It requires only `analytics:read` and
+returns no source IDs, dates, offsets, weight history or raw performance rows.
+
+For each bucket, continuous 95th percentiles of positive stored 480-/900-second
+efforts supply CP8 and CP15. Reuse the existing FTP formula:
+`0.95 * (CP8 + (ln(1200)-ln(480))/(ln(900)-ln(480)) * (CP15-CP8))`. Missing
+anchors or nonpositive estimates yield null FTP; empty buckets have zero counts,
+not a fabricated zero FTP. `confidence` is the smaller anchor effort count,
+matching the existing method; it is not a probability or quality percentage.
+
+Only efforts within the requested date interval contribute. A calendar bucket
+clipped by either bound or still in progress is marked `partial_period`, and
+changing bounds can change its estimate. `meta.ftp_method` is
+`period_cp8_cp15_p95`. This is a recorded-data, retrospective period estimate,
+distinct from the browser's 84-day rolling FTP and the yearly interpolated FTP
+used by summary/load. Browser models and stored yearly partitions are unchanged;
+the public history derives its calendar grouping from UTC start times.
+
+### Performance Smoke Requests
+
+The existing analytics key works for FTP history. For power profile, use a key
+with both analytics and workout-read permissions; the scope constraint is already
+covered by migration 098. Existing keys cannot be edited or upgraded automatically.
+
+```zsh
+curl --fail-with-body -H "Authorization: Bearer $WOA_API_KEY" \
+  "$WOA_API_BASE/api/v1/analytics/power-profile?from=2026-01-01&to=2026-11-11&durations=5,60,480,1200"
+curl --fail-with-body -H "Authorization: Bearer $WOA_API_KEY" \
+  "$WOA_API_BASE/api/v1/analytics/ftp-history?from=2026-01-01&to=2026-11-11&grouping=month"
+```
+
+Live performance requests, SQL query plans and real weight/source matching remain
+to be verified. Offline tests do not establish those checks or a production rollout.
+
 ## Implementation And Verification
 
 ### Implemented Key-Management Layer
@@ -299,7 +514,9 @@ it as FIT. Never paste real keys into documentation or chat.
    locks the owning user row before enforcing the five-active-key limit. Names are
    limited to 80 characters. The FIT scope is issuable after manual migration 097;
    it requires both existing workout/GPS scopes. GPS requires workout read access.
-   Existing keys are never upgraded automatically. Expiry remains creation plus 90 days.
+   Analytics is independently issuable after manual migration 098, alone or combined
+   with valid workout scopes. Existing keys are never upgraded automatically.
+   Expiry remains creation plus 90 days.
 - `GET /api/profile/api-keys` returns safe metadata for at most 100 records, active
    keys first, issuance availability, limits and a session-bound CSRF token.
    `POST /api/profile/api-keys` creates a key; `DELETE /api/profile/api-keys/:id`
@@ -313,6 +530,8 @@ it as FIT. Never paste real keys into documentation or chat.
    last-use/expiry/status and confirmed revocation controls. The secret is masked
    initially, can be revealed/copied, and is erased on dismissal or page exit.
    Neither localStorage nor another persistence mechanism stores the secret.
+   Analytics is unchecked by default and independent of workout/GPS selection;
+   key creation requires at least one valid scope.
    Pending-deletion accounts cannot create keys but can revoke existing keys.
    FIT is unchecked by default; selecting it enables workout and GPS permissions.
    Clearing GPS clears FIT; clearing workout read clears both dependent permissions.
@@ -331,7 +550,7 @@ it as FIT. Never paste real keys into documentation or chat.
    outages fail closed. It is attached to all public data routes.
 - A later local MCP server can keep a key in its own protected local configuration
    and send it as a Bearer header, never as a model-facing tool argument. No MCP
-   server or public Analytics endpoint is delivered in this release.
+   server is delivered. Public summary/training-load endpoints are documented below.
 
 Previous key-management verification: all 903 application tests, syntax, strict
 zero-warning lint, types and diff checks passed. Focused tests cover hashing/one-time issuance, account and
@@ -343,6 +562,34 @@ mobile layout. SQL constraints, live PostgreSQL concurrency and real-session/pro
 integration have not been executed or verified against a database.
 
 ### Public Endpoint Verification And Rollout
+
+Recorded-performance completion: all 954 tests, syntax, zero-warning lint, types
+and diff checks passed. New coverage includes strict options, missing/zero effort
+data, precise IDs/timestamps and deterministic winners, historical/profile weight
+provenance, CP8/CP15 percentiles/anchor counts, UTC calendar boundaries/clipping,
+owner-bound bounded source/weight queries, rollback, scope separation/shared
+analytics buckets and exact OpenAPI fields. A synthetic 50,000-effort build
+returned 13 power points and 46 weekly FTP buckets in 67 ms, with 3,464 and
+8,904 response bytes. This does not verify live PostgreSQL/source matching.
+No new-endpoint live request or deployment was performed by the assistant.
+
+Analytics completion: all 945 tests, syntax, zero-warning lint, types and diff
+checks passed. New coverage includes UTC/date windows, explicit manual/derived/
+missing/zero TSS, history before the interval, rest days through its end,
+scalar owner-bound UNION projections, read-only snapshot/rollback/capacity,
+scope combinations and analytics-only issuance, safe HTTP errors/HTTPS/response
+limits, and six-language profile rendering. A synthetic boundary build with
+50,000 activities and 20,000 days of history returned 366 days and 124,404 bytes
+in 38 ms. This is an offline calculation, not production-query verification.
+The user confirmed manual migration 098 execution and a successful API smoke
+test on 2026-11-10. Target and individual exercised requests were not specified;
+this is not independent verification of the live matrix or query plans.
+No live analytics request was performed by the assistant.
+An isolated actual EJS/CSS/module browser fixture verified default-off and
+independent analytics selection, no-scope issuance blocking, simulated
+analytics-only issuance, unchanged existing key labels and secret masking/
+erasure, with no console errors. The wrapper and API responses are simulated;
+this does not verify the full profile layout or issue real credentials.
 
 FIT completion verification: all 930 tests, full syntax, zero-warning lint,
 types and diff checks passed. New checks cover generator parity, identity/gzip/Brotli, legacy
@@ -384,6 +631,10 @@ Rollout prerequisites and checks beyond the confirmed smoke test:
    For FIT issuance, also manually review and execute prepared migration
    `src/migrations/097_user_api_keys_fit_scope.sql` before deploying the FIT UI.
    Migration 097 has not been executed by the assistant or confirmed by the user.
+   For analytics issuance, manually review and execute migration 098 before
+   deploying the new analytics checkbox. A successful localhost FIT download of
+   55,011 bytes was user-confirmed on 2026-11-09, including successful file access;
+   it does not independently establish migration execution or production rollout.
 2. Verify that current PostgreSQL upload writes still use UTC. The historical
    convention is confirmed; `uploaded_at` remains TIMESTAMP WITHOUT TIME ZONE.
    No schema rewrite or data migration is part of this implementation.
@@ -396,5 +647,7 @@ Rollout prerequisites and checks beyond the confirmed smoke test:
    Check real query latency and stored route sizes against the pilot budgets.
 
 No deployment, normal service restart, PostgreSQL operation or migration was
-performed by the assistant in this completion pass. Analytics remains explicitly deferred by
-the user; no Analytics scope, endpoint or MCP server was added.
+performed by the assistant. Summary/training-load analytics was subsequently
+approved and implemented on 2026-11-10, followed by recorded power-profile and
+FTP-history endpoints. MCP remains deferred. Migration 098 execution is user-confirmed on 2026-11-10;
+the assistant neither executed nor independently verified it.

@@ -24,6 +24,11 @@
                 <label for="api-key-fit" class="form-check-label"><%= t("profile.apiKeys.fitScope") %></label>
             </div>
             <p id="api-key-fit-hint" class="small text-muted mt-1"><%= t("profile.apiKeys.fitHint") %></p>
+            <div class="form-check">
+                <input id="api-key-analytics" class="form-check-input" type="checkbox" aria-describedby="api-key-analytics-hint">
+                <label for="api-key-analytics" class="form-check-label"><%= t("profile.apiKeys.analyticsScope") %></label>
+            </div>
+            <p id="api-key-analytics-hint" class="small text-muted mt-1"><%= t("profile.apiKeys.analyticsHint") %></p>
         </fieldset>
         <div class="d-flex gap-2 flex-wrap">
             <button id="api-key-create" class="btn btn-dark" type="submit" disabled><%= t("profile.apiKeys.create") %></button>
@@ -45,4 +50,4 @@
     <p id="api-keys-empty" class="small text-muted mt-3" hidden><%= t("profile.apiKeys.empty") %></p>
     <ul id="api-keys-list" class="api-keys-list"></ul>
 </section>
-<script id="api-keys-messages" type="application/json"><%- JSON.stringify({ locale: typeof locale !== "undefined" ? locale : "en", ...Object.fromEntries(["loading", "error", "unavailable", "limitReached", "readOnly", "limits", "never", "active", "expired", "revoked", "revoke", "confirmRevoke", "cancel", "copied", "copyError", "created", "revokedSuccess", "expires", "lastUsed", "readScope", "gpsScope", "fitScope"].map(key => [key, t(`profile.apiKeys.${key}`)])) }).replace(/</g, "\\u003c") %></script>
+<script id="api-keys-messages" type="application/json"><%- JSON.stringify({ locale: typeof locale !== "undefined" ? locale : "en", ...Object.fromEntries(["loading", "error", "unavailable", "limitReached", "readOnly", "limits", "never", "active", "expired", "revoked", "revoke", "confirmRevoke", "cancel", "copied", "copyError", "created", "revokedSuccess", "expires", "lastUsed", "readScope", "gpsScope", "fitScope", "analyticsScope"].map(key => [key, t(`profile.apiKeys.${key}`)])) }).replace(/</g, "\\u003c") %></script>

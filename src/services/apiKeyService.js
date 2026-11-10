@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import pool from "./database.js";
 
-export const API_KEY_SCOPES = Object.freeze(["workouts:read", "workouts:gps:read", "workouts:fit:read"]);
+export const API_KEY_SCOPES = Object.freeze(["workouts:read", "workouts:gps:read", "workouts:fit:read", "analytics:read"]);
 export const API_KEY_LIMIT = 5;
 export const API_KEY_LIFETIME_DAYS = 90;
 const KEY_PATTERN = /^woa_pk_[A-Za-z0-9_-]{43}$/;
@@ -23,9 +23,10 @@ function userId(value) {
 export function normalizeApiKeyScopes(scopes) {
   if (!Array.isArray(scopes) || scopes.length < 1 || scopes.length > API_KEY_SCOPES.length
     || scopes.some(scope => !API_KEY_SCOPES.includes(scope))
-    || new Set(scopes).size !== scopes.length || !scopes.includes("workouts:read")
+    || new Set(scopes).size !== scopes.length
+    || (scopes.some(scope => scope.startsWith("workouts:")) && !scopes.includes("workouts:read"))
     || (scopes.includes("workouts:fit:read") && !scopes.includes("workouts:gps:read"))) {
-    fail(400, "invalid_scopes", "Select valid API scopes; FIT requires workout and GPS read access.");
+    fail(400, "invalid_scopes", "Select valid API scopes; GPS requires workout read and FIT requires both.");
   }
   return API_KEY_SCOPES.filter(scope => scopes.includes(scope));
 }

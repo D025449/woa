@@ -58,6 +58,7 @@
     "@aws-sdk/client-s3": "^3.998.0",
     "@aws-sdk/s3-request-presigner": "^3.998.0",
     "@mapbox/vector-tile": "3.0.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@turf/bbox": "7.4.0",
     "@turf/bbox-polygon": "7.4.0",
     "@turf/boolean-intersects": "7.4.0",
@@ -92,7 +93,8 @@
     "simplify-js": "1.2.4",
     "tabulator-tables": "^6.3.1",
     "unzipper": "^0.12.3",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "zod": "4.3.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

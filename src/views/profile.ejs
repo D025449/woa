@@ -124,7 +124,8 @@
     <script src="/js/weight-history-ui.js" type="module"></script>
     <script id="garmin-settings-messages" type="application/json"><%- JSON.stringify(Object.fromEntries(["configured", "empty", "saved", "removed", "error", "unavailable", "remove", "confirmDelete", "cancel"].map(key => [key, t(`profile.garmin.${key}`)]))).replace(/</g, "\\u003c") %></script>
     <script src="/js/garmin-settings-ui.js" type="module"></script>
-    <script src="/js/api-keys-ui.js?v=2" type="module"></script>
+    <script src="/js/api-keys-ui.js?v=3" type="module"></script>
+    <script src="/js/mcp-connections-ui.js" type="module"></script>
     <script id="wahoo-settings-messages" type="application/json"><%- JSON.stringify(Object.fromEntries(["configured", "empty", "connected", "denied", "error", "unavailable", "remove", "removed", "confirmDelete", "cancel", "reconnect", "offlineRequired", "webhookUnavailable", "autoImportSaved", "autoImportHelp"].map(key => [key, t(`profile.wahoo.${key}`)]))).replace(/</g, "\\u003c") %></script>
     <script src="/js/wahoo-settings-ui.js?v=2" type="module"></script>
     <script src="/js/profile-ui.js?v=required-weight-1" type="module"></script>

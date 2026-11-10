@@ -8,6 +8,7 @@ if (form) {
   const read = element("api-key-read");
   const gps = element("api-key-gps");
   const fit = element("api-key-fit");
+  const analytics = element("api-key-analytics");
   const create = element("api-key-create");
   const refresh = element("api-keys-refresh");
   const feedback = element("api-keys-feedback");
@@ -30,8 +31,8 @@ if (form) {
   function updateControls() {
     const activeCount = state?.keys.filter(key => key.status === "active").length || 0;
     const canCreate = state?.canCreate && accountActive && activeCount < state.limits.maxActiveKeys;
-    for (const control of [name, read, gps, fit]) control.disabled = busy || !canCreate || !secretPanel.hidden;
-    create.disabled = busy || !canCreate || !read.checked || !secretPanel.hidden;
+    for (const control of [name, read, gps, fit, analytics]) control.disabled = busy || !canCreate || !secretPanel.hidden;
+    create.disabled = busy || !canCreate || (!read.checked && !analytics.checked) || !secretPanel.hidden;
     refresh.disabled = busy;
     for (const button of list.querySelectorAll("button")) button.disabled = busy;
     if (state) {
@@ -73,7 +74,8 @@ if (form) {
       row.className = "api-key-row";
       const identity = text("div", "", "api-key-identity");
       identity.append(text("strong", key.name), text("div", `${key.prefix}...`, "small font-monospace"));
-      const scopeLabels = { "workouts:read": messages.readScope, "workouts:gps:read": messages.gpsScope, "workouts:fit:read": messages.fitScope };
+      const scopeLabels = { "workouts:read": messages.readScope, "workouts:gps:read": messages.gpsScope, "workouts:fit:read": messages.fitScope,
+        "analytics:read": messages.analyticsScope };
       const scopes = text("div", key.scopes.map(scope => scopeLabels[scope] || scope).join(" / "), "small");
       const expires = text("div", "", "small");
       expires.append(text("span", messages.expires, "api-key-label"), text("span", date(key.expiresAt)));
@@ -128,6 +130,7 @@ if (form) {
   read.addEventListener("change", () => { if (!read.checked) { gps.checked = false; fit.checked = false; } updateControls(); });
   gps.addEventListener("change", () => { if (gps.checked) read.checked = true; else fit.checked = false; updateControls(); });
   fit.addEventListener("change", () => { if (fit.checked) { read.checked = true; gps.checked = true; } updateControls(); });
+  analytics.addEventListener("change", updateControls);
   form.addEventListener("submit", async event => {
     event.preventDefault();
     if (busy || create.disabled || !form.reportValidity()) return;
@@ -136,7 +139,8 @@ if (form) {
     feedback.textContent = "";
     try {
       const payload = await request("", { method: "POST", body: JSON.stringify({ name: name.value,
-        scopes: ["workouts:read", ...(gps.checked ? ["workouts:gps:read"] : []), ...(fit.checked ? ["workouts:fit:read"] : [])] }) });
+        scopes: [...(read.checked ? ["workouts:read"] : []), ...(gps.checked ? ["workouts:gps:read"] : []),
+          ...(fit.checked ? ["workouts:fit:read"] : []), ...(analytics.checked ? ["analytics:read"] : [])] }) });
       secret.value = payload.data.secret;
       secretPanel.hidden = false;
       state.keys.unshift(payload.data.key);

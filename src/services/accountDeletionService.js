@@ -149,6 +149,7 @@ export default class AccountDeletionService {
       await client.query(`DELETE FROM user_wahoo_connections WHERE user_id = $1`, [userId]);
       await client.query(`DELETE FROM user_garmin_connections WHERE user_id = $1`, [userId]);
       await client.query(`DELETE FROM user_api_keys WHERE user_id = $1`, [userId]);
+      await client.query(`DELETE FROM user_mcp_grants WHERE user_id = $1`, [userId]);
       await client.query(`DELETE FROM user_profiles WHERE user_id = $1`, [userId]);
 
       const result = await client.query(

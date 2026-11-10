@@ -19,6 +19,9 @@ import analyticsRoutes from "./routes/analyticsRoutes.js";
 import viewPreferenceRoutes from "./routes/viewPreferenceRoutes.js";
 import adminAccountBackupRoutes from "./routes/adminAccountBackupRoutes.js";
 import publicWorkoutApiRoutes from "./routes/publicWorkoutApiRoutes.js";
+import publicAnalyticsApiRoutes from "./routes/publicAnalyticsApiRoutes.js";
+import { readMcpConfig } from "./services/mcpConfig.js";
+import { createMcpRouters } from "./routes/mcpRoutes.js";
 
 import { Issuer, generators } from "openid-client";
 import {
@@ -50,7 +53,11 @@ export async function createApp() {
     const __dirname = path.dirname(__filename);
 
     app.set("trust proxy", 1);
+    const mcpConfig = readMcpConfig();
+    const mcpRouters = mcpConfig ? createMcpRouters(mcpConfig) : null;
+    if (mcpRouters) app.use(mcpRouters.publicRouter);
 
+    app.use("/api/v1/analytics", publicAnalyticsApiRoutes);
     app.use("/api/v1", publicWorkoutApiRoutes);
 
     app.use(express.static(path.join(__dirname, "public")));
@@ -88,6 +95,7 @@ export async function createApp() {
         });
     });
     app.use(createI18nMiddleware());
+    if (mcpRouters) app.use(mcpRouters.browserRouter);
     app.use((req, res, next) => {
         res.locals.currentUrl = req.originalUrl;
         res.locals.isFunSudokuEnabled = isFunSudokuEnabled;

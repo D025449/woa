@@ -1,7 +1,116 @@
 # Arbeitsstand
 
-Stand: 2026-11-09. Diese Datei hält Absprachen für folgende Sitzungen fest.
+Stand: 2026-11-10. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
+
+## Hosted Training MCP And OAuth (2026-11-10)
+
+- User approved hosted read-only MCP with existing WOA login/consent, six tools
+  and revocable profile connections. Target order: ChatGPT Mac, then web;
+  Mac-specific availability and actual connection remain unverified.
+- Added opt-in /mcp (SDK 1.32.2, stateless Streamable HTTP/JSON), OAuth discovery,
+  predefined exact-redirect public/confidential clients, mandatory PKCE S256 and
+  resource/issuer binding. Five-minute codes, access at most 15 minutes, rotating
+  optional refresh and five active grants with fixed 90-day lifetime. Hash-only
+  storage, replay revocation, unique consent nonces and live account/grant checks.
+- Six scoped tools reuse owned REST services and Redis limits; bounded request/
+  response/SQL/concurrency. No GPS/FIT, training writes, model calls or server
+  OpenAI key. Profile consent/list/revoke uses browser session/CSRF and escaped
+  UI; German/English strings with English fallback in the other four locales.
+- Prepared migration 099_mcp_oauth.sql; not executed. Its tables also become
+  prerequisites for updated final account deletion, which removes grants/tokens.
+  Setup, scopes, TTL, retention, manual rollout and client limits are in
+  docs/mcp-server.md; README, user-settings and npm-scripts links updated.
+- Full sandbox test run: 964 tests, 945 passed, 19 failed exclusively at blocked
+  local listen (EPERM). Final focused MCP suite: 12/12 passed, including real SDK
+  protocol, in-memory Node HTTP/Express, consent/CSRF, token rules/rollback/replay,
+  scope/owner separation, safe failures and actual browser-module behavior.
+  Syntax, zero-warning lint, types and diff checks passed. Automatic approval
+  review repeatedly failed with stream-disconnection when requesting real test
+  ports, including a user-authorized retry; no such retry was executed.
+- Live DB constraints/concurrency/proxy, real network transport, ChatGPT OAuth/
+  Mac/web and full profile visual layout remain unverified. No migration,
+  deployment, normal service restart or commit. Existing analytics changes kept.
+  Expired/revoked grant retention has no scheduled cleanup; define before scale.
+
+## Public Recorded Power Profile And FTP History (2026-11-10)
+
+- User confirmed migration 098 and the initial analytics API smoke test, then
+  requested continuation of the agreed second slice. Added GET
+  `/api/v1/analytics/power-profile` and `/ftp-history`; OpenAPI v1.3.0. No new
+  migration/scope or automatic key upgrade. Target/exercised initial requests
+  remain unspecified; no assistant live DB verification.
+- Power profile returns stored critical-effort winners for fixed/selected
+  durations, Watt/W/kg, source-date weight provenance and source workout IDs/
+  offsets. Requires both analytics and workout read; ties preserve microseconds
+  and BIGINT precision. Missing durations return null without recomputation.
+  Manual modeled activities and non-critical segments never supply records.
+- FTP history uses the existing CP8/CP15 continuous-p95/log-extrapolation method
+  on UTC week/month/quarter/year buckets, default month. Returns explicit method,
+  anchor counts, partial periods and null missing estimates; confidence is an
+  effort count, not probability. Requires analytics only. It is distinct from
+  browser rolling FTP and summary/load yearly interpolation.
+- Both use owned classified cycling scalar queries, read-only repeatable-read
+  snapshots, 50,000-effort/1-MiB/5-second SQL limits, bounded winner-date weight
+  lookup and the existing shared analytics concurrency/request buckets. No stream
+  or GPS access. Updated six-language analytics disclosure. Details and curl:
+  `docs/public-api-v1.md`; profile: `docs/user-settings.md`.
+- All 954 tests, syntax, zero-warning lint, types and diff checks passed. New tests cover
+  winners/zero/missing data, exact IDs/timestamps, weight fallback/provenance, FTP
+  percentiles/anchors/calendar clipping, bounded owner SQL, rollback, scopes,
+  HTTP buckets and exact OpenAPI fields. A synthetic 50,000-effort build returned
+  13 power points/46 weekly FTP buckets in 67 ms (3,464/8,904 bytes).
+- Live new-endpoint data/query plans and real weight/source matching remain
+  unverified. No assistant DB operation, migration, deployment, normal service
+  restart, dependency/npm-script change, commit or MCP implementation.
+
+## Public Analytics Summary And Training Load (2026-11-10)
+
+- User approved the first analytics slice: GET `/api/v1/analytics/summary` and
+  `/training-load`. Implemented before browser sessions with independent
+  `analytics:read`; no workout IDs/GPS/raw samples. Power-profile/FTP-history
+  endpoints were subsequently implemented above; MCP remains deferred. Existing
+  keys retain their permissions.
+- UTC dates: inclusive `from`, exclusive `to`, 1-366 days; default latest 28
+  calendar days including partial today. Owned imported non-motorsport workouts
+  and all manual activities contribute volume; classified imported cycling and
+  manual cycling contribute known TSS. Estimates, missing TSS/duration and
+  non-applicable activities have explicit coverage fields.
+- Reused the existing 42/7-day daily-rounded load recurrence with full bounded
+  history, rest days through the end and updated-day TSB. Missing TSS contributes
+  zero with history coverage flagged; no known TSS means null load. Yearly FTP
+  uses UTC interpolation and no pre-first-year fallback. Browser analytics and
+  the known coaching last-7/28-activities issue were not changed. Semantics,
+  budgets, setup and curl examples: `docs/public-api-v1.md`; contract:
+  `docs/public-api-v1.openapi.json` v1.2.0; profile: `docs/user-settings.md`.
+- Added opt-in six-language analytics selection, including analytics-only keys.
+  Prepared `src/migrations/098_user_api_keys_analytics_scope.sql`; user confirmed
+  manual execution and a successful API smoke test on 2026-11-10. Target and
+  individual exercised requests were not specified or independently verified. Never execute
+  migrations through the assistant. Scope validation preserves GPS/FIT dependencies.
+- Bounded owned scalar queries use one read-only repeatable-read snapshot,
+  50,000 combined history rows, 500 FTP rows, 20,000 history days and 1 MiB JSON.
+  Two concurrent computations/connections per process, dedicated pool with
+  5-second connection wait and SQL statement limits; shared Redis analytics
+  10/minute/user plus existing ingress/user buckets. No silent truncation.
+- All 945 tests, syntax, zero-warning lint, types and diff checks passed. Tests
+  cover calendar/UTC boundaries, manual/missing/zero data, historical/rest-day
+  load, SQL ownership/budgets/rollback/capacity, scope combinations, issuance,
+  HTTP isolation/errors and all-six-language rendering. A synthetic maximum
+  50,000-row/20,000-history-day build produced 366 days/124,404 bytes in 38 ms.
+- Isolated actual EJS/CSS/browser-module fixture verified unchecked analytics,
+  independent selection, disabled issuance with no scopes, simulated analytics-only
+  issuance, unchanged old key scopes, secret masking/erasure and no console errors.
+  Full profile layout, real credential issuance and live API data are not verified.
+- No live PostgreSQL operation, assistant migration, deployment, normal service
+  restart, dependency/npm-script change or commit. Live query plans/data and
+  real-session/proxy verification remain open.
+
+## User-Confirmed Local FIT Test (2026-11-09)
+
+- User reported successful localhost FIT download (55,011 bytes) and successful
+  file access. This confirms that local smoke test, not a complete contents or
+  production verification. Migration 097 execution was not separately confirmed.
 
 ## Public Single-Workout FIT Download (2026-11-09)
 

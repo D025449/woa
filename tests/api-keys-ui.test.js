@@ -14,7 +14,7 @@ class Element {
 }
 
 test("API key UI explicitly selects FIT dependencies and never grants FIT to existing keys", async () => {
-  const ids = ["api-keys-form", "api-keys-messages", "api-key-name", "api-key-read", "api-key-gps", "api-key-fit", "api-key-create",
+  const ids = ["api-keys-form", "api-keys-messages", "api-key-name", "api-key-read", "api-key-gps", "api-key-fit", "api-key-analytics", "api-key-create",
     "api-keys-refresh", "api-keys-feedback", "api-keys-list", "api-key-secret-panel", "api-key-secret", "api-key-show", "api-keys-limits",
     "api-keys-empty", "api-key-dismiss", "api-key-copy"];
   const elements = Object.fromEntries(ids.map(id => [id, new Element()]));
@@ -58,4 +58,15 @@ test("API key UI explicitly selects FIT dependencies and never grants FIT to exi
   await elements["api-key-dismiss"].dispatch("click");
   assert.equal(elements["api-key-secret"].value, "");
   assert.equal(elements["api-key-secret-panel"].hidden, true);
+  read.checked = false; await read.dispatch("change");
+  const analytics = elements["api-key-analytics"];
+  assert.equal(analytics.checked, false);
+  assert.equal(elements["api-key-create"].disabled, true);
+  analytics.checked = true; await analytics.dispatch("change");
+  assert.equal(elements["api-key-create"].disabled, false);
+  assert.equal(read.checked, false); assert.equal(gps.checked, false); assert.equal(fit.checked, false);
+  elements["api-key-name"].value = "Analytics client";
+  await elements["api-keys-form"].dispatch("submit");
+  assert.deepEqual(requests[1], { name: "Analytics client", scopes: ["analytics:read"] });
+  assert.equal(elements["api-keys-list"].children[0].children[1].textContent, messages.analyticsScope);
 });

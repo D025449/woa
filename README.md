@@ -9,6 +9,10 @@ Simple-nodejs-app is a simple web application created using [Node.js](https://gi
 
 ## Usage
 
+The opt-in [WOA Training MCP server](docs/mcp-server.md) connects AI apps through
+OAuth to the existing read-only workout and analytics services. Manual migration
+099, HTTPS configuration and a predefined OAuth client are required.
+
 - Die zentrale Übersicht aller npm-Skripte mit Parametern, Voraussetzungen und Auswirkungen steht in [docs/npm-scripts.md](docs/npm-scripts.md).
 - After installation, run ```npm install``` to download and install all the required dependencies.
 - Run ```npm start``` to run the web application.
