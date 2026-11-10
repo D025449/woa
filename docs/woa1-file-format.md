@@ -18,7 +18,7 @@ The format currently contains four logical parts:
 3. dense workout stream block
 4. reduced GPS track block
 
-This document describes the format as implemented in:
+This document describes the format as implemented in::
 
 - [woa-format.js](/Users/D025449/woa/src/public/js/woa-format.js)
 - [woa1Service.js](/Users/D025449/woa/src/services/woa1Service.js)
