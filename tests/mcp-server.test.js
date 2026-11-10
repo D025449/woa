@@ -43,6 +43,32 @@ test('MCP config validates HTTPS, exact callbacks, clients and minimal scopes', 
   assert.equal(oauth.client('private', 'test-secret').client_id, 'private'); assert.throws(() => oauth.client('chatgpt', 'test-secret'));
 });
 
+test('ChatGPT ui_locales is optional, bounded and ignored without relaxing OAuth validation', () => {
+  const webConfig = readMcpConfig({ MCP_PUBLIC_ORIGIN: config.origin, MCP_OAUTH_CLIENTS: JSON.stringify([{
+    client_id: 'woa-chatgpt', client_name: 'ChatGPT',
+    redirect_uris: ['https://chatgpt.com/connector_platform_oauth_redirect'], secret_sha256: mcpTokenHash('test-secret')
+  }]) });
+  const oauth = new McpOAuthService(webConfig, {});
+  const params = extra => authParams({ client_id: 'woa-chatgpt',
+    redirect_uri: 'https://chatgpt.com/connector_platform_oauth_redirect', ...extra });
+  const baseline = oauth.authorization(params());
+  for (const ui_locales of ['', 'de', 'de-DE en-US', 'x'.repeat(256), '<script>locale</script>']) {
+    assert.deepEqual(oauth.authorization(params({ ui_locales })), baseline);
+  }
+  assert.ok(!JSON.stringify(oauth.authorization(params({ ui_locales: 'do-not-store-this-locale' }))).includes('do-not-store-this-locale'));
+  assert.throws(() => oauth.authorization(params({ ui_locales: 'x'.repeat(257) })), { code: 'invalid_request' });
+  const duplicate = params({ ui_locales: 'de' }); duplicate.append('ui_locales', 'en');
+  assert.throws(() => oauth.authorization(duplicate), { code: 'invalid_request' });
+  const repeatedClient = params({ ui_locales: 'de' }); repeatedClient.append('client_id', 'woa-chatgpt');
+  assert.throws(() => oauth.authorization(repeatedClient), { code: 'invalid_request' });
+  for (const extra of [{ owner: '72' }, { redirect_uri: 'https://evil.example/' }, { client_id: 'other' },
+    { resource: 'https://other.example/mcp' }, { response_type: 'token' }, { code_challenge_method: 'plain' },
+    { code_challenge: 'bad' }, { state: '' }]) {
+    assert.throws(() => oauth.authorization(params({ ui_locales: 'de', ...extra })), { code: 'invalid_request' });
+  }
+  assert.throws(() => oauth.authorization(params({ ui_locales: 'de', scope: 'workouts:gps:read' })), { code: 'invalid_scope' });
+});
+
 test('consent locks owner/quota, stores only hashes and rejects pending deletion', async () => {
   const request = { ...new McpOAuthService(config, {}).authorization(authParams()), consentNonce: 'f'.repeat(64) };
   for (const [status, count, expected] of [['active', 0, null], ['pending_deletion', 0, 'access_denied'], ['deleted', 0, 'access_denied'], ['active', 5, 'connection_limit_reached']]) {

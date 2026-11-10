@@ -3,6 +3,41 @@
 Stand: 2026-11-10. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Deterministic Cursor Tampering Test (2026-11-10)
+
+- User reported a full-suite failure at public-workout-api.test.js:110 and
+  approved the test-only correction. The old test replaced the first random
+  cursor character with A, leaving it unchanged when already A. A synthetic
+  cursor reproduced the unchanged-input acceptance; no API regression identified.
+- The test now flips one decoded nonce byte, re-encodes the cursor and verifies
+  inequality before expecting rejection. Production cursor code is unchanged.
+- Focused pagination test and the complete suite passed: 982/982 tests, including
+  the pending ChatGPT ui_locales fix. Diff checks passed; preceding OAuth syntax,
+  zero-warning lint and types checks remain valid (no production JS changes in
+  this follow-up). Details: public-api-v1.md and mcp-server.md. No migration,
+  deployment, restart or commit. ChatGPT connection still needs a fresh attempt
+  after deployment/restart.
+
+## ChatGPT Web OAuth Language Hint (2026-11-10)
+
+- User is connecting ChatGPT web and supplied sanitized authorization parameters.
+  Client/callback/resource/response type/PKCE match, but ChatGPT adds ui_locales;
+  the strict allowlist rejected it before login. User approved a narrow fix.
+  Accept this optional hint once, at most 256 characters, and ignore it; exclude
+  it from consent/grant/token data and rendering. Other validations remain.
+- Regression failed before the fix and passed afterward; all 16 focused MCP
+  tests, syntax, zero-warning lint, types and diff checks passed. Real Express/EJS
+  HTTP-object fixtures exercise login redirect, consent and callback with the
+  hint, plus duplicate/oversized/unknown/security rejection. No full-suite rerun.
+- Production read-only checks found the exact user-confirmed ChatGPT callback
+  registered for woa-chatgpt with a secret digest. A synthetic authorization probe
+  accepted it and redirected to login without consent/token issuance. Sanitized
+  production error logs locate the failed real request at GET authorize; extra
+  Nginx-log inspection was blocked by technical approval-review stream failures.
+- Setup details: docs/mcp-server.md. No migration, deployment, restart, credential
+  change or commit. Deploy/restart then begin a fresh ChatGPT Connect flow; real
+  web login/consent/token exchange/tools remain unverified.
+
 ## Grouped Public Power Profiles (2026-11-10)
 
 - User approved optional week/month/quarter/year grouping for the existing REST

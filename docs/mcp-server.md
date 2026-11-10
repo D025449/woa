@@ -93,6 +93,33 @@ Authorization responses include iss
 and preserve state. Invalid/untrusted redirect requests receive local errors,
 not redirects. Tokens cannot be used as personal REST keys.
 
+Authorization accepts the optional ChatGPT `ui_locales` language hint once,
+up to 256 characters. It is ignored, excluded from consent/grant/token data and
+UI rendering, and does not affect
+login/consent language, scopes or token binding. Unknown and repeated parameters
+remain invalid. The user-provided sanitized web authorization request included
+this extra parameter while client/callback/resource/response type/PKCE matched;
+the former allowlist rejected it before login with `invalid_request`. The
+regression reproduces that rejection before the fix and checks acceptance, the
+size boundary, duplicates and unchanged security validation afterward.
+All 16 focused MCP tests passed; the subsequent full suite passed 982/982 after
+fixing an unrelated random-cursor tampering assertion. Syntax, zero-warning lint
+and types passed for the OAuth change.
+
+ChatGPT web setup: Plugins → plus → Add custom MCP server → OAuth → Advanced
+OAuth settings → User-Defined OAuth Client. Use registered client ID
+`woa-chatgpt`, the original private client secret (not its SHA-256 digest), and
+`client_secret_post` or `client_secret_basic`. Register exactly the callback URL
+shown by the UI; the user confirmed
+`https://chatgpt.com/connector_platform_oauth_redirect`. A read-only configuration
+comparison found this exact callback and a secret digest for the client in
+production. A synthetic authorization request without login/consent accepted
+the callback and redirected to `/login`; this does not verify secret exchange.
+PM2's startup environment does not include values loaded afterward by dotenv,
+so absence from `pm2 jlist` alone does not establish a missing runtime client.
+After deploying the `ui_locales` fix and restarting, start a fresh Connect flow.
+Successful real ChatGPT login/consent/token exchange/tools remains to be confirmed.
+
 Only predefined clients are supported in this release. There is no arbitrary
 remote metadata fetching, CIMD or dynamic client registration. OpenAI documents
 predefined OAuth clients as a supported option. Configure client ID and, if

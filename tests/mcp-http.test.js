@@ -18,7 +18,7 @@ test('HTTP MCP discovery, protocol, consent, CSRF and session-only revocation', 
   ]) });
   const code = 'woa_mcp_' + 'a'.repeat(43), context = { userId: '71', grantId: '123', scopes: ['workouts:read', 'analytics:read', 'offline_access'] };
   const authParams = new URLSearchParams({ response_type: 'code', client_id: 'chatgpt', redirect_uri: 'https://client.example/callback', resource: config.resource,
-    code_challenge_method: 'S256', code_challenge: createHash('sha256').update('v'.repeat(43)).digest('base64url'), scope: context.scopes.join(' '), state: 'opaque-state' });
+    code_challenge_method: 'S256', code_challenge: createHash('sha256').update('v'.repeat(43)).digest('base64url'), scope: context.scopes.join(' '), state: 'opaque-state', ui_locales: 'de-DE en-US' });
   const app = express(), budgets = [], events = []; const realOAuth = new McpOAuthService(config, {});
   let exchangeFailure;
   const fakeOAuth = { authorization: params => realOAuth.authorization(params), client: (id, secret) => realOAuth.client(id, secret),
@@ -92,6 +92,7 @@ test('HTTP MCP discovery, protocol, consent, CSRF and session-only revocation', 
     const consent = await request('/oauth/mcp/authorize?' + authParams, { headers: { cookie } }), html = await consent.text(); assert.equal(consent.status, 200); assert.ok(html.includes('&lt;AI app&gt;')); assert.ok(consent.headers.get('content-security-policy').includes("frame-ancestors 'none'"));
     assert.equal(consent.headers.get('referrer-policy'), 'same-origin');
     assert.equal(consent.headers.get('cache-control'), 'no-store');
+    assert.ok(!html.includes('de-DE en-US'));
     assert.equal(consent.headers.get('content-security-policy').split(';').map(value => value.trim()).find(value => value.startsWith('form-action ')),
       "form-action 'self' https://client.example");
     const unregisteredParams = new URLSearchParams(authParams); unregisteredParams.set('redirect_uri', 'https://evil.example/callback');
@@ -109,6 +110,7 @@ test('HTTP MCP discovery, protocol, consent, CSRF and session-only revocation', 
     assert.equal((await postConsent(config.origin, 'f'.repeat(64))).status, 403);
     assert.equal(events.some(event => event[0] === 'allow'), false);
     const allowed = await postConsent(config.origin); assert.equal(allowed.status, 303);
+    assert.equal(Object.hasOwn(events.find(event => event[0] === 'allow')[2], 'ui_locales'), false);
     assert.equal(allowed.headers.get('referrer-policy'), 'no-referrer');
     const callback = new URL(allowed.headers.get('location')); assert.equal(callback.searchParams.get('code'), code); assert.equal(callback.searchParams.get('iss'), config.origin); assert.equal(callback.searchParams.get('state'), 'opaque-state'); assert.equal((await postConsent(config.origin)).status, 403);
     const nativeParams = new URLSearchParams(authParams); nativeParams.set('client_id', 'woa-codex'); nativeParams.set('redirect_uri', 'http://127.0.0.1:49152/callback');

@@ -107,7 +107,11 @@ test("public list uses owned imported-workout columns and encrypted, user/filter
   assert.equal(service.decodeCursor(result.next_cursor, "42", filters).start, "2026-11-09T09:00:00.123456Z");
   assert.throws(() => service.decodeCursor(result.next_cursor, "99", filters), { statusCode: 400 });
   assert.throws(() => service.decodeCursor(result.next_cursor, "42", { ...filters, type: "indoor" }), { statusCode: 400 });
-  assert.throws(() => service.decodeCursor(`A${result.next_cursor.slice(1)}`, "42", filters), { statusCode: 400 });
+  const tamperedBytes = Buffer.from(result.next_cursor, "base64url");
+  tamperedBytes[0] ^= 1;
+  const tamperedCursor = tamperedBytes.toString("base64url");
+  assert.notEqual(tamperedCursor, result.next_cursor);
+  assert.throws(() => service.decodeCursor(tamperedCursor, "42", filters), { statusCode: 400 });
   await service.list("42", new URLSearchParams({ limit: "2", type: "road", cursor: result.next_cursor }));
   const nextQuery = database.calls.filter(call => call.sql.includes("FROM workouts")).at(-1);
   assert.ok(nextQuery.params.includes("2026-11-09T09:00:00.123456Z"));

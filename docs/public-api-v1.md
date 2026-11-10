@@ -625,6 +625,13 @@ integration have not been executed or verified against a database.
 
 ### Public Endpoint Verification And Rollout
 
+The subsequent full-suite run passed all 982 tests after correcting an unstable
+cursor tampering assertion. Replacing the first random Base64url character with
+`A` could leave the original cursor unchanged; the test now flips one decoded
+nonce byte and verifies inequality before expecting rejection. No production
+cursor behavior was changed. This run also includes the ChatGPT OAuth
+`ui_locales` compatibility fix documented in mcp-server.md.
+
 Grouped power profiles (OpenAPI v1.5.0): all 981 tests, syntax, zero-warning lint,
 types and diff checks passed. Coverage exercises the grouped REST response and
 real MCP SDK dispatch through the shared service, UTC/leap/calendar boundaries,
