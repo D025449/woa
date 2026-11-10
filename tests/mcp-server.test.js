@@ -177,6 +177,36 @@ test('real MCP analytics dispatch accepts multi-year ranges through the shared s
   } finally { await p.close(); }
 });
 
+test('MCP returns selected grouped CP history through one shared service call', async () => {
+  const db = scriptedDb(sql => sql.includes('JOIN workout_segments') ? { rows: [
+    { workout_id: '1', segment_id: '1', duration: 300, avg_power: 400, start_time: '2024-01-20T10:00:00Z',
+      history_start: '2024-01-02T00:00:00Z', start_offset: 0, end_offset: 300 },
+    { workout_id: '2', segment_id: '2', duration: 1200, avg_power: 300, start_time: '2026-11-05T10:00:00Z',
+      history_start: '2024-01-02T00:00:00Z', start_offset: 0, end_offset: 1200 }
+  ] } : null);
+  let requests = 0;
+  const analytics = new AnalyticsService({ database: db, now: () => Date.parse('2026-11-10T12:00:00Z') });
+  const p = await protocol(context, { analytics, allowance: async () => { requests++; return { allowed: true }; } });
+  try {
+    const { tools } = await p.client.listTools();
+    assert.deepEqual(tools.find(tool => tool.name === 'get_power_profile').inputSchema.properties.grouping.enum, ['week', 'month', 'quarter', 'year']);
+    const result = await p.client.callTool({ name: 'get_power_profile', arguments: { grouping: 'year', durations: [300, 1200] } });
+    assert.equal(result.isError, undefined);
+    assert.deepEqual(JSON.parse(result.content[0].text), result.structuredContent);
+    assert.equal(result.structuredContent.meta.from, '2024-01-02');
+    assert.equal(result.structuredContent.meta.grouping, 'year');
+    assert.deepEqual(result.structuredContent.data.map(period => period.points.map(point => point.power_watts)),
+      [[400, null], [null, null], [null, 300]]);
+    assert.equal(requests, 1);
+    assert.equal(db.calls.filter(call => call.sql.includes('JOIN workout_segments')).length, 1);
+    assert.equal(db.calls.filter(call => call.sql.includes('unnest')).length, 1);
+    for (const args of [{ grouping: 'day' }, { grouping: 'month', durations: [300, 300] }, { grouping: 'year', owner: '72' }]) {
+      assert.equal((await p.client.callTool({ name: 'get_power_profile', arguments: args })).isError, true);
+    }
+    assert.equal(requests, 1);
+  } finally { await p.close(); }
+});
+
 test('MCP rechecks revocation and owner and safely reports quota, size and service failures', async t => {
   const logs = []; t.mock.method(console, 'error', text => logs.push(JSON.parse(text)));
   for (const [options, expected] of [[{ authorize: async () => { throw Object.assign(new Error('SECRET'), { code: 'invalid_token' }); } }, 'invalid_token'], [{ authorize: async () => ({ ...context, userId: '72' }) }, 'insufficient_scope'], [{ authorize: async () => ({ ...context, scopes: [] }) }, 'insufficient_scope'], [{ allowance: async () => ({ allowed: false, retryAfter: 31 }) }, 'rate_limited'], [{ allowance: async () => { throw new Error('SECRET redis URL'); } }, 'service_unavailable'], [{ allowance: async () => ({ allowed: true }), analytics: { summary: async () => { throw new Error('SECRET SQL'); } } }, 'service_unavailable'], [{ allowance: async () => ({ allowed: true }), analytics: { summary: async () => ({ data: 'x'.repeat(1024 * 1024) }) } }, 'response_too_large']]) {

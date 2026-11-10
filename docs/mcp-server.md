@@ -25,9 +25,21 @@ Data coverage, nulls and estimation methods must accompany interpretation.
 
 Parameters and calculations match [public-api-v1.md](public-api-v1.md). Workout
 from/to are RFC3339 timestamps. Analytics from/to are UTC calendar dates,
-inclusive/exclusive, default latest 28 days including partial today. Multi-year ranges are supported
+inclusive/exclusive, default latest 28 days including partial today except for
+grouped power profiles described below. Multi-year ranges are supported
 within technical data/history/response budgets. Power durations are 5,15,60,120,240,300,360,480,720,900,960,1200,1800
-seconds; stored missing efforts remain null. FTP grouping defaults to month,
+seconds; stored missing efforts remain null. `get_power_profile` accepts optional
+`grouping=week|month|quarter|year` and returns all periods with all selected duration
+points in one call. For CP5/CP20 per month use `{"durations":[300,1200],"grouping":"month"}`.
+With grouping, omitted `from` starts at the first valid matching stored effort
+before `to`; omitted `to` includes today. With no matching history and no explicit
+`from`, `meta.from` is null and `data` is empty. Without grouping, the 28-day
+default/global response remains unchanged. Grouped entries have `period_from`,
+exclusive `period_to`, `partial_period` and `points` with power/source/weight
+provenance; empty periods contain null points. Winners and weights are queried
+in batches. The REST response budget and the overall MCP envelope budget both
+apply; request fewer durations, coarser periods or a narrower window on 422.
+FTP grouping defaults to month,
 with week/quarter/year also supported. Confidence means anchor count, not
 probability. The tools are listed according to the connection's permissions.
 Strict input schemas forbid unknown arguments, user IDs and credentials.

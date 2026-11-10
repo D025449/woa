@@ -14,7 +14,7 @@ import fs from "node:fs";
 const contract = JSON.parse(fs.readFileSync(new URL("../docs/public-api-v1.openapi.json", import.meta.url), "utf8"));
 
 test("OpenAPI describes the public workout and analytics paths and resolves all local references", () => {
-  assert.equal(contract.info.version, '1.4.0');
+  assert.equal(contract.info.version, '1.5.0');
   assert.deepEqual(contract['x-rate-limits'], { window_seconds: 60, ingress_per_ip: 480,
     authenticated_per_user: 240, gps_per_user: 40, fit_per_user: 40, analytics_per_user: 40 });
   assert.deepEqual(Object.keys(contract.paths).sort(), ["/analytics/ftp-history", "/analytics/power-profile", "/analytics/summary", "/analytics/training-load",

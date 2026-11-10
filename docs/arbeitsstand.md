@@ -3,6 +3,26 @@
 Stand: 2026-11-10. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Grouped Public Power Profiles (2026-11-10)
+
+- User approved optional week/month/quarter/year grouping for the existing REST
+  power-profile endpoint and MCP get_power_profile. One response returns all
+  selected CP durations per UTC calendar period; maxima, null/zero distinctions,
+  deterministic source ties and source-date weight provenance are preserved.
+- Grouped mode without from starts at the earliest valid matching stored effort
+  before to; missing to includes today. No matching history without from returns
+  an empty list and meta.from=null. Explicit ranges include empty periods. The
+  ungrouped 28-day default and response remain unchanged.
+- One SQL query ranks valid period/duration winners, with a single batch weight
+  lookup. Returned winners retain the row cap; incremental/final response budgets,
+  SQL/work-memory/concurrency limits, scopes and quotas remain. Docs and OpenAPI
+  v1.5.0: public-api-v1.md/.openapi.json and mcp-server.md. No new npm scripts.
+- All 981 tests, syntax, zero-warning lint, types and diff checks passed. Initial
+  focused HTTP checks hit sandbox EPERM; after a technical approval-review stream
+  failure, the approved full suite passed. Tests use SQL fixtures; live PostgreSQL
+  execution/plans/latency remain unverified. No migration, deployment, restart
+  or commit performed.
+
 ## Public REST/MCP Metrics, Ranges And Diagnostics (2026-11-10)
 
 - User approved shared FTP/TSS and correlated safe diagnostics, then requested

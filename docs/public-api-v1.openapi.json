@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "WOA Personal Workout And Analytics API",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "description": "Personal-key REST API for owned workouts and four owned analytics endpoints, reused by the hosted OAuth MCP server. Shared retrospective UTC yearly FTP/TSS policy, multi-year analytics within technical data/history/response budgets, fourfold request quotas and correlated safe diagnostics. See public-api-v1.md for semantics and rollout."
   },
   "servers": [
@@ -535,7 +535,7 @@
           "Analytics"
         ],
         "summary": "Owned recorded power profile",
-        "description": "Owned classified cycling stored critical segments only, no manual modeled activity. Existing UTC from/to defaults apply; multi-year ranges are supported within technical data and response budgets. At most 50000 scalar source efforts, 1 MiB JSON, 5 seconds per SQL statement, two shared analytics calculations/process and shared analytics 40/minute/user limits. No stream decoding, new performance calculation or silent truncation. Distinct allowlisted durations only. Each selected duration returns one winner or null fields. Tie order: power descending, exact UTC start timestamp descending, exact BIGINT workout and segment IDs descending. W/kg uses the returned power and historical source-date weight, falling back to profile weight; missing weight yields null. Requires workouts:read because workout IDs and source offsets are returned; missing it does not consume the analytics bucket.",
+        "description": "Owned classified cycling stored critical segments only, no manual modeled activity. Without grouping, existing UTC from/to defaults apply; multi-year ranges are supported within technical data and response budgets. At most 50000 scalar source efforts in ungrouped mode or returned winners in grouped mode, 1 MiB JSON, 5 seconds per SQL statement, two shared analytics calculations/process and shared analytics 40/minute/user limits. No stream decoding, new performance calculation or silent truncation. Distinct allowlisted durations only. Each selected duration returns one winner or null fields. Tie order: power descending, exact UTC start timestamp descending, exact BIGINT workout and segment IDs descending. W/kg uses the returned power and historical source-date weight, falling back to profile weight; missing weight yields null. Requires workouts:read because workout IDs and source offsets are returned; missing it does not consume the analytics bucket. Optional grouping returns chronological calendar periods, each containing all selected duration points, including nulls in empty periods. Weeks start Monday UTC. In grouped mode, omitted from uses the earliest valid matching stored effort before to; omitted to includes today. No matching history without from returns data=[] and meta.from=null. Winners are ranked in one SQL source query; weights are fetched once for distinct winner dates.",
         "x-required-scopes": [
           "analytics:read",
           "workouts:read"
@@ -544,7 +544,7 @@
           {
             "name": "from",
             "in": "query",
-            "description": "Inclusive UTC start date. Defaults to 28 days before to.",
+            "description": "Inclusive UTC start date. Without grouping defaults to 28 days before to. With grouping defaults to the first valid matching stored effort before to.",
             "schema": {
               "type": "string",
               "format": "date"
@@ -567,6 +567,20 @@
               "example": "5,60,480,1200",
               "description": "Comma-separated distinct supported seconds, no spaces; defaults to all 13 durations."
             }
+          },
+          {
+            "name": "grouping",
+            "in": "query",
+            "description": "Optional UTC calendar grouping. Omit for the existing global power profile. Weeks start Monday. Each period includes every selected duration; missing records remain null.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "week",
+                "month",
+                "quarter",
+                "year"
+              ]
+            }
           }
         ],
         "responses": {
@@ -583,25 +597,32 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "meta",
-                    "data"
-                  ],
-                  "properties": {
-                    "meta": {
-                      "$ref": "#/components/schemas/PowerProfileMeta"
-                    },
-                    "data": {
-                      "type": "array",
-                      "minItems": 1,
-                      "maxItems": 13,
-                      "items": {
-                        "$ref": "#/components/schemas/PowerProfilePoint"
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "meta",
+                        "data"
+                      ],
+                      "properties": {
+                        "meta": {
+                          "$ref": "#/components/schemas/PowerProfileMeta"
+                        },
+                        "data": {
+                          "type": "array",
+                          "minItems": 1,
+                          "maxItems": 13,
+                          "items": {
+                            "$ref": "#/components/schemas/PowerProfilePoint"
+                          }
+                        }
                       }
+                    },
+                    {
+                      "$ref": "#/components/schemas/GroupedPowerProfileResponse"
                     }
-                  }
+                  ]
                 }
               }
             }
@@ -1985,6 +2006,138 @@
             "type": "integer",
             "minimum": 0,
             "description": "Minimum of the positive CP8/CP15 stored effort counts, matching the existing method. Not a probability or confidence percentage."
+          }
+        }
+      },
+      "GroupedPowerProfileMeta": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "time_zone",
+          "generated_at",
+          "current_day_partial",
+          "durations_seconds",
+          "power_method",
+          "grouping"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "description": "First matching valid effort date when from is omitted; null only when no history matches and data is empty."
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "time_zone": {
+            "type": "string",
+            "enum": [
+              "UTC"
+            ]
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "current_day_partial": {
+            "type": "boolean"
+          },
+          "durations_seconds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 13,
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "enum": [
+                5,
+                15,
+                60,
+                120,
+                240,
+                300,
+                360,
+                480,
+                720,
+                900,
+                960,
+                1200,
+                1800
+              ]
+            }
+          },
+          "power_method": {
+            "type": "string",
+            "enum": [
+              "stored_critical_efforts"
+            ]
+          },
+          "grouping": {
+            "type": "string",
+            "enum": [
+              "week",
+              "month",
+              "quarter",
+              "year"
+            ]
+          }
+        }
+      },
+      "GroupedPowerProfilePeriod": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "period_from",
+          "period_to",
+          "partial_period",
+          "points"
+        ],
+        "properties": {
+          "period_from": {
+            "type": "string",
+            "format": "date",
+            "description": "Inclusive full UTC calendar period start."
+          },
+          "period_to": {
+            "type": "string",
+            "format": "date",
+            "description": "Exclusive full UTC calendar period end."
+          },
+          "partial_period": {
+            "type": "boolean",
+            "description": "Period crosses the requested bounds or is not complete at generated_at."
+          },
+          "points": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 13,
+            "items": {
+              "$ref": "#/components/schemas/PowerProfilePoint"
+            }
+          }
+        }
+      },
+      "GroupedPowerProfileResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "meta",
+          "data"
+        ],
+        "properties": {
+          "meta": {
+            "$ref": "#/components/schemas/GroupedPowerProfileMeta"
+          },
+          "data": {
+            "type": "array",
+            "description": "Chronological periods including empty periods; empty if no matching history and from omitted. Bounded by response byte budget.",
+            "items": {
+              "$ref": "#/components/schemas/GroupedPowerProfilePeriod"
+            }
           }
         }
       }

@@ -2,7 +2,7 @@ import pool from "./database.js";
 import { Pool } from "pg";
 import { FileDBService } from "./fileDBService.js";
 import { apiFailure, publicWorkoutId } from "./publicWorkoutApiService.js";
-import { parsePerformanceOptions, selectPublicPowerEfforts, buildPublicPowerProfile, buildPublicFtpHistory } from "./publicAnalyticsPowerService.js";
+import { parsePerformanceOptions, selectPublicPowerEfforts, buildPublicPowerProfile, buildPublicGroupedPowerProfile, buildPublicFtpHistory } from "./publicAnalyticsPowerService.js";
 import { PUBLIC_ANALYTICS_LIMITS } from "./publicApiLimits.js";
 import { prepareYearlyFtpSeries, yearlyFtpAt as analyticsFtpAt, derivedCyclingMetrics } from "./publicTrainingMetrics.js";
 export { PUBLIC_ANALYTICS_LIMITS, analyticsFtpAt };
@@ -196,6 +196,8 @@ export default class PublicAnalyticsApiService {
     const userId = publicWorkoutId(String(owner)), now = this.now();
     const options = parsePerformanceOptions(params, kind);
     const range = parsePublicAnalyticsQuery(options.dates, now);
+    const grouped = kind === "power-profile" && options.grouping !== null;
+    const fullHistory = grouped && !options.dates.has("from");
     if (activeRequests >= PUBLIC_ANALYTICS_LIMITS.concurrent) apiFailure(429, "rate_limited", "Analytics capacity exceeded.");
     activeRequests += 1;
     let client;
@@ -204,18 +206,42 @@ export default class PublicAnalyticsApiService {
       await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
       await client.query("SET LOCAL statement_timeout = '5000ms'");
       await client.query("SET LOCAL work_mem = '8MB'");
-      const result = await client.query([
+      const source = [
         "SELECT w.id::text AS workout_id, s.id::text AS segment_id, w.start_time,",
         "to_char(w.start_time AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS sort_start,",
         "s.duration, s.avg_power, s.start_offset, s.end_offset",
         "FROM workouts w JOIN workout_segments s ON s.wid = w.id AND s.uid = $1",
         "WHERE w.uid = $1 AND w.workout_type IN ('road', 'mountain', 'indoor') AND s.segmenttype = 'crit'",
-        "AND w.start_time >= $2::timestamptz AND w.start_time < $3::timestamptz AND w.start_time <= $4::timestamptz",
-        "AND s.duration = ANY($5::int[]) ORDER BY w.start_time, w.id, s.id LIMIT $6"
-      ].join(" "), [userId, range.from + "T00:00:00Z", range.to + "T00:00:00Z", new Date(now).toISOString(),
-        kind === "power-profile" ? options.durations : [480, 900], PUBLIC_ANALYTICS_LIMITS.rows + 1]);
+        grouped ? "AND ($2::timestamptz IS NULL OR w.start_time >= $2::timestamptz)" : "AND w.start_time >= $2::timestamptz",
+        "AND w.start_time < $3::timestamptz AND w.start_time <= $4::timestamptz",
+        "AND s.duration = ANY($5::int[])"
+      ];
+      const args = [userId, fullHistory ? null : range.from + "T00:00:00Z", range.to + "T00:00:00Z", new Date(now).toISOString(),
+        kind === "power-profile" ? options.durations : [480, 900], PUBLIC_ANALYTICS_LIMITS.rows + 1];
+      let sql;
+      if (grouped) {
+        // Rank valid candidates in SQL so multi-year histories transfer only one
+        // winner per period/duration. Window minimum retains the true first
+        // matching effort date even when it is not a period winner.
+        source[2] += ", date_trunc($7, w.start_time AT TIME ZONE 'UTC') AS bucket, MIN(w.start_time) OVER () AS history_start";
+        source.push("AND w.id > 0 AND s.id > 0 AND s.avg_power >= 0 AND s.avg_power < 'Infinity'::double precision",
+          "AND s.start_offset >= 0 AND s.end_offset > s.start_offset");
+        sql = ["WITH candidates AS (", source.join(" "), ")",
+          "SELECT DISTINCT ON (bucket, duration) workout_id, segment_id, start_time, sort_start,",
+          "duration, avg_power, start_offset, end_offset, history_start FROM candidates",
+          "ORDER BY bucket, duration, avg_power DESC, start_time DESC, workout_id::bigint DESC, segment_id::bigint DESC LIMIT $6"].join(" ");
+        args.push(options.grouping);
+      } else sql = source.join(" ") + " ORDER BY w.start_time, w.id, s.id LIMIT $6";
+      const result = await client.query(sql, args);
       if (result.rows.length > PUBLIC_ANALYTICS_LIMITS.rows) budget();
-      const winners = kind === "power-profile" ? selectPublicPowerEfforts(result.rows, range, options.durations, now) : null;
+      if (fullHistory) {
+        const first = result.rows[0]?.history_start;
+        range.from = first == null ? null : new Date(first).toISOString().slice(0, 10);
+        if (range.from !== null) dateValue(range.from);
+      }
+      const winners = kind === "power-profile" ? selectPublicPowerEfforts(result.rows, range, options.durations, now, options.grouping) : null;
+      // Bound empty buckets and selected points before issuing the weight lookup.
+      if (grouped) buildPublicGroupedPowerProfile(winners, [], range, options.durations, options.grouping, now);
       let weights = [];
       if (winners?.size) {
         const dates = [...new Set([...winners.values()].map(row => new Date(row.start_time).toISOString().slice(0, 10)))];
@@ -230,8 +256,9 @@ export default class PublicAnalyticsApiService {
       }
       await client.query("COMMIT");
       client.release(); client = null;
-      const response = kind === "power-profile" ? buildPublicPowerProfile(winners, weights, range, options.durations, now)
-        : buildPublicFtpHistory(result.rows, range, options.grouping, now);
+      const response = grouped ? buildPublicGroupedPowerProfile(winners, weights, range, options.durations, options.grouping, now)
+        : kind === "power-profile" ? buildPublicPowerProfile(winners, weights, range, options.durations, now)
+          : buildPublicFtpHistory(result.rows, range, options.grouping, now);
       if (Buffer.byteLength(JSON.stringify(response)) > PUBLIC_ANALYTICS_LIMITS.responseBytes) budget();
       return response;
     } catch (error) {

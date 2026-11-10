@@ -5,7 +5,7 @@ import express from "express";
 import ApiKeyService from "../src/services/apiKeyService.js";
 import Service, { PUBLIC_ANALYTICS_LIMITS } from "../src/services/publicAnalyticsApiService.js";
 import { createPublicAnalyticsApiRouter } from "../src/routes/publicAnalyticsApiRoutes.js";
-import { parsePerformanceOptions, selectPublicPowerEfforts, buildPublicPowerProfile, buildPublicFtpHistory, ftpPeriod } from "../src/services/publicAnalyticsPowerService.js";
+import { parsePerformanceOptions, selectPublicPowerEfforts, buildPublicPowerProfile, buildPublicGroupedPowerProfile, buildPublicFtpHistory, ftpPeriod } from "../src/services/publicAnalyticsPowerService.js";
 
 const now = Date.parse("2026-11-10T12:00:00Z"), range = { from: "2026-11-01", to: "2026-11-11" };
 const effort = (id = "1", duration = 480, power = 300, time = "2026-11-05T10:00:00Z") => ({ workout_id: id, segment_id: id,
@@ -37,11 +37,56 @@ test("performance options strictly validate allowlisted distinct durations and F
   assert.deepEqual(parsePerformanceOptions(new URLSearchParams("durations=1200,5,60"), "power-profile").durations, [5, 60, 1200]);
   assert.equal(parsePerformanceOptions(new URLSearchParams(), "ftp-history").grouping, "month");
   for (const query of ["durations=", "durations=5,5", "durations=05", "durations=5, 60", "durations=7", "durations=5&durations=60",
-    "grouping=month", "owner=99", "durations[]=5"]) {
+    "grouping=day", "grouping=", "grouping=month&grouping=year", "owner=99", "durations[]=5"]) {
     assert.throws(() => parsePerformanceOptions(new URLSearchParams(query), "power-profile"), { statusCode: 400 });
   }
   assert.throws(() => parsePerformanceOptions(new URLSearchParams("grouping=day"), "ftp-history"), { statusCode: 400 });
   assert.throws(() => parsePerformanceOptions(new URLSearchParams("durations=480"), "ftp-history"), { statusCode: 400 });
+  assert.equal(parsePerformanceOptions(new URLSearchParams(), "power-profile").grouping, null);
+  assert.equal(parsePerformanceOptions(new URLSearchParams("grouping=month"), "power-profile").grouping, "month");
+});
+
+test("grouped CP series preserves period maxima, missing/zero values, weights and UTC boundaries", () => {
+  const interval = { from: "2024-02-15", to: "2024-05-02" };
+  const rows = [effort("1", 300, 400, "2024-02-29T23:59:59Z"), effort("2", 300, 350, "2024-03-01T00:00:00Z"),
+    effort("3", 1200, 0, "2024-03-31T23:59:59Z"), effort("4", 300, 999, "2024-05-02T00:00:00Z"),
+    { ...effort("5", 300, 999, "2024-03-02T00:00:00Z"), end_offset: 0 },
+    effort("6", 300, Infinity, "2024-03-02T00:00:00Z")];
+  const winners = selectPublicPowerEfforts(rows, interval, [300, 1200], now, "month");
+  const series = buildPublicGroupedPowerProfile(winners, [{ date: "2024-02-29", weight_kg: 80, source: "history" }],
+    interval, [300, 1200], "month", now);
+  assert.deepEqual(series.data.map(period => period.period_from), ["2024-02-01", "2024-03-01", "2024-04-01", "2024-05-01"]);
+  assert.deepEqual(series.data.map(period => period.points.map(point => point.power_watts)), [[400, null], [350, 0], [null, null], [null, null]]);
+  assert.deepEqual(series.data.map(period => period.partial_period), [true, false, false, true]);
+  assert.equal(series.data[0].period_to, "2024-03-01");
+  assert.equal(series.data[0].points[0].watts_per_kg, 5);
+  assert.equal(series.data[0].points[0].workout_id, "1");
+  assert.equal(series.data[0].points[0].weight_date, "2024-02-29");
+  for (const grouping of ["week", "quarter", "year"]) {
+    const selected = selectPublicPowerEfforts(rows, interval, [300, 1200], now, grouping);
+    const result = buildPublicGroupedPowerProfile(selected, [], interval, [300, 1200], grouping, now);
+    assert.ok(result.data.some(period => period.points[0].power_watts === 400));
+    assert.ok(result.data.every(period => period.points.length === 2));
+  }
+  const exact = Buffer.byteLength(JSON.stringify(series));
+  assert.deepEqual(buildPublicGroupedPowerProfile(winners, [{ date: "2024-02-29", weight_kg: 80, source: "history" }],
+    interval, [300, 1200], "month", now, { ...PUBLIC_ANALYTICS_LIMITS, responseBytes: exact }), series);
+  assert.throws(() => buildPublicGroupedPowerProfile(winners, [{ date: "2024-02-29", weight_kg: 80, source: "history" }],
+    interval, [300, 1200], "month", now, { ...PUBLIC_ANALYTICS_LIMITS, responseBytes: exact - 1 }), { statusCode: 422 });
+  assert.throws(() => buildPublicGroupedPowerProfile(new Map(), [], { from: "0001-01-01", to: "2026-01-01" },
+    [300, 1200], "week", now), { statusCode: 422 });
+});
+
+test("grouped CP ties retain exact IDs and microseconds separately in each period", () => {
+  const interval = { from: "2026-10-01", to: "2026-11-11" };
+  const rows = [{ ...effort("99"), sort_start: "2026-11-05T10:00:00.123455Z" },
+    { ...effort("9007199254740993"), sort_start: "2026-11-05T10:00:00.123456Z" },
+    { ...effort("9007199254740992"), sort_start: "2026-11-05T10:00:00.123456Z" },
+    effort("8", 480, 400, "2026-10-31T23:59:59Z"), effort("9", 480, 999, "2026-11-10T13:00:00Z")];
+  const winners = selectPublicPowerEfforts(rows, interval, [480], now, "month");
+  const series = buildPublicGroupedPowerProfile(winners, [], interval, [480], "month", now);
+  assert.deepEqual(series.data.map(period => period.points[0].workout_id), ["8", "9007199254740993"]);
+  assert.equal(series.data[1].partial_period, true);
 });
 
 test("power winners preserve exact BIGINT ties, microseconds, UTC bounds and missing versus zero", () => {
@@ -102,6 +147,59 @@ function fixture(rows = [], weights = []) {
   }, release() { calls.push({ sql: "RELEASE" }); } }; } };
 }
 
+test("grouped service defaults to full matching history and uses one ranked source/one batch weight query", async () => {
+  const first = "2024-01-02T10:00:00Z";
+  const rows = [effort("1", 300, 400, "2024-01-20T10:00:00Z"), effort("2", 1200, 300, "2026-11-05T10:00:00Z")]
+    .map(row => ({ ...row, history_start: first }));
+  const db = fixture(rows, [{ date: "2024-01-20", weight_kg: 80, source: "history" },
+    { date: "2026-11-05", weight_kg: 75, source: "profile" }]);
+  const response = await new Service({ database: db, now: () => now }).powerProfile("42",
+    new URLSearchParams({ grouping: "year", durations: "300,1200" }));
+  assert.equal(response.meta.from, "2024-01-02");
+  assert.equal(response.meta.to, "2026-11-11");
+  assert.equal(response.data.length, 3);
+  assert.deepEqual(response.data.map(period => period.points.map(point => point.power_watts)), [[400, null], [null, null], [null, 300]]);
+  assert.equal(response.data[0].points[0].watts_per_kg, 5);
+  assert.equal(response.data[2].points[1].watts_per_kg, 4);
+  const queries = db.calls.filter(call => call.sql.includes("JOIN workout_segments"));
+  assert.equal(queries.length, 1);
+  const query = queries[0];
+  assert.deepEqual(query.params, ["42", null, "2026-11-11T00:00:00Z", new Date(now).toISOString(), [300, 1200], 50001, "year"]);
+  assert.match(query.sql, /DISTINCT ON \(bucket, duration\)/);
+  assert.match(query.sql, /date_trunc\([$]7, w.start_time AT TIME ZONE 'UTC'\)/);
+  assert.match(query.sql, /MIN\(w.start_time\) OVER \(\) AS history_start/);
+  assert.match(query.sql, /s.uid = [$]1/); assert.match(query.sql, /WHERE w.uid = [$]1/);
+  assert.match(query.sql, /s.avg_power >= 0 AND s.avg_power < 'Infinity'::double precision/);
+  assert.match(query.sql, /s.end_offset > s.start_offset/);
+  assert.match(query.sql, /avg_power DESC, start_time DESC, workout_id::bigint DESC, segment_id::bigint DESC LIMIT [$]6/);
+  const weights = db.calls.filter(call => call.sql.includes("unnest"));
+  assert.equal(weights.length, 1);
+  assert.deepEqual(weights[0].params, ["42", ["2024-01-20", "2026-11-05"]]);
+  assert.equal(db.calls.at(-2).sql, "COMMIT");
+  const noData = await new Service({ database: fixture(), now: () => now }).powerProfile("42", new URLSearchParams("grouping=year"));
+  assert.equal(noData.meta.from, null); assert.deepEqual(noData.data, []);
+  const explicitDb = fixture();
+  const explicit = await new Service({ database: explicitDb, now: () => now }).powerProfile("42",
+    new URLSearchParams({ from: "2024-01-01", to: "2026-01-01", grouping: "year", durations: "300" }));
+  assert.equal(explicit.data.length, 2);
+  assert.equal(explicitDb.calls.find(call => call.sql.includes("JOIN workout_segments")).params[1], "2024-01-01T00:00:00Z");
+  assert.ok(!explicitDb.calls.some(call => call.sql.includes("unnest")));
+  const onlyTo = await new Service({ database: fixture(), now: () => now }).powerProfile("42", new URLSearchParams("grouping=year&to=2025-01-01"));
+  assert.equal(onlyTo.meta.to, "2025-01-01"); assert.equal(onlyTo.meta.from, null);
+  for (const query of ["grouping=year&to=2026-11-12", "grouping=year&from=2026-11-11&to=2026-11-11"]) {
+    await assert.rejects(new Service({ database: fixture(), now: () => now }).powerProfile("42", new URLSearchParams(query)), { statusCode: 400 });
+  }
+});
+
+test("grouped source and response budgets roll back without weight lookups or partial output", async () => {
+  for (const [db, params] of [[fixture(Array(50001).fill(effort())), new URLSearchParams("grouping=year")],
+    [fixture(), new URLSearchParams("grouping=week&from=0001-01-01")]]) {
+    await assert.rejects(new Service({ database: db, now: () => now }).powerProfile("42", params), { statusCode: 422 });
+    assert.ok(!db.calls.some(call => call.sql.includes("unnest")));
+    assert.equal(db.calls.at(-2).sql, "ROLLBACK"); assert.equal(db.calls.at(-1).sql, "RELEASE");
+  }
+});
+
 test("performance SQL binds both owners, stored critical cycling only, calendar bounds and bounded history weights", async () => {
   const db = fixture([effort()], [{ date: "2026-11-05", weight_kg: 75, source: "history" }]);
   const service = new Service({ database: db, now: () => now });
@@ -150,6 +248,10 @@ test("performance HTTP requires both scopes for source IDs, shares the analytics
   const power = await get("/power-profile?from=2026-11-01&to=2026-11-11&durations=480");
   assert.equal(power.status, 200); assert.equal((await power.json()).data[0].workout_id, "1");
   assert.deepEqual(buckets, [["ingress", 480], ["user", 240], ["analytics", 40]]);
+  const grouped = await get("/power-profile?from=2026-11-01&to=2026-11-11&durations=480,1200&grouping=month");
+  assert.equal(grouped.status, 200);
+  const series = await grouped.json();
+  assert.deepEqual(series.data[0].points.map(point => point.power_watts), [300, null]);
   const history = await get("/ftp-history?from=2026-11-01&to=2026-11-11&grouping=month", "analytics");
   assert.equal(history.status, 200); assert.ok((await history.json()).data[0].ftp_watts > 0);
   assert.equal((await get("/power-profile?durations=5,5")).status, 400);
@@ -160,9 +262,13 @@ test("performance schemas match exact response fields and required scopes", () =
   const contract = JSON.parse(fs.readFileSync(new URL("../docs/public-api-v1.openapi.json", import.meta.url), "utf8"));
   const profile = buildPublicPowerProfile(selectPublicPowerEfforts([effort()], range, [480], now), [], range, [480], now);
   const ftp = buildPublicFtpHistory([], range, "month", now);
-  for (const [value, schema] of [[profile.meta, "PowerProfileMeta"], [profile.data[0], "PowerProfilePoint"], [ftp.meta, "FtpHistoryMeta"], [ftp.data[0], "FtpHistoryPoint"]]) {
+  const grouped = buildPublicGroupedPowerProfile(selectPublicPowerEfforts([effort()], range, [480], now, "month"), [], range, [480], "month", now);
+  for (const [value, schema] of [[profile.meta, "PowerProfileMeta"], [profile.data[0], "PowerProfilePoint"], [ftp.meta, "FtpHistoryMeta"], [ftp.data[0], "FtpHistoryPoint"],
+    [grouped.meta, "GroupedPowerProfileMeta"], [grouped.data[0], "GroupedPowerProfilePeriod"], [grouped.data[0].points[0], "PowerProfilePoint"]]) {
     assert.deepEqual(Object.keys(value).sort(), contract.components.schemas[schema].required.toSorted());
   }
   assert.deepEqual(contract.paths["/analytics/power-profile"].get["x-required-scopes"], ["analytics:read", "workouts:read"]);
   assert.deepEqual(contract.paths["/analytics/ftp-history"].get["x-required-scopes"], ["analytics:read"]);
+  assert.equal(contract.paths["/analytics/power-profile"].get.responses["200"].content["application/json"].schema.oneOf.length, 2);
+  assert.equal(contract.components.schemas.GroupedPowerProfileMeta.properties.from.nullable, true);
 });

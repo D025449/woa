@@ -439,7 +439,8 @@ credential verification is implied.
 
 ## Recorded Power Profile And FTP History
 
-These endpoints use the same UTC `from`/`to` date rules and 28-day default, with
+These endpoints use the same UTC `from`/`to` date rules and, except for grouped
+power profiles, the 28-day default, with
 multi-year ranges supported, read-only repeatable-read snapshot and 5-second
 SQL/connection budgets,
 two shared concurrent analytics calculations and 1 MiB response budget as the
@@ -450,7 +451,8 @@ Only owned imported `road`, `mountain` and `indoor` workouts with stored `crit`
 segments supply performance data. Both workout and segment ownership are bound
 in SQL. Manual activities, manual/interval segments, shared workouts, unknown
 types and motorsport do not supply performance records. At most 50,000 scalar
-effort rows are fetched; exceeding that limit returns 422 without truncation.
+effort rows are fetched (grouped power profiles fetch only period winners);
+exceeding that limit returns 422 without truncation.
 Queries use transaction-local `work_mem = 8MB`. No streams are fetched or decoded
 and no new critical-power calculation is triggered. Invalid scalar inputs are
 ignored; empty/missing estimates remain null.
@@ -458,7 +460,7 @@ ignored; empty/missing estimates remain null.
 ### Power Profile
 
 `GET /api/v1/analytics/power-profile` returns `{ meta, data }` with one record
-per selected duration. Optional `durations` accepts distinct comma-separated
+per selected duration when `grouping` is omitted. Optional `durations` accepts distinct comma-separated
 seconds without spaces from this fixed allowlist:
 `5,15,60,120,240,300,360,480,720,900,960,1200,1800`; defaults to all. Unsupported,
 duplicate, empty or malformed values yield 400.
@@ -475,7 +477,8 @@ W/kg uses the returned power and the historical weight valid on the source
 workout UTC date, falling back to the current profile weight as in the existing
 weight resolver. History/profile provenance is explicit. Missing or invalid
 weight yields null W/kg. Weight queries are bounded to the distinct winner dates,
-at most 13. Scalars are rounded to three decimals.
+at most 13 in ungrouped mode. Grouped requests batch all distinct winner dates
+in one weight query. Scalars are rounded to three decimals.
 
 A duration without a stored matching effort has null power/source fields. In
 particular, 300/1200-second rows may be absent from earlier imported data; these
@@ -483,6 +486,40 @@ requests do not backfill or synthesize efforts. Valid recorded zero remains zero
 The endpoint requires both `analytics:read` and `workouts:read` because it returns
 source workout IDs and offsets. Missing workout permission returns 403 before
 consuming the analytics bucket; the common authenticated user bucket still applies.
+
+Optional `grouping=week|month|quarter|year` returns one chronological list with
+all selected CP durations in every calendar period. Weeks begin Monday UTC.
+For example, CP5 and CP20 per month across the available history:
+
+```sh
+curl --fail-with-body -H "Authorization: Bearer $WOA_API_KEY" \
+  "$WOA_API_BASE/api/v1/analytics/power-profile?durations=300,1200&grouping=month"
+```
+
+Add `&from=2024-01-01&to=2026-11-11` to limit the workout-start interval
+(inclusive/exclusive). With grouping, omitted `from` uses the earliest valid
+matching stored effort before `to`; omitted `to` includes today. Without grouping,
+the existing 28-day default and response remain unchanged. With no matching
+history and no explicit `from`, `meta.from` is null and `data` is empty. An explicit
+range includes empty periods with null points.
+
+Grouped responses retain the existing power metadata and add `meta.grouping`.
+Each `data` entry contains `period_from`, exclusive `period_to`, `partial_period`
+and `points`, an array of the existing power-point objects in ascending duration
+order. Period boundaries describe the full calendar period; candidates are
+restricted to the requested range. `partial_period` flags clipped periods and
+periods incomplete at generation time. Each point is the maximum stored effort
+for that period/duration, with the same deterministic ties, missing/zero semantics
+and source-date weight provenance as the ungrouped response.
+
+Grouped mode ranks valid candidates in one SQL query and transfers only winners;
+there are no separate source queries per period or duration. The 50,000-row budget
+applies to returned winners in this mode; ungrouped power/FTP source budgets
+remain unchanged. SQL time, work-memory, response-byte, concurrency and request
+quotas still apply. Empty buckets and points are byte-budget checked incrementally
+before weights are fetched, and the final weighted response is checked again.
+Oversized requests return 422 without silently truncating; choose a coarser
+grouping, fewer durations or a narrower time window. No migration or backfill.
 
 ### FTP History
 
@@ -588,9 +625,19 @@ integration have not been executed or verified against a database.
 
 ### Public Endpoint Verification And Rollout
 
+Grouped power profiles (OpenAPI v1.5.0): all 981 tests, syntax, zero-warning lint,
+types and diff checks passed. Coverage exercises the grouped REST response and
+real MCP SDK dispatch through the shared service, UTC/leap/calendar boundaries,
+period maxima with precise ties, missing/zero values, historical/profile weight
+provenance, full-history defaults, empty history/ranges, query owner/parameter
+bindings and budgets/rollback. SQL uses fixtures: live PostgreSQL execution,
+query plans and latency remain unverified. The initial sandbox run could not open
+four local test ports; after one technical approval-review stream failure, the
+approved complete suite passed. No migration, deployment or restart was performed.
+
 The 2026-11-10 improvements align workout/analytics FTP and TSS, remove the
 366-day request cap for all four analytics endpoints and increase REST/MCP
-request quotas by four. OpenAPI is v1.4.0. Technical row/byte/SQL/worker/concurrency
+request quotas by four. That slice introduced OpenAPI v1.4.0. Technical row/byte/SQL/worker/concurrency
 limits and key/grant lifetimes are unchanged. Multi-year requests may still
 return 422 when their actual computation or response exceeds those budgets.
 Historical derived workout TSS/IF may change under the unified FTP policy.

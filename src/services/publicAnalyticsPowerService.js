@@ -6,23 +6,23 @@ export const PUBLIC_POWER_DURATIONS = Object.freeze([5, 15, 60, 120, 240, 300, 3
 const DAY = 86400000;
 
 export function parsePerformanceOptions(params, kind) {
-  const extra = kind === "power-profile" ? "durations" : "grouping";
+  const allowed = kind === "power-profile" ? ["from", "to", "durations", "grouping"] : ["from", "to", "grouping"];
   const dates = new URLSearchParams();
   for (const [key, value] of params) {
-    if (!["from", "to", extra].includes(key) || params.getAll(key).length !== 1) {
+    if (!allowed.includes(key) || params.getAll(key).length !== 1) {
       apiFailure(400, "invalid_request", "Unknown or repeated query parameter.");
     }
-    if (key !== extra) dates.set(key, value);
+    if (["from", "to"].includes(key)) dates.set(key, value);
   }
-  const grouping = params.get("grouping") ?? "month";
+  const grouping = params.get("grouping") ?? (kind === "ftp-history" ? "month" : null);
   const value = params.get("durations");
   const durations = value == null ? [...PUBLIC_POWER_DURATIONS] : value.split(",").map(part => /^[1-9][0-9]*$/.test(part) ? Number(part) : NaN);
   if (kind === "power-profile" && (!durations.length || durations.length > PUBLIC_POWER_DURATIONS.length
     || durations.some(duration => !PUBLIC_POWER_DURATIONS.includes(duration)) || new Set(durations).size !== durations.length)) {
     apiFailure(400, "invalid_request", "Select distinct supported power durations.");
   }
-  if (kind === "ftp-history" && !["week", "month", "quarter", "year"].includes(grouping)) {
-    apiFailure(400, "invalid_request", "Invalid FTP grouping.");
+  if (grouping !== null && !["week", "month", "quarter", "year"].includes(grouping)) {
+    apiFailure(400, "invalid_request", "Invalid performance grouping.");
   }
   return { dates, grouping, durations: durations.sort((a, b) => a - b) };
 }
@@ -43,7 +43,7 @@ function safeId(value) {
   return typeof value === "string" && /^[1-9][0-9]{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n;
 }
 
-export function selectPublicPowerEfforts(rows, range, durations, now) {
+export function selectPublicPowerEfforts(rows, range, durations, now, grouping = null) {
   const from = Date.parse(range.from + "T00:00:00Z"), to = Date.parse(range.to + "T00:00:00Z");
   const winners = new Map();
   for (const row of rows) {
@@ -53,7 +53,8 @@ export function selectPublicPowerEfforts(rows, range, durations, now) {
     if (!Number.isFinite(time) || time < from || time >= to || time > now || power == null || power < 0
       || !durations.includes(duration) || !safeId(row.workout_id) || !safeId(row.segment_id)
       || !Number.isInteger(start) || start < 0 || !Number.isInteger(end) || end <= start) continue;
-    const current = winners.get(duration);
+    const key = grouping ? `${ftpPeriod(time, grouping).start}:${duration}` : duration;
+    const current = winners.get(key);
     const timeKey = row.sort_start ?? new Date(time).toISOString();
     const currentKey = current ? current.sort_start ?? new Date(current.start_time).toISOString() : null;
     // Equal power prefers the newer microsecond timestamp, then exact BIGINT
@@ -62,7 +63,7 @@ export function selectPublicPowerEfforts(rows, range, durations, now) {
       && (timeKey > currentKey || (timeKey === currentKey
         && (BigInt(row.workout_id) > BigInt(current.workout_id) || (row.workout_id === current.workout_id
           && BigInt(row.segment_id) > BigInt(current.segment_id))))));
-    if (better) winners.set(duration, row);
+    if (better) winners.set(key, row);
   }
   return winners;
 }
@@ -96,6 +97,39 @@ export function ftpPeriod(time, grouping) {
   else if (grouping === "week") { start = Math.floor(time / DAY) * DAY - ((date.getUTCDay() + 6) % 7) * DAY; end = start + 7 * DAY; }
   else { start = anchor(year, month); end = anchor(year, month + 1); }
   return { start, end };
+}
+
+export function buildPublicGroupedPowerProfile(winners, weightRows, range, durations, grouping, now, limits = PUBLIC_ANALYTICS_LIMITS) {
+  const meta = { ...range, time_zone: "UTC", generated_at: new Date(now).toISOString(), grouping,
+    durations_seconds: durations, power_method: "stored_critical_efforts",
+    current_day_partial: range.to > new Date(now).toISOString().slice(0, 10) };
+  const data = [];
+  if (range.from === null) return { meta, data };
+  const from = Date.parse(range.from + "T00:00:00Z"), to = Date.parse(range.to + "T00:00:00Z");
+  const buckets = new Map();
+  for (const row of winners.values()) {
+    const start = ftpPeriod(new Date(row.start_time).getTime(), grouping).start;
+    const bucket = buckets.get(start) || new Map();
+    bucket.set(Number(row.duration), row);
+    buckets.set(start, bucket);
+  }
+  let bytes = Buffer.byteLength(JSON.stringify({ meta, data }));
+  let period = ftpPeriod(from, grouping);
+  // Resolve weights once for the entire series, never per bucket.
+  const weights = new Map(weightRows.map(row => [row.date, row]));
+  while (period.start < to) {
+    const bucket = buckets.get(period.start) || new Map();
+    const dates = [...new Set([...bucket.values()].map(row => new Date(row.start_time).toISOString().slice(0, 10)))];
+    const point = { period_from: new Date(period.start).toISOString().slice(0, 10),
+      period_to: new Date(period.end).toISOString().slice(0, 10),
+      partial_period: period.start < from || period.end > to || period.end > now,
+      points: buildPublicPowerProfile(bucket, dates.map(date => weights.get(date)).filter(Boolean), range, durations, now).data };
+    bytes += Buffer.byteLength(JSON.stringify(point)) + (data.length ? 1 : 0);
+    if (bytes > limits.responseBytes) apiFailure(422, "analytics_response_too_large", "Power history exceeds the configured response budget.");
+    data.push(point);
+    period = ftpPeriod(period.end, grouping);
+  }
+  return { meta, data };
 }
 
 function percentile95(values) {
