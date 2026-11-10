@@ -386,6 +386,13 @@ Scalar projections bind the authenticated owner independently in both UNION
 branches and fetch at most the row limit plus one. Source and FTP reads share a
 repeatable-read, read-only transaction. A dedicated bounded-wait pool uses the
 existing database configuration; it does not change the shared application pool.
+The dedicated pool explicitly retains pg's non-enumerable password; object
+spread alone would silently drop it. A real-pg fixture regression verifies
+credential transfer, hidden password serialization and unchanged limits without
+opening a connection. The 2026-11-10 correction passed all 969 tests, syntax,
+zero-warning lint and types. Production read-only `SELECT 1` confirmed that
+explicit credential transfer fixes the copied-pool connection failure; actual
+analytics requests after deployment remain to be verified.
 The connection is released before aggregation. No stream decompression, worker,
 cache, write or new dependency is required.
 

@@ -7,7 +7,9 @@ import { publicWorkoutId } from "./publicWorkoutApiService.js";
 export const mcpTokenHash = value => createHash("sha256").update(value).digest("hex");
 const secret = () => `woa_mcp_${randomBytes(32).toString("base64url")}`;
 const validToken = value => typeof value === "string" && /^woa_mcp_[A-Za-z0-9_-]{43}$/.test(value);
-const oauthDatabase = new Pool({ ...pool.options, max: 4, connectionTimeoutMillis: 5000, statement_timeout: 5000 });
+// pg hides password from enumeration, so object spread alone drops credentials.
+const oauthDatabase = new Pool({ ...pool.options, password: pool.options.password,
+  max: 4, connectionTimeoutMillis: 5000, statement_timeout: 5000 });
 
 export default class McpOAuthService {
   constructor(config, database = oauthDatabase) { this.config = config; this.database = database; }

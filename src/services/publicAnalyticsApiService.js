@@ -9,7 +9,9 @@ export const PUBLIC_ANALYTICS_LIMITS = Object.freeze({ days: 366, rows: 50000,
   historyDays: 20000, ftpRows: 500, responseBytes: 1024 * 1024, concurrent: 2 });
 // Keep analytics connection waits bounded without changing the application's
 // existing shared pool or its other callers.
-const analyticsDatabase = new Pool({ ...pool.options, max: PUBLIC_ANALYTICS_LIMITS.concurrent, connectionTimeoutMillis: 5000 });
+// pg hides password from enumeration, so preserve it explicitly for the new pool.
+const analyticsDatabase = new Pool({ ...pool.options, password: pool.options.password,
+  max: PUBLIC_ANALYTICS_LIMITS.concurrent, connectionTimeoutMillis: 5000 });
 
 function budget() {
   apiFailure(422, "analytics_response_too_large", "Analytics exceeds the configured budget.");

@@ -235,6 +235,18 @@ exchange. Real consent/refresh/tools in Codex remain pending production rollout.
 
 ## Verification (2026-11-10)
 
+Dedicated pool credential regression: the OAuth pool previously copied
+`pool.options` with object spread, which omits pg's non-enumerable password.
+A production read-only probe with the active database configuration reproduced
+the resulting SASL password-type failure; explicit password transfer allowed
+`SELECT 1`. OAuth and analytics pools now retain that credential explicitly,
+while pg still hides it from enumeration and existing limits remain unchanged.
+All 969 tests, syntax, zero-warning lint, types and diff checks passed. The new
+regression uses real pg pools/clients with fixture credentials and no connection;
+it failed before the fix and passed afterward. No migration, deployment or
+restart was performed for this correction. Actual consent/token exchange must
+still be retried after rollout.
+
 Consent header regression: an isolated browser form reproduced `Origin: null`
 with `no-referrer` and the expected local origin with `same-origin`. All 14
 focused MCP tests passed, including rendered consent headers, missing/null/foreign

@@ -3,6 +3,25 @@
 Stand: 2026-11-10. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Dedicated OAuth And Analytics Pool Credentials (2026-11-10)
+
+- User reported `server_error` after consent and approved fixing both affected
+  pools. pg hides `password` from enumeration; spreading shared pool options
+  omitted it. Production read-only checks found the expected MCP schema and
+  checked table/sequence privileges. A copied-pool `SELECT 1` failed with a SASL
+  password-type error; explicit transfer succeeded with the active production
+  database configuration. No credentials or user rows were printed.
+- OAuth and analytics pools now explicitly retain `pool.options.password`,
+  preserving hidden serialization and existing limits. The real-pg fixture
+  regression failed before and passed after the fix without opening connections.
+  All 969 tests, syntax, zero-warning lint, types and diff checks passed. Initial
+  targeted analytics HTTP tests hit sandbox EPERM; the full suite passed with
+  approved temporary test ports. Docs: mcp-server.md and public-api-v1.md.
+- No migration, deployment, restart or commit. Production consent/token exchange,
+  analytics requests and MCP tools/refresh remain pending rollout and fresh login.
+  The user-provided Cognito NotAuthorizedException log originates in the login
+  path; it does not identify the independently reproduced pool failure.
+
 ## MCP Consent Origin Fix (2026-11-10)
 
 - User reported production WOA consent returning `access_denied` after allowing
