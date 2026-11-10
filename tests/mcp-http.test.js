@@ -59,6 +59,7 @@ test('HTTP MCP discovery, protocol, consent, CSRF and session-only revocation', 
     app.handle(req, res);
   });
     const metadata = await request('/.well-known/oauth-protected-resource/mcp'); assert.equal(metadata.headers.get('set-cookie'), null); assert.equal((await metadata.json()).resource, config.resource);
+    assert.equal(metadata.headers.get('referrer-policy'), 'no-referrer');
     assert.equal((await (await request('/.well-known/oauth-authorization-server')).json()).issuer, config.origin);
     const unauthorized = await request('/mcp'); assert.equal(unauthorized.status, 401); assert.ok(unauthorized.headers.get('www-authenticate').includes('resource_metadata='));
     assert.equal((await request('/mcp', { headers: { authorization: 'Bearer ' + code, origin: 'https://evil.example' } })).status, 403);
@@ -71,23 +72,39 @@ test('HTTP MCP discovery, protocol, consent, CSRF and session-only revocation', 
     assert.deepEqual((await rpc({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'list_workouts', arguments: {} } })).body.result.structuredContent.data, []);
     assert.equal((await rpc([{ jsonrpc: '2.0', id: 4, method: 'tools/list' }])).response.status, 400);
     assert.equal((await request('/mcp', { headers: { authorization: 'Bearer ' + code } })).status, 405); assert.ok(budgets.some(row => row[0] === 'user' && row[2] === '71'));
-    assert.equal((await request('/oauth/mcp/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'client_id=chatgpt' })).status, 200);
+    const exchanged = await request('/oauth/mcp/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'client_id=chatgpt' });
+    assert.equal(exchanged.status, 200); assert.equal(exchanged.headers.get('referrer-policy'), 'no-referrer');
     assert.equal((await request('/oauth/mcp/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'client_id=chatgpt&client_id=private' })).status, 400);
     const loginRedirect = await request('/oauth/mcp/authorize?' + authParams); assert.equal(loginRedirect.status, 302); assert.ok(loginRedirect.headers.get('location').startsWith('/login?redirect='));
+    assert.equal(loginRedirect.headers.get('referrer-policy'), 'no-referrer');
     const login = await request('/test-login'), cookie = login.headers.get('set-cookie').split(';')[0];
     const consent = await request('/oauth/mcp/authorize?' + authParams, { headers: { cookie } }), html = await consent.text(); assert.equal(consent.status, 200); assert.ok(html.includes('&lt;AI app&gt;')); assert.ok(consent.headers.get('content-security-policy').includes("frame-ancestors 'none'"));
+    assert.equal(consent.headers.get('referrer-policy'), 'same-origin');
+    assert.equal(consent.headers.get('cache-control'), 'no-store');
     const csrfToken = html.match(/name="csrf_token" value="([a-f0-9]{64})"/)[1];
-    const postConsent = origin => request('/oauth/mcp/authorize', { method: 'POST', headers: { cookie, origin, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ csrf_token: csrfToken, decision: 'allow' }) });
-    assert.equal((await postConsent('https://evil.example')).status, 403); const allowed = await postConsent(config.origin); assert.equal(allowed.status, 303);
+    const postConsent = (origin, token = csrfToken) => request('/oauth/mcp/authorize', { method: 'POST',
+      headers: { cookie, ...(origin === undefined ? {} : { origin }), 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ csrf_token: token, decision: 'allow' }) });
+    for (const origin of ['https://evil.example', 'null', undefined]) {
+      const rejected = await postConsent(origin); assert.equal(rejected.status, 403);
+      assert.deepEqual(await rejected.json(), { error: 'access_denied' });
+      assert.equal(events.some(event => event[0] === 'allow'), false);
+    }
+    assert.equal((await postConsent(config.origin, 'f'.repeat(64))).status, 403);
+    assert.equal(events.some(event => event[0] === 'allow'), false);
+    const allowed = await postConsent(config.origin); assert.equal(allowed.status, 303);
+    assert.equal(allowed.headers.get('referrer-policy'), 'no-referrer');
     const callback = new URL(allowed.headers.get('location')); assert.equal(callback.searchParams.get('code'), code); assert.equal(callback.searchParams.get('iss'), config.origin); assert.equal(callback.searchParams.get('state'), 'opaque-state'); assert.equal((await postConsent(config.origin)).status, 403);
     const nativeParams = new URLSearchParams(authParams); nativeParams.set('client_id', 'woa-codex'); nativeParams.set('redirect_uri', 'http://127.0.0.1:49152/callback');
     for (const decision of ['allow', 'deny']) {
       const nativeConsent = await request('/oauth/mcp/authorize?' + nativeParams, { headers: { cookie } });
       const nativeHtml = await nativeConsent.text(); assert.equal(nativeConsent.status, 200);
+      assert.equal(nativeConsent.headers.get('referrer-policy'), 'same-origin');
       const nativeCsrf = nativeHtml.match(/name="csrf_token" value="([a-f0-9]{64})"/)[1];
       const nativeResult = await request('/oauth/mcp/authorize', { method: 'POST', headers: { cookie, origin: config.origin, 'content-type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ csrf_token: nativeCsrf, decision }) });
       assert.equal(nativeResult.status, 303);
+      assert.equal(nativeResult.headers.get('referrer-policy'), 'no-referrer');
       const nativeCallback = new URL(nativeResult.headers.get('location'));
       assert.equal(nativeCallback.origin, 'http://127.0.0.1:49152'); assert.equal(nativeCallback.pathname, '/callback');
       assert.equal(nativeCallback.searchParams.get('iss'), config.origin); assert.equal(nativeCallback.searchParams.get('state'), 'opaque-state');

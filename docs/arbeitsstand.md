@@ -3,6 +3,21 @@
 Stand: 2026-11-10. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## MCP Consent Origin Fix (2026-11-10)
+
+- User reported production WOA consent returning `access_denied` after allowing
+  Codex access and approved the narrow header correction. An isolated browser
+  form reproduced `Origin: null` with `no-referrer`; `same-origin` retained the
+  expected origin. Override only the rendered consent GET to `same-origin`.
+  Exact-origin/session/expiry/CSRF checks remain; redirects and token responses
+  keep `no-referrer`. Details: docs/mcp-server.md.
+- All 14 focused MCP tests, syntax, zero-warning lint, types and diff checks
+  passed. Coverage includes missing/null/foreign Origin and invalid CSRF
+  rejection, native consent and response policies. No full-suite rerun, migration,
+  deployment, service restart or commit in this slice. User confirms production
+  login and consent UI are reachable; successful token exchange/tools/refresh
+  remain pending deployment/restart and a fresh client login.
+
 ## Codex Native OAuth Compatibility (2026-11-10)
 
 - User identified the desktop UI as Codex and approved a separate public

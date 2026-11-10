@@ -36,6 +36,13 @@ Strict input schemas forbid unknown arguments, user IDs and credentials.
 
 WOA is the authorization server for this resource. Existing WOA/Cognito login
 authenticates the browser user; an explicit WOA consent form grants access.
+The rendered consent page uses `Referrer-Policy: same-origin` so browsers retain
+the expected `Origin` on its form POST without sending referrers to other origins.
+Using `no-referrer` on this page produces `Origin: null` and fails the strict
+origin check with `access_denied`. Session ownership, expiry, CSRF and exact-origin
+checks remain mandatory; missing/null/foreign origins are rejected. Login and
+OAuth callback redirects, token responses and other MCP responses keep
+`no-referrer` and `no-store`.
 Discovery is available at:
 
 - /.well-known/oauth-protected-resource/mcp (also available at the root variant)
@@ -227,6 +234,14 @@ MCP resource and S256 request; the process was stopped before any consent/token
 exchange. Real consent/refresh/tools in Codex remain pending production rollout.
 
 ## Verification (2026-11-10)
+
+Consent header regression: an isolated browser form reproduced `Origin: null`
+with `no-referrer` and the expected local origin with `same-origin`. All 14
+focused MCP tests passed, including rendered consent headers, missing/null/foreign
+origin and invalid CSRF rejection, native allow/deny callbacks and preserved
+`no-referrer` on redirects/token responses. Syntax, zero-warning lint, types and
+diff checks passed. Production consent/token exchange must still be retried after
+deployment and restart; no migration is needed or was performed for this fix.
 
 Production setup was subsequently checked at https://cwa24.de after the user
 confirmed saving settings and restarting the app. Read-only SSH checks confirmed
