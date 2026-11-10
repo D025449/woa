@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { getSessionRedisClient } from "../services/sessionService.js";
+import { publicApiError } from "./publicApiDiagnostics.js";
 
 const SCRIPT = `
 local clock = redis.call('TIME')
@@ -34,9 +35,9 @@ export default function publicApiRateLimit(bucket, limit, identify, options = {}
       if (result.allowed) return next();
       const retry = result.retryAfter;
       res.set("Retry-After", String(Math.ceil(retry)));
-      return res.status(429).json({ error: { code: "rate_limited", message: "Request allowance exceeded.", request_id: randomUUID() } });
-    } catch {
-      return res.status(503).json({ error: { code: "service_unavailable", message: "API protection unavailable.", request_id: randomUUID() } });
+      return publicApiError(req, res, 429, "rate_limited", "Request allowance exceeded.");
+    } catch (error) {
+      return publicApiError(req, res, 503, "service_unavailable", "API protection unavailable.", error);
     }
   };
 }

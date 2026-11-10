@@ -14,6 +14,9 @@ import fs from "node:fs";
 const contract = JSON.parse(fs.readFileSync(new URL("../docs/public-api-v1.openapi.json", import.meta.url), "utf8"));
 
 test("OpenAPI describes the public workout and analytics paths and resolves all local references", () => {
+  assert.equal(contract.info.version, '1.4.0');
+  assert.deepEqual(contract['x-rate-limits'], { window_seconds: 60, ingress_per_ip: 480,
+    authenticated_per_user: 240, gps_per_user: 40, fit_per_user: 40, analytics_per_user: 40 });
   assert.deepEqual(Object.keys(contract.paths).sort(), ["/analytics/ftp-history", "/analytics/power-profile", "/analytics/summary", "/analytics/training-load",
     "/workouts", "/workouts/{id}", "/workouts/{id}/export.fit", "/workouts/{id}/gps"]);
   const visit = value => {
@@ -173,6 +176,7 @@ async function serve(context, app) {
 }
 
 test("public HTTP routes require only Bearer identity, both GPS scopes and safe JSON without browser fallback", async context => {
+  const logs = []; context.mock.method(console, 'error', text => logs.push(JSON.parse(text)));
   const original = ApiKeyService.resolve;
   context.after(() => { ApiKeyService.resolve = original; });
   ApiKeyService.resolve = async secret => {
@@ -210,7 +214,10 @@ test("public HTTP routes require only Bearer identity, both GPS scopes and safe 
   assert.deepEqual(await gps.json(), { type: "Feature", properties: { workout_id: "7" }, geometry: null });
   const broken = await get("/workouts", "outage");
   assert.equal(broken.status, 503);
-  assert.doesNotMatch(await broken.text(), /SQL|secret/);
+  const brokenBody = await broken.json();
+  assert.equal(brokenBody.error.request_id, broken.headers.get('x-request-id'));
+  assert.equal(logs.at(-1).request_id, brokenBody.error.request_id);
+  assert.doesNotMatch(JSON.stringify({ logs, brokenBody }), /SQL|secret/);
   assert.equal((await get("/workouts", "revoked")).status, 401);
   assert.equal((await get("/unknown", "read")).status, 404);
   const post = await get("/workouts", "read", { method: "POST" });
@@ -415,10 +422,10 @@ test("public HTTP errors stay within the contract across all paths and protectiv
   }
   buckets.length = 0;
   await check("/api/v1/workouts/7/gps", "read", 403, "insufficient_scope");
-  assert.deepEqual(buckets.map(({ bucket, limit }) => [bucket, limit]), [["ingress", 120], ["user", 60]]);
+  assert.deepEqual(buckets.map(({ bucket, limit }) => [bucket, limit]), [["ingress", 480], ["user", 240]]);
   buckets.length = 0;
   await check("/api/v1/workouts/7/gps", "gps", 404, "workout_not_found");
-  assert.deepEqual(buckets.map(({ bucket, limit }) => [bucket, limit]), [["ingress", 120], ["user", 60], ["gps", 10]]);
+  assert.deepEqual(buckets.map(({ bucket, limit }) => [bucket, limit]), [["ingress", 480], ["user", 240], ["gps", 40]]);
   assert.equal(buckets[1].identity, "42");
   assert.equal(buckets[2].identity, "42");
   serviceError = Object.assign(new Error("private"), { code: "gps_response_too_large" });

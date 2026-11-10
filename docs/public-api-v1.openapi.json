@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "WOA Personal Workout And Analytics API",
-    "version": "1.3.0",
-    "description": "Personal-key REST API for owned workouts and four owned analytics endpoints: summary, training load, recorded power profile and CP8/CP15 FTP history. Power profile additionally requires workouts:read for source IDs. Manual activities contribute to volume/load, never recorded performance. Migration 098 execution and initial analytics smoke test were user-confirmed on 2026-11-10; no new scope or migration for performance endpoints. MCP remains deferred. See public-api-v1.md for semantics, budgets and rollout."
+    "version": "1.4.0",
+    "description": "Personal-key REST API for owned workouts and four owned analytics endpoints, reused by the hosted OAuth MCP server. Shared retrospective UTC yearly FTP/TSS policy, multi-year analytics within technical data/history/response budgets, fourfold request quotas and correlated safe diagnostics. See public-api-v1.md for semantics and rollout."
   },
   "servers": [
     {
@@ -91,6 +91,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoStore"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
               }
             },
             "content": {
@@ -163,6 +166,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoStore"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
               }
             },
             "content": {
@@ -229,6 +235,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoStore"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
               }
             },
             "content": {
@@ -293,6 +302,9 @@
               },
               "Content-Disposition": {
                 "$ref": "#/components/headers/FitAttachment"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
               }
             },
             "content": {
@@ -338,7 +350,7 @@
           "Analytics"
         ],
         "summary": "Owned period summary",
-        "description": "Only from/to UTC dates are accepted once each. Scope analytics:read is sufficient; no workout IDs or GPS are returned. Imported non-motorsport workouts and all manual activity types contribute volume. TSS applies to classified imported cycling and manual cycling; manual estimates are distinguishable. UTC start-day attribution, full history, 42/7-day daily rounded recurrence, TSB=CTL-ATL after the day. Missing TSS is counted and contributes zero to the recurrence. No load is reported before the first known TSS. FTP uses the existing yearly function with UTC interpolation, positive values only, no backward extrapolation before the first year and last-value carry-forward. Retrospective yearly estimates may change with imported data. Ten analytics requests per rolling minute/user shared across both endpoints/keys, plus shared 60/user and 120/IP limits. At most two active calculations/process; 50000 source rows, 20000 history days, 500 FTP rows, 1 MiB response and 5 seconds per SQL statement. Exceeding budgets returns 422 without truncation; SQL/dependency failures return safe 503.",
+        "description": "Only from/to UTC dates are accepted once each. Scope analytics:read is sufficient; no workout IDs or GPS are returned. Imported non-motorsport workouts and all manual activity types contribute volume. TSS applies to classified imported cycling and manual cycling; manual estimates are distinguishable. UTC start-day attribution, full history, 42/7-day daily rounded recurrence, TSB=CTL-ATL after the day. Missing TSS is counted and contributes zero to the recurrence. No load is reported before the first known TSS. FTP uses the existing yearly function with UTC interpolation, positive values only, no backward extrapolation before the first year and last-value carry-forward. Retrospective yearly estimates may change with imported data. Forty analytics requests per rolling minute/user shared across all four endpoints, keys and MCP connections, plus shared 240/user and 480/IP limits. Multi-year date ranges are supported within the technical budgets. At most two active calculations/process; 50000 source rows, 20000 history days, 500 FTP rows, 1 MiB response and 5 seconds per SQL statement. Exceeding budgets returns 422 without truncation; SQL/dependency failures return safe 503.",
         "x-required-scopes": [
           "analytics:read"
         ],
@@ -355,7 +367,7 @@
           {
             "name": "to",
             "in": "query",
-            "description": "Exclusive UTC end date. Defaults to tomorrow UTC, including the partial current day. Cannot exceed tomorrow. Interval must contain 1-366 days.",
+            "description": "Exclusive UTC end date. Defaults to tomorrow UTC, including the partial current day. Cannot exceed tomorrow. Interval must be nonempty; multi-year ranges are supported within technical budgets.",
             "schema": {
               "type": "string",
               "format": "date"
@@ -368,6 +380,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoStore"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
               }
             },
             "content": {
@@ -425,7 +440,7 @@
           "Analytics"
         ],
         "summary": "Owned daily training load",
-        "description": "Only from/to UTC dates are accepted once each. Scope analytics:read is sufficient; no workout IDs or GPS are returned. Imported non-motorsport workouts and all manual activity types contribute volume. TSS applies to classified imported cycling and manual cycling; manual estimates are distinguishable. UTC start-day attribution, full history, 42/7-day daily rounded recurrence, TSB=CTL-ATL after the day. Missing TSS is counted and contributes zero to the recurrence. No load is reported before the first known TSS. FTP uses the existing yearly function with UTC interpolation, positive values only, no backward extrapolation before the first year and last-value carry-forward. Retrospective yearly estimates may change with imported data. Ten analytics requests per rolling minute/user shared across both endpoints/keys, plus shared 60/user and 120/IP limits. At most two active calculations/process; 50000 source rows, 20000 history days, 500 FTP rows, 1 MiB response and 5 seconds per SQL statement. Exceeding budgets returns 422 without truncation; SQL/dependency failures return safe 503.",
+        "description": "Only from/to UTC dates are accepted once each. Scope analytics:read is sufficient; no workout IDs or GPS are returned. Imported non-motorsport workouts and all manual activity types contribute volume. TSS applies to classified imported cycling and manual cycling; manual estimates are distinguishable. UTC start-day attribution, full history, 42/7-day daily rounded recurrence, TSB=CTL-ATL after the day. Missing TSS is counted and contributes zero to the recurrence. No load is reported before the first known TSS. FTP uses the existing yearly function with UTC interpolation, positive values only, no backward extrapolation before the first year and last-value carry-forward. Retrospective yearly estimates may change with imported data. Forty analytics requests per rolling minute/user shared across all four endpoints, keys and MCP connections, plus shared 240/user and 480/IP limits. Multi-year date ranges are supported within the technical budgets. At most two active calculations/process; 50000 source rows, 20000 history days, 500 FTP rows, 1 MiB response and 5 seconds per SQL statement. Exceeding budgets returns 422 without truncation; SQL/dependency failures return safe 503.",
         "x-required-scopes": [
           "analytics:read"
         ],
@@ -442,7 +457,7 @@
           {
             "name": "to",
             "in": "query",
-            "description": "Exclusive UTC end date. Defaults to tomorrow UTC, including the partial current day. Cannot exceed tomorrow. Interval must contain 1-366 days.",
+            "description": "Exclusive UTC end date. Defaults to tomorrow UTC, including the partial current day. Cannot exceed tomorrow. Interval must be nonempty; multi-year ranges are supported within technical budgets.",
             "schema": {
               "type": "string",
               "format": "date"
@@ -455,6 +470,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoStore"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
               }
             },
             "content": {
@@ -473,7 +491,7 @@
                     "data": {
                       "type": "array",
                       "minItems": 1,
-                      "maxItems": 366,
+                      "maxItems": 20000,
                       "items": {
                         "$ref": "#/components/schemas/AnalyticsDay"
                       }
@@ -517,7 +535,7 @@
           "Analytics"
         ],
         "summary": "Owned recorded power profile",
-        "description": "Owned classified cycling stored critical segments only, no manual modeled activity. Existing UTC from/to defaults and 366-day bound apply. At most 50000 scalar source efforts, 1 MiB JSON, 5 seconds per SQL statement, two shared analytics calculations/process and shared analytics 10/minute/user limits. No stream decoding, new performance calculation or silent truncation. Distinct allowlisted durations only. Each selected duration returns one winner or null fields. Tie order: power descending, exact UTC start timestamp descending, exact BIGINT workout and segment IDs descending. W/kg uses the returned power and historical source-date weight, falling back to profile weight; missing weight yields null. Requires workouts:read because workout IDs and source offsets are returned; missing it does not consume the analytics bucket.",
+        "description": "Owned classified cycling stored critical segments only, no manual modeled activity. Existing UTC from/to defaults apply; multi-year ranges are supported within technical data and response budgets. At most 50000 scalar source efforts, 1 MiB JSON, 5 seconds per SQL statement, two shared analytics calculations/process and shared analytics 40/minute/user limits. No stream decoding, new performance calculation or silent truncation. Distinct allowlisted durations only. Each selected duration returns one winner or null fields. Tie order: power descending, exact UTC start timestamp descending, exact BIGINT workout and segment IDs descending. W/kg uses the returned power and historical source-date weight, falling back to profile weight; missing weight yields null. Requires workouts:read because workout IDs and source offsets are returned; missing it does not consume the analytics bucket.",
         "x-required-scopes": [
           "analytics:read",
           "workouts:read"
@@ -535,7 +553,7 @@
           {
             "name": "to",
             "in": "query",
-            "description": "Exclusive UTC end date. Defaults to tomorrow UTC, including the partial current day. Cannot exceed tomorrow. Interval must contain 1-366 days.",
+            "description": "Exclusive UTC end date. Defaults to tomorrow UTC, including the partial current day. Cannot exceed tomorrow. Interval must be nonempty; multi-year ranges are supported within technical budgets.",
             "schema": {
               "type": "string",
               "format": "date"
@@ -557,6 +575,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoStore"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
               }
             },
             "content": {
@@ -619,7 +640,7 @@
           "Analytics"
         ],
         "summary": "Owned CP8/CP15 FTP history",
-        "description": "Owned classified cycling stored critical segments only, no manual modeled activity. Existing UTC from/to defaults and 366-day bound apply. At most 50000 scalar source efforts, 1 MiB JSON, 5 seconds per SQL statement, two shared analytics calculations/process and shared analytics 10/minute/user limits. No stream decoding, new performance calculation or silent truncation. UTC calendar grouping, default month. Per bucket, continuous p95 of positive recorded CP8 and CP15 efforts; existing log extrapolation to CP20 multiplied by 0.95. All inputs restricted to the requested date interval, so clipped buckets are marked partial. Empty buckets and missing/nonpositive estimates return null. No rolling-window FTP and no waveform or source IDs.",
+        "description": "Owned classified cycling stored critical segments only, no manual modeled activity. Existing UTC from/to defaults apply; multi-year ranges are supported within technical data and response budgets. At most 50000 scalar source efforts, 1 MiB JSON, 5 seconds per SQL statement, two shared analytics calculations/process and shared analytics 40/minute/user limits. No stream decoding, new performance calculation or silent truncation. UTC calendar grouping, default month. Per bucket, continuous p95 of positive recorded CP8 and CP15 efforts; existing log extrapolation to CP20 multiplied by 0.95. All inputs restricted to the requested date interval, so clipped buckets are marked partial. Empty buckets and missing/nonpositive estimates return null. No rolling-window FTP and no waveform or source IDs.",
         "x-required-scopes": [
           "analytics:read"
         ],
@@ -636,7 +657,7 @@
           {
             "name": "to",
             "in": "query",
-            "description": "Exclusive UTC end date. Defaults to tomorrow UTC, including the partial current day. Cannot exceed tomorrow. Interval must contain 1-366 days.",
+            "description": "Exclusive UTC end date. Defaults to tomorrow UTC, including the partial current day. Cannot exceed tomorrow. Interval must be nonempty; multi-year ranges are supported within technical budgets.",
             "schema": {
               "type": "string",
               "format": "date"
@@ -663,6 +684,9 @@
             "headers": {
               "Cache-Control": {
                 "$ref": "#/components/headers/NoStore"
+              },
+              "X-Request-ID": {
+                "$ref": "#/components/headers/RequestId"
               }
             },
             "content": {
@@ -681,10 +705,10 @@
                     "data": {
                       "type": "array",
                       "minItems": 1,
-                      "maxItems": 54,
                       "items": {
                         "$ref": "#/components/schemas/FtpHistoryPoint"
-                      }
+                      },
+                      "description": "All requested calendar buckets, bounded by the 1 MiB JSON response budget checked during construction. No annual bucket-count cap."
                     }
                   }
                 }
@@ -778,6 +802,13 @@
           "type": "string",
           "example": "attachment; filename=\"2026-11-09-09-00-00.fit\""
         }
+      },
+      "RequestId": {
+        "description": "Server-generated UUID for this request. Error bodies and sanitized public_api_error logs use the same ID. Client-provided IDs are ignored.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
       }
     },
     "responses": {
@@ -786,6 +817,9 @@
         "headers": {
           "Cache-Control": {
             "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
           }
         },
         "content": {
@@ -804,6 +838,9 @@
           },
           "WWW-Authenticate": {
             "$ref": "#/components/headers/BearerChallenge"
+          },
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
           }
         },
         "content": {
@@ -819,6 +856,9 @@
         "headers": {
           "Cache-Control": {
             "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
           }
         },
         "content": {
@@ -834,6 +874,9 @@
         "headers": {
           "Cache-Control": {
             "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
           }
         },
         "content": {
@@ -849,6 +892,9 @@
         "headers": {
           "Cache-Control": {
             "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
           }
         },
         "content": {
@@ -867,6 +913,9 @@
           },
           "Retry-After": {
             "$ref": "#/components/headers/RetryAfter"
+          },
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
           }
         },
         "content": {
@@ -882,6 +931,9 @@
         "headers": {
           "Cache-Control": {
             "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
           }
         },
         "content": {
@@ -900,6 +952,9 @@
           },
           "Allow": {
             "$ref": "#/components/headers/Allow"
+          },
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
           }
         },
         "content": {
@@ -915,6 +970,9 @@
         "headers": {
           "Cache-Control": {
             "$ref": "#/components/headers/NoStore"
+          },
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
           }
         },
         "content": {
@@ -932,6 +990,11 @@
             "schema": {
               "$ref": "#/components/schemas/Error"
             }
+          }
+        },
+        "headers": {
+          "X-Request-ID": {
+            "$ref": "#/components/headers/RequestId"
           }
         }
       }
@@ -1128,7 +1191,7 @@
             "type": "integer",
             "minimum": 0,
             "nullable": true,
-            "description": "Estimated TSS with rounded historical yearly FTP for road, mountain and indoor workouts. Unknown/motorsport classifications and missing prerequisites yield null. Valid computed zero remains zero."
+            "description": "Estimated integer TSS using the unrounded retrospective UTC yearly FTP basis shared with analytics. Classified cycling only; missing prerequisites or a date before the first valid FTP anchor yields null. Valid zero remains zero."
           },
           "intensity_factor": {
             "$ref": "#/components/schemas/NullableMetric"
@@ -1138,7 +1201,7 @@
             "minimum": 0,
             "exclusiveMinimum": true,
             "nullable": true,
-            "description": "Historical FTP used for derived load metrics, or null. Can change with FTP history."
+            "description": "Unrounded UTC yearly FTP interpolation used for IF/TSS. Null before the first valid anchor; after the last anchor use its FTP. May change with FTP history."
           },
           "workout_type": {
             "$ref": "#/components/schemas/WorkoutType"
@@ -1926,5 +1989,13 @@
         }
       }
     }
+  },
+  "x-rate-limits": {
+    "window_seconds": 60,
+    "ingress_per_ip": 480,
+    "authenticated_per_user": 240,
+    "gps_per_user": 40,
+    "fit_per_user": 40,
+    "analytics_per_user": 40
   }
 }

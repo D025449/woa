@@ -1,5 +1,6 @@
 import express from "express";
-import { randomUUID } from "node:crypto";
+import { publicApiDiagnostics, publicApiError } from "../middleware/publicApiDiagnostics.js";
+import { PUBLIC_API_QUOTAS } from "../services/publicApiLimits.js";
 import apiKeyAuth from "../middleware/apiKeyAuth.js";
 import publicApiRateLimit from "../middleware/publicApiRateLimit.js";
 import PublicWorkoutApiService, { apiFailure } from "../services/publicWorkoutApiService.js";
@@ -15,6 +16,7 @@ function rejectQuery(req) {
 export function createPublicWorkoutApiRouter({ service = new PublicWorkoutApiService(), rateLimit = publicApiRateLimit,
   httpsOnly = process.env.NODE_ENV === "production" } = {}) {
   const router = express.Router();
+  router.use(publicApiDiagnostics("workouts"));
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
     res.set("Referrer-Policy", "no-referrer");
@@ -26,8 +28,8 @@ export function createPublicWorkoutApiRouter({ service = new PublicWorkoutApiSer
     }
     next();
   });
-  router.use(rateLimit("ingress", 120, req => req.ip), apiKeyAuth(["workouts:read"]),
-    rateLimit("user", 60, req => req.apiAuth.userId));
+  router.use(rateLimit("ingress", PUBLIC_API_QUOTAS.ingress, req => req.ip), apiKeyAuth(["workouts:read"]),
+    rateLimit("user", PUBLIC_API_QUOTAS.user, req => req.apiAuth.userId));
 
   router.get("/workouts", async (req, res, next) => {
     try { res.json(await service.list(req.apiAuth.userId, query(req))); }
@@ -38,7 +40,7 @@ export function createPublicWorkoutApiRouter({ service = new PublicWorkoutApiSer
       apiFailure(403, "insufficient_scope", "Required API scope is missing.");
     }
     next();
-  }, rateLimit("fit", 10, req => req.apiAuth.userId), async (req, res, next) => {
+  }, rateLimit("fit", PUBLIC_API_QUOTAS.fit, req => req.apiAuth.userId), async (req, res, next) => {
     try {
       rejectQuery(req);
       const result = await service.fit(req.apiAuth.userId, req.params.id);
@@ -51,7 +53,7 @@ export function createPublicWorkoutApiRouter({ service = new PublicWorkoutApiSer
       apiFailure(403, "insufficient_scope", "Required API scope is missing.");
     }
     next();
-  }, rateLimit("gps", 10, req => req.apiAuth.userId), async (req, res, next) => {
+  }, rateLimit("gps", PUBLIC_API_QUOTAS.gps, req => req.apiAuth.userId), async (req, res, next) => {
     try {
       rejectQuery(req);
       res.type("application/geo+json").send(await service.gps(req.apiAuth.userId, req.params.id));
@@ -74,7 +76,7 @@ export function createPublicWorkoutApiRouter({ service = new PublicWorkoutApiSer
     const code = error instanceof URIError ? "invalid_request" : Object.hasOwn(messages, error?.code) ? error.code : "service_unavailable";
     const [status, message] = messages[code] || [503, "API service unavailable."];
     if (status === 429) res.set("Retry-After", "1");
-    res.status(status).type("application/json").json({ error: { code, message, request_id: randomUUID() } });
+    publicApiError(req, res, status, code, message, error);
   });
   return router;
 }

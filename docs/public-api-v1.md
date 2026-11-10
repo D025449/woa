@@ -57,11 +57,11 @@ atomic Lua operation, with Redis time as the clock:
 
 | Bucket | Limit | Identity |
 | --- | --- | --- |
-| Ingress, before authentication | 120/minute | Client IP |
-| All authenticated public requests | 60/minute | User, shared across all keys |
-| GPS, after both scope checks | 10/minute | User, shared across all keys |
-| FIT, after all three scope checks | 10/minute | User, shared across all keys |
-| Analytics, after its scope check | 10/minute | User, shared across all four endpoints, keys and MCP connections |
+| Ingress, before authentication | 480/minute | Client IP |
+| All authenticated public requests | 240/minute | User, shared across all keys |
+| GPS, after both scope checks | 40/minute | User, shared across all keys |
+| FIT, after all three scope checks | 40/minute | User, shared across all keys |
+| Analytics, after its scope check | 40/minute | User, shared across all four endpoints, keys and MCP connections |
 
 Rejected ingress attempts do not consume a user bucket; a missing GPS scope
 does not consume the GPS bucket; missing FIT permissions do not consume the FIT
@@ -142,8 +142,12 @@ These are API field names, not an automatic serialization of database rows.
 | `perceived_exertion` | Existing 1-10 subjective scale, or null |
 | `gps_available`, `gps_source`, `gps_sample_interval_seconds` | GPS presence and non-location provenance; `gps_source` is `recorded`, `manual_lookup` or null |
 
-NP is persisted; IF and TSS are derived using the same historical FTP policy as
-the workout dashboard (`post_calculations` currently uses yearly interpolation).
+NP is persisted; public workout and analytics services share retrospective UTC
+yearly FTP interpolation. Both load the full bounded anchor series, including
+the following year when it exists. No FTP applies before the first valid anchor;
+after the last anchor, its value is retained. The interpolated FTP is not rounded
+before calculating IF/TSS. This public policy is distinct from the legacy browser
+calculation, which remains unchanged.
 For classified cycling workouts (`road`, `mountain`, `indoor`) with a valid
 positive FTP and finite non-negative NP and timer duration,
 IF = NP / FTP and TSS = round(duration_seconds / 3600 * IF * IF * 100).
@@ -182,6 +186,13 @@ Return JSON errors shaped as `{ "error": { "code": "...", "message": "...",
 code. No HTML login redirects, stack traces, SQL, tokens or provider error dumps.
 All success/error responses use `Cache-Control: no-store`; HTTP 401 carries a
 Bearer challenge and HTTP 429 carries `Retry-After` seconds.
+Every public response carries a server-generated `X-Request-ID`. REST error
+bodies and structured `public_api_error` server logs share that ID; inbound
+request IDs are ignored. Logs contain only the family, allowlisted HTTP method
+and route template, status, public error code and allowlisted dependency reason
+(for example `28P01` or `database_password_type`). No request URL/query/body,
+Authorization/cookie, user identity, raw exception message or stack is logged.
+Diagnostic sink failures do not replace the API response.
 
 | HTTP | Meaning |
 | --- | --- |
@@ -231,7 +242,8 @@ on completion, timeout and failure. No route is shortened to fit a budget.
 Workout SQL runs in read-only transactions with a five-second timeout per
 statement. This is not an end-to-end deadline or a pool-acquisition limit.
 GPS decoding happens outside the database transaction. FTP is read once per
-nonempty page, using the dashboard's yearly interpolation and rounded basis.
+nonempty page, using the shared UTC interpolation and unrounded basis; at most
+500 yearly anchors are accepted.
 Database query plans and production route distributions remain unmeasured.
 The API's API-key scopes are expressed with `x-required-scopes` in OpenAPI:
 HTTP Bearer security itself cannot declare OAuth scope lists. No OAuth
@@ -311,7 +323,7 @@ keys receive no analytics rights automatically.
 ### Dates And Included Activities
 
 - Only `from` and `to` are accepted, once each, as valid `YYYY-MM-DD` UTC dates.
-  `from` is inclusive and `to` exclusive. Intervals contain 1-366 days. `to` cannot
+  `from` is inclusive and `to` exclusive. Intervals must contain at least one day; multi-year ranges are supported. `to` cannot
   exceed tomorrow UTC. Without parameters, include the latest 28 UTC calendar days
   through today; providing only `to` uses its preceding 28 days. Unknown parameters,
   offsets/timestamps, duplicate parameters and invalid intervals return 400.
@@ -370,7 +382,7 @@ issue; this API does not reuse it or change the coaching context in this slice.
 
 | Resource | Maximum |
 | --- | --- |
-| Requested UTC calendar days | 366 |
+| Requested UTC calendar days | No annual cap; technical history/response budgets apply |
 | Combined owned scalar source rows, including history | 50,000 |
 | Daily load history span through `to` | 20,000 days |
 | Yearly FTP rows | 500 |
@@ -379,8 +391,8 @@ issue; this API does not reuse it or change the coaching context in this slice.
 | Dedicated analytics DB connections per process | 2 |
 | Analytics connection wait / individual SQL statement | 5 seconds / 5 seconds |
 
-All four analytics endpoints share the 10/minute/user analytics bucket, plus the same
-60/minute/user and 120/minute/IP buckets as workout endpoints. Redis enforces
+All four analytics endpoints share the 40/minute/user analytics bucket, plus the same
+240/minute/user and 480/minute/IP buckets as workout endpoints. Redis enforces
 rolling limits across keys/processes. Computation concurrency is per process.
 Scalar projections bind the authenticated owner independently in both UNION
 branches and fetch at most the row limit plus one. Source and FTP reads share a
@@ -395,6 +407,11 @@ explicit credential transfer fixes the copied-pool connection failure; actual
 analytics requests after deployment remain to be verified.
 The connection is released before aggregation. No stream decompression, worker,
 cache, write or new dependency is required.
+Removing the annual constraint does not remove technical limits. Summary
+responses serialize totals and the latest load without the unreturned daily
+series; daily training-load still enforces the 1 MiB response budget. Both retain
+the 20,000-day computation-history cap. FTP bucket construction checks its JSON
+budget incrementally so a very long range cannot allocate an unbounded result.
 
 Oversized source/history/FTP/response returns 422 `analytics_response_too_large`
 without a truncated successful result. Busy computation or rate limits return
@@ -422,10 +439,11 @@ credential verification is implied.
 
 ## Recorded Power Profile And FTP History
 
-These endpoints use the same UTC `from`/`to` date rules, 28-day default, 366-day
-maximum, read-only repeatable-read snapshot, 5-second SQL/connection budgets,
+These endpoints use the same UTC `from`/`to` date rules and 28-day default, with
+multi-year ranges supported, read-only repeatable-read snapshot and 5-second
+SQL/connection budgets,
 two shared concurrent analytics calculations and 1 MiB response budget as the
-first analytics slice. All four endpoints share the 10/minute/user analytics
+first analytics slice. All four endpoints share the 40/minute/user analytics
 bucket. No new scope, key upgrade or migration is introduced.
 
 Only owned imported `road`, `mountain` and `indoor` workouts with stored `crit`
@@ -569,6 +587,22 @@ mobile layout. SQL constraints, live PostgreSQL concurrency and real-session/pro
 integration have not been executed or verified against a database.
 
 ### Public Endpoint Verification And Rollout
+
+The 2026-11-10 improvements align workout/analytics FTP and TSS, remove the
+366-day request cap for all four analytics endpoints and increase REST/MCP
+request quotas by four. OpenAPI is v1.4.0. Technical row/byte/SQL/worker/concurrency
+limits and key/grant lifetimes are unchanged. Multi-year requests may still
+return 422 when their actual computation or response exceeds those budgets.
+Historical derived workout TSS/IF may change under the unified FTP policy.
+No migration is required; code deployment and process restart are required.
+All 976 tests, syntax, zero-warning lint, types and diff checks passed. New tests
+compare actual workout and analytics services at fractional-year FTP anchors and
+before/after available history, exercise all four MCP analytics tools across
+multiple years, preserve large-range resource errors and verify quota wiring.
+Diagnostics tests bind response/header/log IDs, reject inbound ID substitution,
+keep dependency messages and credentials out of logs and tolerate log-sink
+failure. Production queries/data and the new quotas remain to be checked after
+rollout; no assistant migration, deployment or restart was performed.
 
 Recorded-performance completion: all 954 tests, syntax, zero-warning lint, types
 and diff checks passed. New coverage includes strict options, missing/zero effort

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { publicApiError } from "./publicApiDiagnostics.js";
 import ApiKeyService, { API_KEY_SCOPES } from "../services/apiKeyService.js";
 
 export default function apiKeyAuth(requiredScopes = []) {
@@ -11,9 +11,9 @@ export default function apiKeyAuth(requiredScopes = []) {
   return async (req, res, next) => {
     delete req.apiAuth;
     res.set("Cache-Control", "no-store");
-    const reject = (status, code, message) => {
+    const reject = (status, code, message, error = undefined) => {
       if (status === 401) res.set("WWW-Authenticate", 'Bearer realm="woa-api"');
-      return res.status(status).json({ error: { code, message, request_id: randomUUID() } });
+      return publicApiError(req, res, status, code, message, error);
     };
     const header = req.get("authorization");
     const match = typeof header === "string" && /^Bearer (\S+)$/i.exec(header);
@@ -28,7 +28,7 @@ export default function apiKeyAuth(requiredScopes = []) {
     } catch (error) {
       if (error?.statusCode === 401) return reject(401, "unauthorized", "Invalid API key.");
       if (error?.statusCode === 403) return reject(403, "account_unavailable", "Account is not available.");
-      return reject(503, "service_unavailable", "API authentication is unavailable.");
+      return reject(503, "service_unavailable", "API authentication is unavailable.", error);
     }
   };
 }

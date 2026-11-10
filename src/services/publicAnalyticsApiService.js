@@ -3,10 +3,11 @@ import { Pool } from "pg";
 import { FileDBService } from "./fileDBService.js";
 import { apiFailure, publicWorkoutId } from "./publicWorkoutApiService.js";
 import { parsePerformanceOptions, selectPublicPowerEfforts, buildPublicPowerProfile, buildPublicFtpHistory } from "./publicAnalyticsPowerService.js";
+import { PUBLIC_ANALYTICS_LIMITS } from "./publicApiLimits.js";
+import { prepareYearlyFtpSeries, yearlyFtpAt as analyticsFtpAt, derivedCyclingMetrics } from "./publicTrainingMetrics.js";
+export { PUBLIC_ANALYTICS_LIMITS, analyticsFtpAt };
 
 const DAY = 86400000;
-export const PUBLIC_ANALYTICS_LIMITS = Object.freeze({ days: 366, rows: 50000,
-  historyDays: 20000, ftpRows: 500, responseBytes: 1024 * 1024, concurrent: 2 });
 // Keep analytics connection waits bounded without changing the application's
 // existing shared pool or its other callers.
 // pg hides password from enumeration, so preserve it explicitly for the new pool.
@@ -36,8 +37,8 @@ export function parsePublicAnalyticsQuery(params, now = Date.now()) {
   const today = Math.floor(now / DAY) * DAY;
   const to = params.has("to") ? dateValue(params.get("to")) : today + DAY;
   const from = params.has("from") ? dateValue(params.get("from")) : to - 28 * DAY;
-  if (from >= to || to > today + DAY || (to - from) / DAY > PUBLIC_ANALYTICS_LIMITS.days) {
-    apiFailure(400, "invalid_request", "Use a past/current interval of at most 366 days.");
+  if (from >= to || to > today + DAY) {
+    apiFailure(400, "invalid_request", "Use a nonempty past/current UTC interval.");
   }
   return { from: new Date(from).toISOString().slice(0, 10), to: new Date(to).toISOString().slice(0, 10) };
 }
@@ -52,20 +53,6 @@ function rounded(value) {
   const result = Math.round(value * 1000) / 1000;
   if (!Number.isFinite(result)) budget();
   return result;
-}
-
-// The existing yearly FTP method, with UTC anchors and no fallback to a later
-// year's value before the first available year. Results are retrospective.
-export function analyticsFtpAt(series, time) {
-  if (!series.length || time < series[0].time) return null;
-  let low = 0, high = series.length - 1;
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2);
-    if (series[middle].time <= time) low = middle; else high = middle - 1;
-  }
-  const left = series[low], right = series[low + 1];
-  const value = right ? left.ftp + (time - left.time) / (right.time - left.time) * (right.ftp - left.ftp) : left.ftp;
-  return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function statistics() {
@@ -97,14 +84,11 @@ function addActivity(stats, row, duration, tss, applicable) {
   }
 }
 
-export function buildPublicAnalytics(rows, ftpRows, range, now, limits = PUBLIC_ANALYTICS_LIMITS) {
+export function buildPublicAnalytics(rows, ftpRows, range, now, limits = PUBLIC_ANALYTICS_LIMITS, { includeDays = true } = {}) {
   if (rows.length > limits.rows || ftpRows.length > limits.ftpRows) budget();
   const from = dateValue(range.from), to = dateValue(range.to);
   const today = Math.floor(now / DAY) * DAY;
-  const ftpSeries = ftpRows.map(row => ({ period: Number(row.period), ftp: nonnegative(row.ftp) }))
-    .filter(row => Number.isInteger(row.period) && row.period >= 1000 && row.period <= 9999 && row.ftp > 0)
-    .map(row => ({ ...row, time: Date.parse(String(row.period) + "-01-01T00:00:00Z") }))
-    .sort((a, b) => a.time - b.time);
+  const ftpSeries = prepareYearlyFtpSeries(ftpRows);
   const days = new Map();
   const totals = statistics();
   let firstLoad = null;
@@ -122,11 +106,7 @@ export function buildPublicAnalytics(rows, ftpRows, range, now, limits = PUBLIC_
       if (manual && (row.tss_source === "manual" || row.tss_source == null)) tss = nonnegative(row.estimated_tss);
       if (tss == null) {
         const ftp = analyticsFtpAt(ftpSeries, time);
-        const power = nonnegative(row.avg_normalized_power);
-        if (ftp > 0 && power != null && duration != null) {
-          tss = Math.round(duration / 3600 * (power / ftp) ** 2 * 100);
-          if (!Number.isFinite(tss)) budget();
-        }
+        tss = derivedCyclingMetrics(row.avg_normalized_power, duration, ftp, true).tss;
       }
       if (tss != null) firstLoad = firstLoad == null ? day : Math.min(firstLoad, day);
       else historyMissing += 1;
@@ -146,7 +126,8 @@ export function buildPublicAnalytics(rows, ftpRows, range, now, limits = PUBLIC_
   const history = [];
   for (let day = loadStart; day < to; day += DAY) history.push({ day: new Date(day).toISOString().slice(0, 10), tss: days.get(day)?.tss || 0 });
   const load = FileDBService.computeCTLATL(history);
-  const data = load.filter(point => dateValue(point.date) >= from).map(point => {
+  const points = includeDays ? load.filter(point => dateValue(point.date) >= from) : [load.at(-1)];
+  const data = points.map(point => {
     const day = dateValue(point.date);
     const known = firstLoad != null && day >= firstLoad;
     return { date: point.date, ...finishStatistics(days.get(day) || statistics()),
@@ -194,13 +175,13 @@ export default class PublicAnalyticsApiService {
         ") owned ORDER BY start_time LIMIT $4"
       ].join(" "), [userId, range.to + "T00:00:00Z", new Date(now).toISOString(), PUBLIC_ANALYTICS_LIMITS.rows + 1]);
       if (rows.length > PUBLIC_ANALYTICS_LIMITS.rows) budget();
-      const ftp = await client.query("SELECT period, ftp FROM get_ftp_by_period2($1, $2) WHERE period <= $3 ORDER BY period LIMIT $4",
-        [userId, "year", new Date(dateValue(range.to) - 1).getUTCFullYear(), PUBLIC_ANALYTICS_LIMITS.ftpRows + 1]);
+      const ftp = await client.query("SELECT period, ftp FROM get_ftp_by_period2($1, $2) ORDER BY period LIMIT $3",
+        [userId, "year", PUBLIC_ANALYTICS_LIMITS.ftpRows + 1]);
       if (ftp.rows.length > PUBLIC_ANALYTICS_LIMITS.ftpRows) budget();
       await client.query("COMMIT");
       client.release();
       client = null;
-      const result = buildPublicAnalytics(rows, ftp.rows, range, now);
+      const result = buildPublicAnalytics(rows, ftp.rows, range, now, PUBLIC_ANALYTICS_LIMITS, { includeDays: kind !== "summary" });
       return { meta: result.meta, data: kind === "summary" ? result.summary : result.days };
     } catch (error) {
       if (client) await client.query("ROLLBACK").catch(() => {});

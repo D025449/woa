@@ -7,6 +7,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createTrainingMcpServer, MCP_TOOL_NAMES } from '../src/services/mcpServerService.js';
 import McpOAuthService, { mcpTokenHash } from '../src/services/mcpOAuthService.js';
 import { readMcpConfig, mcpScopes, mcpRedirectMatches } from '../src/services/mcpConfig.js';
+import AnalyticsService from '../src/services/publicAnalyticsApiService.js';
 
 export const config = readMcpConfig({ MCP_PUBLIC_ORIGIN: 'https://woa.example', MCP_OAUTH_CLIENTS: JSON.stringify([
   { client_id: 'chatgpt', client_name: '<AI app>', redirect_uris: ['https://client.example/callback'] },
@@ -148,7 +149,7 @@ async function protocol(ctx, options = {}) {
 
 test('real MCP advertises exactly six scoped read-only tools with strict schemas', async () => {
   for (const [scopes, expected] of [[context.scopes, MCP_TOOL_NAMES], [['analytics:read'], ['get_training_summary', 'get_training_load', 'get_ftp_history']], [['workouts:read'], ['list_workouts', 'get_workout']]]) {
-    const p = await protocol({ ...context, scopes }); try { assert.equal(p.client.getServerVersion().name, 'woa-training'); const { tools } = await p.client.listTools(); assert.deepEqual(tools.map(tool => tool.name), expected); for (const tool of tools) { assert.equal(tool.annotations.readOnlyHint, true); assert.equal(tool.annotations.destructiveHint, false); assert.equal(tool.inputSchema.additionalProperties, false); } assert.ok(!JSON.stringify(tools).includes('api_key')); } finally { await p.close(); }
+    const p = await protocol({ ...context, scopes }); try { assert.equal(p.client.getServerVersion().name, 'woa-training'); const { tools } = await p.client.listTools(); assert.deepEqual(tools.map(tool => tool.name), expected); for (const tool of tools) { assert.equal(tool.annotations.readOnlyHint, true); assert.equal(tool.annotations.destructiveHint, false); assert.equal(tool.inputSchema.additionalProperties, false); } assert.ok(!JSON.stringify(tools).includes('api_key')); assert.ok(!JSON.stringify(tools).includes('366')); } finally { await p.close(); }
   }
 });
 
@@ -157,15 +158,29 @@ test('real MCP dispatches owned IDs, dates, paging and shared analytics budgets'
   const p = await protocol(context, { workouts: service, analytics: service, allowance: async (...args) => { budgets.push(args); return { allowed: true, retryAfter: 0 }; } });
   try {
     for (const name of MCP_TOOL_NAMES) { const args = name === 'get_workout' ? { workout_id: '9007199254740993' } : name === 'list_workouts' ? { limit: 12, cursor: 'opaque' } : { from: '2026-10-01', to: '2026-11-01', ...(name === 'get_power_profile' ? { durations: [5, 480] } : name === 'get_ftp_history' ? { grouping: 'week' } : {}) }; const result = await p.client.callTool({ name, arguments: args }); assert.ok(!result.isError); assert.deepEqual(JSON.parse(result.content[0].text), result.structuredContent); }
-    assert.equal(calls.length, 6); assert.ok(calls.every(call => call[1] === '71')); assert.equal(calls.find(call => call[0] === 'detail')[2], '9007199254740993'); assert.equal(calls.find(call => call[0] === 'powerProfile')[2].durations, '5,480'); assert.equal(budgets.length, 4); assert.ok(budgets.every(args => args.join(',') === 'analytics,10,71'));
+    assert.equal(calls.length, 6); assert.ok(calls.every(call => call[1] === '71')); assert.equal(calls.find(call => call[0] === 'detail')[2], '9007199254740993'); assert.equal(calls.find(call => call[0] === 'powerProfile')[2].durations, '5,480'); assert.equal(budgets.length, 4); assert.ok(budgets.every(args => args.join(',') === 'analytics,40,71'));
     for (const args of [{ owner: '72' }, { api_key: 'SECRET' }, { limit: 101 }, { limit: '20' }]) assert.equal((await p.client.callTool({ name: 'list_workouts', arguments: args })).isError, true);
     assert.equal((await p.client.callTool({ name: 'get_power_profile', arguments: { durations: [5, 5] } })).isError, true); assert.equal(calls.length, 6);
   } finally { await p.close(); }
 });
 
-test('MCP rechecks revocation and owner and safely reports quota, size and service failures', async () => {
+test('real MCP analytics dispatch accepts multi-year ranges through the shared services', async () => {
+  const analytics = new AnalyticsService({ database: scriptedDb(() => ({ rows: [] })), now: () => Date.parse('2026-11-10T12:00:00Z') });
+  const p = await protocol(context, { analytics, allowance: async (_bucket, limit) => { assert.equal(limit, 40); return { allowed: true }; } });
+  try {
+    for (const name of ['get_training_summary', 'get_training_load', 'get_power_profile', 'get_ftp_history']) {
+      const result = await p.client.callTool({ name, arguments: { from: '2024-01-01', to: '2026-01-01' } });
+      assert.equal(result.isError, undefined);
+      assert.equal(result.structuredContent.meta.from, '2024-01-01');
+      if (name === 'get_training_load') assert.equal(result.structuredContent.data.length, 731);
+    }
+  } finally { await p.close(); }
+});
+
+test('MCP rechecks revocation and owner and safely reports quota, size and service failures', async t => {
+  const logs = []; t.mock.method(console, 'error', text => logs.push(JSON.parse(text)));
   for (const [options, expected] of [[{ authorize: async () => { throw Object.assign(new Error('SECRET'), { code: 'invalid_token' }); } }, 'invalid_token'], [{ authorize: async () => ({ ...context, userId: '72' }) }, 'insufficient_scope'], [{ authorize: async () => ({ ...context, scopes: [] }) }, 'insufficient_scope'], [{ allowance: async () => ({ allowed: false, retryAfter: 31 }) }, 'rate_limited'], [{ allowance: async () => { throw new Error('SECRET redis URL'); } }, 'service_unavailable'], [{ allowance: async () => ({ allowed: true }), analytics: { summary: async () => { throw new Error('SECRET SQL'); } } }, 'service_unavailable'], [{ allowance: async () => ({ allowed: true }), analytics: { summary: async () => ({ data: 'x'.repeat(1024 * 1024) }) } }, 'response_too_large']]) {
-    const p = await protocol(context, options); try { const result = await p.client.callTool({ name: 'get_training_summary', arguments: {} }); assert.equal(result.isError, true); assert.equal(JSON.parse(result.content[0].text).error.code, expected); assert.ok(!JSON.stringify(result).includes('SECRET')); } finally { await p.close(); }
+    const p = await protocol(context, options); try { const result = await p.client.callTool({ name: 'get_training_summary', arguments: {} }); assert.equal(result.isError, true); const payload = JSON.parse(result.content[0].text); assert.equal(payload.error.code, expected); assert.equal(payload.error.request_id, logs.at(-1).request_id); assert.ok(!JSON.stringify({ result, logs }).includes('SECRET')); } finally { await p.close(); }
   }
 });
 

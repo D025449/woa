@@ -10,7 +10,8 @@ import McpOAuthService from '../src/services/mcpOAuthService.js';
 import { readMcpConfig } from '../src/services/mcpConfig.js';
 import { createI18nMiddleware } from '../src/i18n/index.js';
 
-test('HTTP MCP discovery, protocol, consent, CSRF and session-only revocation', async () => {
+test('HTTP MCP discovery, protocol, consent, CSRF and session-only revocation', async testContext => {
+  const logs = []; testContext.mock.method(console, 'error', text => logs.push(JSON.parse(text)));
   const config = readMcpConfig({ MCP_PUBLIC_ORIGIN: 'https://woa.example', MCP_OAUTH_CLIENTS: JSON.stringify([
     { client_id: 'chatgpt', client_name: '<AI app>', redirect_uris: ['https://client.example/callback'] },
     { client_id: 'woa-codex', client_name: 'Codex', redirect_uris: ['http://127.0.0.1/callback'] }
@@ -19,9 +20,10 @@ test('HTTP MCP discovery, protocol, consent, CSRF and session-only revocation', 
   const authParams = new URLSearchParams({ response_type: 'code', client_id: 'chatgpt', redirect_uri: 'https://client.example/callback', resource: config.resource,
     code_challenge_method: 'S256', code_challenge: createHash('sha256').update('v'.repeat(43)).digest('base64url'), scope: context.scopes.join(' '), state: 'opaque-state' });
   const app = express(), budgets = [], events = []; const realOAuth = new McpOAuthService(config, {});
+  let exchangeFailure;
   const fakeOAuth = { authorization: params => realOAuth.authorization(params), client: (id, secret) => realOAuth.client(id, secret),
     resolve: async token => { if (token !== code) throw Object.assign(new Error(), { code: 'invalid_token' }); return context; },
-    exchange: async (_body, client) => { events.push(['exchange', client.client_id]); return { access_token: code, token_type: 'Bearer' }; },
+    exchange: async (_body, client) => { if (exchangeFailure) throw exchangeFailure; events.push(['exchange', client.client_id]); return { access_token: code, token_type: 'Bearer' }; },
     authorize: async (owner, request) => { events.push(['allow', owner, request]); return code; },
     list: async owner => { events.push(['list', owner]); return [{ id: '123', client_name: '<AI app>', scopes: context.scopes }]; },
     revoke: async (owner, id) => { events.push(['revoke', owner, id]); }, revokeToken: async () => {} };
@@ -74,6 +76,15 @@ test('HTTP MCP discovery, protocol, consent, CSRF and session-only revocation', 
     assert.equal((await request('/mcp', { headers: { authorization: 'Bearer ' + code } })).status, 405); assert.ok(budgets.some(row => row[0] === 'user' && row[2] === '71'));
     const exchanged = await request('/oauth/mcp/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'client_id=chatgpt' });
     assert.equal(exchanged.status, 200); assert.equal(exchanged.headers.get('referrer-policy'), 'no-referrer');
+    exchangeFailure = Object.assign(new Error('PRIVATE password and SQL'), { code: '28P01' });
+    const failedExchange = await request('/oauth/mcp/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-request-id': 'PRIVATE' }, body: 'client_id=chatgpt' });
+    assert.equal(failedExchange.status, 503); assert.deepEqual(await failedExchange.json(), { error: 'server_error' });
+    assert.equal(logs.at(-1).request_id, failedExchange.headers.get('x-request-id'));
+    assert.equal(logs.at(-1).reason, '28P01'); assert.ok(!JSON.stringify(logs).includes('PRIVATE'));
+    exchangeFailure = null;
+    assert.ok(budgets.some(row => row[0] === 'ingress' && row[1] === 480));
+    assert.ok(budgets.some(row => row[0] === 'user' && row[1] === 240));
+    assert.ok(budgets.some(row => row[0] === 'mcp-oauth' && row[1] === 120));
     assert.equal((await request('/oauth/mcp/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'client_id=chatgpt&client_id=private' })).status, 400);
     const loginRedirect = await request('/oauth/mcp/authorize?' + authParams); assert.equal(loginRedirect.status, 302); assert.ok(loginRedirect.headers.get('location').startsWith('/login?redirect='));
     assert.equal(loginRedirect.headers.get('referrer-policy'), 'no-referrer');

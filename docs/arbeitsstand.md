@@ -3,6 +3,33 @@
 Stand: 2026-11-10. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## Public REST/MCP Metrics, Ranges And Diagnostics (2026-11-10)
+
+- User approved shared FTP/TSS and correlated safe diagnostics, then requested
+  removing the annual analytics constraint and increasing quotas by four. All
+  four analytics endpoints and MCP tools accept multi-year UTC ranges. Default
+  remains 28 days; row/byte/SQL/history/concurrency budgets remain. Summary avoids
+  serializing unreturned daily results; FTP bucket bytes are checked incrementally.
+- Workout and analytics services use one UTC yearly FTP/TSS policy and the same
+  full bounded anchor query, including following-year anchors. No FTP before the
+  first valid anchor; retain the last afterward; no pre-calculation Watt rounding.
+  Historical derived API metrics may change; legacy browser calculations remain.
+  Both dedicated pools retain the main pool's dynamically resolved DB name.
+- Request quotas: ingress 480/min/IP, authenticated 240/min/user, analytics/GPS/FIT
+  40/min/user and OAuth token/revoke 120/min/IP. Key/grant counts and TTL unchanged.
+  REST errors and sanitized structured logs share server-generated request IDs;
+  HTTP exposes X-Request-ID. MCP tool errors include it; OAuth keeps its JSON shape.
+  Logs exclude URL/query/body, credentials, identities, raw messages and stacks.
+- All 976 tests, syntax, zero-warning lint, types and diff checks passed. Coverage
+  compares actual workout/analytics service results, multi-year REST/MCP, unchanged
+  resource limits, quota wiring and correlated secret-free errors. A full-suite
+  error Content-Type regression was repaired and the full suite passed afterward.
+  Final 26 contract tests also passed after removing the old FTP bucket schema
+  cap. Docs: public-api-v1.md/OpenAPI v1.4.0 and mcp-server.md. No new npm scripts.
+- No migration, production operation, deployment/restart or commit. Live rollout
+  remains pending. User previously confirmed successful woa_training OAuth login;
+  current production tool data/refresh have not been independently exercised.
+
 ## MCP Consent Callback CSP (2026-11-10)
 
 - User reported first consent click staying on the form and second click denied.

@@ -11,6 +11,28 @@ const now = Date.parse("2026-11-10T12:00:00Z"), range = { from: "2026-11-01", to
 const effort = (id = "1", duration = 480, power = 300, time = "2026-11-05T10:00:00Z") => ({ workout_id: id, segment_id: id,
   duration, avg_power: power, start_time: time, start_offset: 0, end_offset: duration });
 
+test('multi-year performance ranges keep all buckets and fail before oversized allocation', async () => {
+  const ranges = { from: '2024-01-01', to: '2026-01-01' };
+  const rows = [effort('1', 480, 300, '2024-07-01T00:00:00Z'), effort('2', 900, 280, '2024-07-01T00:00:00Z')];
+  const db = { connect: async () => ({ query: async sql => ({ rows: sql.includes('FROM workouts') ? rows : [] }), release() {} }) };
+  const service = new Service({ database: db, now: () => now });
+  const power = await service.powerProfile('42', new URLSearchParams({ ...ranges, durations: '480' }));
+  assert.equal(power.data[0].power_watts, 300);
+  const ftp = await service.ftpHistory('42', new URLSearchParams({ ...ranges, grouping: 'year' }));
+  assert.equal(ftp.data.length, 2);
+  const weeks = await service.ftpHistory('42', new URLSearchParams({ ...ranges, grouping: 'week' }));
+  assert.equal(weeks.data.length, 105);
+  const schema = JSON.parse(fs.readFileSync(new URL('../docs/public-api-v1.openapi.json', import.meta.url), 'utf8'));
+  assert.equal(schema.paths['/analytics/ftp-history'].get.responses['200'].content['application/json'].schema.properties.data.maxItems, undefined);
+  assert.ok(ftp.data[0].ftp_watts > 0);
+  assert.equal(ftp.data[1].ftp_watts, null);
+  const exact = Buffer.byteLength(JSON.stringify(ftp));
+  assert.deepEqual(buildPublicFtpHistory(rows, ranges, 'year', now, { ...PUBLIC_ANALYTICS_LIMITS, responseBytes: exact }), ftp);
+  assert.throws(() => buildPublicFtpHistory(rows, ranges, 'year', now, { ...PUBLIC_ANALYTICS_LIMITS, responseBytes: exact - 1 }), { statusCode: 422 });
+  assert.throws(() => buildPublicFtpHistory([], { from: '0001-01-01', to: '2026-01-01' }, 'week', now),
+    { code: 'analytics_response_too_large' });
+});
+
 test("performance options strictly validate allowlisted distinct durations and FTP grouping", () => {
   assert.deepEqual(parsePerformanceOptions(new URLSearchParams("durations=1200,5,60"), "power-profile").durations, [5, 60, 1200]);
   assert.equal(parsePerformanceOptions(new URLSearchParams(), "ftp-history").grouping, "month");
@@ -127,7 +149,7 @@ test("performance HTTP requires both scopes for source IDs, shares the analytics
   assert.ok(!buckets.some(bucket => bucket[0] === "analytics")); buckets.length = 0;
   const power = await get("/power-profile?from=2026-11-01&to=2026-11-11&durations=480");
   assert.equal(power.status, 200); assert.equal((await power.json()).data[0].workout_id, "1");
-  assert.deepEqual(buckets, [["ingress", 120], ["user", 60], ["analytics", 10]]);
+  assert.deepEqual(buckets, [["ingress", 480], ["user", 240], ["analytics", 40]]);
   const history = await get("/ftp-history?from=2026-11-01&to=2026-11-11&grouping=month", "analytics");
   assert.equal(history.status, 200); assert.ok((await history.json()).data[0].ftp_watts > 0);
   assert.equal((await get("/power-profile?durations=5,5")).status, 400);

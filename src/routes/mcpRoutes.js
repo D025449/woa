@@ -5,6 +5,8 @@ import { MCP_SCOPES, oauthFailure, mcpRedirectMatches } from "../services/mcpCon
 import McpOAuthService from "../services/mcpOAuthService.js";
 import { createTrainingMcpServer } from "../services/mcpServerService.js";
 import publicApiRateLimit from "../middleware/publicApiRateLimit.js";
+import { publicApiDiagnostics, reportApiError } from "../middleware/publicApiDiagnostics.js";
+import { PUBLIC_API_QUOTAS } from "../services/publicApiLimits.js";
 
 const asyncRoute = handler => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 const csrf = () => randomBytes(32).toString("hex");
@@ -15,12 +17,17 @@ function verifiedCsrf(received, expected) {
     && expected.length === received.length && timingSafeEqual(Buffer.from(received), Buffer.from(expected));
 }
 function saveSession(req) { return new Promise((resolve, reject) => req.session.save(error => error ? reject(error) : resolve())); }
-function oauthError(error, _req, res, _next) {
+function mcpError(req, res, status, code, error = undefined) {
+  reportApiError(req, status, code, error);
+  return res.status(status).json({ error: code });
+}
+function oauthError(error, req, res, _next) {
   const known = new Set(["invalid_request", "invalid_scope", "invalid_client", "invalid_grant", "invalid_target",
     "unsupported_grant_type", "access_denied", "connection_limit_reached", "connection_not_found"]);
   const code = known.has(error?.code) ? error.code : error?.type === "entity.too.large" ? "invalid_request" : "server_error";
   if (code === "invalid_client") res.set("WWW-Authenticate", 'Basic realm="woa-mcp-oauth"');
-  res.status(code === "server_error" ? 503 : error.statusCode || 400).json({ error: code });
+  const status = code === "server_error" ? 503 : error.statusCode || 400;
+  mcpError(req, res, status, code, error);
 }
 
 export function createMcpRouters(config, { oauth = new McpOAuthService(config), rateLimit = publicApiRateLimit,
@@ -32,9 +39,11 @@ export function createMcpRouters(config, { oauth = new McpOAuthService(config), 
     "/oauth/mcp/token", "/oauth/mcp/revoke"].includes(req.path) || req.path.startsWith("/mcp/") ? undefined : "router"));
   browserRouter.use((req, _res, next) => next(req.path === "/oauth/mcp/authorize"
     || req.path.startsWith("/api/profile/mcp-connections") ? undefined : "router"));
+  publicRouter.use(publicApiDiagnostics("mcp"));
+  browserRouter.use(publicApiDiagnostics("mcp_oauth"));
   const headers = (req, res, next) => {
     res.set({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" });
-    if (httpsOnly && !req.secure) return res.status(400).json({ error: "https_required" });
+    if (httpsOnly && !req.secure) return mcpError(req, res, 400, "https_required");
     next();
   };
   publicRouter.use(headers);
@@ -73,7 +82,7 @@ export function createMcpRouters(config, { oauth = new McpOAuthService(config), 
     return oauth.client(id, secret);
   };
   for (const path of ["/oauth/mcp/token", "/oauth/mcp/revoke"]) {
-    publicRouter.post(path, rateLimit("mcp-oauth", 30, req => req.ip),
+    publicRouter.post(path, rateLimit("mcp-oauth", PUBLIC_API_QUOTAS.oauth, req => req.ip),
       (req, _res, next) => { if (!req.is("application/x-www-form-urlencoded")) oauthFailure(400, "invalid_request"); next(); },
       express.urlencoded({ extended: false, limit: "16kb", parameterLimit: 12 }), asyncRoute(async (req, res) => {
         const allowed = path.endsWith("token")
@@ -87,11 +96,11 @@ export function createMcpRouters(config, { oauth = new McpOAuthService(config), 
   }
 
   publicRouter.use("/mcp", (req, res, next) => {
-    if (req.path !== "/" || req.originalUrl.includes("?")) return res.status(400).json({ error: "invalid_request" });
+    if (req.path !== "/" || req.originalUrl.includes("?")) return mcpError(req, res, 400, "invalid_request");
     const origin = req.get("origin");
-    if (origin && !allowedOrigins.includes(origin)) return res.status(403).json({ error: "invalid_origin" });
+    if (origin && !allowedOrigins.includes(origin)) return mcpError(req, res, 403, "invalid_origin");
     if (origin) {
-      res.set({ "Access-Control-Allow-Origin": origin, "Access-Control-Expose-Headers": "WWW-Authenticate, MCP-Protocol-Version, Retry-After" });
+      res.set({ "Access-Control-Allow-Origin": origin, "Access-Control-Expose-Headers": "WWW-Authenticate, MCP-Protocol-Version, Retry-After, X-Request-ID" });
       res.vary("Origin");
     }
     if (req.method === "OPTIONS") {
@@ -100,27 +109,30 @@ export function createMcpRouters(config, { oauth = new McpOAuthService(config), 
       return res.status(204).end();
     }
     next();
-  }, rateLimit("ingress", 120, req => req.ip), asyncRoute(async (req, _res, next) => {
+  }, rateLimit("ingress", PUBLIC_API_QUOTAS.ingress, req => req.ip), asyncRoute(async (req, _res, next) => {
     const match = /^Bearer (\S+)$/i.exec(req.get("authorization") || "");
     if (!match) oauthFailure(401, "invalid_token");
     req.mcpAuth = await oauth.resolve(match[1]);
     req.mcpBearer = match[1];
     next();
-  }), rateLimit("user", 60, req => req.mcpAuth.userId));
+  }), rateLimit("user", PUBLIC_API_QUOTAS.user, req => req.mcpAuth.userId));
   publicRouter.post("/mcp", express.json({ limit: "16kb" }), asyncRoute(async (req, res) => {
-    if (!req.body || Array.isArray(req.body)) return res.status(400).json({ error: "invalid_request" });
-    const server = createTrainingMcpServer(req.mcpAuth, { ...serverOptions, authorize: () => oauth.resolve(req.mcpBearer) });
+    if (!req.body || Array.isArray(req.body)) return mcpError(req, res, 400, "invalid_request");
+    const server = createTrainingMcpServer(req.mcpAuth, { ...serverOptions, errorRequest: req, authorize: () => oauth.resolve(req.mcpBearer) });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     res.once("close", () => { server.close().catch(() => {}); });
     try { await server.connect(transport); await transport.handleRequest(req, res, req.body); }
     finally { await server.close(); }
   }));
-  publicRouter.all("/mcp", (_req, res) => res.set("Allow", "POST").status(405).json({ error: "method_not_allowed" }));
-  publicRouter.use((_req, res) => res.status(405).json({ error: "method_not_allowed" }));
+  publicRouter.all("/mcp", (req, res) => mcpError(req, res.set("Allow", "POST"), 405, "method_not_allowed"));
+  publicRouter.use((req, res) => mcpError(req, res, 405, "method_not_allowed"));
   publicRouter.use((error, req, res, next) => {
     if (req.path === "/mcp") {
-      if (error?.code === "invalid_token") { challenge(res, req.get("authorization") ? "invalid_token" : null); return res.status(401).json({ error: "invalid_token" }); }
-      return res.status(error?.type === "entity.too.large" || error instanceof SyntaxError ? 400 : 503).json({ error: "request_failed" });
+      if (error?.code === "invalid_token") {
+        challenge(res, req.get("authorization") ? "invalid_token" : null); return mcpError(req, res, 401, "invalid_token", error);
+      }
+      const status = error?.type === "entity.too.large" || error instanceof SyntaxError ? 400 : 503;
+      return mcpError(req, res, status, "request_failed", error);
     }
     oauthError(error, req, res, next);
   });
@@ -158,7 +170,7 @@ export function createMcpRouters(config, { oauth = new McpOAuthService(config), 
     res.redirect(303, target.href);
   }));
   browserRouter.use("/api/profile/mcp-connections", (req, res, next) => {
-    if (!sessionOwner(req)) return res.status(401).json({ error: "session_required" });
+    if (!sessionOwner(req)) return mcpError(req, res, 401, "session_required");
     next();
   });
   browserRouter.get("/api/profile/mcp-connections", asyncRoute(async (req, res) => {
@@ -172,7 +184,7 @@ export function createMcpRouters(config, { oauth = new McpOAuthService(config), 
     await oauth.revoke(req.user.id, req.params.id);
     res.status(204).end();
   }));
-  browserRouter.use((_req, res) => res.status(405).json({ error: "method_not_allowed" }));
+  browserRouter.use((req, res) => mcpError(req, res, 405, "method_not_allowed"));
   browserRouter.use(oauthError);
   return { publicRouter, browserRouter };
 }

@@ -25,8 +25,8 @@ Data coverage, nulls and estimation methods must accompany interpretation.
 
 Parameters and calculations match [public-api-v1.md](public-api-v1.md). Workout
 from/to are RFC3339 timestamps. Analytics from/to are UTC calendar dates,
-inclusive/exclusive, default latest 28 days including partial today, maximum
-366 days. Power durations are 5,15,60,120,240,300,360,480,720,900,960,1200,1800
+inclusive/exclusive, default latest 28 days including partial today. Multi-year ranges are supported
+within technical data/history/response budgets. Power durations are 5,15,60,120,240,300,360,480,720,900,960,1200,1800
 seconds; stored missing efforts remain null. FTP grouping defaults to month,
 with week/quarter/year also supported. Confidence means anchor count, not
 probability. The tools are listed according to the connection's permissions.
@@ -43,6 +43,15 @@ origin check with `access_denied`. Session ownership, expiry, CSRF and exact-ori
 checks remain mandatory; missing/null/foreign origins are rejected. Login and
 OAuth callback redirects, token responses and other MCP responses keep
 `no-referrer` and `no-store`.
+REST and MCP share request quotas of 480/minute/IP ingress, 240/minute/user
+authenticated requests and 40/minute/user analytics calls. REST GPS/FIT buckets
+are also 40/minute/user. OAuth token/revoke requests allow 120/minute/IP. These
+are four times the previous request quotas; token lifetimes, active grant/key
+counts and technical row/byte/SQL/concurrency limits are unchanged.
+MCP HTTP responses carry `X-Request-ID`; OAuth keeps its standard error JSON
+shape. Tool error content additionally includes `error.request_id`. These IDs
+correlate to sanitized `public_api_error` logs using the same policy as REST,
+without logging OAuth secrets or authorization parameters.
 The consent page's CSP permits form submission to `'self'` and the validated
 callback origin, including its actual port. Browsers can apply `form-action` to
 the POST's 303 redirect; `'self'` alone blocks the cross-origin callback after
@@ -241,6 +250,15 @@ MCP resource and S256 request; the process was stopped before any consent/token
 exchange. Real consent/refresh/tools in Codex remain pending production rollout.
 
 ## Verification (2026-11-10)
+
+REST/MCP improvements: all 976 tests, syntax, zero-warning lint, types and diff
+checks passed. Real SDK calls exercise all four analytics tools over multi-year
+ranges; quota checks verify the shared 40/minute analytics bucket and 480/240
+HTTP buckets plus OAuth 120/minute. OAuth failures preserve standard error JSON
+while X-Request-ID matches sanitized logs; tool failures expose the matching ID
+in error content. User confirmed successful woa_training OAuth login before this
+slice. The new metrics/ranges/quotas still require production deployment/restart;
+live tool data and refresh remain unverified. No migration is required.
 
 Consent redirect CSP regression: an isolated browser fixture reproduced first
 click staying on the form and second click returning `access_denied` with

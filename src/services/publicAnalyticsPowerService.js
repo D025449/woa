@@ -1,5 +1,6 @@
 import { apiFailure } from "./publicWorkoutApiService.js";
 import { powerWeightFields } from "../shared/PowerWeight.js";
+import { PUBLIC_ANALYTICS_LIMITS } from "./publicApiLimits.js";
 
 export const PUBLIC_POWER_DURATIONS = Object.freeze([5, 15, 60, 120, 240, 300, 360, 480, 720, 900, 960, 1200, 1800]);
 const DAY = 86400000;
@@ -104,7 +105,7 @@ function percentile95(values) {
   return sorted[left] + (position - left) * ((sorted[left + 1] ?? sorted[left]) - sorted[left]);
 }
 
-export function buildPublicFtpHistory(rows, range, grouping, now) {
+export function buildPublicFtpHistory(rows, range, grouping, now, limits = PUBLIC_ANALYTICS_LIMITS) {
   const from = Date.parse(range.from + "T00:00:00Z"), to = Date.parse(range.to + "T00:00:00Z");
   const buckets = new Map();
   for (const row of rows) {
@@ -117,19 +118,24 @@ export function buildPublicFtpHistory(rows, range, grouping, now) {
     buckets.set(period.start, bucket);
   }
   const data = [];
+  const meta = { ...range, time_zone: "UTC", generated_at: new Date(now).toISOString(), grouping,
+    ftp_method: "period_cp8_cp15_p95", current_day_partial: to > Math.floor(now / DAY) * DAY };
+  let responseBytes = Buffer.byteLength(JSON.stringify({ meta, data }));
   let period = ftpPeriod(from, grouping);
   while (period.start < to) {
     const bucket = buckets.get(period.start) || { cp8: [], cp15: [] };
     const cp8 = percentile95(bucket.cp8), cp15 = percentile95(bucket.cp15);
     const estimate = cp8 == null || cp15 == null ? null
       : (cp8 + (Math.log(1200) - Math.log(480)) / (Math.log(900) - Math.log(480)) * (cp15 - cp8)) * 0.95;
-    data.push({ period_from: new Date(period.start).toISOString().slice(0, 10), period_to: new Date(period.end).toISOString().slice(0, 10),
+    const point = { period_from: new Date(period.start).toISOString().slice(0, 10), period_to: new Date(period.end).toISOString().slice(0, 10),
       partial_period: period.start < from || period.end > to || period.end > now,
       cp8_watts: scalar(cp8), cp15_watts: scalar(cp15), ftp_watts: estimate > 0 ? scalar(estimate) : null,
       cp8_effort_count: bucket.cp8.length, cp15_effort_count: bucket.cp15.length,
-      confidence: Math.min(bucket.cp8.length, bucket.cp15.length) });
+      confidence: Math.min(bucket.cp8.length, bucket.cp15.length) };
+    responseBytes += Buffer.byteLength(JSON.stringify(point)) + (data.length ? 1 : 0);
+    if (responseBytes > limits.responseBytes) apiFailure(422, "analytics_response_too_large", "FTP history exceeds the configured response budget.");
+    data.push(point);
     period = ftpPeriod(period.end, grouping);
   }
-  return { meta: { ...range, time_zone: "UTC", generated_at: new Date(now).toISOString(), grouping,
-    ftp_method: "period_cp8_cp15_p95", current_day_partial: to > Math.floor(now / DAY) * DAY }, data };
+  return { meta, data };
 }

@@ -1,5 +1,6 @@
 import express from "express";
-import { randomUUID } from "node:crypto";
+import { publicApiDiagnostics, publicApiError } from "../middleware/publicApiDiagnostics.js";
+import { PUBLIC_API_QUOTAS } from "../services/publicApiLimits.js";
 import apiKeyAuth from "../middleware/apiKeyAuth.js";
 import publicApiRateLimit from "../middleware/publicApiRateLimit.js";
 import PublicAnalyticsApiService, { PUBLIC_ANALYTICS_LIMITS } from "../services/publicAnalyticsApiService.js";
@@ -8,6 +9,7 @@ import { apiFailure } from "../services/publicWorkoutApiService.js";
 export function createPublicAnalyticsApiRouter({ service = new PublicAnalyticsApiService(), rateLimit = publicApiRateLimit,
   httpsOnly = process.env.NODE_ENV === "production" } = {}) {
   const router = express.Router();
+  router.use(publicApiDiagnostics("analytics"));
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
     res.set("Referrer-Policy", "no-referrer");
@@ -16,8 +18,8 @@ export function createPublicAnalyticsApiRouter({ service = new PublicAnalyticsAp
     if (req.method !== "GET") { res.set("Allow", "GET"); apiFailure(405, "method_not_allowed", "Only GET is supported."); }
     next();
   });
-  router.use(rateLimit("ingress", 120, req => req.ip), apiKeyAuth(["analytics:read"]),
-    rateLimit("user", 60, req => req.apiAuth.userId));
+  router.use(rateLimit("ingress", PUBLIC_API_QUOTAS.ingress, req => req.ip), apiKeyAuth(["analytics:read"]),
+    rateLimit("user", PUBLIC_API_QUOTAS.user, req => req.apiAuth.userId));
   for (const [path, method] of [["/summary", "summary"], ["/training-load", "trainingLoad"],
     ["/power-profile", "powerProfile"], ["/ftp-history", "ftpHistory"]]) {
     router.get(path, (req, res, next) => {
@@ -25,7 +27,7 @@ export function createPublicAnalyticsApiRouter({ service = new PublicAnalyticsAp
         apiFailure(403, "insufficient_scope", "Required API scope is missing.");
       }
       next();
-    }, rateLimit("analytics", 10, req => req.apiAuth.userId), async (req, res, next) => {
+    }, rateLimit("analytics", PUBLIC_API_QUOTAS.analytics, req => req.apiAuth.userId), async (req, res, next) => {
       try {
         const params = new URL(req.originalUrl, "https://api.invalid").searchParams;
         const json = JSON.stringify(await service[method](req.apiAuth.userId, params));
@@ -46,7 +48,7 @@ export function createPublicAnalyticsApiRouter({ service = new PublicAnalyticsAp
     const code = error instanceof URIError ? "invalid_request" : Object.hasOwn(messages, error?.code) ? error.code : "service_unavailable";
     const [status, message] = messages[code] || [503, "Analytics service unavailable."];
     if (status === 429) res.set("Retry-After", "1");
-    res.status(status).json({ error: { code, message, request_id: randomUUID() } });
+    publicApiError(req, res, status, code, message, error);
   });
   return router;
 }

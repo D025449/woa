@@ -1,7 +1,8 @@
 import { intensityProfilesFromTags } from "../shared/WorkoutIntensityTags.js";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import pool from "./database.js";
-import { FileDBService } from "./fileDBService.js";
+import { prepareYearlyFtpSeries, yearlyFtpAt, derivedCyclingMetrics } from "./publicTrainingMetrics.js";
+import { PUBLIC_ANALYTICS_LIMITS } from "./publicApiLimits.js";
 import { Worker } from "node:worker_threads";
 import { PUBLIC_GPS_LIMITS } from "./publicApiGpsService.js";
 import { PUBLIC_FIT_LIMITS, fitBudgetExceeded, runPublicFitWorker } from "./publicApiFitService.js";
@@ -42,15 +43,8 @@ export function projectPublicWorkout(row, ftpValue = null) {
     output[field] = value >= 0 ? value : null;
   }
   if (!Number.isInteger(output.total_cycles)) output.total_cycles = null;
-  const ftp = finite(ftpValue);
-  const power = output.normalized_power_watts;
-  const duration = output.timer_time_seconds;
-  const eligible = ["road", "mountain", "indoor"].includes(row.workout_type) && ftp > 0;
-  const intensity = eligible && power != null && power >= 0 ? power / ftp : null;
-  output.tss = intensity != null && duration != null && duration >= 0
-    ? finite(Math.round(duration / 3600 * intensity ** 2 * 100)) : null;
-  output.intensity_factor = finite(intensity);
-  output.ftp_used_watts = eligible ? ftp : null;
+  Object.assign(output, derivedCyclingMetrics(output.normalized_power_watts, output.timer_time_seconds, ftpValue,
+    ["road", "mountain", "indoor"].includes(row.workout_type)));
   for (const [field, allowed] of Object.entries(CLASSIFICATIONS)) {
     output[field] = allowed.includes(row[field]) ? row[field] : allowed[0];
   }
@@ -203,11 +197,12 @@ export default class PublicWorkoutApiService {
 
   async projectRows(client, userId, rows) {
     if (!rows.length) return [];
-    const result = await client.query("SELECT period, ftp FROM get_ftp_by_period2($1, $2)", [userId, "year"]);
-    const series = result.rows.map(row => ({ period: row.period, ftp: finite(row.ftp) }))
-      .filter(row => row.ftp > 0);
+    const result = await client.query("SELECT period, ftp FROM get_ftp_by_period2($1, $2) ORDER BY period LIMIT $3",
+      [userId, "year", PUBLIC_ANALYTICS_LIMITS.ftpRows + 1]);
+    if (result.rows.length > PUBLIC_ANALYTICS_LIMITS.ftpRows) apiFailure(503, "service_unavailable", "FTP history exceeds the configured budget.");
+    const series = prepareYearlyFtpSeries(result.rows);
     return rows.map(row => projectPublicWorkout(row, row.start_time == null ? null
-      : Math.round(FileDBService.interpolateFTP(series, row.start_time, "year"))));
+      : yearlyFtpAt(series, new Date(row.start_time).getTime())));
   }
 
   async list(owner, params) {

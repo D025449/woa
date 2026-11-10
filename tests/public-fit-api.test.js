@@ -210,7 +210,7 @@ test("public FIT HTTP returns only owned binary downloads with all scopes and sa
   assert.equal(download.headers.get("cache-control"), "no-store");
   assert.equal(download.headers.get("content-disposition"), 'attachment; filename="2024-01-02-03-04-05.fit"');
   assert.deepEqual(Buffer.from(await download.arrayBuffer()), buildPublicFit(row, []).bytes);
-  assert.deepEqual(buckets.map(({ bucket, limit }) => [bucket, limit]), [["ingress", 120], ["user", 60], ["fit", 10]]);
+  assert.deepEqual(buckets.map(({ bucket, limit }) => [bucket, limit]), [["ingress", 480], ["user", 240], ["fit", 40]]);
   assert.equal(buckets[2].identity, "42");
   for (const [suffix, status] of [["?timeZone=Europe/Berlin", 400], ["?gps=false", 400]]) {
     assert.equal((await fetch(url + suffix, { headers })).status, status);

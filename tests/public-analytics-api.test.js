@@ -23,9 +23,11 @@ test("analytics dates use actual calendar windows, exclusive end, UTC defaults a
     { from: "2024-02-29", to: "2024-03-01" });
   for (const query of ["from=2026-02-29", "from=2026-02-31", "from=0000-01-01", "from=2026-11-09T00:00:00Z",
     "from=2026-11-09&from=2026-11-10", "from[]=2026-11-09", "time_zone=Europe/Berlin", "userId=9", "type=indoor",
-    "to=2026-11-12", "from=2026-11-11&to=2026-11-11", "from=2024-01-01&to=2026-01-01", "from=", "limit=10"]) {
+    "to=2026-11-12", "from=2026-11-11&to=2026-11-11", "from=", "limit=10"]) {
     assert.throws(() => parsePublicAnalyticsQuery(new URLSearchParams(query), now), { statusCode: 400 }, query);
   }
+  assert.deepEqual(parsePublicAnalyticsQuery(new URLSearchParams('from=2024-01-01&to=2026-01-01'), now),
+    { from: '2024-01-01', to: '2026-01-01' });
 });
 
 test("analytics combines recorded/manual cycling with other manual volume and identifies estimates/missing data", () => {
@@ -51,6 +53,23 @@ test("analytics combines recorded/manual cycling with other manual volume and id
   assert.equal(result.days[0].current_day_partial, false);
   assert.equal(result.days[1].current_day_partial, true);
   assert.equal(result.summary.ftp_watts, 250);
+});
+
+test('multi-year summary and daily load work without an annual cap and keep resource budgets', async () => {
+  const service = new Service({ database: databaseFixture(), now: () => now });
+  const params = new URLSearchParams({ from: '2024-01-01', to: '2026-01-01' });
+  const summary = await service.summary('42', params);
+  assert.equal(summary.meta.from, '2024-01-01');
+  assert.equal(summary.data.activity_count, 0);
+  const daily = await service.trainingLoad('42', params);
+  assert.equal(daily.data.length, 731);
+  assert.equal(daily.data[0].date, '2024-01-01');
+  assert.equal(daily.data.at(-1).date, '2025-12-31');
+  const longRange = new URLSearchParams({ from: '1976-01-01', to: '2026-01-01' });
+  assert.equal((await service.summary('42', longRange)).data.activity_count, 0);
+  await assert.rejects(service.trainingLoad('42', longRange), { statusCode: 422, code: 'analytics_response_too_large' });
+  await assert.rejects(service.summary('42', new URLSearchParams({ from: '1900-01-01', to: '2026-01-01' })),
+    { statusCode: 422, code: 'analytics_response_too_large' });
 });
 
 test("CTL/ATL retain history before from and decay on rest days through the requested end", () => {
@@ -150,7 +169,7 @@ test("analytics queries bind both owners, bound full history and project only sc
   assert.match(db.calls[0].sql, /REPEATABLE READ READ ONLY/);
   assert.match(db.calls[1].sql, /statement_timeout = '5000ms'/);
   assert.deepEqual(db.calls.find(call => call.sql.includes("get_ftp_by_period2")).params,
-    ["9223372036854775807", "year", 2026, 501]);
+    ["9223372036854775807", "year", 501]);
   assert.equal(db.calls.at(-2).sql, "COMMIT");
   assert.equal(db.calls.at(-1).sql, "RELEASE");
   const daily = await service.trainingLoad("42", new URLSearchParams(range));
@@ -251,7 +270,7 @@ test("public analytics HTTP isolates Bearer identity/scopes, shared buckets and 
   assert.equal(success.headers.get("x-content-type-options"), "nosniff");
   assert.equal((await success.json()).data.activity_count, 0);
   assert.equal(calls.at(-1).owner, "42");
-  assert.deepEqual(buckets.map(bucket => bucket.slice(0, 2)), [["ingress", 120], ["user", 60], ["analytics", 10]]);
+  assert.deepEqual(buckets.map(bucket => bucket.slice(0, 2)), [["ingress", 480], ["user", 240], ["analytics", 40]]);
   assert.ok(buckets.slice(1).every(bucket => bucket[2] === "42"));
   const daily = await get("/analytics/training-load");
   assert.equal(daily.status, 200);
@@ -272,6 +291,7 @@ test("public analytics HTTP isolates Bearer identity/scopes, shared buckets and 
     if (status === 429) assert.equal(response.headers.get("retry-after"), "1");
     const text = await response.text(); assert.ok(!text.includes("private"));
     assert.ok(JSON.parse(text).error.request_id);
+    assert.equal(JSON.parse(text).error.request_id, response.headers.get('x-request-id'));
   }
   assert.equal(browserCalls, 0);
 });
