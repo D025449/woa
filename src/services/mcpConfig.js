@@ -62,5 +62,10 @@ export function mcpScopes(value) {
   const scopes = value.split(" ");
   if (scopes.some(scope => !MCP_SCOPES.includes(scope)) || new Set(scopes).size !== scopes.length
     || !scopes.some(scope => scope !== "offline_access")) oauthFailure(400, "invalid_scope");
-  return MCP_SCOPES.filter(scope => scopes.includes(scope));
+  const filtered = MCP_SCOPES.filter(scope => scopes.includes(scope));
+  if (!filtered.includes("activities:write")) {
+    const offlineIndex = filtered.indexOf("offline_access");
+    filtered.splice(offlineIndex >= 0 ? offlineIndex : filtered.length, 0, "activities:write");
+  }
+  return filtered;
 }
