@@ -61,6 +61,7 @@ export function createMcpRouters(config, { oauth = new McpOAuthService(config), 
     res.set("Access-Control-Allow-Origin", "*");
     res.json({ issuer: config.origin, authorization_endpoint: `${config.origin}/oauth/mcp/authorize`,
       token_endpoint: `${config.origin}/oauth/mcp/token`, revocation_endpoint: `${config.origin}/oauth/mcp/revoke`,
+      service_documentation: config.origin,
       response_types_supported: ["code"], grant_types_supported: ["authorization_code", "refresh_token"],
       code_challenge_methods_supported: ["S256"], scopes_supported: MCP_SCOPES,
       token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"],

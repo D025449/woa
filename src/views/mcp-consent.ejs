@@ -9,9 +9,10 @@
   <ul>
     <% if (scopes.includes('workouts:read')) { %><li><%= t('profile.mcp.workouts') %></li><% } %>
     <% if (scopes.includes('analytics:read')) { %><li><%= t('profile.mcp.analytics') %></li><% } %>
+    <% if (scopes.includes('activities:write')) { %><li><%= t('profile.mcp.activitiesWrite') %></li><% } %>
     <% if (scopes.includes('offline_access')) { %><li><%= t('profile.mcp.offline') %></li><% } %>
   </ul>
-  <p><%= t('profile.mcp.consentHelp') %></p>
+  <p><%= scopes.includes('activities:write') ? t('profile.mcp.consentHelpWrite') : t('profile.mcp.consentHelp') %></p>
   <form method="post" action="/oauth/mcp/authorize">
     <input type="hidden" name="csrf_token" value="<%= csrfToken %>">
     <button name="decision" value="allow"><%= t('profile.mcp.allow') %></button>

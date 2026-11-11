@@ -9,5 +9,5 @@
     <p id="mcp-connections-feedback" role="status"></p>
     <ul id="mcp-connections-list" class="list-unstyled"></ul>
   </div>
-  <script id="mcp-connections-messages" type="application/json"><%- JSON.stringify({ ...Object.fromEntries(["empty", "error", "disabled", "revoke", "confirmRevoke", "cancel", "revokedSuccess", "active", "expired", "revoked", "expires", "lastUsed", "never"].map(key => [key, t(`profile.mcp.${key}`)])), scopeLabels: { "workouts:read": t("profile.apiKeys.readScope"), "analytics:read": t("profile.apiKeys.analyticsScope") } }).replace(/</g, "\u003c") %></script>
+  <script id="mcp-connections-messages" type="application/json"><%- JSON.stringify({ ...Object.fromEntries(["empty", "error", "disabled", "revoke", "confirmRevoke", "cancel", "revokedSuccess", "active", "expired", "revoked", "expires", "lastUsed", "never"].map(key => [key, t(`profile.mcp.${key}`)])), scopeLabels: { "workouts:read": t("profile.apiKeys.readScope"), "analytics:read": t("profile.apiKeys.analyticsScope"), "activities:write": t("profile.mcp.activitiesWrite") } }).replace(/</g, "\u003c") %></script>
 </section>
