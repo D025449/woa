@@ -1,3 +1,5 @@
+import { haversineMeters } from '../shared/Utils.js';
+
 const MAX_GPX_POINTS = 100000;
 const ROUTED_GPX_TARGET_ANCHORS = 200;
 
@@ -7,18 +9,6 @@ export class GpxValidationError extends Error {
     this.name = "GpxValidationError";
     this.statusCode = 400;
   }
-}
-
-function haversineMeters(a, b) {
-  const toRadians = (value) => (value * Math.PI) / 180;
-  const dLat = toRadians(b.lat - a.lat);
-  const dLng = toRadians(b.lng - a.lng);
-  const lat1 = toRadians(a.lat);
-  const lat2 = toRadians(b.lat);
-  const sinLat = Math.sin(dLat / 2);
-  const sinLng = Math.sin(dLng / 2);
-  const value = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng;
-  return 6371000 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
 }
 
 function parseAttributes(source = "") {

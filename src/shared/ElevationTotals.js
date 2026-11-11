@@ -1,20 +1,7 @@
-const EARTH_RADIUS_METERS = 6_371_000;
+import { haversineMeters } from './Utils.js';
+
 const DEFAULT_RESAMPLE_STEP_METERS = 25;
 const DEFAULT_SMOOTHING_RADIUS_METERS = 300;
-
-function haversineMeters(a, b) {
-  const toRadians = (value) => (value * Math.PI) / 180;
-  const dLat = toRadians(b.lat - a.lat);
-  const dLng = toRadians(b.lng - a.lng);
-  const lat1 = toRadians(a.lat);
-  const lat2 = toRadians(b.lat);
-  const sinLat = Math.sin(dLat / 2);
-  const sinLng = Math.sin(dLng / 2);
-  const value = sinLat * sinLat
-    + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng;
-
-  return 2 * EARTH_RADIUS_METERS * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
-}
 
 function buildElevationDistanceAxis(track) {
   const points = [];

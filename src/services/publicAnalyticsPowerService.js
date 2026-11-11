@@ -1,4 +1,4 @@
-import { apiFailure } from "./publicWorkoutApiService.js";
+import { apiFailure, finite } from "./publicWorkoutApiService.js";
 import { powerWeightFields } from "../shared/PowerWeight.js";
 import { PUBLIC_ANALYTICS_LIMITS } from "./publicApiLimits.js";
 
@@ -25,10 +25,6 @@ export function parsePerformanceOptions(params, kind) {
     apiFailure(400, "invalid_request", "Invalid performance grouping.");
   }
   return { dates, grouping, durations: durations.sort((a, b) => a - b) };
-}
-
-function finite(value) {
-  return ["number", "string"].includes(typeof value) && String(value).trim() !== "" && Number.isFinite(Number(value)) ? Number(value) : null;
 }
 
 function scalar(value) {

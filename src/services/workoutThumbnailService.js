@@ -8,6 +8,7 @@ import SegmentDBService from "./segmentDBService.js";
 import GeoapifyThumbnailService from "./geoapifyThumbnailService.js";
 import { getLocalThumbnailMapConfig } from "../config/storagePaths.js";
 import LocalThumbnailMapService from "./localThumbnailMapService.js";
+import { escapeXml } from "../shared/Utils.js";
 import {
   matchCompactGpsSegmentBestEfforts,
   prepareCompactGpsSegmentDefinitions
@@ -29,15 +30,6 @@ const THUMB_MAX_SERIES_POINTS = 180;
 const ROUTE_SIMPLIFY_TOLERANCE_PX = 0.5;
 const thumbnailGenerationInflight = new Map();
 const thumbnailGenerationLimit = pLimit(6);
-
-function escapeXml(value = "") {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
 
 function createPathFromPoints(
   points = [],

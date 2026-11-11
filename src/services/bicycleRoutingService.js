@@ -1,3 +1,5 @@
+import { haversineMeters } from '../shared/Utils.js';
+
 const DEFAULT_OSRM_BICYCLE_ROUTING_URL =
   "https://routing.openstreetmap.de/routed-bike/route/v1/driving";
 const DEFAULT_VALHALLA_BICYCLE_ROUTING_URL =
@@ -94,18 +96,6 @@ function decodePolyline6(encoded) {
   }
 
   return coordinates;
-}
-
-function haversineMeters(a, b) {
-  const toRadians = (value) => (value * Math.PI) / 180;
-  const dLat = toRadians(Number(b.lat) - Number(a.lat));
-  const dLng = toRadians(Number(b.lng) - Number(a.lng));
-  const lat1 = toRadians(Number(a.lat));
-  const lat2 = toRadians(Number(b.lat));
-  const sinLat = Math.sin(dLat / 2);
-  const sinLng = Math.sin(dLng / 2);
-  const value = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng;
-  return 6371000 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
 }
 
 function appendCoordinates(target, source) {

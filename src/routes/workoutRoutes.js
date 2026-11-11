@@ -8,6 +8,7 @@ import { FileDBService } from "../services/fileDBService.js";
 import WorkoutDBService from "../services/workoutDBService.js";
 import WorkoutSharingService from "../services/workoutSharingService.js";
 import { DEFAULT_GPS_SAMPLE_RATE_SECONDS, normalizeGpsSampleRateSeconds } from "../shared/gpsSampling.js";
+import { haversineMeters } from "../shared/Utils.js";
 import SegmentDBService from "../services/segmentDBService.js";
 import { enqueueSegmentBestEfforts } from "../services/segment-best-efforts-service.js";
 import FitExportService from "../services/fitExportService.js";
@@ -154,19 +155,6 @@ async function getVisibleWorkoutStream(row, isOwner) {
 
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
 const WORKOUT_OPEN_PROFILE_LOG = String(process.env.WORKOUT_OPEN_PROFILE_LOG || "0").trim() === "1";
-
-function haversineMeters(a, b) {
-  const toRad = (value) => (value * Math.PI) / 180;
-  const R = 6371000;
-  const dLat = toRad((b.lat ?? 0) - (a.lat ?? 0));
-  const dLng = toRad((b.lng ?? 0) - (a.lng ?? 0));
-  const lat1 = toRad(a.lat ?? 0);
-  const lat2 = toRad(b.lat ?? 0);
-  const sinLat = Math.sin(dLat / 2);
-  const sinLng = Math.sin(dLng / 2);
-  const x = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng;
-  return 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-}
 
 function computeTrackDistanceMeters(track) {
   if (!Array.isArray(track) || track.length < 2) {

@@ -24,7 +24,7 @@ const CLASSIFICATIONS = Object.freeze({
   intensity_dose: ["unknown", "low", "moderate", "high"]
 });
 
-function finite(value) {
+export function finite(value) {
   return !["number", "string"].includes(typeof value) || String(value).trim() === "" || !Number.isFinite(Number(value))
     ? null : Number(value);
 }

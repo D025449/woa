@@ -1,4 +1,5 @@
 import { buildGpxRoutingAnchors, parseGpxTrack } from "./gpxTrackService.js";
+import { escapeXml } from "../shared/Utils.js";
 
 const MAX_SEGMENTS = 5000;
 const MAX_TOTAL_POINTS = 100000;
@@ -11,14 +12,6 @@ export class SegmentGpxValidationError extends Error {
   }
 }
 
-function escapeXml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&apos;");
-}
 
 function decodeXml(value) {
   return String(value ?? "")

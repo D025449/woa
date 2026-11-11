@@ -8,6 +8,7 @@ import { performance } from 'node:perf_hooks';
 import { VectorTile } from '@mapbox/vector-tile';
 import { PbfReader } from 'pbf';
 import sharp from 'sharp';
+import { escapeXml } from '../shared/Utils.js';
 import simplify from 'simplify-js';
 import { getLocalThumbnailMapConfig } from '../config/storagePaths.js';
 import { MapStorageError, withMapStorageBudget } from './localMapStorageService.js';
@@ -20,9 +21,6 @@ export { project };
 
 sharp.cache(false);
 sharp.concurrency(1);
-
-export const escapeXml = value => String(value).replace(/[&<>"']/g, character =>
-  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[character]);
 
 export class LocalMapRenderer {
   constructor({ dataDirectory = getLocalThumbnailMapConfig().dataDirectory,

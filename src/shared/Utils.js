@@ -144,3 +144,20 @@ export default class Utils {
     }
 
 }
+
+export function escapeXml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c]);
+}
+
+export function haversineMeters(a, b) {
+  const toRad = v => v * Math.PI / 180;
+  const dLat = toRad((b.lat ?? 0) - (a.lat ?? 0));
+  const dLng = toRad((b.lng ?? 0) - (a.lng ?? 0));
+  const lat1 = toRad(a.lat ?? 0);
+  const lat2 = toRad(b.lat ?? 0);
+  const sinLat = Math.sin(dLat / 2);
+  const sinLng = Math.sin(dLng / 2);
+  const x = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng;
+  return 2 * 6371000 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
