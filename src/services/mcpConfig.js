@@ -1,4 +1,4 @@
-export const MCP_SCOPES = Object.freeze(["workouts:read", "analytics:read", "offline_access"]);
+export const MCP_SCOPES = Object.freeze(["workouts:read", "analytics:read", "activities:write", "offline_access"]);
 
 function redirectUrl(value) {
   if (typeof value !== "string" || value.length > 2048) throw new Error("Invalid OAuth redirect URI.");

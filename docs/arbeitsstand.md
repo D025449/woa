@@ -1592,6 +1592,21 @@ Schritt 9: 4 identische Dekodier-Funktionen (`buildGpsSlotsAndSegments`, `toSegm
 Kein Overhead im Hot-Path; Buffer-Normalisierung im Service unverändert.
 982/982 Tests, Syntax und Zero-Warning-Lint bestanden. Deploy/Prüfung durch Benutzer ausstehend.
 
+## MCP create_training_activity (2026-11-11)
+
+- User möchte manuelle Trainingserfassung per Sprache/Text über KI-Client (Claude/Codex via MCP).
+- Neues MCP-Tool `create_training_activity` mit Scope `activities:write` hinzugefügt.
+- Ruft bestehenden `TrainingActivityDBService.create` + `invalidateAnalyticsOverviewCache` auf.
+- Felder: `activity_type`, `start_time`, `duration_seconds` immer; Cycling braucht zusätzlich
+  `workout_type`, `baseline_power_mode`, `baseline_power_value`; optional: `title`, `notes`,
+  `perceived_exertion`, `estimated_tss`, `strength_focus`, `intervals` (max 20 Blöcke).
+- KI fragt bei fehlenden Pflichtfeldern nach; `start_time` niemals selbst annehmen.
+- Neuer Export `MCP_WRITE_TOOL_NAMES` in `mcpServerService.js`.
+- `activities`-Parameter in `createTrainingMcpServer` für testbare Injektion.
+- 985/985 Tests (3 neue), Syntax und Zero-Warning-Lint bestanden.
+- Deploy und Re-Consent bestehender MCP-Clients (woa-chatgpt, woa-codex) nötig, um
+  `activities:write` nutzen zu können. Neue Grants müssen Scope explizit anfordern.
+
 ## Sitzungsübergreifender Kontext
 
 - **Verbindlich: Migrations-SQL niemals durch den Agenten ausführen, auch nicht indirekt über Runner oder Deployments. Nur erstellen/vorbereiten; ausschließlich der Benutzer führt Migrationen aus.** Ebenso in `AGENTS.md` festgehalten.

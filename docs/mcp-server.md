@@ -8,9 +8,9 @@ There are no protocol sessions, streaming notifications, background model calls
 or server OpenAI API key. Each request authenticates a dedicated OAuth access
 token; personal REST API keys and Cognito login tokens are not accepted here.
 
-The model receives owned training data through six read-only tools and can
-discuss analysis and suggestions in the conversation. No plans or activities
-are written. GPS/FIT and individual manual-activity reads are outside this scope.
+The model receives owned training data through six read-only tools and one write
+tool and can discuss analysis and suggestions in the conversation.
+GPS/FIT and individual manual-activity reads are outside this scope.
 Ask for goals, time, fatigue, recovery and constraints when proposing training.
 Data coverage, nulls and estimation methods must accompany interpretation.
 
@@ -22,6 +22,19 @@ Data coverage, nulls and estimation methods must accompany interpretation.
 | get_training_load | analytics:read | Daily TSS/CTL/ATL/TSB with preceding history and coverage |
 | get_power_profile | Both read permissions | Stored critical cycling efforts and source/weight provenance |
 | get_ftp_history | analytics:read | CP8/CP15-based UTC bucket estimates and anchor counts |
+| create_training_activity | activities:write | Record a completed manual training activity |
+
+### create_training_activity
+
+Required for all types: `activity_type` (cycling / strength_training / mobility / other),
+`start_time` (ISO 8601), `duration_seconds` (60–604800). Cycling additionally requires
+`workout_type` (indoor / road / mountain / unknown), `baseline_power_mode` (watts /
+ftp_percent), `baseline_power_value`. TSS is calculated automatically from power for
+cycling; `estimated_tss` overrides it. Optional: `title`, `notes`, `perceived_exertion`
+(1–10), `strength_focus` (upper_body / lower_body / full_body for strength_training),
+`intervals` (up to 20 blocks with repetitions, work/recovery durations and power).
+The activity counts toward analytics and training load immediately.
+The AI client must always confirm `start_time` with the user — never assume today.
 
 Parameters and calculations match [public-api-v1.md](public-api-v1.md). Workout
 from/to are RFC3339 timestamps. Analytics from/to are UTC calendar dates,

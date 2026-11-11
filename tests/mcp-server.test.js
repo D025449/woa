@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { createTrainingMcpServer, MCP_TOOL_NAMES } from '../src/services/mcpServerService.js';
+import { createTrainingMcpServer, MCP_TOOL_NAMES, MCP_WRITE_TOOL_NAMES } from '../src/services/mcpServerService.js';
 import McpOAuthService, { mcpTokenHash } from '../src/services/mcpOAuthService.js';
 import { readMcpConfig, mcpScopes, mcpRedirectMatches } from '../src/services/mcpConfig.js';
 import AnalyticsService from '../src/services/publicAnalyticsApiService.js';
@@ -243,4 +243,73 @@ test('MCP rechecks revocation and owner and safely reports quota, size and servi
 test('six locales render consent and connection list with escaping', async () => {
   const ejs = await import('ejs');
   for (const locale of ['de', 'en', 'es', 'fr', 'it', 'pt']) { const messages = JSON.parse(await readFile(new URL('../src/public/i18n/' + locale + '.json', import.meta.url))); const t = key => key.split('.').reduce((value, part) => value?.[part], messages); const html = await ejs.renderFile(new URL('../src/views/mcp-consent.ejs', import.meta.url).pathname, { locale, t, clientName: '<script>SECRET</script>', scopes: context.scopes, csrfToken: 'f'.repeat(64) }); assert.ok(html.includes('&lt;script&gt;')); assert.ok(!html.includes('<script>SECRET')); assert.ok(!html.includes('undefined')); const profile = await ejs.renderFile(new URL('../src/views/partials/profile/mcp-connections.ejs', import.meta.url).pathname, { t }); assert.ok(profile.includes('mcp-connections-list')); assert.ok(!profile.includes('profile.mcp.')); }
+});
+
+test('create_training_activity registers only with activities:write scope', async () => {
+  assert.deepEqual(MCP_WRITE_TOOL_NAMES, ['create_training_activity']);
+  for (const scopes of [['workouts:read'], ['analytics:read'], context.scopes]) {
+    const p = await protocol({ ...context, scopes }); try {
+      const { tools } = await p.client.listTools();
+      assert.ok(!tools.some(t => t.name === 'create_training_activity'));
+    } finally { await p.close(); }
+  }
+  const p = await protocol({ ...context, scopes: ['activities:write'] }); try {
+    const { tools } = await p.client.listTools();
+    assert.equal(tools.length, 1); assert.equal(tools[0].name, 'create_training_activity');
+    assert.equal(tools[0].annotations.readOnlyHint, false);
+    assert.equal(tools[0].annotations.destructiveHint, false);
+    assert.equal(tools[0].inputSchema.additionalProperties, false);
+  } finally { await p.close(); }
+});
+
+test('create_training_activity dispatches create, maps fields and propagates validation errors', async () => {
+  const writeCtx = { ...context, scopes: ['activities:write'] };
+  const row = { id: 42, activity_type: 'cycling', start_time: new Date('2026-11-11T08:00:00Z'),
+    duration_seconds: 3600, workout_type: 'indoor', title: null, estimated_tss: 65.2,
+    tss_source: 'power_model', average_power: 200, avg_normalized_power: 210 };
+  let captured = null;
+  const activities = { create: async (uid, payload) => {
+    if (payload.activityType === 'cycling' && !payload.baselinePowerValue) {
+      const e = new Error('Cycling activities require a baseline power'); e.statusCode = 400; throw e;
+    }
+    captured = { uid, payload }; return row;
+  } };
+  const p = await protocol(writeCtx, { activities }); try {
+    const args = { activity_type: 'cycling', start_time: '2026-11-11T08:00:00Z', duration_seconds: 3600,
+      workout_type: 'indoor', baseline_power_mode: 'watts', baseline_power_value: 200 };
+    const result = await p.client.callTool({ name: 'create_training_activity', arguments: args });
+    assert.ok(!result.isError);
+    const body = JSON.parse(result.content[0].text);
+    assert.equal(body.id, '42'); assert.equal(body.activity_type, 'cycling');
+    assert.equal(body.estimated_tss, 65.2); assert.equal(body.normalized_power, 210);
+    assert.ok(!('title' in body));
+    assert.equal(captured.uid, '71'); assert.equal(captured.payload.activityType, 'cycling');
+    assert.equal(captured.payload.baselinePowerValue, 200);
+    assert.deepEqual(JSON.parse(result.content[0].text), result.structuredContent);
+    const bad = await p.client.callTool({ name: 'create_training_activity', arguments: { activity_type: 'cycling',
+      start_time: '2026-11-11T08:00:00Z', duration_seconds: 3600, workout_type: 'indoor',
+      baseline_power_mode: 'watts' } });
+    assert.equal(bad.isError, true);
+    assert.equal(JSON.parse(bad.content[0].text).error.code, 'invalid_request');
+    assert.ok(JSON.parse(bad.content[0].text).error.message.length > 0);
+  } finally { await p.close(); }
+});
+
+test('create_training_activity rechecks auth and rejects revoked/wrong owner', async t => {
+  const logs = []; t.mock.method(console, 'error', text => logs.push(JSON.parse(text)));
+  const writeCtx = { ...context, scopes: ['activities:write'] };
+  for (const [options, expected] of [
+    [{ authorize: async () => { throw Object.assign(new Error('SECRET'), { code: 'invalid_token' }); } }, 'invalid_token'],
+    [{ authorize: async () => ({ ...writeCtx, userId: '99' }) }, 'insufficient_scope'],
+    [{ authorize: async () => ({ ...writeCtx, scopes: ['workouts:read'] }) }, 'insufficient_scope']
+  ]) {
+    const p = await protocol(writeCtx, { ...options, activities: { create: async () => { throw new Error('should not reach'); } } });
+    try {
+      const result = await p.client.callTool({ name: 'create_training_activity', arguments: {
+        activity_type: 'mobility', start_time: '2026-11-11T08:00:00Z', duration_seconds: 3600 } });
+      assert.equal(result.isError, true);
+      assert.equal(JSON.parse(result.content[0].text).error.code, expected);
+      assert.ok(!JSON.stringify(result).includes('SECRET'));
+    } finally { await p.close(); }
+  }
 });
