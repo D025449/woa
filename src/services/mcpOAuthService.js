@@ -27,12 +27,11 @@ export default class McpOAuthService {
   }
 
   authorization(params) {
-    console.error(JSON.stringify({ diag: "oauth_params", keys: Array.from(params.keys()) }));
-    const allowed = ["response_type", "client_id", "redirect_uri", "scope", "state", "code_challenge", "code_challenge_method", "resource", "ui_locales"];
+    const allowed = ["response_type", "client_id", "redirect_uri", "scope", "state", "code_challenge", "code_challenge_method", "resource", "ui_locales", "prompt"];
     for (const key of params.keys()) if (!allowed.includes(key) || params.getAll(key).length !== 1) oauthFailure(400, "invalid_request");
-    // ChatGPT sends this optional language hint. Accept a bounded value without
-    // retaining it in consent data, rendering it or changing authentication.
+    // Accept optional OIDC hints without retaining, rendering or acting on them.
     if (params.has("ui_locales") && params.get("ui_locales").length > 256) oauthFailure(400, "invalid_request");
+    if (params.has("prompt") && params.get("prompt").length > 256) oauthFailure(400, "invalid_request");
     const client = this.config.clients.find(value => value.client_id === params.get("client_id"));
     if (!mcpRedirectMatches(client, params.get("redirect_uri"))) oauthFailure(400, "invalid_request");
     if (params.get("response_type") !== "code" || params.get("resource") !== this.config.resource
