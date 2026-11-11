@@ -57,7 +57,7 @@ export function oauthFailure(statusCode, code) {
 }
 
 export function mcpScopes(value) {
-  if (value === undefined) return ["workouts:read", "analytics:read"];
+  if (value === undefined) return ["workouts:read", "analytics:read", "activities:write"];
   if (typeof value !== "string" || value.length > 100) oauthFailure(400, "invalid_scope");
   const scopes = value.split(" ");
   if (scopes.some(scope => !MCP_SCOPES.includes(scope)) || new Set(scopes).size !== scopes.length

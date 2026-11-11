@@ -33,7 +33,7 @@ test('MCP config validates HTTPS, exact callbacks, clients and minimal scopes', 
   for (const change of [{ redirect_uris: ['https://client.example/callback#fragment'] }, { redirect_uris: ['http://localhost/callback'] }, { secret_sha256: 'plaintext' }, { client_name: String.fromCharCode(10) }, { client_id: '' }]) {
     assert.throws(() => readMcpConfig({ MCP_PUBLIC_ORIGIN: config.origin, MCP_OAUTH_CLIENTS: JSON.stringify([{ ...config.clients[0], ...change }]) }));
   }
-  assert.deepEqual(mcpScopes(undefined), ['workouts:read', 'analytics:read']);
+  assert.deepEqual(mcpScopes(undefined), ['workouts:read', 'analytics:read', 'activities:write']);
   for (const scopes of ['offline_access', 'analytics:read analytics:read', 'workouts:gps:read', 'analytics:read ', '']) assert.throws(() => mcpScopes(scopes));
   const oauth = new McpOAuthService(config, {});
   for (const change of [{ client_id: 'unknown' }, { redirect_uri: 'https://evil.example/' }, { resource: config.origin }, { code_challenge_method: 'plain' }, { response_type: 'token' }, { code_challenge: 'bad' }, { scope: 'workouts:fit:read' }]) assert.throws(() => oauth.authorization(authParams(change)));
