@@ -1,7 +1,25 @@
 # Arbeitsstand
 
-Stand: 2026-11-10. Diese Datei hält Absprachen für folgende Sitzungen fest.
+Stand: 2026-11-11. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
+
+## MCP create_training_activity – Scope, Migration und Consent (2026-11-11)
+
+- GPS-Refactoring Step 9 (GpsTrackBlobCodec) und FIT Step 10 (bereits korrekt) abgeschlossen.
+- MCP-Tool `create_training_activity` implementiert und deployed. User hat Aktivitätserfassung
+  erfolgreich getestet (bestätigt).
+- Scope `activities:write` in `MCP_SCOPES` (mcpConfig.js) ergänzt. Default-Scopes und
+  `mcpScopes()` so angepasst, dass `activities:write` immer im Grant enthalten ist, auch wenn
+  der OAuth-Client es nicht explizit anfordert (ChatGPT sendet explizite Scope-Liste ohne es).
+- Migration `100_mcp_activities_write_scope.sql` vorbereitet und vom User ausgeführt: CHECK-Constraint
+  auf `user_mcp_grants.scopes` um `activities:write` erweitert, Kardinalitätsgrenze von 3 auf 4.
+- Consent-Seite (`mcp-consent.ejs`) und alle 6 i18n-Dateien (de/en/es/fr/it/pt) um
+  `activitiesWrite`-Scope-Text und `consentHelpWrite`-Hinweis ergänzt.
+- `scopeLabels` in `mcp-connections.ejs` um `activities:write` erweitert..
+- `service_documentation: config.origin` in OAuth AS Metadata ergänzt (RFC 8414, Website-Feld).
+- ChatGPT Plugin-Version zeigt immer `1.0.0` – das ist ChatGPTs eigene Registrierungsversion,
+  nicht unsere MCP-Serverversion. Nicht steuerbar, nicht relevant.
+- 985/985 Tests grün, Syntax-Check sauber.
 
 ## Deterministic Cursor Tampering Test (2026-11-10)
 
