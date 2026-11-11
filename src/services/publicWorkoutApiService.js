@@ -2,8 +2,7 @@ import { intensityProfilesFromTags } from "../shared/WorkoutIntensityTags.js";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import pool from "./database.js";
 import { prepareYearlyFtpSeries, yearlyFtpAt, derivedCyclingMetrics } from "./publicTrainingMetrics.js";
-import { PUBLIC_ANALYTICS_LIMITS } from "./publicApiLimits.js";
-import { Worker } from "node:worker_threads";
+import { PUBLIC_ANALYTICS_LIMITS, spawnPublicApiWorker } from "./publicApiLimits.js";
 import { PUBLIC_GPS_LIMITS } from "./publicApiGpsService.js";
 import { PUBLIC_FIT_LIMITS, fitBudgetExceeded, runPublicFitWorker } from "./publicApiFitService.js";
 
@@ -115,29 +114,18 @@ export async function runPublicGpsWorker(row, id, timeoutMs = PUBLIC_GPS_LIMITS.
   if (activeGpsWorkers >= PUBLIC_GPS_LIMITS.workers) {
     apiFailure(429, "rate_limited", "GPS processing capacity exceeded.");
   }
-  const worker = new Worker(new URL("../workers/public-api-gps-worker.js", import.meta.url), {
-    workerData: { blob: row.gps_track_blob, codec: row.gps_track_blob_codec, id },
-    resourceLimits: { maxOldGenerationSizeMb: 96 }
-  });
   activeGpsWorkers += 1;
   try {
-    return await new Promise((resolve, reject) => {
-      const failure = status => reject(Object.assign(new Error("GPS processing unavailable."),
-        { statusCode: status, code: status === 422 ? "gps_response_too_large" : "service_unavailable" }));
-      const timer = setTimeout(() => failure(422), timeoutMs);
-      worker.once("message", message => {
-        clearTimeout(timer);
-        if (typeof message.json === "string") resolve(message.json);
-        else failure(message.statusCode === 422 ? 422 : 503);
-      });
-      worker.once("error", error => {
-        clearTimeout(timer);
-        failure(error instanceof Error && "code" in error && error.code === "ERR_WORKER_OUT_OF_MEMORY" ? 422 : 503);
-      });
-      worker.once("exit", () => { clearTimeout(timer); failure(503); });
+    return await spawnPublicApiWorker({
+      workerUrl: new URL("../workers/public-api-gps-worker.js", import.meta.url),
+      workerData: { blob: row.gps_track_blob, codec: row.gps_track_blob_codec, id },
+      resourceLimits: { maxOldGenerationSizeMb: 96 },
+      timeoutMs,
+      validateMessage: message => typeof message.json === "string" ? message.json : null,
+      errorMessage: "GPS processing unavailable.",
+      tooLargeCode: "gps_response_too_large",
     });
   } finally {
-    await worker.terminate().catch(() => {});
     activeGpsWorkers -= 1;
   }
 }

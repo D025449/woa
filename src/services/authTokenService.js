@@ -1,9 +1,13 @@
 import crypto from "crypto";
 import { CognitoIdentityProviderClient, InitiateAuthCommand } from "@aws-sdk/client-cognito-identity-provider";
+import { CognitoJwtVerifier } from "aws-jwt-verify";
 
 const cognitoClient = new CognitoIdentityProviderClient({
   region: process.env.COGNITO_REGION || "eu-central-1"
 });
+
+let accessVerifier;
+let idVerifier;
 
 function isSecureCookie() {
   return process.env.NODE_ENV === "production";
@@ -13,7 +17,7 @@ function applyPadding(value) {
   return value.padEnd(value.length + ((4 - value.length % 4) % 4), "=");
 }
 
-function decodeJwtPayload(token) {
+export function decodeJwtPayload(token) {
   if (!token) {
     return null;
   }
@@ -31,6 +35,28 @@ function decodeJwtPayload(token) {
   }
 }
 
+export function getAccessVerifier() {
+  if (!accessVerifier) {
+    accessVerifier = CognitoJwtVerifier.create({
+      userPoolId: process.env.COGNITO_USER_POOL_ID,
+      tokenUse: "access",
+      clientId: process.env.COGNITO_CLIENT_ID,
+    });
+  }
+  return accessVerifier;
+}
+
+export function getIdVerifier() {
+  if (!idVerifier) {
+    idVerifier = CognitoJwtVerifier.create({
+      userPoolId: process.env.COGNITO_USER_POOL_ID,
+      tokenUse: "id",
+      clientId: process.env.COGNITO_CLIENT_ID,
+    });
+  }
+  return idVerifier;
+}
+
 function buildSecretHash(username) {
   if (!process.env.COGNITO_CLIENT_SECRET || !username) {
     return undefined;
@@ -46,6 +72,14 @@ export function clearAuthCookies(res) {
   res.clearCookie("accessToken");
   res.clearCookie("refreshToken");
   res.clearCookie("idToken");
+}
+
+export function clearAuthSession(req, res) {
+  clearAuthCookies(res);
+  if (req.session?.user_id || req.session?.user) {
+    delete req.session.user_id;
+    delete req.session.user;
+  }
 }
 
 export function setAuthCookies(res, tokens = {}, preserveRefreshToken = null) {

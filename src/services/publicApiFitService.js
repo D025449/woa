@@ -1,10 +1,10 @@
 import { gunzipSync, brotliDecompressSync } from "node:zlib";
-import { Worker } from "node:worker_threads";
 import Workout from "../shared/Workout.js";
 import FitExportService from "./fitExportService.js";
 import { hasFitDeviceMetadata } from "../shared/FitDeviceMetadataCodec.js";
 import { formatFitExportFileName } from "../shared/FitFileName.js";
 import { decodePublicGpsTrack } from "./publicApiGpsService.js";
+import { spawnPublicApiWorker } from "./publicApiLimits.js";
 
 export const PUBLIC_FIT_LIMITS = Object.freeze({ streamBytes: 16 * 1024 * 1024,
   rawBytes: 32 * 1024 * 1024, records: 172800, gpsBlobBytes: 4 * 1024 * 1024,
@@ -100,32 +100,23 @@ export async function runPublicFitWorker(row, segments, timeoutMs = PUBLIC_FIT_L
   if (activeWorkers >= PUBLIC_FIT_LIMITS.workers) {
     throw Object.assign(new Error("FIT processing capacity exceeded."), { statusCode: 429, code: "rate_limited" });
   }
-  const worker = new Worker(new URL("../workers/public-api-fit-worker.js", import.meta.url), {
-    workerData: { row, segments }, resourceLimits: { maxOldGenerationSizeMb: PUBLIC_FIT_LIMITS.heapMb }
-  });
   activeWorkers += 1;
   try {
-    return await new Promise((resolve, reject) => {
-      const failure = status => reject(Object.assign(new Error("FIT processing unavailable."), {
-        statusCode: status, code: status === 422 ? "fit_response_too_large" : "service_unavailable"
-      }));
-      const timer = setTimeout(() => failure(422), timeoutMs);
-      worker.once("message", message => {
-        clearTimeout(timer);
-        if (message.bytes instanceof Uint8Array && message.bytes.byteLength > 0
-          && message.bytes.byteLength <= PUBLIC_FIT_LIMITS.responseBytes
-          && typeof message.fileName === "string" && /^[a-zA-Z0-9.-]+[.]fit$/.test(message.fileName)) {
-          resolve({ bytes: Buffer.from(message.bytes), fileName: message.fileName });
-        } else failure(message.statusCode === 422 ? 422 : 503);
-      });
-      worker.once("error", error => {
-        clearTimeout(timer);
-        failure(error instanceof Error && "code" in error && error.code === "ERR_WORKER_OUT_OF_MEMORY" ? 422 : 503);
-      });
-      worker.once("exit", () => { clearTimeout(timer); failure(503); });
+    return await spawnPublicApiWorker({
+      workerUrl: new URL("../workers/public-api-fit-worker.js", import.meta.url),
+      workerData: { row, segments },
+      resourceLimits: { maxOldGenerationSizeMb: PUBLIC_FIT_LIMITS.heapMb },
+      timeoutMs,
+      validateMessage: message =>
+        message.bytes instanceof Uint8Array && message.bytes.byteLength > 0
+        && message.bytes.byteLength <= PUBLIC_FIT_LIMITS.responseBytes
+        && typeof message.fileName === "string" && /^[a-zA-Z0-9.-]+[.]fit$/.test(message.fileName)
+          ? { bytes: Buffer.from(message.bytes), fileName: message.fileName }
+          : null,
+      errorMessage: "FIT processing unavailable.",
+      tooLargeCode: "fit_response_too_large",
     });
   } finally {
-    await worker.terminate().catch(() => {});
     activeWorkers -= 1;
   }
 }

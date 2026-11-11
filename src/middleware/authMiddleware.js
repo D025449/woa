@@ -1,64 +1,6 @@
-import { CognitoJwtVerifier } from "aws-jwt-verify";
 import UserDBService from "../services/userDBService.js";
-import { clearAuthCookies as clearAuthCookiesOnResponse, refreshAccessTokens, setAuthCookies } from "../services/authTokenService.js";
-
-let accessVerifier;
-let idVerifier;
-
-function decodeJwtPayload(token) {
-  if (!token) {
-    return null;
-  }
-
-  try {
-    const [, payload] = token.split(".");
-    if (!payload) {
-      return null;
-    }
-
-    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = normalized.padEnd(
-      normalized.length + ((4 - normalized.length % 4) % 4),
-      "="
-    );
-
-    return JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
-  } catch {
-    return null;
-  }
-}
-
-function clearAuthCookies(req, res) {
-  clearAuthCookiesOnResponse(res);
-
-  if (req.session?.user_id || req.session?.user) {
-    delete req.session.user_id;
-    delete req.session.user;
-  }
-}
-
-function getAccessVerifier() {
-  if (!accessVerifier) {
-    accessVerifier = CognitoJwtVerifier.create({
-      userPoolId: process.env.COGNITO_USER_POOL_ID,
-      tokenUse: "access",
-      clientId: process.env.COGNITO_CLIENT_ID,
-    });
-  }
-  return accessVerifier;
-}
-
-function getIdVerifier() {
-  if (!idVerifier) {
-    idVerifier = CognitoJwtVerifier.create({
-      userPoolId: process.env.COGNITO_USER_POOL_ID,
-      tokenUse: "id",
-      clientId: process.env.COGNITO_CLIENT_ID,
-    });
-  }
-  return idVerifier;
-}
-
+import { clearAuthSession, decodeJwtPayload, getAccessVerifier, getIdVerifier,
+  refreshAccessTokens, setAuthCookies } from "../services/authTokenService.js";
 
 export default async function authMiddleware(req, res, next) {
   try {
@@ -69,7 +11,7 @@ export default async function authMiddleware(req, res, next) {
     }*/
     if (req?.user?.id) {
       if (req.user.account_status === "deleted") {
-        clearAuthCookies(req, res);
+        clearAuthSession(req, res);
         return res.status(403).json({ error: "Account has been deleted" });
       }
       return next();
@@ -146,7 +88,7 @@ export default async function authMiddleware(req, res, next) {
     };
 
     if (dbuser.account_status === "deleted") {
-      clearAuthCookies(req, res);
+      clearAuthSession(req, res);
       return res.status(403).json({ error: "Account has been deleted" });
     }
 

@@ -1,63 +1,7 @@
-import { CognitoJwtVerifier } from "aws-jwt-verify";
 import UserDBService from "../services/userDBService.js"
 import { normalizeSupportedLocale } from "../i18n/index.js";
-import { clearAuthCookies, refreshAccessTokens, setAuthCookies } from "../services/authTokenService.js";
-
-let accessVerifier;
-let idVerifier;
-
-function decodeJwtPayload(token) {
-  if (!token) {
-    return null;
-  }
-
-  try {
-    const [, payload] = token.split(".");
-    if (!payload) {
-      return null;
-    }
-
-    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = normalized.padEnd(
-      normalized.length + ((4 - normalized.length % 4) % 4),
-      "="
-    );
-
-    return JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
-  } catch {
-    return null;
-  }
-}
-
-function getAccessVerifier() {
-  if (!accessVerifier) {
-    accessVerifier = CognitoJwtVerifier.create({
-      userPoolId: process.env.COGNITO_USER_POOL_ID,
-      tokenUse: "access",
-      clientId: process.env.COGNITO_CLIENT_ID,
-    });
-  }
-  return accessVerifier;
-}
-
-function getIdVerifier() {
-  if (!idVerifier) {
-    idVerifier = CognitoJwtVerifier.create({
-      userPoolId: process.env.COGNITO_USER_POOL_ID,
-      tokenUse: "id",
-      clientId: process.env.COGNITO_CLIENT_ID,
-    });
-  }
-  return idVerifier;
-}
-
-function clearAuthState(req, res) {
-  clearAuthCookies(res);
-  if (req.session?.user_id || req.session?.user) {
-    delete req.session.user_id;
-    delete req.session.user;
-  }
-}
+import { clearAuthSession, decodeJwtPayload, getAccessVerifier,
+  getIdVerifier, refreshAccessTokens, setAuthCookies } from "../services/authTokenService.js";
 
 export default async function authGlobal(req, res, next) {
 
@@ -68,7 +12,7 @@ export default async function authGlobal(req, res, next) {
 
     if (!token && req.session?.user_id && req.session?.user?.sub) {
       if (req.session?.user?.account_status === "deleted") {
-        clearAuthState(req, res);
+        clearAuthSession(req, res);
         req.user = null;
         res.locals.user = null;
         return next();
@@ -189,7 +133,7 @@ export default async function authGlobal(req, res, next) {
     };
 
     if (dbuser.account_status === "deleted") {
-      clearAuthState(req, res);
+      clearAuthSession(req, res);
       req.user = null;
       res.locals.user = null;
       return next();
@@ -220,7 +164,7 @@ export default async function authGlobal(req, res, next) {
       return next();
     }
 
-    clearAuthState(req, res);
+    clearAuthSession(req, res);
 
     next();
 
