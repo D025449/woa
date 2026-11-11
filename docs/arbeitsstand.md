@@ -3,6 +3,30 @@
 Stand: 2026-11-11. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## MCP sync_workouts_from_providers (2026-11-11)
+
+- Neues MCP-Tool `sync_workouts_from_providers` implementiert (gated auf `activities:write`).
+- Orchestrierung in `src/services/mcpProviderSyncService.js`: prüft verbundene Provider per DB,
+  holt Aktivitätsliste, lädt FIT-Dateien, konvertiert via bestehenden `convertWahooFit`-Worker
+  und importiert via `importWoaEntryReaders` mit `overwriteExisting: false`.
+- Garmin-ZIPs werden mit `unzipper` (bereits Dependency) serverseitig entpackt.
+- Zeitliche Konflikte und Duplikate werden durch `importWoaEntryReaders` automatisch erkannt
+  und als `skipped` mit Reason `workout_time_conflict` zurückgemeldet.
+- `MCP_WRITE_TOOL_NAMES` um `sync_workouts_from_providers` ergänzt.
+- i18n-Texte `activitiesWrite` und `consentHelpWrite` in allen 6 Sprachen erweitert
+  (Garmin/Wahoo-Import erwähnt).
+- Input: `providers` (optional, default: alle verbundenen), `limit` 1–20 (default 10).
+- Output: `results[]` mit pro-Activity `status` (imported/skipped/failed) + `summary`.
+- 985/985 Tests grün, Syntax und Lint sauber. Noch nicht deployed.
+
+## MCP Claude-Verbindung und `prompt`-Parameter (2026-11-11)
+
+- Claude.ai sendet OIDC-Parameter `prompt` in der OAuth-Authorize-Anfrage.
+- `prompt` zur Allowlist in `mcpOAuthService.js` `authorization()` ergänzt; akzeptiert, ignoriert.
+- `woa-claude` OAuth-Client in `.env.production` eingetragen (per SSH-Python-Skript, da nano
+  bei langen JSON-Strings Unicode-Anführungszeichen und Zeilenumbrüche einführt).
+- 985/985 Tests grün. Deployed.
+
 ## MCP create_training_activity – Scope, Migration und Consent (2026-11-11)
 
 - GPS-Refactoring Step 9 (GpsTrackBlobCodec) und FIT Step 10 (bereits korrekt) abgeschlossen.

@@ -8,6 +8,7 @@ import { PUBLIC_API_QUOTAS } from "./publicApiLimits.js";
 import { reportApiError } from "../middleware/publicApiDiagnostics.js";
 import TrainingActivityDBService from "./trainingActivityDBService.js";
 import { invalidateAnalyticsOverviewCache } from "./analyticsOverviewCache.js";
+import { syncWorkoutsFromProviders } from "./mcpProviderSyncService.js";
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("UTC calendar date. from inclusive, to exclusive.").optional();
 const range = { from: date, to: date };
@@ -33,7 +34,7 @@ const definitions = [
 ];
 
 export const MCP_TOOL_NAMES = definitions.map(tool => tool.name);
-export const MCP_WRITE_TOOL_NAMES = ["create_training_activity"];
+export const MCP_WRITE_TOOL_NAMES = ["create_training_activity", "sync_workouts_from_providers"];
 
 const CREATE_ACTIVITY_SCHEMA = z.object({
   activity_type: z.enum(["cycling", "strength_training", "mobility", "other"]),
@@ -171,6 +172,40 @@ export function createTrainingMcpServer(context, { authorize, workouts = new Pub
         const status = code === "service_unavailable" ? 503 : code === "invalid_token" ? 401
           : code === "insufficient_scope" ? 403 : 400;
         const request_id = reportApiError(request, status, code, isValidation ? undefined : error);
+        return { isError: true, content: [{ type: "text", text: JSON.stringify({ error: { code, message, request_id } }) }] };
+      }
+    });
+  }
+
+  if (context.scopes.includes("activities:write")) {
+    server.registerTool("sync_workouts_from_providers", {
+      title: "Sync workouts from Garmin / Wahoo",
+      description: "Fetch recent activities from connected Garmin and/or Wahoo accounts and import them into WOA. Activities that would produce a time conflict with an existing workout are skipped automatically. Short indoor activities with fewer than 300 recorded samples are skipped. Returns per-activity status and a summary. Confirm with the user which providers and how many recent activities to sync before calling.",
+      inputSchema: z.object({
+        providers: z.array(z.enum(["garmin", "wahoo"])).min(1).max(2).optional()
+          .describe("Providers to sync. Defaults to all connected providers."),
+        limit: z.number().int().min(1).max(20).optional()
+          .describe("Maximum number of recent activities per provider. Default 10.")
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+    }, async (args) => {
+      try {
+        const current = await authorize();
+        if (current.userId !== context.userId || current.grantId !== context.grantId
+          || !current.scopes.includes("activities:write")) throw Object.assign(new Error(), { code: "insufficient_scope" });
+        const result = await syncWorkoutsFromProviders(current.userId, {
+          providers: args.providers,
+          limit: args.limit
+        });
+        return { content: [{ type: /** @type {const} */ ("text"), text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) {
+        const messages = { insufficient_scope: "Write permission is missing.",
+          invalid_token: "Connection expired or revoked; reconnect." };
+        const code = Object.hasOwn(messages, error?.code) ? error.code : "service_unavailable";
+        const message = messages[code] || "Provider sync unavailable.";
+        const status = code === "service_unavailable" ? 503 : code === "invalid_token" ? 401
+          : code === "insufficient_scope" ? 403 : 400;
+        const request_id = reportApiError(request, status, code, Object.hasOwn(messages, error?.code) ? undefined : error);
         return { isError: true, content: [{ type: "text", text: JSON.stringify({ error: { code, message, request_id } }) }] };
       }
     });
