@@ -12,7 +12,7 @@ Vor weiterer Arbeit mit Code und Git-Status abgleichen.
   `mcpScopes()` so angepasst, dass `activities:write` immer im Grant enthalten ist, auch wenn
   der OAuth-Client es nicht explizit anfordert (ChatGPT sendet explizite Scope-Liste ohne es).
 - Migration `100_mcp_activities_write_scope.sql` vorbereitet und vom User ausgeführt: CHECK-Constraint
-  auf `user_mcp_grants.scopes` um `activities:write` erweitert, Kardinalitätsgrenze von 3 auf 4.
+  auf `user_mcp_grants.scopes` um `activities:write` erweitert, Kardinalitätsgrenze von 3 auf 4..
 - Consent-Seite (`mcp-consent.ejs`) und alle 6 i18n-Dateien (de/en/es/fr/it/pt) um
   `activitiesWrite`-Scope-Text und `consentHelpWrite`-Hinweis ergänzt.
 - `scopeLabels` in `mcp-connections.ejs` um `activities:write` erweitert..
