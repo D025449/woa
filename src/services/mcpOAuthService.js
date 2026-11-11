@@ -27,6 +27,7 @@ export default class McpOAuthService {
   }
 
   authorization(params) {
+    console.error(JSON.stringify({ diag: "oauth_params", keys: Array.from(params.keys()) }));
     const allowed = ["response_type", "client_id", "redirect_uri", "scope", "state", "code_challenge", "code_challenge_method", "resource", "ui_locales"];
     for (const key of params.keys()) if (!allowed.includes(key) || params.getAll(key).length !== 1) oauthFailure(400, "invalid_request");
     // ChatGPT sends this optional language hint. Accept a bounded value without
