@@ -180,14 +180,16 @@ export function createTrainingMcpServer(context, { authorize, workouts = new Pub
   if (context.scopes.includes("activities:write")) {
     server.registerTool("sync_workouts_from_providers", {
       title: "Sync workouts from Garmin / Wahoo",
-      description: "Fetch recent activities from connected Garmin and/or Wahoo accounts and import them into WOA. Returns per-activity status: 'imported' (newly added), 'already_in_woa' (workout exists, nothing to do), 'skipped' (too short or no FIT file), 'failed' (download or conversion error). The summary includes counts for each status. Confirm with the user which providers and how many recent activities to sync before calling.",
+      description: "Fetch recent activities from connected Garmin and/or Wahoo accounts and import them into WOA. Returns per-activity status: 'imported' (newly added or overwritten), 'already_in_woa' (workout exists, nothing to do), 'skipped' (too short or no FIT file), 'failed' (download or conversion error). The summary includes counts for each status. Confirm with the user which providers and how many recent activities to sync before calling. Use overwrite_existing only when the user explicitly wants to replace existing workouts.",
       inputSchema: z.object({
         providers: z.array(z.enum(["garmin", "wahoo"])).min(1).max(2).optional()
           .describe("Providers to sync. Defaults to all connected providers."),
         limit: z.number().int().min(1).max(20).optional()
-          .describe("Maximum number of recent activities per provider. Default 10.")
+          .describe("Maximum number of recent activities per provider. Default 10."),
+        overwrite_existing: z.boolean().optional()
+          .describe("If true, existing workouts with a conflicting time are replaced. Default false.")
       }).strict(),
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
     }, async (args) => {
       try {
         const current = await authorize();
@@ -195,7 +197,8 @@ export function createTrainingMcpServer(context, { authorize, workouts = new Pub
           || !current.scopes.includes("activities:write")) throw Object.assign(new Error(), { code: "insufficient_scope" });
         const result = await syncWorkoutsFromProviders(current.userId, {
           providers: args.providers,
-          limit: args.limit
+          limit: args.limit,
+          overwriteExisting: args.overwrite_existing
         });
         return { content: [{ type: /** @type {const} */ ("text"), text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) {

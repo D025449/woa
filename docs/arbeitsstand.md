@@ -3,6 +3,15 @@
 Stand: 2026-11-11. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## MCP sync_workouts_from_providers – overwrite_existing (2026-11-11)
+
+- Neuer optionaler Parameter `overwrite_existing: boolean` (Default `false`) im MCP-Tool
+  `sync_workouts_from_providers`.
+- Wird als `overwriteExisting` an `importWoaEntryReaders` weitergegeben; bei `true` werden
+  zeitlich kollidierende Trainings ersetzt und erscheinen im Ergebnis als `imported`.
+- `destructiveHint` auf `true` gesetzt; Tool-Beschreibung und Test angepasst.
+- 985/985 Tests grün. Noch nicht deployed.
+
 ## MCP sync_workouts_from_providers (2026-11-11)
 
 - Neues MCP-Tool `sync_workouts_from_providers` implementiert (gated auf `activities:write`).

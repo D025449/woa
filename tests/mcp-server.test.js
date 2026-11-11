@@ -261,7 +261,7 @@ test('create_training_activity registers only with activities:write scope', asyn
     assert.ok(tools.some(t => t.name === 'sync_workouts_from_providers'));
     const syncTool = tools.find(t => t.name === 'sync_workouts_from_providers');
     assert.equal(syncTool.annotations.readOnlyHint, false);
-    assert.equal(syncTool.annotations.destructiveHint, false);
+    assert.equal(syncTool.annotations.destructiveHint, true);
     assert.equal(syncTool.inputSchema.additionalProperties, false);
   } finally { await p.close(); }
 });

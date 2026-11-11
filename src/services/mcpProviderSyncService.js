@@ -49,9 +49,9 @@ async function findOverlappingWorkoutIds(userId, startTimeStrings) {
 
 /**
  * @param {string} userId Internal DB user id
- * @param {{providers?: string[], limit?: number}} options
+ * @param {{providers?: string[], limit?: number, overwriteExisting?: boolean}} options
  */
-export async function syncWorkoutsFromProviders(userId, { providers = ["garmin", "wahoo"], limit = 10 } = {}) {
+export async function syncWorkoutsFromProviders(userId, { providers = ["garmin", "wahoo"], limit = 10, overwriteExisting = false } = {}) {
   const available = await connectedProviders(userId);
   const active = providers.filter(p => available[p]);
   if (!active.length) {
@@ -122,7 +122,7 @@ export async function syncWorkoutsFromProviders(userId, { providers = ["garmin",
     const { importWoaEntryReaders } = await import("../routes/woaUploads.js");
     importResult = await importWoaEntryReaders({
       userId, sourceName: "mcp-provider-sync",
-      uploadedSizeBytes: totalBytes, entryReaders, overwriteExisting: false
+      uploadedSizeBytes: totalBytes, entryReaders, overwriteExisting
     });
   }
 
