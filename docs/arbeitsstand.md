@@ -1582,6 +1582,16 @@ Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 - Noch nicht live bestätigt: erneuter Import derselben Aktivität/Duplikatverhalten und langfristige automatische Token-Erneuerung. Automatisierte Tests für Cache/Erneuerung/401-Retry, Benutzertrennung, Diagnose/Geheimnisschutz und UI-Fehlerfortsetzung vorhanden.
 - Einrichtung und API-Vertrag: `docs/GARMIN_CONNECT.md`.
 
+## Redundanz-Refactoring src/ (2026-11-11)
+
+Schritte 1–9 abgeschlossen; Details und offener Schritt 10 in `memory/project_refactoring_redundanzen.md`.
+Schritt 9: 4 identische Dekodier-Funktionen (`buildGpsSlotsAndSegments`, `toSegmentGeoJson`,
+`decodeGpsBitmapColumnarPayload`, `decodeGpsCoordinatePayload`) als Named Exports aus
+`shared/GpsTrackBlobCodec.js` exportiert; lokale Kopien und verwaiste Konstanten
+(`GPS2_COORDINATE_SCALE`, `GPS2_DELTA_ESCAPE`) aus `services/gpsTrackBlobService.js` entfernt.
+Kein Overhead im Hot-Path; Buffer-Normalisierung im Service unverändert.
+982/982 Tests, Syntax und Zero-Warning-Lint bestanden. Deploy/Prüfung durch Benutzer ausstehend.
+
 ## Sitzungsübergreifender Kontext
 
 - **Verbindlich: Migrations-SQL niemals durch den Agenten ausführen, auch nicht indirekt über Runner oder Deployments. Nur erstellen/vorbereiten; ausschließlich der Benutzer führt Migrationen aus.** Ebenso in `AGENTS.md` festgehalten.

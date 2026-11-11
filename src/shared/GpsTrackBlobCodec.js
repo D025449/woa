@@ -20,7 +20,7 @@ function isValidGpsSlotPoint(point) {
   return !!point && isFiniteCoordinate(point.lat) && isFiniteCoordinate(point.lng);
 }
 
-function buildGpsSlotsAndSegments(latitudes, longitudes, sampleRateGps, firstTimestampMs = 0) {
+export function buildGpsSlotsAndSegments(latitudes, longitudes, sampleRateGps, firstTimestampMs = 0) {
   const slotCount = Math.min(latitudes.length, longitudes.length);
   const slots = new Array(slotCount);
   const points = [];
@@ -76,7 +76,7 @@ function buildGpsSlotsAndSegments(latitudes, longitudes, sampleRateGps, firstTim
   };
 }
 
-function toSegmentGeoJson(segments = []) {
+export function toSegmentGeoJson(segments = []) {
   const coordinates = (Array.isArray(segments) ? segments : [])
     .map((segment) => segment
       .filter(isValidGpsSlotPoint)
@@ -132,7 +132,7 @@ function inferCompressedCodec(bufferLike, fallback = "brotli") {
   return fallback;
 }
 
-function decodeGpsBitmapColumnarPayload(source, pointCount) {
+export function decodeGpsBitmapColumnarPayload(source, pointCount) {
   const headerBytes = 24;
   const bitmapBytes = Math.ceil(pointCount / 8);
   if (source.byteLength < headerBytes + bitmapBytes) {
@@ -194,7 +194,7 @@ function decodeGpsBitmapColumnarPayload(source, pointCount) {
   };
 }
 
-function decodeGpsCoordinatePayload(bytes, pointCount, layoutVersion = 1) {
+export function decodeGpsCoordinatePayload(bytes, pointCount, layoutVersion = 1) {
   const latitudes = new Float64Array(pointCount);
   const longitudes = new Float64Array(pointCount);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
