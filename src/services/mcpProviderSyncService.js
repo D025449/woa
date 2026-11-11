@@ -82,7 +82,7 @@ export async function syncWorkoutsFromProviders(userId, { providers = ["garmin",
 
     for (const activity of activities) {
       const existingId = preCheckMap.get(new Date(activity.startTime).toISOString());
-      if (existingId) {
+      if (existingId && !overwriteExisting) {
         meta.push({ provider, activity, preStatus: "already_in_woa", existingWorkoutId: existingId });
         continue;
       }
