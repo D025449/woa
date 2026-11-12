@@ -3,11 +3,14 @@
 Stand: 2026-11-11. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
-## MCP import_workout_file – gebaut und wieder entfernt (2026-11-12)
+## MCP import_workout_file (2026-11-12)
 
-- Tool wurde implementiert und deployed, aber wieder entfernt: Claude.ai kann Datei-Anhänge nicht
-  zuverlässig als base64 in Tool-Parameter schreiben. Für lokale FIT/ZIP-Dateien bleibt der
-  Browser-Upload die richtige Lösung. 985/985 Tests grün. Deployed 2026-11-12.
+- Tool `import_workout_file` für FIT/ZIP-Import via base64. Funktioniert mit nativen MCP-Clients
+  (Codex liest Datei vom Filesystem und kodiert programmatisch); Claude.ai-Web kann große Binärdaten
+  nicht zuverlässig als base64 in Tool-Parameter schreiben.
+- Unterstützt `.fit` (einzeln) und `.zip` (mehrere FIT-Dateien); max. 20 MB base64 ≈ 15 MB roh.
+- `overwrite_existing` optional; gleiche Pipeline wie Provider-Sync.
+- 985/985 Tests grün. Deployed 2026-11-12.
 
 ## MCP sync_workouts_from_providers – overwrite_existing (2026-11-11)
 

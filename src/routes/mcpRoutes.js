@@ -117,7 +117,7 @@ export function createMcpRouters(config, { oauth = new McpOAuthService(config), 
     req.mcpBearer = match[1];
     next();
   }), rateLimit("user", PUBLIC_API_QUOTAS.user, req => req.mcpAuth.userId));
-  publicRouter.post("/mcp", express.json({ limit: "16kb" }), asyncRoute(async (req, res) => {
+  publicRouter.post("/mcp", express.json({ limit: "22mb" }), asyncRoute(async (req, res) => {
     if (!req.body || Array.isArray(req.body)) return mcpError(req, res, 400, "invalid_request");
     const server = createTrainingMcpServer(req.mcpAuth, { ...serverOptions, errorRequest: req, authorize: () => oauth.resolve(req.mcpBearer) });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });

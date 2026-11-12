@@ -138,3 +138,25 @@ test('HTTP MCP discovery, protocol, consent, CSRF and session-only revocation', 
     assert.equal((await request('/api/profile/mcp-connections/123', { method: 'DELETE', headers: { cookie, origin: config.origin, 'x-csrf-token': 'f'.repeat(64) } })).status, 403);
     assert.equal((await request('/api/profile/mcp-connections/123', { method: 'DELETE', headers: { cookie, origin: config.origin, 'x-csrf-token': payload.csrfToken } })).status, 204); assert.deepEqual(events.at(-1), ['revoke', '71', '123']);
 });
+
+test('MCP /mcp endpoint accepts payloads up to 22 MB and rejects larger bodies', async t => {
+  const cfg = readMcpConfig({ MCP_PUBLIC_ORIGIN: 'https://woa.example', MCP_OAUTH_CLIENTS: JSON.stringify([{ client_id: 'test', client_name: 'Test', redirect_uris: ['https://test.example/cb'] }]) });
+  const ctx = { userId: '71', grantId: '1', scopes: ['activities:write'] };
+  const routers = createMcpRouters(cfg, { oauth: { resolve: async () => ctx },
+    httpsOnly: false, rateLimit: () => (_req, _res, next) => next(), serverOptions: {} });
+  const app = express(); app.use(routers.publicRouter);
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((resolve, reject) => { server.once('listening', resolve); server.once('error', reject); });
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const post = body => fetch(`http://127.0.0.1:${server.address().port}/mcp`, {
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer test',
+      accept: 'application/json', 'mcp-protocol-version': '2025-03-26' }, body });
+  // 20 KB — was rejected by the old 16 KB limit; body parses and MCP responds normally
+  const small = await post(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize',
+    params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 't', version: '1' },
+      x: 'a'.repeat(20 * 1024) } }));
+  assert.notEqual(small.status, 413);
+  // 23 MB — exceeds 22 MB limit → entity.too.large → error handler returns 400
+  const large = await post(JSON.stringify({ x: 'a'.repeat(23 * 1024 * 1024) }));
+  assert.equal(large.status, 400);
+});
