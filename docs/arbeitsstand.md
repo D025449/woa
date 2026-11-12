@@ -9,7 +9,7 @@ Vor weiterer Arbeit mit Code und Git-Status abgleichen.
   mit OSM-Hintergrund + GPS-Route. Scope `workouts:gps:read`, Rate-Limit `gps` (40/min).
   Fehler: `workout_not_found` → 404, `map_unavailable` → 503.
 - Neues MCP Read-Tool `get_workout_map` (Scope `workouts:read`, Rate-Limit `gps`-Bucket):
-  gibt MCP Image Content (`image/webp`, 640×400, base64) + Text-Metadaten zurück.
+  gibt MCP Image Content (`image/webp`, 640×400, base64) + Text-Metadaten zurück..
   Interne 320×200-Thumbnails für die WOA-UI bleiben unverändert.
 - `publicWorkoutApiService.map()`: ruft `this.gps()` intern auf, parst GeoJSON-Koordinaten,
   rendert via `LocalThumbnailMapService` (Worker-Thread), compositet `result.background`
