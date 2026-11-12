@@ -352,6 +352,22 @@ export default class PublicWorkoutApiService {
         [userId, id]
       );
       if (rows.length > 200) apiFailure(503, "service_unavailable", "Segment count exceeds budget.");
+      const blocks = rows.filter(s => s.structure_kind === "intervals" || s.structure_kind === "microintervals");
+      if (blocks.length) {
+        const phases = await client.query(
+          `SELECT p.segment_id::text, p.position, p.phase_kind,
+            p.start_offset, p.end_offset, (p.end_offset - p.start_offset) AS duration_seconds,
+            p.avg_power, p.avg_heart_rate, p.avg_cadence, p.avg_speed
+           FROM workout_segment_phases p JOIN workout_segments s ON s.id = p.segment_id
+           WHERE s.uid = $1 AND s.wid = $2 AND s.id = ANY($3::bigint[])
+           ORDER BY p.segment_id, p.position LIMIT $4`,
+          [userId, id, blocks.map(s => s.id), PUBLIC_FIT_LIMITS.phases + 1]
+        );
+        if (phases.rows.length > PUBLIC_FIT_LIMITS.phases) apiFailure(503, "service_unavailable", "Phase count exceeds budget.");
+        const byId = new Map(blocks.map(s => [s.id, s]));
+        for (const block of blocks) block.phases = [];
+        for (const phase of phases.rows) byId.get(phase.segment_id)?.phases.push(phase);
+      }
       return { workout_id: id, segments: rows };
     });
   }
