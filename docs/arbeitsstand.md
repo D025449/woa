@@ -18,6 +18,8 @@ Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 - `localThumbnailMapRenderer.finish()` gibt zusätzlich `routeSvg` zurück: reines
   320×200-SVG mit Route + Attribution, ohne eingebetteten Kachel-Hintergrund.
 - `MCP_TOOL_NAMES` auf 8 (inkl. `get_workout_map`).
+- `local-thumbnail-map-worker.js` überträgt jetzt `background` und `routeSvg` im
+  postMessage-Result (vorher nur `svg` und `stats`).
 - 989/989 Tests grün. Syntax und Lint sauber. Deployed 2026-11-12.
 
 ## MCP get_workout_gps und delete_workout (2026-11-12)

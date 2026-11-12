@@ -13,7 +13,7 @@ parentPort.on("message", async ({ id, example }) => {
   }
   try {
     const result = await renderer.render(example);
-    parentPort.postMessage({ id, result: { svg: result.svg, stats: result.stats } });
+    parentPort.postMessage({ id, result: { svg: result.svg, background: result.background, routeSvg: result.routeSvg, stats: result.stats } });
   } catch (error) {
     parentPort.postMessage({ id, error: error.message === "No local tiles for this route."
       ? "outside-coverage" : "local-map-render-error" });
