@@ -3,6 +3,24 @@
 Stand: 2026-11-12. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## MCP: 4 neue Tools (2026-11-12)
+
+- **`get_workout_segments`** (`workouts:read`, Rate-Limit `gps`): Intervall-/Lap-Struktur
+  eines Workouts aus `workout_segments`; start_offset, end_offset, duration_seconds,
+  segmenttype, structure_kind, segmentname, avg_power/hr/cadence/speed; max. 200 Segmente.
+- **`export_workout_fit`** (`workouts:read`, Rate-Limit `gps`): FIT-Export als base64 +
+  Dateiname; regeneriert aus gespeicherten Daten (nicht Original-Upload). Kein separater
+  FIT-Scope für MCP nötig, da unter `workouts:read` gebündelt.
+- **`get_recent_efforts`** (`workouts:read` + `analytics:read`, Rate-Limit `analytics`):
+  Beste Leistungen je Dauer (Sekunden aus PUBLIC_POWER_DURATIONS) für ein Zeitfenster;
+  Standard 90 Tage (statt 28 bei `get_power_profile`), kein Grouping.
+- **`update_workout`** (`activities:write`): UPDATE auf `workout_type` und/oder
+  `perceived_exertion` (1–10) eines importierten Workouts; neues `modify()`-Helper
+  in `publicWorkoutApiService.js` (ohne READ ONLY).
+- `MCP_TOOL_NAMES` auf 11 (war 8), `MCP_WRITE_TOOL_NAMES` auf 5 (war 4).
+- Keine Migration erforderlich.
+- 989/989 Tests grün. Syntax und Lint sauber.
+
 ## REST und MCP get_workout_map (2026-11-12)
 
 - Neuer REST-Endpoint `GET /api/v1/workouts/:id/map.webp`: rendert 640×400 WebP-Karte

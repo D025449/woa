@@ -34,8 +34,8 @@ const definitions = [
     schema: z.object({ ...range, grouping: z.enum(["week", "month", "quarter", "year"]).optional() }).strict() }
 ];
 
-export const MCP_TOOL_NAMES = [...definitions.map(tool => tool.name), "get_workout_gps", "get_workout_map"];
-export const MCP_WRITE_TOOL_NAMES = ["create_training_activity", "sync_workouts_from_providers", "import_workout_file", "delete_workout"];
+export const MCP_TOOL_NAMES = [...definitions.map(tool => tool.name), "get_workout_gps", "get_workout_map", "get_workout_segments", "export_workout_fit", "get_recent_efforts"];
+export const MCP_WRITE_TOOL_NAMES = ["create_training_activity", "sync_workouts_from_providers", "import_workout_file", "delete_workout", "update_workout"];
 
 const CREATE_ACTIVITY_SCHEMA = z.object({
   activity_type: z.enum(["cycling", "strength_training", "mobility", "other"]),
@@ -340,6 +340,155 @@ export function createTrainingMcpServer(context, { authorize, workouts = new Pub
           workout_not_found: "Workout not found." };
         const code = Object.hasOwn(messages, error?.code) ? error.code : "service_unavailable";
         const message = messages[code] || "Delete unavailable.";
+        const status = code === "service_unavailable" ? 503 : code === "invalid_token" ? 401
+          : code === "insufficient_scope" ? 403 : code === "workout_not_found" ? 404 : 400;
+        const request_id = reportApiError(request, status, code, Object.hasOwn(messages, error?.code) ? undefined : error);
+        return { isError: true, content: [{ type: "text", text: JSON.stringify({ error: { code, message, request_id } }) }] };
+      }
+    });
+  }
+
+  if (context.scopes.includes("workouts:read")) {
+    server.registerTool("get_workout_segments", {
+      title: "Get workout segments",
+      description: "Return the interval and lap structure for an imported workout: segment type, time offsets in seconds, duration and average metrics (power W, heart rate bpm, cadence rpm, speed m/s). At most 200 segments.",
+      inputSchema: z.object({ workout_id: z.string().regex(/^[1-9][0-9]{0,18}$/) }).strict(),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }
+    }, async (args) => {
+      try {
+        const current = await authorize();
+        if (current.userId !== context.userId || current.grantId !== context.grantId
+          || !current.scopes.includes("workouts:read")) throw Object.assign(new Error(), { code: "insufficient_scope" });
+        const bucket = await allowance("gps", PUBLIC_API_QUOTAS.gps, current.userId);
+        if (!bucket.allowed) return { isError: true, content: [{ type: "text", text: JSON.stringify({ error:
+          { code: "rate_limited", message: "Rate limit exceeded; try again later.", retry_after: bucket.retryAfter,
+            request_id: reportApiError(request, 429, "rate_limited", undefined) } }) }] };
+        const result = await workouts.segments(current.userId, args.workout_id);
+        return { content: [{ type: /** @type {const} */ ("text"), text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) {
+        const messages = { insufficient_scope: "Read permission is missing.",
+          invalid_token: "Connection expired or revoked; reconnect.",
+          workout_not_found: "Workout not found.",
+          rate_limited: "Rate limit exceeded; try again later." };
+        const code = Object.hasOwn(messages, error?.code) ? error.code : "service_unavailable";
+        const message = messages[code] || "Segments unavailable.";
+        const status = code === "service_unavailable" ? 503 : code === "invalid_token" ? 401
+          : code === "insufficient_scope" ? 403 : code === "workout_not_found" ? 404
+          : code === "rate_limited" ? 429 : 400;
+        const request_id = reportApiError(request, status, code, Object.hasOwn(messages, error?.code) ? undefined : error);
+        return { isError: true, content: [{ type: "text", text: JSON.stringify({ error: { code, message, request_id } }) }] };
+      }
+    });
+
+    server.registerTool("export_workout_fit", {
+      title: "Export workout as FIT",
+      description: "Export an imported workout as a FIT file. Returns base64-encoded FIT binary and a suggested filename. The FIT file is regenerated from stored data; it is not the original uploaded file.",
+      inputSchema: z.object({ workout_id: z.string().regex(/^[1-9][0-9]{0,18}$/) }).strict(),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }
+    }, async (args) => {
+      try {
+        const current = await authorize();
+        if (current.userId !== context.userId || current.grantId !== context.grantId
+          || !current.scopes.includes("workouts:read")) throw Object.assign(new Error(), { code: "insufficient_scope" });
+        const fitBucket = await allowance("gps", PUBLIC_API_QUOTAS.gps, current.userId);
+        if (!fitBucket.allowed) return { isError: true, content: [{ type: "text", text: JSON.stringify({ error:
+          { code: "rate_limited", message: "Rate limit exceeded; try again later.", retry_after: fitBucket.retryAfter,
+            request_id: reportApiError(request, 429, "rate_limited", undefined) } }) }] };
+        const buffer = await workouts.fit(current.userId, args.workout_id);
+        const content = buffer.toString("base64");
+        const result = { workout_id: args.workout_id, filename: `workout_${args.workout_id}.fit`, content };
+        return { content: [{ type: /** @type {const} */ ("text"), text: JSON.stringify({ workout_id: result.workout_id, filename: result.filename, size_bytes: buffer.length }) }], structuredContent: { workout_id: result.workout_id, filename: result.filename, content } };
+      } catch (error) {
+        const messages = { insufficient_scope: "Read permission is missing.",
+          invalid_token: "Connection expired or revoked; reconnect.",
+          workout_not_found: "Workout not found.",
+          rate_limited: "Rate limit exceeded; try again later.",
+          gps_response_too_large: "Workout GPS data exceeds the export budget." };
+        const code = Object.hasOwn(messages, error?.code) ? error.code : "service_unavailable";
+        const message = messages[code] || "FIT export unavailable.";
+        const status = code === "service_unavailable" ? 503 : code === "invalid_token" ? 401
+          : code === "insufficient_scope" ? 403 : code === "workout_not_found" ? 404
+          : code === "rate_limited" ? 429 : 400;
+        const request_id = reportApiError(request, status, code, Object.hasOwn(messages, error?.code) ? undefined : error);
+        return { isError: true, content: [{ type: "text", text: JSON.stringify({ error: { code, message, request_id } }) }] };
+      }
+    });
+  }
+
+  if (context.scopes.includes("workouts:read") && context.scopes.includes("analytics:read")) {
+    server.registerTool("get_recent_efforts", {
+      title: "Get recent best efforts",
+      description: "Best recorded cycling power efforts for standard durations in a recent period. Default window is the last 90 days. Returns watts, W/kg, source workout ID and date for each effort. Use durations (seconds) to select specific checkpoints; valid values: " + PUBLIC_POWER_DURATIONS.join(", ") + ". Unlike get_power_profile this tool never groups by calendar period.",
+      inputSchema: z.object({
+        from: date,
+        to: date,
+        durations: z.array(z.number().int().refine(value => PUBLIC_POWER_DURATIONS.includes(value), { message: "Invalid duration" }))
+          .min(1).max(PUBLIC_POWER_DURATIONS.length).optional()
+      }).strict(),
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }
+    }, async (args) => {
+      try {
+        const current = await authorize();
+        if (current.userId !== context.userId || current.grantId !== context.grantId
+          || !current.scopes.includes("workouts:read") || !current.scopes.includes("analytics:read"))
+          throw Object.assign(new Error(), { code: "insufficient_scope" });
+        const effortBucket = await allowance("analytics", PUBLIC_API_QUOTAS.analytics, current.userId);
+        if (!effortBucket.allowed) return { isError: true, content: [{ type: "text", text: JSON.stringify({ error:
+          { code: "rate_limited", message: "Rate limit exceeded; try again later.", retry_after: effortBucket.retryAfter,
+            request_id: reportApiError(request, 429, "rate_limited", undefined) } }) }] };
+        const params = new URLSearchParams();
+        if (args.from) params.set("from", args.from);
+        if (args.to) params.set("to", args.to);
+        if (!args.from && !args.to) {
+          const to = new Date(Date.now());
+          const from = new Date(to);
+          from.setUTCDate(from.getUTCDate() - 90);
+          params.set("from", from.toISOString().slice(0, 10));
+          params.set("to", to.toISOString().slice(0, 10));
+        }
+        if (args.durations) params.set("durations", args.durations.join(","));
+        const result = await analytics.powerProfile(current.userId, params);
+        return { content: [{ type: /** @type {const} */ ("text"), text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) {
+        const messages = { insufficient_scope: "Read permission is missing.",
+          invalid_token: "Connection expired or revoked; reconnect.",
+          rate_limited: "Rate limit exceeded; try again later." };
+        const code = Object.hasOwn(messages, error?.code) ? error.code : "service_unavailable";
+        const message = messages[code] || "Recent efforts unavailable.";
+        const status = code === "service_unavailable" ? 503 : code === "invalid_token" ? 401
+          : code === "insufficient_scope" ? 403 : code === "rate_limited" ? 429 : 400;
+        const request_id = reportApiError(request, status, code, Object.hasOwn(messages, error?.code) ? undefined : error);
+        return { isError: true, content: [{ type: "text", text: JSON.stringify({ error: { code, message, request_id } }) }] };
+      }
+    });
+  }
+
+  if (context.scopes.includes("activities:write")) {
+    server.registerTool("update_workout", {
+      title: "Update workout",
+      description: "Update editable fields of an imported workout: sport type and/or perceived exertion. At least one field is required. Always confirm changes with the user before calling.",
+      inputSchema: z.object({
+        workout_id: z.string().regex(/^[1-9][0-9]{0,18}$/),
+        workout_type: z.enum(["unknown", "road", "mountain", "indoor", "motorsport"]).optional(),
+        perceived_exertion: z.number().int().min(1).max(10).optional()
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    }, async (args) => {
+      try {
+        const current = await authorize();
+        if (current.userId !== context.userId || current.grantId !== context.grantId
+          || !current.scopes.includes("activities:write")) throw Object.assign(new Error(), { code: "insufficient_scope" });
+        const result = await workouts.updateWorkout(current.userId, args.workout_id, {
+          workoutType: args.workout_type,
+          perceivedExertion: args.perceived_exertion
+        });
+        return { content: [{ type: /** @type {const} */ ("text"), text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) {
+        const messages = { insufficient_scope: "Write permission is missing.",
+          invalid_token: "Connection expired or revoked; reconnect.",
+          workout_not_found: "Workout not found." };
+        const code = Object.hasOwn(messages, error?.code) ? error.code : "service_unavailable";
+        const message = messages[code] || "Update unavailable.";
         const status = code === "service_unavailable" ? 503 : code === "invalid_token" ? 401
           : code === "insufficient_scope" ? 403 : code === "workout_not_found" ? 404 : 400;
         const request_id = reportApiError(request, status, code, Object.hasOwn(messages, error?.code) ? undefined : error);

@@ -295,6 +295,67 @@ export default class PublicWorkoutApiService {
     return runPublicGpsWorker(row, id);
   }
 
+  async modify(operation) {
+    const client = await this.database.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL statement_timeout = '5000ms'");
+      const result = await operation(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally { client.release(); }
+  }
+
+  async updateWorkout(owner, id, { workoutType, perceivedExertion }) {
+    const userId = publicWorkoutId(String(owner));
+    publicWorkoutId(id);
+    const setClauses = [];
+    const values = [userId, id];
+    if (workoutType !== undefined) {
+      if (!TYPES.has(workoutType)) apiFailure(400, "invalid_request", "Invalid workout_type.");
+      values.push(workoutType);
+      setClauses.push(`workout_type = $${values.length}`);
+    }
+    if (perceivedExertion !== undefined) {
+      if (!Number.isInteger(perceivedExertion) || perceivedExertion < 1 || perceivedExertion > 10)
+        apiFailure(400, "invalid_request", "perceived_exertion must be between 1 and 10.");
+      values.push(perceivedExertion);
+      setClauses.push(`perceived_exertion = $${values.length}`);
+    }
+    if (!setClauses.length) apiFailure(400, "invalid_request", "No fields to update.");
+    return this.modify(async client => {
+      const { rows } = await client.query(
+        `UPDATE workouts SET ${setClauses.join(", ")} WHERE uid = $1 AND id = $2
+         RETURNING id::text AS workout_id, workout_type, perceived_exertion`,
+        values
+      );
+      if (!rows.length) apiFailure(404, "workout_not_found", "Workout not found.");
+      return rows[0];
+    });
+  }
+
+  async segments(owner, id) {
+    const userId = publicWorkoutId(String(owner));
+    publicWorkoutId(id);
+    return this.read(async client => {
+      const check = await client.query("SELECT id FROM workouts WHERE uid = $1 AND id = $2", [userId, id]);
+      if (!check.rows.length) apiFailure(404, "workout_not_found", "Workout not found.");
+      const { rows } = await client.query(
+        `SELECT id::text, start_offset, end_offset, (end_offset - start_offset) AS duration_seconds,
+          segmenttype, structure_kind, COALESCE(segmentname, '') AS segmentname,
+          avg_power, avg_heart_rate, avg_cadence, avg_speed
+         FROM workout_segments WHERE uid = $1 AND wid = $2
+         ORDER BY start_offset, id LIMIT 201`,
+        [userId, id]
+      );
+      if (rows.length > 200) apiFailure(503, "service_unavailable", "Segment count exceeds budget.");
+      return { workout_id: id, segments: rows };
+    });
+  }
+
   async map(userId, workoutId) {
     const geoJsonStr = await this.gps(userId, workoutId);
     const { geometry } = JSON.parse(geoJsonStr);

@@ -70,7 +70,7 @@ test('HTTP MCP discovery, protocol, consent, CSRF and session-only revocation', 
       'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-03-26' }, body: JSON.stringify(body) }); return { response, body: await response.json() }; };
     const initialized = await rpc({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'test', version: '1' } } });
     assert.equal(initialized.response.status, 200); assert.equal(initialized.body.result.serverInfo.name, 'woa-training'); assert.equal(initialized.response.headers.get('set-cookie'), null); assert.equal(initialized.response.headers.get('mcp-session-id'), null);
-    assert.equal((await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).body.result.tools.length, 8);
+    assert.equal((await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).body.result.tools.length, 11);
     assert.deepEqual((await rpc({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'list_workouts', arguments: {} } })).body.result.structuredContent.data, []);
     assert.equal((await rpc([{ jsonrpc: '2.0', id: 4, method: 'tools/list' }])).response.status, 400);
     assert.equal((await request('/mcp', { headers: { authorization: 'Bearer ' + code } })).status, 405); assert.ok(budgets.some(row => row[0] === 'user' && row[2] === '71'));
