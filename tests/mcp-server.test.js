@@ -375,6 +375,7 @@ test('get_workout_map returns WebP image content and uses gps rate limit bucket'
     assert.equal(result.content[1].data, fakeWebp.toString('base64'));
     const meta = JSON.parse(result.content[0].text);
     assert.equal(meta.workout_id, '42'); assert.equal(meta.width, 640); assert.equal(meta.height, 400);
+    assert.equal(meta.data_url, `data:image/webp;base64,${fakeWebp.toString('base64')}`);
     assert.equal(budgets.length, 1); assert.equal(budgets[0].join(','), 'gps,40,71');
     const unavailable = await p.client.callTool({ name: 'get_workout_map', arguments: { workout_id: '99' } });
     assert.ok(unavailable.isError); assert.equal(JSON.parse(unavailable.content[0].text).error.code, 'map_unavailable');

@@ -18,6 +18,9 @@ Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 - `localThumbnailMapRenderer.finish()` gibt zusätzlich `routeSvg` zurück: reines
   320×200-SVG mit Route + Attribution, ohne eingebetteten Kachel-Hintergrund.
 - `MCP_TOOL_NAMES` auf 8 (inkl. `get_workout_map`).
+- `get_workout_map` MCP-Tool gibt im Text-Content zusätzlich `data_url` (Data-URL des Bildes)
+  mit aus, damit die KI das Bild als `<img src="data:image/webp;base64,...">` in ein
+  HTML-Artifact einbetten und dem User anzeigen kann.
 - `local-thumbnail-map-worker.js` überträgt jetzt `background` und `routeSvg` im
   postMessage-Result (vorher nur `svg` und `stats`).
 - 989/989 Tests grün. Syntax und Lint sauber. Deployed 2026-11-12.

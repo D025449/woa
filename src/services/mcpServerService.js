@@ -165,7 +165,7 @@ export function createTrainingMcpServer(context, { authorize, workouts = new Pub
             request_id: reportApiError(request, 429, "rate_limited", undefined) } }) }] };
         const webpBuffer = await workouts.map(current.userId, args.workout_id);
         return { content: [
-          { type: /** @type {const} */ ("text"), text: JSON.stringify({ workout_id: args.workout_id, width: 640, height: 400, format: "webp" }) },
+          { type: /** @type {const} */ ("text"), text: JSON.stringify({ workout_id: args.workout_id, width: 640, height: 400, format: "webp", data_url: `data:image/webp;base64,${webpBuffer.toString("base64")}` }) },
           { type: /** @type {const} */ ("image"), data: webpBuffer.toString("base64"), mimeType: "image/webp" }
         ] };
       } catch (error) {
