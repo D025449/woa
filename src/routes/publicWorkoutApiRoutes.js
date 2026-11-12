@@ -59,6 +59,17 @@ export function createPublicWorkoutApiRouter({ service = new PublicWorkoutApiSer
       res.type("application/geo+json").send(await service.gps(req.apiAuth.userId, req.params.id));
     } catch (error) { next(error); }
   });
+  router.get("/workouts/:id/map.webp", (req, res, next) => {
+    if (!req.apiAuth.scopes.includes("workouts:gps:read")) {
+      apiFailure(403, "insufficient_scope", "Required API scope is missing.");
+    }
+    next();
+  }, rateLimit("gps", PUBLIC_API_QUOTAS.gps, req => req.apiAuth.userId), async (req, res, next) => {
+    try {
+      rejectQuery(req);
+      res.type("image/webp").send(await service.map(req.apiAuth.userId, req.params.id));
+    } catch (error) { next(error); }
+  });
   router.get("/workouts/:id", async (req, res, next) => {
     try { rejectQuery(req); res.json(await service.detail(req.apiAuth.userId, req.params.id)); }
     catch (error) { next(error); }
@@ -71,6 +82,7 @@ export function createPublicWorkoutApiRouter({ service = new PublicWorkoutApiSer
       insufficient_scope: [403, "Required API scope is missing."], method_not_allowed: [405, "Only GET is supported."],
       gps_response_too_large: [422, "GPS response exceeds the configured budget."],
       fit_response_too_large: [422, "FIT export exceeds the configured budget."],
+      map_unavailable: [503, "Map rendering is unavailable."],
       rate_limited: [429, "Processing capacity exceeded."]
     };
     const code = error instanceof URIError ? "invalid_request" : Object.hasOwn(messages, error?.code) ? error.code : "service_unavailable";

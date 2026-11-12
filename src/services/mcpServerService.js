@@ -34,7 +34,7 @@ const definitions = [
     schema: z.object({ ...range, grouping: z.enum(["week", "month", "quarter", "year"]).optional() }).strict() }
 ];
 
-export const MCP_TOOL_NAMES = [...definitions.map(tool => tool.name), "get_workout_gps"];
+export const MCP_TOOL_NAMES = [...definitions.map(tool => tool.name), "get_workout_gps", "get_workout_map"];
 export const MCP_WRITE_TOOL_NAMES = ["create_training_activity", "sync_workouts_from_providers", "import_workout_file", "delete_workout"];
 
 const CREATE_ACTIVITY_SCHEMA = z.object({
@@ -146,6 +146,38 @@ export function createTrainingMcpServer(context, { authorize, workouts = new Pub
           : code === "insufficient_scope" ? 403 : code === "workout_not_found" ? 404 : code === "rate_limited" ? 429 : 422;
         const request_id = reportApiError(request, status, code, Object.hasOwn(messages, error?.code) ? undefined : error);
         return { isError: true, content: [{ type: "text", text: JSON.stringify({ error: { code, message: messages[code] || "GPS service unavailable.", request_id } }) }] };
+      }
+    });
+
+    server.registerTool("get_workout_map", {
+      title: "Get workout map image",
+      description: "Render a 640×400 WebP map image for a single owned imported workout showing the GPS route on an OpenStreetMap background. Returns null if the workout has no GPS track or local maps are not configured on this server.",
+      inputSchema: z.object({ workout_id: z.string().regex(/^[1-9][0-9]{0,18}$/) }).strict(),
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+    }, async (args) => {
+      try {
+        const current = await authorize();
+        if (current.userId !== context.userId || current.grantId !== context.grantId
+          || !current.scopes.includes("workouts:read")) throw Object.assign(new Error(), { code: "insufficient_scope" });
+        const bucket = await allowance("gps", PUBLIC_API_QUOTAS.gps, current.userId);
+        if (!bucket.allowed) return { isError: true, content: [{ type: "text", text: JSON.stringify({ error:
+          { code: "rate_limited", message: "GPS request allowance exceeded.", retry_after: bucket.retryAfter,
+            request_id: reportApiError(request, 429, "rate_limited", undefined) } }) }] };
+        const webpBuffer = await workouts.map(current.userId, args.workout_id);
+        return { content: [
+          { type: /** @type {const} */ ("text"), text: JSON.stringify({ workout_id: args.workout_id, width: 640, height: 400, format: "webp" }) },
+          { type: /** @type {const} */ ("image"), data: webpBuffer.toString("base64"), mimeType: "image/webp" }
+        ] };
+      } catch (error) {
+        const messages = { workout_not_found: "Workout not found or has no GPS track.", insufficient_scope: "Required permission is missing.",
+          invalid_token: "Connection expired or revoked; reconnect.", rate_limited: "GPS request allowance exceeded.",
+          gps_response_too_large: "GPS response exceeds the configured budget.", map_unavailable: "Map rendering is not available on this server." };
+        const code = Object.hasOwn(messages, error?.code) ? error.code : "service_unavailable";
+        const status = code === "service_unavailable" ? 503 : code === "invalid_token" ? 401
+          : code === "insufficient_scope" ? 403 : code === "workout_not_found" ? 404 : code === "rate_limited" ? 429
+          : code === "map_unavailable" ? 503 : 422;
+        const request_id = reportApiError(request, status, code, Object.hasOwn(messages, error?.code) ? undefined : error);
+        return { isError: true, content: [{ type: "text", text: JSON.stringify({ error: { code, message: messages[code] || "Map service unavailable.", request_id } }) }] };
       }
     });
   }

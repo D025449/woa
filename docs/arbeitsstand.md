@@ -1,7 +1,21 @@
 # Arbeitsstand
 
-Stand: 2026-11-11. Diese Datei hält Absprachen für folgende Sitzungen fest.
+Stand: 2026-11-12. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
+
+## REST und MCP get_workout_map (2026-11-12)
+
+- Neuer REST-Endpoint `GET /api/v1/workouts/:id/map.webp`: rendert 640×400 WebP-Karte
+  mit OSM-Hintergrund + GPS-Route. Scope `workouts:gps:read`, Rate-Limit `gps` (40/min).
+  Fehler: `workout_not_found` → 404, `map_unavailable` → 503.
+- Neues MCP Read-Tool `get_workout_map` (Scope `workouts:read`, Rate-Limit `gps`-Bucket):
+  gibt MCP Image Content (`image/webp`, 640×400, base64) + Text-Metadaten zurück.
+  Interne 320×200-Thumbnails für die WOA-UI bleiben unverändert.
+- `publicWorkoutApiService.map()`: ruft `this.gps()` intern auf, parst GeoJSON-Koordinaten,
+  rendert via `LocalThumbnailMapService` (Worker-Thread), rasterisiert SVG mit sharp 640×400.
+  `localMapClient` ist injectable. Graceful fail bei nicht konfigurierten lokalen Karten.
+- `MCP_TOOL_NAMES` auf 8 (inkl. `get_workout_map`).
+- 989/989 Tests grün. Syntax und Lint sauber. Deployed 2026-11-12.
 
 ## MCP get_workout_gps und delete_workout (2026-11-12)
 

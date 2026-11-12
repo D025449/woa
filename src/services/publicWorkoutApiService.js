@@ -1,10 +1,12 @@
 import { intensityProfilesFromTags } from "../shared/WorkoutIntensityTags.js";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import sharp from "sharp";
 import pool from "./database.js";
 import { prepareYearlyFtpSeries, yearlyFtpAt, derivedCyclingMetrics } from "./publicTrainingMetrics.js";
 import { PUBLIC_ANALYTICS_LIMITS, spawnPublicApiWorker } from "./publicApiLimits.js";
 import { PUBLIC_GPS_LIMITS } from "./publicApiGpsService.js";
 import { PUBLIC_FIT_LIMITS, fitBudgetExceeded, runPublicFitWorker } from "./publicApiFitService.js";
+import LocalThumbnailMapService from "./localThumbnailMapService.js";
 
 const METRICS = Object.freeze({
   elapsed_time_seconds: "total_elapsed_time", timer_time_seconds: "total_timer_time",
@@ -131,11 +133,13 @@ export async function runPublicGpsWorker(row, id, timeoutMs = PUBLIC_GPS_LIMITS.
 }
 
 export default class PublicWorkoutApiService {
-  constructor({ database = pool, cursorSecret = null, now = Date.now, fitWorker = runPublicFitWorker } = {}) {
+  constructor({ database = pool, cursorSecret = null, now = Date.now, fitWorker = runPublicFitWorker,
+    localMapClient = LocalThumbnailMapService } = {}) {
     this.database = database;
     this.cursorSecret = cursorSecret;
     this.now = now;
     this.fitWorker = fitWorker;
+    this.localMapClient = localMapClient;
   }
 
   cursorKey() {
@@ -289,5 +293,19 @@ export default class PublicWorkoutApiService {
       return JSON.stringify({ type: "Feature", properties: { workout_id: id }, geometry: null });
     }
     return runPublicGpsWorker(row, id);
+  }
+
+  async map(userId, workoutId) {
+    const geoJsonStr = await this.gps(userId, workoutId);
+    const { geometry } = JSON.parse(geoJsonStr);
+    if (!geometry) apiFailure(404, "workout_not_found", "Workout has no GPS track.");
+    const segments = geometry.type === "MultiLineString" ? geometry.coordinates : [geometry.coordinates];
+    let result;
+    try {
+      result = await this.localMapClient.render({ segments });
+    } catch {
+      apiFailure(503, "map_unavailable", "Map rendering is unavailable.");
+    }
+    return sharp(Buffer.from(result.svg)).resize(640, 400).webp({ quality: 65 }).toBuffer();
   }
 }
