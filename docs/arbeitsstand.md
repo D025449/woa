@@ -11,7 +11,7 @@ Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 - Konvertierung via `convertWahooFit`, Import via `importWoaEntryReaders` mit optionalem `overwrite_existing`.
 - Rückgabeformat wie `sync_workouts_from_providers`: `imported` / `already_in_woa` / `skipped` / `failed` + Summary.
 - `MCP_WRITE_TOOL_NAMES` um `import_workout_file` erweitert, Tests angepasst.
-- 985/985 Tests grün. Noch nicht deployed.
+- 985/985 Tests grün. Deployed 2026-11-12.
 
 ## MCP sync_workouts_from_providers – overwrite_existing (2026-11-11)
 
