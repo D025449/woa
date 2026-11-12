@@ -3,14 +3,24 @@
 Stand: 2026-11-11. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
-## MCP import_workout_file (2026-11-12)
+## MCP get_workout_gps und delete_workout (2026-11-12)
+
+- Neues Read-Tool `get_workout_gps`: GPS-Track eines einzelnen Workouts als GeoJSON Feature.
+  Scope `workouts:read`, Rate-Limit-Bucket `gps` (40/min). `geometry: null` wenn kein GPS vorhanden.
+- Neues Write-Tool `delete_workout`: löscht ein eigenes Workout dauerhaft. Scope `activities:write`,
+  `destructiveHint: true`. Server-Instructions verlangen User-Bestätigung vor dem Aufruf.
+- `MCP_TOOL_NAMES` auf 7 (inkl. `get_workout_gps`), `MCP_WRITE_TOOL_NAMES` auf 4 (inkl. `delete_workout`).
+- Server-Instructions: „GPS and raw sample data are not accessible" → GPS-Hinweis entfernt,
+  delete-Hinweis ergänzt.
+- 988/988 Tests grün. Deployed 2026-11-12.
 
 - Tool `import_workout_file` für FIT/ZIP-Import via base64. Funktioniert mit nativen MCP-Clients
   (Codex liest Datei vom Filesystem und kodiert programmatisch); Claude.ai-Web kann große Binärdaten
   nicht zuverlässig als base64 in Tool-Parameter schreiben.
 - Unterstützt `.fit` (einzeln) und `.zip` (mehrere FIT-Dateien); max. 20 MB base64 ≈ 15 MB roh.
+- MCP-Body-Limit von 16 KB auf 22 MB erhöht (`mcpRoutes.js`); Regressionstest ergänzt.
 - `overwrite_existing` optional; gleiche Pipeline wie Provider-Sync.
-- 985/985 Tests grün. Deployed 2026-11-12.
+- 986/986 Tests grün. Deployed 2026-11-12.
 
 ## MCP sync_workouts_from_providers – overwrite_existing (2026-11-11)
 

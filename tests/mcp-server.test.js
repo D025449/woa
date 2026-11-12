@@ -173,20 +173,24 @@ async function protocol(ctx, options = {}) {
   return { client, close: async () => { await client.close(); await server.close(); } };
 }
 
-test('real MCP advertises exactly six scoped read-only tools with strict schemas', async () => {
-  for (const [scopes, expected] of [[context.scopes, MCP_TOOL_NAMES], [['analytics:read'], ['get_training_summary', 'get_training_load', 'get_ftp_history']], [['workouts:read'], ['list_workouts', 'get_workout']]]) {
+test('real MCP advertises exactly seven scoped read-only tools with strict schemas', async () => {
+  for (const [scopes, expected] of [[context.scopes, MCP_TOOL_NAMES], [['analytics:read'], ['get_training_summary', 'get_training_load', 'get_ftp_history']], [['workouts:read'], ['list_workouts', 'get_workout', 'get_workout_gps']]]) {
     const p = await protocol({ ...context, scopes }); try { assert.equal(p.client.getServerVersion().name, 'woa-training'); const { tools } = await p.client.listTools(); assert.deepEqual(tools.map(tool => tool.name), expected); for (const tool of tools) { assert.equal(tool.annotations.readOnlyHint, true); assert.equal(tool.annotations.destructiveHint, false); assert.equal(tool.inputSchema.additionalProperties, false); } assert.ok(!JSON.stringify(tools).includes('api_key')); assert.ok(!JSON.stringify(tools).includes('366')); } finally { await p.close(); }
   }
 });
 
 test('real MCP dispatches owned IDs, dates, paging and shared analytics budgets', async () => {
-  const calls = [], budgets = []; const service = Object.fromEntries(['list', 'detail', 'summary', 'trainingLoad', 'powerProfile', 'ftpHistory'].map(method => [method, async (owner, params) => { calls.push([method, owner, params instanceof URLSearchParams ? Object.fromEntries(params) : params]); return { data: [], meta: { coverage: 'missing' }, next_cursor: null }; }]));
+  const calls = [], budgets = []; const service = Object.fromEntries(['list', 'detail', 'summary', 'trainingLoad', 'powerProfile', 'ftpHistory', 'gps'].map(method => [method, async (owner, params) => { calls.push([method, owner, params instanceof URLSearchParams ? Object.fromEntries(params) : params]); return method === 'gps' ? JSON.stringify({ type: 'Feature', properties: { workout_id: params }, geometry: null }) : { data: [], meta: { coverage: 'missing' }, next_cursor: null }; }]));
   const p = await protocol(context, { workouts: service, analytics: service, allowance: async (...args) => { budgets.push(args); return { allowed: true, retryAfter: 0 }; } });
   try {
-    for (const name of MCP_TOOL_NAMES) { const args = name === 'get_workout' ? { workout_id: '9007199254740993' } : name === 'list_workouts' ? { limit: 12, cursor: 'opaque' } : { from: '2026-10-01', to: '2026-11-01', ...(name === 'get_power_profile' ? { durations: [5, 480] } : name === 'get_ftp_history' ? { grouping: 'week' } : {}) }; const result = await p.client.callTool({ name, arguments: args }); assert.ok(!result.isError); assert.deepEqual(JSON.parse(result.content[0].text), result.structuredContent); }
+    const definitionNames = MCP_TOOL_NAMES.filter(n => n !== 'get_workout_gps');
+    for (const name of definitionNames) { const args = name === 'get_workout' ? { workout_id: '9007199254740993' } : name === 'list_workouts' ? { limit: 12, cursor: 'opaque' } : { from: '2026-10-01', to: '2026-11-01', ...(name === 'get_power_profile' ? { durations: [5, 480] } : name === 'get_ftp_history' ? { grouping: 'week' } : {}) }; const result = await p.client.callTool({ name, arguments: args }); assert.ok(!result.isError); assert.deepEqual(JSON.parse(result.content[0].text), result.structuredContent); }
     assert.equal(calls.length, 6); assert.ok(calls.every(call => call[1] === '71')); assert.equal(calls.find(call => call[0] === 'detail')[2], '9007199254740993'); assert.equal(calls.find(call => call[0] === 'powerProfile')[2].durations, '5,480'); assert.equal(budgets.length, 4); assert.ok(budgets.every(args => args.join(',') === 'analytics,40,71'));
     for (const args of [{ owner: '72' }, { api_key: 'SECRET' }, { limit: 101 }, { limit: '20' }]) assert.equal((await p.client.callTool({ name: 'list_workouts', arguments: args })).isError, true);
     assert.equal((await p.client.callTool({ name: 'get_power_profile', arguments: { durations: [5, 5] } })).isError, true); assert.equal(calls.length, 6);
+    const gpsResult = await p.client.callTool({ name: 'get_workout_gps', arguments: { workout_id: '99' } });
+    assert.ok(!gpsResult.isError); assert.equal(gpsResult.structuredContent.type, 'Feature'); assert.equal(gpsResult.structuredContent.properties.workout_id, '99');
+    assert.equal(budgets.at(-1).join(','), 'gps,40,71');
   } finally { await p.close(); }
 });
 
@@ -246,7 +250,7 @@ test('six locales render consent and connection list with escaping', async () =>
 });
 
 test('create_training_activity registers only with activities:write scope', async () => {
-  assert.deepEqual(MCP_WRITE_TOOL_NAMES, ['create_training_activity', 'sync_workouts_from_providers', 'import_workout_file']);
+  assert.deepEqual(MCP_WRITE_TOOL_NAMES, ['create_training_activity', 'sync_workouts_from_providers', 'import_workout_file', 'delete_workout']);
   for (const scopes of [['workouts:read'], ['analytics:read'], context.scopes]) {
     const p = await protocol({ ...context, scopes }); try {
       const { tools } = await p.client.listTools();
@@ -256,10 +260,11 @@ test('create_training_activity registers only with activities:write scope', asyn
   }
   const p = await protocol({ ...context, scopes: ['activities:write'] }); try {
     const { tools } = await p.client.listTools();
-    assert.equal(tools.length, 3);
+    assert.equal(tools.length, 4);
     assert.ok(tools.some(t => t.name === 'create_training_activity'));
     assert.ok(tools.some(t => t.name === 'sync_workouts_from_providers'));
     assert.ok(tools.some(t => t.name === 'import_workout_file'));
+    assert.ok(tools.some(t => t.name === 'delete_workout'));
     const syncTool = tools.find(t => t.name === 'sync_workouts_from_providers');
     assert.equal(syncTool.annotations.readOnlyHint, false);
     assert.equal(syncTool.annotations.destructiveHint, true);
@@ -321,4 +326,34 @@ test('create_training_activity rechecks auth and rejects revoked/wrong owner', a
       assert.ok(!JSON.stringify(result).includes('SECRET'));
     } finally { await p.close(); }
   }
+});
+
+test('get_workout_gps returns GeoJSON and uses gps rate limit bucket', async () => {
+  const geoJson = { type: 'Feature', properties: { workout_id: '42' }, geometry: null };
+  const workouts = { gps: async (owner, id) => { if (id === '99') { const e = new Error(); e.code = 'workout_not_found'; throw e; } assert.equal(owner, '71'); assert.equal(id, '42'); return JSON.stringify(geoJson); } };
+  const budgets = [];
+  const p = await protocol(context, { workouts, allowance: async (...args) => { budgets.push(args); return { allowed: true, retryAfter: 0 }; } });
+  try {
+    const result = await p.client.callTool({ name: 'get_workout_gps', arguments: { workout_id: '42' } });
+    assert.ok(!result.isError); assert.deepEqual(result.structuredContent, geoJson);
+    assert.deepEqual(JSON.parse(result.content[0].text), geoJson);
+    assert.equal(budgets.length, 1); assert.equal(budgets[0].join(','), 'gps,40,71');
+    const notFound = await p.client.callTool({ name: 'get_workout_gps', arguments: { workout_id: '99' } });
+    assert.ok(notFound.isError); assert.equal(JSON.parse(notFound.content[0].text).error.code, 'workout_not_found');
+  } finally { await p.close(); }
+});
+
+test('delete_workout deletes owned workout and returns confirmation', async t => {
+  const logs = []; t.mock.method(console, 'error', text => logs.push(JSON.parse(text)));
+  const writeCtx = { ...context, scopes: ['activities:write'] };
+  let deleted = null;
+  const db = { deleteWorkout: async (uid, id) => { if (id === '999') throw new Error('Workout not found'); deleted = { uid, id }; } };
+  const p = await protocol(writeCtx, { db });
+  try {
+    const result = await p.client.callTool({ name: 'delete_workout', arguments: { workout_id: '123' } });
+    assert.ok(!result.isError); assert.deepEqual(result.structuredContent, { deleted: true, workout_id: '123' });
+    assert.deepEqual(deleted, { uid: '71', id: '123' });
+    const notFound = await p.client.callTool({ name: 'delete_workout', arguments: { workout_id: '999' } });
+    assert.ok(notFound.isError); assert.equal(JSON.parse(notFound.content[0].text).error.code, 'workout_not_found');
+  } finally { await p.close(); }
 });
