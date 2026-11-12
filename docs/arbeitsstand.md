@@ -9,21 +9,29 @@ Vor weiterer Arbeit mit Code und Git-Status abgleichen.
   mit OSM-Hintergrund + GPS-Route. Scope `workouts:gps:read`, Rate-Limit `gps` (40/min).
   Fehler: `workout_not_found` → 404, `map_unavailable` → 503.
 - Neues MCP Read-Tool `get_workout_map` (Scope `workouts:read`, Rate-Limit `gps`-Bucket):
-  gibt MCP Image Content (`image/webp`, 640×400, base64) + Text-Metadaten zurück..
+  gibt MCP Image Content (`image/webp`, 640×400, base64) + Text-Metadaten zurück.
   Interne 320×200-Thumbnails für die WOA-UI bleiben unverändert.
 - `publicWorkoutApiService.map()`: ruft `this.gps()` intern auf, parst GeoJSON-Koordinaten,
-  rendert via `LocalThumbnailMapService` (Worker-Thread), compositet `result.background`
-  (OSM-Kacheln WebP) + `result.routeSvg` (reine SVG-Pfade) via sharp → 640×400 WebP.
-  Kein librsvg-WebP-in-SVG-Problem (librsvg auf Linux kann keine WebP-Data-URLs rendern).
-- `localThumbnailMapRenderer.finish()` gibt zusätzlich `routeSvg` zurück: reines
-  320×200-SVG mit Route + Attribution, ohne eingebetteten Kachel-Hintergrund.
-- `MCP_TOOL_NAMES` auf 8 (inkl. `get_workout_map`).
-- `get_workout_map` MCP-Tool gibt im Text-Content zusätzlich `data_url` (Data-URL des Bildes)
-  mit aus, damit die KI das Bild als `<img src="data:image/webp;base64,...">` in ein
-  HTML-Artifact einbetten und dem User anzeigen kann.
-- `local-thumbnail-map-worker.js` überträgt jetzt `background` und `routeSvg` im
-  postMessage-Result (vorher nur `svg` und `stats`).
-- 989/989 Tests grün. Syntax und Lint sauber. Deployed 2026-11-12.
+  rendert via `LocalThumbnailMapService` mit `outputScale: 2` (Worker-Thread), compositet
+  `result.background` (OSM-Kacheln WebP, 640×400) + `result.routeSvg` via sharp → 640×400 WebP.
+  Kein `.resize()` mehr nötig: Bild wird nativ bei 640×400 gerendert (Zoom-Level Z+1).
+- `getLocalMapViewport` akzeptiert `{ scale = 1 }` als zweiten Parameter: skaliert `width`,
+  `height` (320×200 → 640×400) und die Viewport-Berechnungen proportional; höherer `scale`
+  erhöht `world`/`zoom` → OSM-Kacheln werden auf dem nächsten Zoom-Level gerendert (schärfer).
+- `localThumbnailMapRenderer.viewport()` übergibt `{ scale: example.outputScale ?? 1 }`.
+- `localThumbnailMapRenderer.renderVector()`: leitet `scale = width / 320` ab und skaliert
+  alle Strichstärken (Gewässer, Grenzen, Straßen, Straßenumrandungen) proportional.
+- `localThumbnailMapRenderer.placeLabels()`: leitet `scale = width / 320` ab, skaliert
+  Textbreite, Box-Ränder, Margins und font-size/stroke-width der SVG-Text-Elemente.
+- `localThumbnailMapRenderer.finish()`: leitet `{ width, height }` aus Viewport und
+  `scale = width / 320` ab; skaliert Route-Strichstärken, Kreise, Overlay-Strichstärken
+  und Attribution-Box/-Text; `routeSvg` und `svg` verwenden dynamische Dimensionen.
+- Kein librsvg-WebP-in-SVG-Problem (librsvg auf Linux kann keine WebP-Data-URLs rendern):
+  `finish()` gibt `routeSvg` zurück (reines SVG ohne eingebetteten Kachel-Hintergrund).
+- `MCP_TOOL_NAMES` auf 8 (inkl. `get_workout_map`). `data_url` im MCP-Text-Content für
+  HTML-Artifact-Einbettung. `local-thumbnail-map-worker.js` überträgt `background` und
+  `routeSvg` im postMessage-Result.
+- 989/989 Tests grün. Syntax und Lint sauber.
 
 ## MCP get_workout_gps und delete_workout (2026-11-12)
 

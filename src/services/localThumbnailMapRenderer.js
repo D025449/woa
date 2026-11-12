@@ -272,13 +272,14 @@ export class LocalMapRenderer {
       || Math.abs(point[0]) > 180 || Math.abs(point[1]) > 85.05112878)) throw new Error('Unsupported local map route');
     return getLocalMapViewport({ minLng: Math.min(...points.map(point => point[0])),
       maxLng: Math.max(...points.map(point => point[0])), minLat: Math.min(...points.map(point => point[1])),
-      maxLat: Math.max(...points.map(point => point[1])) });
+      maxLat: Math.max(...points.map(point => point[1])) }, { scale: example.outputScale ?? 1 });
   }
 
   async renderVector(example, { viewport = this.viewport(example),
     paintLabels = true, format = 'webp' } = {}) {
     const started = performance.now();
     const { width, height, zoom, world, left, top } = viewport;
+    const scale = width / 320;
     const count = 2 ** zoom;
     const tilePixels = world / count;
     const tiles = [];
@@ -338,15 +339,15 @@ export class LocalMapRenderer {
             if (!landColors[kind]) continue;
             attributes = `fill="${landColors[kind]}"`;
           } else if (layerName === 'water_polygons') attributes = 'fill="#aad3df"';
-          else if (layerName === 'water_lines') attributes = `fill="none" stroke="#8ebdce" stroke-width="${kind === 'river' ? 1.2 : 0.6}"`;
+          else if (layerName === 'water_lines') attributes = `fill="none" stroke="#8ebdce" stroke-width="${(kind === 'river' ? 1.2 : 0.6) * scale}"`;
           else if (layerName === 'buildings') attributes = 'fill="#d9d0c9"';
-          else if (layerName === 'boundaries') attributes = 'fill="none" stroke="#aa8fac" stroke-width="0.7" stroke-dasharray="3 3"';
+          else if (layerName === 'boundaries') attributes = `fill="none" stroke="#aa8fac" stroke-width="${(0.7 * scale).toFixed(2)}" stroke-dasharray="${3 * scale} ${3 * scale}"`;
           else {
             if (properties.rail) continue;
             const roadColors = { motorway: '#e99aa5', trunk: '#f2b497', primary: '#f4d480', secondary: '#f7efa1', tertiary: '#ffffff' };
             const roadWidths = { motorway: 2.8, trunk: 2.5, primary: 2.2, secondary: 1.8, tertiary: 1.4 };
             const stroke = roadColors[kind] || '#ffffff';
-            const roadWidth = roadWidths[kind] || 0.8;
+            const roadWidth = (roadWidths[kind] || 0.8) * scale;
             attributes = `fill="none" stroke="${stroke}" stroke-width="${roadWidth}" stroke-linejoin="round" stroke-linecap="round"`;
           }
           const geometry = feature.loadGeometry();
@@ -356,7 +357,7 @@ export class LocalMapRenderer {
             return `${index ? 'L' : 'M'}${screenX.toFixed(2)},${screenY.toFixed(2)}`;
           }).join(' ') + (feature.type === 3 ? 'Z' : '')).join(' ');
           if (layerName === 'streets' && ['motorway', 'trunk', 'primary', 'secondary', 'tertiary'].includes(kind)) {
-            paths.push(`<path d="${path}" fill="none" stroke="#b6b3ab" stroke-width="${({ motorway: 2.8, trunk: 2.5, primary: 2.2, secondary: 1.8, tertiary: 1.4 })[kind] + 0.65}"/>`);
+            paths.push(`<path d="${path}" fill="none" stroke="#b6b3ab" stroke-width="${(({ motorway: 2.8, trunk: 2.5, primary: 2.2, secondary: 1.8, tertiary: 1.4 })[kind] + 0.65) * scale}"/>`);
           }
           paths.push(`<path d="${path}" ${attributes} fill-rule="evenodd"/>`);
           featureCount++;
@@ -393,17 +394,18 @@ export class LocalMapRenderer {
   }
 
   placeLabels(labels, width, height) {
+    const scale = width / 320;
     const occupied = [];
     const shapes = [];
     const placedNames = new Set();
     for (const label of labels.sort((first, second) => second.population - first.population)) {
-      const textWidth = label.name.length * 4.5;
-      const box = [label.screenX - textWidth / 2 - 3, label.screenY - 8, label.screenX + textWidth / 2 + 3, label.screenY + 4];
-      if (box[0] < 8 || box[2] > width - 8 || box[1] < 8 || box[3] > height - 28 || placedNames.has(label.name)) continue;
+      const textWidth = label.name.length * 4.5 * scale;
+      const box = [label.screenX - textWidth / 2 - 3 * scale, label.screenY - 8 * scale, label.screenX + textWidth / 2 + 3 * scale, label.screenY + 4 * scale];
+      if (box[0] < 8 * scale || box[2] > width - 8 * scale || box[1] < 8 * scale || box[3] > height - 28 * scale || placedNames.has(label.name)) continue;
       if (occupied.some(other => box[0] < other[2] && box[2] > other[0] && box[1] < other[3] && box[3] > other[1])) continue;
       occupied.push(box);
       placedNames.add(label.name);
-      shapes.push(`<text x="${label.screenX}" y="${label.screenY}" text-anchor="middle" font-family="sans-serif" font-size="8.5" fill="#454545" stroke="#fff" stroke-width="2.5" paint-order="stroke">${escapeXml(label.name)}</text>`);
+      shapes.push(`<text x="${label.screenX}" y="${label.screenY}" text-anchor="middle" font-family="sans-serif" font-size="${8.5 * scale}" fill="#454545" stroke="#fff" stroke-width="${2.5 * scale}" paint-order="stroke">${escapeXml(label.name)}</text>`);
     }
     return { svg: shapes.join(''), count: occupied.length };
   }
@@ -411,7 +413,8 @@ export class LocalMapRenderer {
   /** @returns {{svg: string, background: Buffer, routeSvg: string, stats: Record<string, any>}} */
   finish(example, background, viewport, { started, ...stats }) {
     const finishStartedAt = performance.now();
-    const { world, left, top, zoom } = viewport;
+    const { world, left, top, zoom, width, height } = viewport;
+    const scale = width / 320;
     const screenSegments = example.segments.map(segment => segment.map(project)
       .map(point => [point[0] * world - left, point[1] * world - top]));
     const reducedSegments = screenSegments.map(segment => simplify(segment.map(point =>
@@ -422,14 +425,14 @@ export class LocalMapRenderer {
       const points = simplify(segment.map(project).map(point => ({ x: point[0] * world - left, y: point[1] * world - top })), 0.45, true);
       if (points.length < 2) return '';
       const overlayPath = points.map((point, index) => `${index ? 'L' : 'M'}${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(' ');
-      return `<path data-segment-type="${escapeXml(overlay.segmenttype)}" d="${overlayPath}" fill="none" stroke="${escapeXml(overlay.color)}" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+      return `<path data-segment-type="${escapeXml(overlay.segmenttype)}" d="${overlayPath}" fill="none" stroke="${escapeXml(overlay.color)}" stroke-width="${3.5 * scale}" stroke-linejoin="round" stroke-linecap="round"/>`;
     })).join('');
     const first = screenSegments[0][0];
     const last = screenSegments.at(-1).at(-1);
-    const route = `<defs><path id="route" d="${routePath}"/></defs><g fill="none" stroke-linejoin="round" stroke-linecap="round"><use href="#route" stroke="#fff" stroke-width="5"/><use href="#route" stroke="${escapeXml(example.routeColor || WORKOUT_ROUTE_COLOR)}" stroke-width="2.6"/></g>${overlayMarkup}<circle cx="${first[0]}" cy="${first[1]}" r="3" fill="#fff" stroke="#178651" stroke-width="1.5"/><circle cx="${last[0]}" cy="${last[1]}" r="2.7" fill="#d7353c" stroke="#fff" stroke-width="1.3"/>`;
-    const attribution = '<rect x="112" y="179" width="200" height="13" fill="#fff" fill-opacity="0.94"/><text x="308" y="188" text-anchor="end" font-family="sans-serif" font-size="8" fill="#34443c">&#169; OpenStreetMap contributors</text>';
-    const routeSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200">${route}${attribution}</svg>`;
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200" data-thumbnail-style="${WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION}"><image data-map-provider="local" width="320" height="200" href="data:image/webp;base64,${background.toString('base64')}"/>${route}${attribution}</svg>`;
+    const route = `<defs><path id="route" d="${routePath}"/></defs><g fill="none" stroke-linejoin="round" stroke-linecap="round"><use href="#route" stroke="#fff" stroke-width="${5 * scale}"/><use href="#route" stroke="${escapeXml(example.routeColor || WORKOUT_ROUTE_COLOR)}" stroke-width="${2.6 * scale}"/></g>${overlayMarkup}<circle cx="${first[0]}" cy="${first[1]}" r="${3 * scale}" fill="#fff" stroke="#178651" stroke-width="${1.5 * scale}"/><circle cx="${last[0]}" cy="${last[1]}" r="${2.7 * scale}" fill="#d7353c" stroke="#fff" stroke-width="${1.3 * scale}"/>`;
+    const attribution = `<rect x="${112 * scale}" y="${height - 21 * scale}" width="${200 * scale}" height="${13 * scale}" fill="#fff" fill-opacity="0.94"/><text x="${308 * scale}" y="${height - 12 * scale}" text-anchor="end" font-family="sans-serif" font-size="${8 * scale}" fill="#34443c">&#169; OpenStreetMap contributors</text>`;
+    const routeSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">${route}${attribution}</svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" data-thumbnail-style="${WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION}"><image data-map-provider="local" width="${width}" height="${height}" href="data:image/webp;base64,${background.toString('base64')}"/>${route}${attribution}</svg>`;
     if (stats.renderProfile) stats.renderProfile.finishSvgMs = performance.now() - finishStartedAt;
     return { svg, background, routeSvg, stats: { ...stats, ms: performance.now() - started, zoom,
       svgBytes: Buffer.byteLength(svg), webpBytes: background.length } };

@@ -3,19 +3,19 @@ export function project([longitude, latitude]) {
   return [(longitude + 180) / 360, 0.5 - Math.log((1 + sine) / (1 - sine)) / (4 * Math.PI)];
 }
 
-export function getLocalMapViewport({ minLat, maxLat, minLng, maxLng }) {
+export function getLocalMapViewport({ minLat, maxLat, minLng, maxLng }, { scale = 1 } = {}) {
   if (![minLat, maxLat, minLng, maxLng].every(Number.isFinite)
     || minLat > maxLat || minLng > maxLng || Math.abs(minLat) > 85.05112878
     || Math.abs(maxLat) > 85.05112878 || Math.abs(minLng) > 180 || Math.abs(maxLng) > 180
     || maxLng - minLng > 180) throw new Error("Unsupported local map bounds");
-  const width = 320;
-  const height = 200;
+  const width = Math.round(320 * scale);
+  const height = Math.round(200 * scale);
   const [minX, maxY] = project([minLng, minLat]);
   const [maxX, minY] = project([maxLng, maxLat]);
-  const world = Math.min(256 * 2 ** 18, 272 / Math.max(1e-8, maxX - minX), 142 / Math.max(1e-8, maxY - minY));
+  const world = Math.min(256 * 2 ** 18, 272 * scale / Math.max(1e-8, maxX - minX), 142 * scale / Math.max(1e-8, maxY - minY));
   const zoom = Math.max(0, Math.min(14, Math.floor(Math.log2(world / 256)) + 1));
   const left = (minX + maxX) / 2 * world - width / 2;
-  const top = (minY + maxY) / 2 * world - (height - 12) / 2;
+  const top = (minY + maxY) / 2 * world - (height - 12 * scale) / 2;
   return { width, height, zoom, world, left, top };
 }
 

@@ -302,13 +302,12 @@ export default class PublicWorkoutApiService {
     const segments = geometry.type === "MultiLineString" ? geometry.coordinates : [geometry.coordinates];
     let result;
     try {
-      result = await this.localMapClient.render({ segments });
+      result = await this.localMapClient.render({ segments, outputScale: 2 });
     } catch {
       apiFailure(503, "map_unavailable", "Map rendering is unavailable.");
     }
     return sharp(result.background)
       .composite([{ input: Buffer.from(result.routeSvg) }])
-      .resize(640, 400)
       .webp({ quality: 65 })
       .toBuffer();
   }
