@@ -3,6 +3,16 @@
 Stand: 2026-11-11. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
+## MCP import_workout_file (2026-11-12)
+
+- Neues MCP-Tool `import_workout_file` zum Importieren lokaler FIT- oder ZIP-Dateien.
+- Workflow: User hängt Datei im Claude.ai-Chat an → Claude kodiert als base64 und ruft das Tool auf.
+- Unterstützt `.fit` (einzeln) und `.zip` (mehrere FIT-Dateien darin); max. 20 MB base64 ≈ 15 MB roh.
+- Konvertierung via `convertWahooFit`, Import via `importWoaEntryReaders` mit optionalem `overwrite_existing`.
+- Rückgabeformat wie `sync_workouts_from_providers`: `imported` / `already_in_woa` / `skipped` / `failed` + Summary.
+- `MCP_WRITE_TOOL_NAMES` um `import_workout_file` erweitert, Tests angepasst.
+- 985/985 Tests grün. Noch nicht deployed.
+
 ## MCP sync_workouts_from_providers – overwrite_existing (2026-11-11)
 
 - Neuer optionaler Parameter `overwrite_existing: boolean` (Default `false`) im MCP-Tool

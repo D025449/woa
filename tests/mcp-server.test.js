@@ -246,7 +246,7 @@ test('six locales render consent and connection list with escaping', async () =>
 });
 
 test('create_training_activity registers only with activities:write scope', async () => {
-  assert.deepEqual(MCP_WRITE_TOOL_NAMES, ['create_training_activity', 'sync_workouts_from_providers']);
+  assert.deepEqual(MCP_WRITE_TOOL_NAMES, ['create_training_activity', 'sync_workouts_from_providers', 'import_workout_file']);
   for (const scopes of [['workouts:read'], ['analytics:read'], context.scopes]) {
     const p = await protocol({ ...context, scopes }); try {
       const { tools } = await p.client.listTools();
@@ -256,13 +256,18 @@ test('create_training_activity registers only with activities:write scope', asyn
   }
   const p = await protocol({ ...context, scopes: ['activities:write'] }); try {
     const { tools } = await p.client.listTools();
-    assert.equal(tools.length, 2);
+    assert.equal(tools.length, 3);
     assert.ok(tools.some(t => t.name === 'create_training_activity'));
     assert.ok(tools.some(t => t.name === 'sync_workouts_from_providers'));
+    assert.ok(tools.some(t => t.name === 'import_workout_file'));
     const syncTool = tools.find(t => t.name === 'sync_workouts_from_providers');
     assert.equal(syncTool.annotations.readOnlyHint, false);
     assert.equal(syncTool.annotations.destructiveHint, true);
     assert.equal(syncTool.inputSchema.additionalProperties, false);
+    const fileTool = tools.find(t => t.name === 'import_workout_file');
+    assert.equal(fileTool.annotations.readOnlyHint, false);
+    assert.equal(fileTool.annotations.destructiveHint, true);
+    assert.equal(fileTool.inputSchema.additionalProperties, false);
   } finally { await p.close(); }
 });
 
