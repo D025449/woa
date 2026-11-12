@@ -67,10 +67,11 @@ function normalizeIntervals(value, durationSeconds) {
     };
   });
 
-  const occupiedSeconds = intervals.reduce((sum, interval) => (
+  const occupiedSeconds = intervals.reduce((sum, interval, index) => (
     sum
       + interval.repetitions * interval.workDurationSeconds
       + Math.max(0, interval.repetitions - 1) * interval.recoveryDurationSeconds
+      + (index < intervals.length - 1 ? interval.recoveryDurationSeconds * 2 : 0)
   ), 0);
   if (occupiedSeconds > durationSeconds) {
     throw validationError("Interval blocks exceed activity duration");
@@ -156,17 +157,18 @@ export function calculateManualCyclingMetrics(activity, ftp = null) {
     activity.baselinePowerValue,
     ftp
   );
-  const occupiedSeconds = activity.intervals.reduce((sum, interval) => (
+  const occupiedSeconds = activity.intervals.reduce((sum, interval, index) => (
     sum
       + interval.repetitions * interval.workDurationSeconds
       + Math.max(0, interval.repetitions - 1) * interval.recoveryDurationSeconds
+      + (index < activity.intervals.length - 1 ? interval.recoveryDurationSeconds * 2 : 0)
   ), 0);
   const leadingBaselineSeconds = Math.floor((activity.durationSeconds - occupiedSeconds) / 2);
   const power = new Uint16Array(activity.durationSeconds);
   power.fill(Math.round(baselinePower));
   let offset = leadingBaselineSeconds;
 
-  activity.intervals.forEach((interval) => {
+  activity.intervals.forEach((interval, index) => {
     const workPower = Math.round(resolvePowerWatts(interval.powerMode, interval.workPowerValue, ftp));
     const recoveryPower = interval.recoveryPowerValue === null
       ? Math.round(baselinePower)
@@ -178,6 +180,9 @@ export function calculateManualCyclingMetrics(activity, ftp = null) {
         power.fill(recoveryPower, offset, offset + interval.recoveryDurationSeconds);
         offset += interval.recoveryDurationSeconds;
       }
+    }
+    if (index < activity.intervals.length - 1) {
+      offset += interval.recoveryDurationSeconds * 2;
     }
   });
 
