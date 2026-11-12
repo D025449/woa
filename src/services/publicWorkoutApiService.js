@@ -306,6 +306,10 @@ export default class PublicWorkoutApiService {
     } catch {
       apiFailure(503, "map_unavailable", "Map rendering is unavailable.");
     }
-    return sharp(Buffer.from(result.svg)).resize(640, 400).webp({ quality: 65 }).toBuffer();
+    return sharp(result.background)
+      .composite([{ input: Buffer.from(result.routeSvg) }])
+      .resize(640, 400)
+      .webp({ quality: 65 })
+      .toBuffer();
   }
 }

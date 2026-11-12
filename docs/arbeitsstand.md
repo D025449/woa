@@ -12,8 +12,11 @@ Vor weiterer Arbeit mit Code und Git-Status abgleichen.
   gibt MCP Image Content (`image/webp`, 640×400, base64) + Text-Metadaten zurück.
   Interne 320×200-Thumbnails für die WOA-UI bleiben unverändert.
 - `publicWorkoutApiService.map()`: ruft `this.gps()` intern auf, parst GeoJSON-Koordinaten,
-  rendert via `LocalThumbnailMapService` (Worker-Thread), rasterisiert SVG mit sharp 640×400.
-  `localMapClient` ist injectable. Graceful fail bei nicht konfigurierten lokalen Karten.
+  rendert via `LocalThumbnailMapService` (Worker-Thread), compositet `result.background`
+  (OSM-Kacheln WebP) + `result.routeSvg` (reine SVG-Pfade) via sharp → 640×400 WebP.
+  Kein librsvg-WebP-in-SVG-Problem (librsvg auf Linux kann keine WebP-Data-URLs rendern).
+- `localThumbnailMapRenderer.finish()` gibt zusätzlich `routeSvg` zurück: reines
+  320×200-SVG mit Route + Attribution, ohne eingebetteten Kachel-Hintergrund.
 - `MCP_TOOL_NAMES` auf 8 (inkl. `get_workout_map`).
 - 989/989 Tests grün. Syntax und Lint sauber. Deployed 2026-11-12.
 

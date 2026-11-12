@@ -408,7 +408,7 @@ export class LocalMapRenderer {
     return { svg: shapes.join(''), count: occupied.length };
   }
 
-  /** @returns {{svg: string, background: Buffer, stats: Record<string, any>}} */
+  /** @returns {{svg: string, background: Buffer, routeSvg: string, stats: Record<string, any>}} */
   finish(example, background, viewport, { started, ...stats }) {
     const finishStartedAt = performance.now();
     const { world, left, top, zoom } = viewport;
@@ -428,9 +428,10 @@ export class LocalMapRenderer {
     const last = screenSegments.at(-1).at(-1);
     const route = `<defs><path id="route" d="${routePath}"/></defs><g fill="none" stroke-linejoin="round" stroke-linecap="round"><use href="#route" stroke="#fff" stroke-width="5"/><use href="#route" stroke="${escapeXml(example.routeColor || WORKOUT_ROUTE_COLOR)}" stroke-width="2.6"/></g>${overlayMarkup}<circle cx="${first[0]}" cy="${first[1]}" r="3" fill="#fff" stroke="#178651" stroke-width="1.5"/><circle cx="${last[0]}" cy="${last[1]}" r="2.7" fill="#d7353c" stroke="#fff" stroke-width="1.3"/>`;
     const attribution = '<rect x="112" y="179" width="200" height="13" fill="#fff" fill-opacity="0.94"/><text x="308" y="188" text-anchor="end" font-family="sans-serif" font-size="8" fill="#34443c">&#169; OpenStreetMap contributors</text>';
+    const routeSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200">${route}${attribution}</svg>`;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200" data-thumbnail-style="${WORKOUT_ROUTE_THUMBNAIL_STYLE_VERSION}"><image data-map-provider="local" width="320" height="200" href="data:image/webp;base64,${background.toString('base64')}"/>${route}${attribution}</svg>`;
     if (stats.renderProfile) stats.renderProfile.finishSvgMs = performance.now() - finishStartedAt;
-    return { svg, background, stats: { ...stats, ms: performance.now() - started, zoom,
+    return { svg, background, routeSvg, stats: { ...stats, ms: performance.now() - started, zoom,
       svgBytes: Buffer.byteLength(svg), webpBytes: background.length } };
   }
 }
