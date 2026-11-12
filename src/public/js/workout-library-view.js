@@ -36,10 +36,11 @@ export function buildManualPowerThumbnailSvg(activity = {}) {
       && Number.isFinite(interval.recoveryPower)
     ))
     .sort((left, right) => left.sequenceNo - right.sequenceNo);
-  const occupiedSeconds = intervals.reduce((sum, interval) => (
+  const occupiedSeconds = intervals.reduce((sum, interval, index) => (
     sum
       + interval.repetitions * interval.workDuration
       + Math.max(0, interval.repetitions - 1) * interval.recoveryDuration
+      + (index < intervals.length - 1 ? interval.recoveryDuration * 2 : 0)
   ), 0);
   const usableIntervals = occupiedSeconds <= duration ? intervals : [];
   const leadingBaseline = Math.max(0, (duration - (usableIntervals.length ? occupiedSeconds : 0)) / 2);
@@ -55,12 +56,15 @@ export function buildManualPowerThumbnailSvg(activity = {}) {
   };
 
   appendSegment(leadingBaseline, baselinePower);
-  usableIntervals.forEach((interval) => {
+  usableIntervals.forEach((interval, index) => {
     for (let repetition = 0; repetition < interval.repetitions; repetition += 1) {
       appendSegment(interval.workDuration, interval.workPower);
       if (repetition < interval.repetitions - 1) {
         appendSegment(interval.recoveryDuration, interval.recoveryPower);
       }
+    }
+    if (index < usableIntervals.length - 1) {
+      appendSegment(interval.recoveryDuration * 2, baselinePower);
     }
   });
   const renderedSeconds = segments.reduce((sum, segment) => sum + segment.seconds, 0);
