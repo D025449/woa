@@ -8,7 +8,7 @@ import { PUBLIC_API_QUOTAS } from "./publicApiLimits.js";
 import { reportApiError } from "../middleware/publicApiDiagnostics.js";
 import TrainingActivityDBService from "./trainingActivityDBService.js";
 import { invalidateAnalyticsOverviewCache } from "./analyticsOverviewCache.js";
-import { syncWorkoutsFromProviders } from "./mcpProviderSyncService.js";
+import { syncWorkoutsFromProviders, importWorkoutFile } from "./mcpProviderSyncService.js";
 
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("UTC calendar date. from inclusive, to exclusive.").optional();
 const range = { from: date, to: date };
@@ -34,7 +34,7 @@ const definitions = [
 ];
 
 export const MCP_TOOL_NAMES = definitions.map(tool => tool.name);
-export const MCP_WRITE_TOOL_NAMES = ["create_training_activity", "sync_workouts_from_providers"];
+export const MCP_WRITE_TOOL_NAMES = ["create_training_activity", "sync_workouts_from_providers", "import_workout_file"];
 
 const CREATE_ACTIVITY_SCHEMA = z.object({
   activity_type: z.enum(["cycling", "strength_training", "mobility", "other"]),
@@ -206,6 +206,43 @@ export function createTrainingMcpServer(context, { authorize, workouts = new Pub
           invalid_token: "Connection expired or revoked; reconnect." };
         const code = Object.hasOwn(messages, error?.code) ? error.code : "service_unavailable";
         const message = messages[code] || "Provider sync unavailable.";
+        const status = code === "service_unavailable" ? 503 : code === "invalid_token" ? 401
+          : code === "insufficient_scope" ? 403 : 400;
+        const request_id = reportApiError(request, status, code, Object.hasOwn(messages, error?.code) ? undefined : error);
+        return { isError: true, content: [{ type: "text", text: JSON.stringify({ error: { code, message, request_id } }) }] };
+      }
+    });
+
+    server.registerTool("import_workout_file", {
+      title: "Import workout from file",
+      description: "Import a local FIT or ZIP file (containing FIT files) into WOA. The file must be passed as base64-encoded content — native MCP clients (e.g. Codex) read the file from disk and encode it automatically. Returns per-workout status: 'imported' (newly added), 'already_in_woa' (exists, skipped), 'skipped' (too short), 'failed' (unreadable). Use overwrite_existing only when the user explicitly wants to replace existing workouts.",
+      inputSchema: z.object({
+        filename: z.string().min(1).max(255).regex(/\.(fit|zip)$/i)
+          .describe("Original filename. Must end in .fit or .zip."),
+        content: z.string().min(1).max(20 * 1024 * 1024)
+          .describe("Base64-encoded file content. Max ~15 MB raw."),
+        overwrite_existing: z.boolean().optional()
+          .describe("If true, existing workouts with conflicting times are replaced. Default false.")
+      }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+    }, async (args) => {
+      try {
+        const current = await authorize();
+        if (current.userId !== context.userId || current.grantId !== context.grantId
+          || !current.scopes.includes("activities:write")) throw Object.assign(new Error(), { code: "insufficient_scope" });
+        const result = await importWorkoutFile(current.userId, {
+          filename: args.filename,
+          content: args.content,
+          overwriteExisting: args.overwrite_existing
+        });
+        return { content: [{ type: /** @type {const} */ ("text"), text: JSON.stringify(result) }], structuredContent: result };
+      } catch (error) {
+        const messages = { insufficient_scope: "Write permission is missing.",
+          invalid_token: "Connection expired or revoked; reconnect.",
+          unsupported_format: "File must be a .fit or .zip.",
+          no_fit_in_zip: "ZIP contains no FIT files." };
+        const code = Object.hasOwn(messages, error?.code) ? error.code : "service_unavailable";
+        const message = messages[code] || "File import unavailable.";
         const status = code === "service_unavailable" ? 503 : code === "invalid_token" ? 401
           : code === "insufficient_scope" ? 403 : 400;
         const request_id = reportApiError(request, status, code, Object.hasOwn(messages, error?.code) ? undefined : error);
