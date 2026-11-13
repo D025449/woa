@@ -10,7 +10,8 @@ import zlib from "zlib";
 import { Readable } from "stream";
 
 const s3 = new S3Client({
-  region: process.env.AWS_REGION
+  region: process.env.AWS_REGION,
+  requestChecksumCalculation: "WHEN_REQUIRED"
 });
 
 class S3Service {
