@@ -1306,9 +1306,12 @@ async function convertMixedEntriesToWoaZip({
       skipped: skippedEntries,
       skippedExisting: skippedExistingEntries,
       skippedTooShort: skippedTooShortEntries,
-      fitOriginalEntries: outputEntries
-        .filter((e) => e.startTime && e.fitEntryName)
-        .map((e) => ({ startTime: e.startTime, entryName: e.fitEntryName, sourceFileName: e.sourceFileName })),
+      fitOriginalEntries: (() => {
+        console.log("[worker-debug] outputEntries", outputEntries.map(e => ({ name: e.name, startTime: e.startTime, fitEntryName: e.fitEntryName, sourceFileName: e.sourceFileName })));
+        return outputEntries
+          .filter((e) => e.startTime && e.fitEntryName)
+          .map((e) => ({ startTime: e.startTime, entryName: e.fitEntryName, sourceFileName: e.sourceFileName }));
+      })(),
       timings: {
         parseMs: average(parseSamplesMs),
         buildWoaMs: average(buildSamplesMs),
