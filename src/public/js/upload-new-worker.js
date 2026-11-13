@@ -965,7 +965,9 @@ async function convertMixedEntriesToWoaZip({
     }
 
     skippedEntries.push(...parallelResult.skippedEntries);
-    skippedExistingEntries.push(...parallelResult.skippedExistingEntries);
+    skippedExistingEntries.push(...parallelResult.skippedExistingEntries.map(e => ({
+      ...e, sourceFileName: e.sourceFileName ?? fitEntryByName.get(e.entryName)?.sourceFileName
+    })));
     skippedTooShortEntries.push(...parallelResult.skippedTooShortEntries);
     parseSamplesMs.push(...parallelResult.parseSamplesMs);
     buildSamplesMs.push(...parallelResult.buildSamplesMs);
@@ -1007,6 +1009,7 @@ async function convertMixedEntriesToWoaZip({
         if (parsed?.skippedExisting) {
           skippedExistingEntries.push({
             entryName: fitEntry.name,
+            sourceFileName: fitEntry.sourceFileName,
             startTime: parsed.skippedStartTime || buildParsedStartTimeKey(parsed)
           });
           processedEntries += 1;

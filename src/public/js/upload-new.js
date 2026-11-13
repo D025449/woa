@@ -827,10 +827,21 @@ async function uploadGeneratedZipArtifact() {
             );
         }
 
+        const fitSourceByIsoTime = artifact.fitSourceMap?.size > 0
+            ? new Map([...artifact.fitSourceMap.entries()].map(([t, v]) => {
+                try { return [new Date(t).toISOString(), v]; } catch { return null; }
+            }).filter(Boolean))
+            : null;
+        const backendSkippedIds = new Set(
+            (payload.skipped || []).map(s => {
+                const src = fitSourceByIsoTime?.get(s.startTime);
+                return src?.file?.name ? String(src.file.name).split('.')[0] : null;
+            }).filter(Boolean)
+        );
         garminImportOutcome = {
             status: Number(payload.importedCount || 0) > 0 ? "imported" : "skipped",
             importedCount: Number(payload.importedCount || 0),
-            skippedExistingIds: garminImportOutcome.skippedExistingIds
+            skippedExistingIds: new Set([...(garminImportOutcome.skippedExistingIds || []), ...backendSkippedIds])
         };
 
         const fitS3Uploads = (
@@ -1487,7 +1498,7 @@ async function handleConvertSubmit(event, sourceFiles = null) {
             if (data.type === "completed-zip") {
                 garminImportOutcome = {
                     status: (data.skipped?.length > 0) ? "failed" : "skipped",
-                    skippedExistingIds: new Set([...(garminImportOutcome?.skippedExistingIds || []), ...(data.skippedExisting || []).map(e => String(e.entryName || "").split(/[_.]/)[0]).filter(Boolean)])
+                    skippedExistingIds: new Set([...(garminImportOutcome?.skippedExistingIds || []), ...(data.skippedExisting || []).map(e => String(e.sourceFileName || e.entryName || "").split(/[_.]/)[0]).filter(Boolean)])
                 };
                 finished = true;
                 const stats = data.stats || {};
@@ -1620,7 +1631,7 @@ async function handleConvertSubmit(event, sourceFiles = null) {
             if (data.type === "completed-container") {
                 garminImportOutcome = {
                     status: (data.skipped?.length > 0) ? "failed" : "skipped",
-                    skippedExistingIds: new Set([...(garminImportOutcome?.skippedExistingIds || []), ...(data.skippedExisting || []).map(e => String(e.entryName || "").split(/[_.]/)[0]).filter(Boolean)])
+                    skippedExistingIds: new Set([...(garminImportOutcome?.skippedExistingIds || []), ...(data.skippedExisting || []).map(e => String(e.sourceFileName || e.entryName || "").split(/[_.]/)[0]).filter(Boolean)])
                 };
                 finished = true;
                 const stats = data.stats || {};
