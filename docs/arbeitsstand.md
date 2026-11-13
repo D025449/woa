@@ -28,9 +28,13 @@ prüft `original_fit_s3_key` in DB, streamt S3-Objekt via `for await` (AWS SDK S
 - `upload-new-worker.js`: `sourceFileName` in `fitEntries` (direkte FIT, ZIP-Einträge, prewarmed),
   `fitEntryName` + `sourceFileName` in `outputEntries`; `fitOriginalEntries: [{startTime, entryName, sourceFileName}]`
   in `completed-zip` und `completed-container` Nachrichten.
+  **Root-Cause-Fix:** `fitOriginalEntries` wird *vor* der Intensity-Classification-Schleife berechnet,
+  die `delete classified.entry.startTime` auf den Original-`outputEntry`-Objekten ausführt (absichtliches
+  Cleanup, damit `startTime` nicht in den WOA-Transport-Container kodiert wird). Zuvor wurde
+  `fitOriginalEntries` danach berechnet und sah `startTime=undefined`.
 - `upload-new.js`: Nach `completed-zip`/`completed-container` Source-Map aufbauen (`startTime → {file, entryName}`)
   und in `latestGeneratedZipArtifact.fitSourceMap` speichern; nach Server-Antwort (mit `presignedFitUploads`)
-  neuen Worker starten.
+  neuen Worker starten. Versionstring `?v=fit-s3-1` für cache-busting.
 - `fit-original-s3-upload-worker.js` (neu): empfängt `{presignedUrl, file: File, entryName?}`; liest
   jede Quelldatei einmal (ZIP: `fflate.unzipSync`, dann Eintrag heraussuchen); PUT an presigned URL.
   Fire-and-forget — Hauptthread wartet nicht.
@@ -40,7 +44,8 @@ ist: Download antwortet mit 404 (kein Datenverlust, Workout-Daten bleiben erhalt
 Prod-DB und Prod-S3 noch nicht migriert/deployed.
 
 **Verifikation:** 989/989 Tests grün, keine neuen Lint-/Typ-Fehler.
-Test `upload-overwrite-propagation.test.js` Regex angepasst (neue `fitSourceMap`-Property).
+Test `upload-overwrite-propagation.test.js` Regex angepasst (neue `fitSourceMap`-Property und Versionstring).
+End-to-end (PUT in Network-Tab, FIT-Datei in S3) noch nicht bestätigt — steht nach Deploy an.
 
 ## Fix: Lücke zwischen Intervallblöcken bei manuellen Aktivitäten (2026-11-12)
 

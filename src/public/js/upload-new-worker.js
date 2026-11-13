@@ -931,8 +931,6 @@ async function convertMixedEntriesToWoaZip({
   let firstSerialFitDispatchAt = null;
   let firstSerialFitResultAt = null;
 
-  console.log("[worker-debug2] fitEntries=" + sortedFitEntries.length + " parallel=" + (parallelFitPoolEnabled && sortedFitEntries.length > 1));
-
   if (parallelFitPoolEnabled && sortedFitEntries.length > 1) {
     const parallelResult = await convertFitEntriesParallel({
       fitEntries: sortedFitEntries,
@@ -952,7 +950,6 @@ async function convertMixedEntriesToWoaZip({
 
     const fitEntryByName = new Map(sortedFitEntries.map((e) => [e.name, e]));
     for (const item of parallelResult.completedEntries.sort((left, right) => String(left.entryName).localeCompare(String(right.entryName)))) {
-      console.log("[worker-debug2] parallel item.startTime=" + JSON.stringify(item.startTime) + " entryName=" + JSON.stringify(item.entryName));
       outputEntries.push({
         name: createUniqueEntryName(String(item.entryName).replace(/\.fit$/i, ".woa1"), usedOutputNames),
         bytes: item.woaBytes,
@@ -1070,7 +1067,6 @@ async function convertMixedEntriesToWoaZip({
         }
 
         const startTimeKey = buildParsedStartTimeKey(parsed);
-        console.log("[worker-debug3] buildParsedStartTimeKey result:", JSON.stringify(startTimeKey), "sessions:", parsed?.sessions?.length, "session[0].start_time:", JSON.stringify(parsed?.sessions?.[0]?.start_time));
         const outputEntry = {
           name: createUniqueEntryName(fitEntry.name.replace(/\.fit$/i, ".woa1"), usedOutputNames),
           bytes: result.bytes,
@@ -1105,6 +1101,10 @@ async function convertMixedEntriesToWoaZip({
       processedEntries += 1;
     }
   }
+
+  const fitOriginalEntries = outputEntries
+    .filter((e) => e.startTime && e.fitEntryName)
+    .map((e) => ({ startTime: e.startTime, entryName: e.fitEntryName, sourceFileName: e.sourceFileName }));
 
   const currentIntensityEntries = outputEntries
     .filter((entry) => entry.intensityFeatures && entry.startTime)
@@ -1311,14 +1311,7 @@ async function convertMixedEntriesToWoaZip({
       skipped: skippedEntries,
       skippedExisting: skippedExistingEntries,
       skippedTooShort: skippedTooShortEntries,
-      fitOriginalEntries: (() => {
-        for (const e of outputEntries) {
-          console.log("[worker-debug] entry startTime=" + JSON.stringify(e.startTime) + " fitEntryName=" + JSON.stringify(e.fitEntryName) + " sourceFileName=" + JSON.stringify(e.sourceFileName));
-        }
-        return outputEntries
-          .filter((e) => e.startTime && e.fitEntryName)
-          .map((e) => ({ startTime: e.startTime, entryName: e.fitEntryName, sourceFileName: e.sourceFileName }));
-      })(),
+      fitOriginalEntries,
       timings: {
         parseMs: average(parseSamplesMs),
         buildWoaMs: average(buildSamplesMs),
@@ -1380,9 +1373,7 @@ async function convertMixedEntriesToWoaZip({
     skipped: skippedEntries,
     skippedExisting: skippedExistingEntries,
     skippedTooShort: skippedTooShortEntries,
-    fitOriginalEntries: outputEntries
-      .filter((e) => e.startTime && e.fitEntryName)
-      .map((e) => ({ startTime: e.startTime, entryName: e.fitEntryName, sourceFileName: e.sourceFileName })),
+    fitOriginalEntries,
     timings: {
       parseMs: average(parseSamplesMs),
       buildWoaMs: average(buildSamplesMs),
