@@ -37,6 +37,7 @@ usage() {
 Usage: ./deploy.sh [mode]
 
 Modes:
+  tracked      Pull + install + tracked migrate (safe only) + reload app/worker
   full         Pull + install + migrate + reload app/worker
   code-only    Pull + install + reload app/worker (no DB migration)
   migrate      Pull + install + migrate only
@@ -182,6 +183,12 @@ run_migrate() {
   NODE_ENV="${NODE_ENV}" npm run migrate
 }
 
+run_tracked_migrate() {
+  preflight_db_env
+  log "Running tracked DB migrations (NODE_ENV=${NODE_ENV})"
+  NODE_ENV="${NODE_ENV}" npm run migrate:apply -- --yes --fail-on-blocked
+}
+
 run_rebuild() {
   preflight_db_env
   log "Running DESTRUCTIVE DB rebuild (NODE_ENV=${NODE_ENV})"
@@ -222,6 +229,10 @@ main() {
 
   case "${MODE}" in
     code-only)
+      reload_services
+      ;;
+    tracked)
+      run_tracked_migrate
       reload_services
       ;;
     migrate)

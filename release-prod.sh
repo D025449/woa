@@ -75,8 +75,8 @@ main() {
   log "Pushing $REMOTE_NAME/$RELEASE_BRANCH"
   git push "$REMOTE_NAME" "$RELEASE_BRANCH"
 
-  log "Deploying code-only on $SSH_TARGET"
-  ssh "$SSH_TARGET" "cd '$REMOTE_APP_DIR' && ./deploy.sh code-only"
+  log "Deploying on $SSH_TARGET"
+  ssh "$SSH_TARGET" "cd '$REMOTE_APP_DIR' && ./deploy.sh tracked"
 
   log "Production deployment completed successfully"
 }
