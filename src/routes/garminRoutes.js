@@ -17,6 +17,7 @@ router.get("/activities/:id/file", async (req, res, next) => {
   try {
     const id = validateGarminActivityId(req.params.id);
     const data = await GarminConnectService.file(req.user.id, id);
+    console.log("[garmin] file ok", { userId: req.user.id, activityId: id });
     res.set("Content-Type", "application/x-zip-compressed");
     res.set("Content-Disposition", `attachment; filename="${id}.zip"`);
     res.send(data);
@@ -24,7 +25,7 @@ router.get("/activities/:id/file", async (req, res, next) => {
 });
 router.use((error, req, res, _next) => {
   const diagnostic = garminDiagnostic(error);
-  console.warn("[garmin] request failed", diagnostic);
+  console.warn("[garmin] request failed", { userId: req.user?.id, ...diagnostic });
   res.status(error.statusCode || 500).json({
     error: "Garmin request failed",
     code: /^garmin_[a-z_]+$/.test(error.code || "") ? error.code : "garmin_unavailable",
