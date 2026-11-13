@@ -850,6 +850,13 @@ async function uploadGeneratedZipArtifact() {
                 .filter((item) => item.file)
             : [];
 
+        console.log("[fit-s3-debug]", {
+            presigned: payload.presignedFitUploads?.length,
+            fitSourceMapSize: artifact.fitSourceMap?.size,
+            fitSourceMapKeys: artifact.fitSourceMap ? [...artifact.fitSourceMap.keys()] : null,
+            fitS3UploadsLength: fitS3Uploads.length
+        });
+
         const browserPostprocessPayload = payload.browserPostprocess || null;
         const browserGpsBestEffortsPayload = payload.browserGpsBestEfforts || null;
 
@@ -1679,6 +1686,11 @@ async function handleConvertSubmit(event, sourceFiles = null) {
                             .map((e) => [e.startTime, { file: sourceFileByName.get(e.sourceFileName), entryName: e.entryName }])
                             .filter(([, v]) => v.file)
                     );
+                    console.log("[fit-s3-debug2]", {
+                        fitOriginalEntries: data.fitOriginalEntries,
+                        selectedFileNames: selectedFiles.map((f) => f.name),
+                        fitSourceMapSize: fitSourceMap.size
+                    });
                     setLatestGeneratedZipArtifactSingle(
                         containerBlob,
                         data.outputFileName || "output.woat.gz",
