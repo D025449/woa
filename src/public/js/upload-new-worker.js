@@ -1069,10 +1069,12 @@ async function convertMixedEntriesToWoaZip({
           }
         }
 
+        const startTimeKey = buildParsedStartTimeKey(parsed);
+        console.log("[worker-debug3] buildParsedStartTimeKey result:", JSON.stringify(startTimeKey), "sessions:", parsed?.sessions?.length, "session[0].start_time:", JSON.stringify(parsed?.sessions?.[0]?.start_time));
         const outputEntry = {
           name: createUniqueEntryName(fitEntry.name.replace(/\.fit$/i, ".woa1"), usedOutputNames),
           bytes: result.bytes,
-          startTime: buildParsedStartTimeKey(parsed),
+          startTime: startTimeKey,
           fitEntryName: fitEntry.name,
           sourceFileName: fitEntry.sourceFileName || fileName,
           intensityFeatures
