@@ -1,4 +1,5 @@
 import pool from "./database.js";
+import S3Service from "./s3Service.js";
 
 const DELETION_GRACE_DAYS = 28;
 const DEFAULT_BATCH_SIZE = 25;
@@ -144,6 +145,11 @@ export default class AccountDeletionService {
       await client.query(`DELETE FROM payment_orders WHERE user_id = $1`, [userId]);
       await client.query(`DELETE FROM import_jobs WHERE uid = $1`, [userId]);
       await client.query(`DELETE FROM training_plans WHERE user_id = $1`, [userId]);
+
+      const fitKeysResult = await client.query(
+        `SELECT original_fit_s3_key FROM workouts WHERE uid = $1 AND original_fit_s3_key IS NOT NULL`,
+        [userId]
+      );
       await client.query(`DELETE FROM workouts WHERE uid = $1`, [userId]);
       await client.query(`DELETE FROM gps_segments WHERE uid = $1`, [userId]);
       await client.query(`DELETE FROM user_wahoo_connections WHERE user_id = $1`, [userId]);
@@ -174,6 +180,20 @@ export default class AccountDeletionService {
       );
 
       await client.query("COMMIT");
+
+      const fitS3Keys = fitKeysResult.rows.map((r) => r.original_fit_s3_key).filter(Boolean);
+      if (fitS3Keys.length > 0 && process.env.S3_BUCKET) {
+        Promise.allSettled(fitS3Keys.map((key) =>
+          S3Service.deleteObject(process.env.S3_BUCKET, key)
+        )).then((results) => {
+          results.forEach((r, i) => {
+            if (r.status === "rejected") {
+              console.warn("[fit-s3] deleteAccount: S3 delete failed", fitS3Keys[i], r.reason?.message || String(r.reason));
+            }
+          });
+        });
+      }
+
       return {
         deleted: true,
         userId,

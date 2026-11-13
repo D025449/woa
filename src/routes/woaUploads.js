@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import util from "node:util";
 import { brotliDecompressSync, gunzipSync } from "node:zlib";
+import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import unzipper from "unzipper";
 
@@ -65,7 +66,7 @@ async function generatePresignedFitUploads(uid, inserted, db) {
     const entries = inserted.map((item) => ({
       workoutId: Number(item.workoutId),
       startTime: item.startTime,
-      s3Key: `fit-originals/${uid}/${item.workoutId}.fit`
+      s3Key: `fit-originals/${uid}/${randomUUID()}.fit`
     }));
     await db.query(
       `UPDATE workouts SET original_fit_s3_key = data.s3_key

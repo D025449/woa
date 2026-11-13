@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import pool from "./database.js";
 import S3Service from "./s3Service.js";
 import GarminConnectService from "./garminConnectService.js";
@@ -136,7 +137,7 @@ export async function syncWorkoutsFromProviders(userId, { providers = ["garmin",
       .map(async (m) => {
         const inserted = insertedByEntryName.get(m.entryName);
         if (!inserted) return;
-        const s3Key = `fit-originals/${userId}/${inserted.workoutId}.fit`;
+        const s3Key = `fit-originals/${userId}/${randomUUID()}.fit`;
         await S3Service.putRawObject(s3Key, m.fitBuffer);
         await pool.query(
           "UPDATE workouts SET original_fit_s3_key = $1 WHERE id = $2 AND uid = $3",
@@ -258,7 +259,7 @@ export async function importWorkoutFile(userId, { filename, content, overwriteEx
       .map(async (m) => {
         const inserted = insertedByEntryName.get(m.entryName);
         if (!inserted) return;
-        const s3Key = `fit-originals/${userId}/${inserted.workoutId}.fit`;
+        const s3Key = `fit-originals/${userId}/${randomUUID()}.fit`;
         await S3Service.putRawObject(s3Key, m.fitBuffer);
         await pool.query(
           "UPDATE workouts SET original_fit_s3_key = $1 WHERE id = $2 AND uid = $3",

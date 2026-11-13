@@ -10,6 +10,7 @@ import { aggregatePowerDistribution } from "../shared/PowerDistribution.js";
 import { invalidateAnalyticsOverviewCache } from "./analyticsOverviewCache.js";
 import { enqueueImportedMapDemand } from "./localMapDemandService.js";
 import { attachWorkoutSegmentPhases, insertWorkoutMicrointervalBlocks, saveWorkoutSegmentChanges } from "./workoutSegmentStructureService.js";
+import S3Service from "./s3Service.js";
 
 const IMPORT_TIMING_DEBUG = String(process.env.IMPORT_TIMING_DEBUG || "").trim() === "1";
 const FEATURE_THUMBNAILS_ON_DEMAND = String(process.env.FEATURE_THUMBNAILS_ON_DEMAND || "1").trim() !== "0";
@@ -572,9 +573,9 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
 
   static async deleteWorkout(uid, workoutId) {
 
-    const { rowCount } = await pool.query(
+    const { rows } = await pool.query(
       `
-      SELECT 1
+      SELECT original_fit_s3_key
       FROM workouts
       WHERE id = $1
       AND uid = $2
@@ -582,10 +583,11 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       [workoutId, uid]
     );
 
-    if (rowCount === 0) {
+    if (rows.length === 0) {
       throw new Error("Workout not found");
     }
 
+    const fitS3Key = rows[0].original_fit_s3_key || null;
 
     // 2. DB-Eintrag löschen
     const result = await pool.query(
@@ -599,8 +601,13 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
 
     if (result.rowCount > 0) invalidateAnalyticsOverviewCache(uid);
 
-    return result;
+    if (fitS3Key && process.env.S3_BUCKET) {
+      S3Service.deleteObject(process.env.S3_BUCKET, fitS3Key).catch((err) => {
+        console.warn("[fit-s3] deleteWorkout: S3 delete failed", fitS3Key, err?.message || String(err));
+      });
+    }
 
+    return result;
 
   }
 
@@ -623,11 +630,24 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       DELETE FROM workouts
       WHERE uid = $1
         AND id = ANY($2::int[])
-      RETURNING id
+      RETURNING id, original_fit_s3_key
       `,
       [uid, normalizedIds]
     );
     if (result.rowCount > 0) invalidateAnalyticsOverviewCache(uid);
+
+    const fitS3Keys = result.rows.map((r) => r.original_fit_s3_key).filter(Boolean);
+    if (fitS3Keys.length > 0 && process.env.S3_BUCKET) {
+      Promise.allSettled(fitS3Keys.map((key) =>
+        S3Service.deleteObject(process.env.S3_BUCKET, key)
+      )).then((results) => {
+        results.forEach((r, i) => {
+          if (r.status === "rejected") {
+            console.warn("[fit-s3] deleteWorkouts: S3 delete failed", fitS3Keys[i], r.reason?.message || String(r.reason));
+          }
+        });
+      });
+    }
 
     return {
       rowCount: result.rowCount,
@@ -2483,7 +2503,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
       DELETE FROM workouts
       WHERE uid = $1
         AND start_time = ANY($2::timestamptz[])
-      RETURNING id, start_time
+      RETURNING id, start_time, original_fit_s3_key
       `,
       [uid, normalizedStartTimes]
     );
@@ -2491,7 +2511,8 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     return {
       rowCount: result.rowCount,
       deletedIds: result.rows.map((row) => Number(row.id)),
-      deletedStartTimes: result.rows.map((row) => new Date(row.start_time).toISOString())
+      deletedStartTimes: result.rows.map((row) => new Date(row.start_time).toISOString()),
+      deletedS3Keys: result.rows.map((row) => row.original_fit_s3_key).filter(Boolean)
     };
   }
 
@@ -2519,6 +2540,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
     const client = transactionalOverwrite ? await pool.connect() : null;
     const queryable = client || pool;
     let deletedStartTimes = [];
+    let deletedS3Keys = [];
     try {
       if (transactionalOverwrite) await client.query("BEGIN");
 
@@ -2529,6 +2551,7 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
           queryable
         );
         deletedStartTimes = deleteResult.deletedStartTimes;
+        deletedS3Keys = deleteResult.deletedS3Keys || [];
         timing.mark("delete-existing-workout-rows", {
           deletedCount: deleteResult.rowCount
         });
@@ -2620,6 +2643,17 @@ RETURNING id, uid, start_time;
       }
       if (insertedRows.length && preparedItems.some(item => item.fileRow.validGps)) {
         void enqueueImportedMapDemand();
+      }
+      if (deletedS3Keys.length > 0 && process.env.S3_BUCKET) {
+        Promise.allSettled(deletedS3Keys.map((key) =>
+          S3Service.deleteObject(process.env.S3_BUCKET, key)
+        )).then((results) => {
+          results.forEach((r, i) => {
+            if (r.status === "rejected") {
+              console.warn("[fit-s3] overwrite: S3 delete failed", deletedS3Keys[i], r.reason?.message || String(r.reason));
+            }
+          });
+        });
       }
       return {
         insertedRows,
