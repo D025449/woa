@@ -43,6 +43,8 @@ import {
 import { enqueueWoaBundleRecovery } from "../services/woaBundleRecoveryJobService.js";
 import { enqueueWorkoutIntensityReclassification } from "../services/workout-intensity-job-service.js";
 
+import S3Service from "../services/s3Service.js";
+
 const router = Router();
 const IMPORT_SYNC_PROFILE_LOG = String(process.env.IMPORT_SYNC_PROFILE_LOG || "1").trim() !== "0";
 const IMPORT_DB_BULK_INSERT_SIZE = Math.max(1, Number(process.env.IMPORT_DB_BULK_INSERT_SIZE) || 200);
@@ -54,6 +56,32 @@ const BROWSER_POSTPROCESS_DB_BATCH_WORKOUTS = Math.max(
   Number(process.env.BROWSER_POSTPROCESS_DB_BATCH_WORKOUTS) || 100
 );
 const WOA_BUNDLE_RECOVERY_ENABLED = String(process.env.WOA_BUNDLE_RECOVERY_ENABLED || "0").trim() === "1";
+const FIT_PRESIGNED_UPLOAD_EXPIRY_SECONDS = 15 * 60;
+
+async function generatePresignedFitUploads(uid, inserted, db) {
+  const bucket = process.env.S3_BUCKET;
+  if (!bucket || !inserted?.length) return [];
+  try {
+    const entries = inserted.map((item) => ({
+      workoutId: Number(item.workoutId),
+      startTime: item.startTime,
+      s3Key: `fit-originals/${uid}/${item.workoutId}.fit`
+    }));
+    await db.query(
+      `UPDATE workouts SET original_fit_s3_key = data.s3_key
+       FROM (SELECT unnest($1::bigint[]) AS id, unnest($2::text[]) AS s3_key) AS data
+       WHERE workouts.id = data.id AND workouts.uid = $3`,
+      [entries.map((e) => e.workoutId), entries.map((e) => e.s3Key), uid]
+    );
+    return Promise.all(entries.map(async (entry) => ({
+      startTime: entry.startTime,
+      presignedUrl: await S3Service.getPresignedUploadUrl(bucket, entry.s3Key, "application/octet-stream", FIT_PRESIGNED_UPLOAD_EXPIRY_SECONDS)
+    })));
+  } catch (err) {
+    console.warn("[fit-s3] generatePresignedFitUploads failed (migration pending?)", err?.message || String(err));
+    return [];
+  }
+}
 
 async function scheduleAffectedSegmentElevationProfiles(segmentIds) {
   try {
@@ -345,7 +373,8 @@ export async function importWoaEntryReaders({
         }
         inserted.push({
           entryName: item.entryName,
-          workoutId: dbrow.id
+          workoutId: dbrow.id,
+          startTime: new Date(item.preparedInsert.fileRow.start_time).toISOString()
         });
         resolvedChunkItems.push({
           ...item,
@@ -934,6 +963,9 @@ router.post(
       }
 
       const { importResult, postprocessResult, gpsBestEffortsResult, checkpointMs } = processed;
+
+      const presignedFitUploads = await generatePresignedFitUploads(req.user.id, importResult.inserted, pool);
+
       if (WOA_BUNDLE_RECOVERY_ENABLED) {
         await removeWoaBundleFiles(bundle);
         retainFilesForRecovery = false;
@@ -963,7 +995,8 @@ router.post(
         recoveryEnabled: WOA_BUNDLE_RECOVERY_ENABLED,
         recoveryOverheadMs: safeSetupMs + checkpointMs,
         browserPostprocess: postprocessResult,
-        browserGpsBestEfforts: gpsBestEffortsResult
+        browserGpsBestEfforts: gpsBestEffortsResult,
+        presignedFitUploads
       });
     } catch (error) {
       if (error instanceof WorkoutLocalPostprocessValidationError
@@ -1209,7 +1242,8 @@ router.post(
         }))
       });
 
-      res.status(200).json(result);
+      const presignedFitUploads = await generatePresignedFitUploads(req.user.id, result.inserted, pool);
+      res.status(200).json({ ...result, presignedFitUploads });
     } catch (error) {
       next(error);
     }

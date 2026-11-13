@@ -1,4 +1,5 @@
 import pool from "./database.js";
+import S3Service from "./s3Service.js";
 import GarminConnectService from "./garminConnectService.js";
 import WahooImportService, { validateWahooId } from "./wahooImportService.js";
 import { convertWahooFit } from "./wahooWebhookImportService.js";
@@ -109,7 +110,7 @@ export async function syncWorkoutsFromProviders(userId, { providers = ["garmin",
         totalBytes += fitBuffer.length;
         const captured = woa;
         entryReaders.push({ path: entryName, buffer: async () => captured });
-        meta.push({ provider, activity, entryName });
+        meta.push({ provider, activity, entryName, fitBuffer });
       } catch (error) {
         const reason = /^(garmin|wahoo)_[a-z_]+$/.test(error?.code || "") ? error.code : "fetch_failed";
         meta.push({ provider, activity, preStatus: "failed", preReason: reason });
@@ -124,6 +125,25 @@ export async function syncWorkoutsFromProviders(userId, { providers = ["garmin",
       userId, sourceName: "mcp-provider-sync",
       uploadedSizeBytes: totalBytes, entryReaders, overwriteExisting
     });
+  }
+
+  // Upload original FIT files to S3 for successfully imported workouts
+  const fitS3Bucket = process.env.S3_BUCKET;
+  if (fitS3Bucket && importResult.inserted.length > 0) {
+    const insertedByEntryName = new Map(importResult.inserted.map((i) => [i.entryName, i]));
+    await Promise.allSettled(meta
+      .filter((m) => m.entryName && m.fitBuffer)
+      .map(async (m) => {
+        const inserted = insertedByEntryName.get(m.entryName);
+        if (!inserted) return;
+        const s3Key = `fit-originals/${userId}/${inserted.workoutId}.fit`;
+        await S3Service.putRawObject(s3Key, m.fitBuffer);
+        await pool.query(
+          "UPDATE workouts SET original_fit_s3_key = $1 WHERE id = $2 AND uid = $3",
+          [s3Key, inserted.workoutId, userId]
+        );
+      })
+    );
   }
 
   // For workout_time_conflict entries from import, look up the overlapping existing workout.
@@ -195,7 +215,7 @@ export async function importWorkoutFile(userId, { filename, content, overwriteEx
     const entryName = `${filename}.woa1`;
     totalBytes = buffer.length;
     entryReaders.push({ path: entryName, buffer: async () => woa });
-    meta.push({ filename, entryName });
+    meta.push({ filename, entryName, fitBuffer: buffer });
   } else {
     const { Open } = await import("unzipper");
     const directory = await Open.buffer(buffer);
@@ -214,7 +234,7 @@ export async function importWorkoutFile(userId, { filename, content, overwriteEx
         const entryName = `${entry.path}.woa1`;
         const captured = woa;
         entryReaders.push({ path: entryName, buffer: async () => captured });
-        meta.push({ filename: entry.path, entryName });
+        meta.push({ filename: entry.path, entryName, fitBuffer });
       } catch {
         meta.push({ filename: entry.path, preStatus: "failed", preReason: "conversion_failed" });
       }
@@ -228,6 +248,24 @@ export async function importWorkoutFile(userId, { filename, content, overwriteEx
       userId, sourceName: "mcp-file-import",
       uploadedSizeBytes: totalBytes, entryReaders, overwriteExisting
     });
+  }
+
+  const fitS3Bucket = process.env.S3_BUCKET;
+  if (fitS3Bucket && importResult.inserted.length > 0) {
+    const insertedByEntryName = new Map(importResult.inserted.map((i) => [i.entryName, i]));
+    await Promise.allSettled(meta
+      .filter((m) => m.entryName && m.fitBuffer)
+      .map(async (m) => {
+        const inserted = insertedByEntryName.get(m.entryName);
+        if (!inserted) return;
+        const s3Key = `fit-originals/${userId}/${inserted.workoutId}.fit`;
+        await S3Service.putRawObject(s3Key, m.fitBuffer);
+        await pool.query(
+          "UPDATE workouts SET original_fit_s3_key = $1 WHERE id = $2 AND uid = $3",
+          [s3Key, inserted.workoutId, userId]
+        );
+      })
+    );
   }
 
   const skippedByName = new Map(importResult.skipped.map(s => [s.entryName, s.code || "skipped"]));

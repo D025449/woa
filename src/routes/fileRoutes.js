@@ -3,6 +3,8 @@ import WahooConnectionService from "../services/wahooConnectionService.js";
 import GarminConnectionService from "../services/garminConnectionService.js";
 import UserWeightHistoryService from "../services/userWeightHistoryService.js";
 import express from "express";
+import pool from "../services/database.js";
+import S3Service from "../services/s3Service.js";
 import { strToU8, zipSync } from "fflate";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
@@ -792,5 +794,36 @@ router.get("/workouts/:id/segments", authMiddleware, async (req, res, next) => {
   }
 });
 
+
+router.get("/workouts/:id/original.fit", authMiddleware, async (req, res, next) => {
+  try {
+    const workoutId = Number(req.params.id);
+    if (!Number.isInteger(workoutId) || workoutId <= 0) {
+      return res.status(400).json({ error: "Invalid workout id" });
+    }
+    const { rows } = await pool.query(
+      "SELECT original_fit_s3_key FROM workouts WHERE id = $1 AND uid = $2",
+      [workoutId, req.user.id]
+    );
+    if (!rows.length || !rows[0].original_fit_s3_key) {
+      return res.status(404).json({ error: "Original FIT file not available" });
+    }
+    const s3Key = rows[0].original_fit_s3_key;
+    const s3Stream = await S3Service.getObjectStream(process.env.S3_BUCKET, s3Key);
+    const stream = /** @type {AsyncIterable<Uint8Array>} */ (s3Stream);
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${workoutId}.fit"`);
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    for await (const chunk of stream) {
+      if (!res.write(chunk)) {
+        await new Promise((resolve) => res.once("drain", resolve));
+      }
+    }
+    res.end();
+  } catch (err) {
+    console.error("GET /files/workouts/:id/original.fit failed:", err);
+    next(err);
+  }
+});
 
 export default router;

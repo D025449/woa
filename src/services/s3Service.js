@@ -159,6 +159,16 @@ class S3Service {
     return await s3.send(command);
   }
 
+  static async putRawObject(key, buffer) {
+    const command = new PutObjectCommand({
+      Bucket: process.env.S3_BUCKET,
+      Key: key,
+      Body: Buffer.from(buffer),
+      ContentType: "application/octet-stream"
+    });
+    await s3.send(command);
+  }
+
   // NEU: Stream für Worker
   static async getObjectStream(bucket, key) {
     const command = new GetObjectCommand({

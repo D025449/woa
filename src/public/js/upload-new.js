@@ -839,6 +839,17 @@ async function uploadGeneratedZipArtifact() {
             status: Number(payload.importedCount || 0) > 0 ? "imported" : "skipped",
             importedCount: Number(payload.importedCount || 0)
         };
+
+        const fitS3Uploads = (
+            Array.isArray(payload.presignedFitUploads) &&
+            payload.presignedFitUploads.length > 0 &&
+            artifact.fitSourceMap?.size > 0
+        )
+            ? payload.presignedFitUploads
+                .map((item) => ({ presignedUrl: item.presignedUrl, ...(artifact.fitSourceMap.get(item.startTime) || {}) }))
+                .filter((item) => item.file)
+            : [];
+
         const browserPostprocessPayload = payload.browserPostprocess || null;
         const browserGpsBestEffortsPayload = payload.browserGpsBestEfforts || null;
 
@@ -873,9 +884,37 @@ async function uploadGeneratedZipArtifact() {
                            Browser GPS best-efforts matches: ${escapeHtml(String(browserGpsBestEffortsPayload.insertedMatchCount || 0))}<br>
                            Browser GPS best-efforts backend: ${escapeHtml(formatMs(browserGpsBestEffortsPayload.totalMs))}`
                         : ""}
+                    ${fitS3Uploads.length > 0
+                        ? `<br><span data-fit-s3-status><span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Original FIT: wird gespeichert (0/${fitS3Uploads.length})...</span>`
+                        : ""}
                 </div>
             </div>
         `);
+        if (fitS3Uploads.length > 0) {
+            const fitS3Worker = new Worker("/js/fit-original-s3-upload-worker.js?v=2", { type: "module" });
+            fitS3Worker.postMessage({ type: "upload", uploads: fitS3Uploads });
+            const statusEl = document.getElementById("backendUploadResult")?.querySelector("[data-fit-s3-status]");
+            fitS3Worker.addEventListener("message", (e) => {
+                if (e.data?.type === "progress") {
+                    const { uploaded, failed, total } = e.data;
+                    if (statusEl) {
+                        statusEl.innerHTML = `<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Original FIT: wird gespeichert (${uploaded + failed}/${total})...`;
+                    }
+                } else if (e.data?.type === "done") {
+                    fitS3Worker.terminate();
+                    if (statusEl) {
+                        const { uploaded, failed } = e.data;
+                        statusEl.textContent = failed > 0
+                            ? `Original FIT: ${uploaded}/${fitS3Uploads.length} gespeichert (${failed} Fehler)`
+                            : `Original FIT: ${uploaded}/${fitS3Uploads.length} gespeichert`;
+                    }
+                }
+            });
+            fitS3Worker.addEventListener("error", () => {
+                fitS3Worker.terminate();
+                if (statusEl) statusEl.textContent = "Original FIT: Fehler beim Speichern";
+            }, { once: true });
+        }
     } catch (error) {
         garminImportOutcome = { status: "failed" };
         setProcessingLabel(tr("uploadPage.woaUploadAndStore", "Upload and store"));
@@ -1483,12 +1522,19 @@ async function handleConvertSubmit(event, sourceFiles = null) {
                 }
                 latestGeneratedZipArtifact = null;
                 if (shouldUploadGeneratedZip) {
+                    const sourceFileByName = new Map(selectedFiles.map((f) => [f.name, f]));
+                    const fitSourceMap = new Map(
+                        (Array.isArray(data.fitOriginalEntries) ? data.fitOriginalEntries : [])
+                            .filter((e) => e.startTime && e.sourceFileName)
+                            .map((e) => [e.startTime, { file: sourceFileByName.get(e.sourceFileName), entryName: e.entryName }])
+                            .filter(([, v]) => v.file)
+                    );
                     setLatestGeneratedZipArtifactSingle(
                         zipBlob,
                         data.outputFileName || "output.woa1.zip",
                         "/api/uploads/woa-zip",
                         "form-data",
-                        { overwriteExisting }
+                        { overwriteExisting, fitSourceMap: fitSourceMap.size > 0 ? fitSourceMap : null }
                     );
                 }
                 const skipped = Array.isArray(data.skipped) ? data.skipped : [];
@@ -1626,12 +1672,19 @@ async function handleConvertSubmit(event, sourceFiles = null) {
                 }
                 latestGeneratedZipArtifact = null;
                 if (shouldUploadGeneratedContainer) {
+                    const sourceFileByName = new Map(selectedFiles.map((f) => [f.name, f]));
+                    const fitSourceMap = new Map(
+                        (Array.isArray(data.fitOriginalEntries) ? data.fitOriginalEntries : [])
+                            .filter((e) => e.startTime && e.sourceFileName)
+                            .map((e) => [e.startTime, { file: sourceFileByName.get(e.sourceFileName), entryName: e.entryName }])
+                            .filter(([, v]) => v.file)
+                    );
                     setLatestGeneratedZipArtifactSingle(
                         containerBlob,
                         data.outputFileName || "output.woat.gz",
                         "/api/uploads/woa-container",
                         "raw",
-                        { browserPostprocessBlob, browserGpsBestEffortsBlob, overwriteExisting }
+                        { browserPostprocessBlob, browserGpsBestEffortsBlob, overwriteExisting, fitSourceMap: fitSourceMap.size > 0 ? fitSourceMap : null }
                     );
                 }
                 const skipped = Array.isArray(data.skipped) ? data.skipped : [];

@@ -9,7 +9,7 @@ const workerSource = fs.readFileSync(new URL("../src/public/js/upload-new-worker
 const uploadViewSource = fs.readFileSync(new URL("../src/views/fileUploadNew.ejs", import.meta.url), "utf8");
 
 test("upload keeps the submitted overwrite choice through conversion and backend upload", () => {
-  assert.match(uploadSource, /\{ browserPostprocessBlob, browserGpsBestEffortsBlob, overwriteExisting \}/u);
+  assert.match(uploadSource, /browserPostprocessBlob, browserGpsBestEffortsBlob, overwriteExisting/u);
   assert.match(uploadSource, /artifact\.overwriteExisting === true/u);
   assert.match(workerSource, /existingStartTimes: overwriteExisting \? \[\] : existingStartTimes/u);
   assert.match(uploadSource, /upload-new-worker\.js\?v=overwrite-propagation-1/u);

@@ -1,7 +1,65 @@
 # Arbeitsstand
 
-Stand: 2026-11-12. Diese Datei hält Absprachen für folgende Sitzungen fest.
+Stand: 2026-11-13. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
+
+## Original-FIT-Dateien in S3 speichern (2026-11-13)
+
+Ziel: Ursprüngliche FIT-Dateien nach dem Import in S3 ablegen (`fit-originals/{uid}/{workoutId}.fit`),
+damit Nutzer sie herunterladen oder re-prozessieren können. ~150–200 KB pro Datei.
+
+**Migration:** `src/migrations/101_workout_original_fit_s3_key.sql` — `original_fit_s3_key TEXT`
+nullable in `workouts`. Vom Benutzer manuell ausgeführt (Dev, nicht Prod).
+
+**Backend (Server→S3):**
+- `s3Service.js`: neues `putRawObject(key, buffer)` — unkomprimiert, kein Brotli.
+- `woaUploads.js`: `generatePresignedFitUploads(uid, inserted, db)` nach `importWoaEntryReaders`;
+  schreibt `original_fit_s3_key` optimistisch in DB; gibt `presignedFitUploads: [{startTime, presignedUrl}]`
+  in der JSON-Antwort zurück. Presigned-URL-TTL: 15 Minuten.
+- `mcpProviderSyncService.js` (`syncProviderActivities`): `fitBuffer` in `meta.push`; Upload nach
+  `importWoaEntryReaders` via `putRawObject` + UPDATE.
+- `mcpProviderSyncService.js` (`importWorkoutFile`): analog — `fitBuffer` im `meta`-Array,
+  S3-Upload-Block nach `importWoaEntryReaders`.
+
+**Download-Endpoint:** `GET /files/workouts/:id/original.fit` in `fileRoutes.js` —
+prüft `original_fit_s3_key` in DB, streamt S3-Objekt via `for await` (AWS SDK Stream-Typ-Cast).
+
+**Browser-Upload (FIT→S3 nach Workout-Import):**
+- `upload-new-worker.js`: `sourceFileName` in `fitEntries` (direkte FIT, ZIP-Einträge, prewarmed),
+  `fitEntryName` + `sourceFileName` in `outputEntries`; `fitOriginalEntries: [{startTime, entryName, sourceFileName}]`
+  in `completed-zip` und `completed-container` Nachrichten.
+- `upload-new.js`: Nach `completed-zip`/`completed-container` Source-Map aufbauen (`startTime → {file, entryName}`)
+  und in `latestGeneratedZipArtifact.fitSourceMap` speichern; nach Server-Antwort (mit `presignedFitUploads`)
+  neuen Worker starten.
+- `fit-original-s3-upload-worker.js` (neu): empfängt `{presignedUrl, file: File, entryName?}`; liest
+  jede Quelldatei einmal (ZIP: `fflate.unzipSync`, dann Eintrag heraussuchen); PUT an presigned URL.
+  Fire-and-forget — Hauptthread wartet nicht.
+
+**Verhalten:** `original_fit_s3_key` wird immer gesetzt. Falls Browser-Upload ausfällt oder langsam
+ist: Download antwortet mit 404 (kein Datenverlust, Workout-Daten bleiben erhalten).
+Prod-DB und Prod-S3 noch nicht migriert/deployed.
+
+**Verifikation:** 989/989 Tests grün, keine neuen Lint-/Typ-Fehler.
+Test `upload-overwrite-propagation.test.js` Regex angepasst (neue `fitSourceMap`-Property).
+
+## Fix: Lücke zwischen Intervallblöcken bei manuellen Aktivitäten (2026-11-12)
+
+Bug: Beim Erfassen eines Indoor-Radtrainings mit mehreren Intervallblöcken wurde keine
+Lücke zwischen den Blöcken eingefügt — die Blöcke lagen direkt aneinander.
+
+**Ursache:** `occupiedSeconds` berücksichtigte nur intra-block-Pausen (n−1 pro Block),
+nicht die Übergangspause zwischen Blöcken.
+
+**Fix an zwei Stellen:**
+- `trainingActivityDBService.js` (`normalizeIntervals` + `calculateManualCyclingMetrics`):
+  Nach letzter Repetition jedes nicht-letzten Blocks: `offset += interval.recoveryDurationSeconds * 2`.
+  `occupiedSeconds` in beiden Funktionen um den inter-block-Anteil erweitert.
+- `src/public/js/workout-library-view.js` (`buildManualPowerThumbnailSvg`):
+  Gleiche Korrektur für das SVG-Thumbnail-Rendering (client-seitig).
+
+**Formel:** Gap = `recoveryDurationSeconds × 2` (je Block vor dem nächsten).
+**Validierung:** `normalizeIntervals` schlägt bei zu kleiner Aktivitätsdauer an.
+989/989 Tests grün. Deployed 2026-11-12.
 
 ## MCP: 4 neue Tools (2026-11-12)
 

@@ -948,11 +948,14 @@ async function convertMixedEntriesToWoaZip({
       }
     });
 
+    const fitEntryByName = new Map(sortedFitEntries.map((e) => [e.name, e]));
     for (const item of parallelResult.completedEntries.sort((left, right) => String(left.entryName).localeCompare(String(right.entryName)))) {
       outputEntries.push({
         name: createUniqueEntryName(String(item.entryName).replace(/\.fit$/i, ".woa1"), usedOutputNames),
         bytes: item.woaBytes,
         startTime: item.startTime,
+        fitEntryName: item.entryName,
+        sourceFileName: fitEntryByName.get(item.entryName)?.sourceFileName || fileName,
         intensityFeatures: item.intensityFeatures
       });
       if (item.startTime) {
@@ -1067,6 +1070,8 @@ async function convertMixedEntriesToWoaZip({
           name: createUniqueEntryName(fitEntry.name.replace(/\.fit$/i, ".woa1"), usedOutputNames),
           bytes: result.bytes,
           startTime: buildParsedStartTimeKey(parsed),
+          fitEntryName: fitEntry.name,
+          sourceFileName: fitEntry.sourceFileName || fileName,
           intensityFeatures
         };
         if (firstSerialFitResultAt === null) {
@@ -1185,6 +1190,7 @@ async function convertMixedEntriesToWoaZip({
       skipped: [],
       skippedExisting: skippedExistingEntries,
       skippedTooShort: skippedTooShortEntries,
+      fitOriginalEntries: [],
       timings: {
         parseMs: average(parseSamplesMs),
         buildWoaMs: average(buildSamplesMs),
@@ -1300,6 +1306,9 @@ async function convertMixedEntriesToWoaZip({
       skipped: skippedEntries,
       skippedExisting: skippedExistingEntries,
       skippedTooShort: skippedTooShortEntries,
+      fitOriginalEntries: outputEntries
+        .filter((e) => e.startTime && e.fitEntryName)
+        .map((e) => ({ startTime: e.startTime, entryName: e.fitEntryName, sourceFileName: e.sourceFileName })),
       timings: {
         parseMs: average(parseSamplesMs),
         buildWoaMs: average(buildSamplesMs),
@@ -1361,6 +1370,9 @@ async function convertMixedEntriesToWoaZip({
     skipped: skippedEntries,
     skippedExisting: skippedExistingEntries,
     skippedTooShort: skippedTooShortEntries,
+    fitOriginalEntries: outputEntries
+      .filter((e) => e.startTime && e.fitEntryName)
+      .map((e) => ({ startTime: e.startTime, entryName: e.fitEntryName, sourceFileName: e.sourceFileName })),
     timings: {
       parseMs: average(parseSamplesMs),
       buildWoaMs: average(buildSamplesMs),
@@ -1511,7 +1523,8 @@ async function handleFitFilesConversion({
     if (lowerName.endsWith(".fit")) {
       fitEntries.push({
         name: file.name,
-        bytes
+        bytes,
+        sourceFileName: file.name
       });
       continue;
     }
@@ -1522,7 +1535,7 @@ async function handleFitFilesConversion({
         const prepared = preparedZipSources.get(preparedToken);
         preparedZipSources.delete(preparedToken);
         sourceBytes += Number(prepared?.sourceBytes || 0) - Number(bytes.byteLength || 0);
-        fitEntries.push(...prepared.fitEntries);
+        fitEntries.push(...prepared.fitEntries.map((e) => ({ ...e, sourceFileName: file.name })));
         woaEntries.push(...prepared.woaEntries);
         continue;
       }
@@ -1538,7 +1551,8 @@ async function handleFitFilesConversion({
       for (const entryName of entryNames.filter(isRealFitZipEntry)) {
         fitEntries.push({
           name: entryName,
-          bytes: archive[entryName]
+          bytes: archive[entryName],
+          sourceFileName: file.name
         });
       }
 
@@ -1558,7 +1572,7 @@ async function handleFitFilesConversion({
       const prepared = preparedZipSources.get(preparedToken);
       preparedZipSources.delete(preparedToken);
       sourceBytes += Number(prepared?.sourceBytes || zipFile?.size || 0);
-      fitEntries.push(...prepared.fitEntries);
+      fitEntries.push(...prepared.fitEntries.map((e) => ({ ...e, sourceFileName: zipFile.name })));
       woaEntries.push(...prepared.woaEntries);
     }
   }
