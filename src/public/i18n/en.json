@@ -837,6 +837,7 @@
       "power": "Power",
       "basic": "Basic",
       "exportFit": "Export",
+      "exportOriginalFit": "Download original FIT",
       "share": "Share",
       "delete": "Delete",
       "visibility": "Visibility",

@@ -45,7 +45,7 @@ Prod-DB und Prod-S3 noch nicht migriert/deployed.
 
 **Verifikation:** 989/989 Tests grün, keine neuen Lint-/Typ-Fehler.
 Test `upload-overwrite-propagation.test.js` Regex angepasst (neue `fitSourceMap`-Property und Versionstring).
-End-to-end (PUT in Network-Tab, FIT-Datei in S3) noch nicht bestätigt — steht nach Deploy an.
+End-to-end bestätigt (2026-11-13): PUT in Network-Tab sichtbar, FIT-Datei in S3 vorhanden. Deployed.
 
 ## Fix: Lücke zwischen Intervallblöcken bei manuellen Aktivitäten (2026-11-12)
 

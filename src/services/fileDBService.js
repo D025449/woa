@@ -727,7 +727,8 @@ static async getMatchingWorkoutCandidatesV2(bounds, segmentId, uid) {
         SELECT COUNT(*)
         FROM workout_group_shares wgs
         WHERE wgs.workout_id = workouts.id
-      )::int AS share_group_count`
+      )::int AS share_group_count,
+      (workouts.original_fit_s3_key IS NOT NULL) AS has_original_fit`
   }
 
 

@@ -722,6 +722,7 @@
       "power": "Potencia",
       "basic": "Básico",
       "exportFit": "Exportar",
+      "exportOriginalFit": "Descargar FIT original",
       "share": "Compartir",
       "delete": "Eliminar",
       "visibility": "Visibilidad",

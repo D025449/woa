@@ -160,6 +160,16 @@ class S3Service {
     return await s3.send(command);
   }
 
+  static async getPresignedDownloadUrl(key, filename, expiresIn = 300) {
+    const command = new GetObjectCommand({
+      Bucket: process.env.S3_BUCKET,
+      Key: key,
+      ResponseContentDisposition: `attachment; filename="${filename}"`,
+      ResponseContentType: "application/octet-stream"
+    });
+    return getSignedUrl(s3, command, { expiresIn });
+  }
+
   static async putRawObject(key, buffer) {
     const command = new PutObjectCommand({
       Bucket: process.env.S3_BUCKET,

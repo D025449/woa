@@ -2179,6 +2179,17 @@ export default class WorkoutLibraryView {
                       </span>
                       ${this.t("exportFit")}
                     </a>
+                    ${workout.has_original_fit ? `
+                    <a
+                      class="workout-library-actions-menu__item workout-library-actions-menu__item--primary"
+                      href="/files/workouts/${workout.id}/original.fit">
+                      <span class="workout-library-actions-menu__icon" aria-hidden="true">
+                        <svg viewBox="0 0 20 20">
+                          <path d="M10 3.5v8.5M6.8 8.9 10 12.3l3.2-3.4M4 14.5h12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path>
+                        </svg>
+                      </span>
+                      ${this.t("exportOriginalFit")}
+                    </a>` : ""}
                     <button class="workout-library-actions-menu__item workout-library-actions-menu__item--secondary" type="button" data-workout-share-toggle="${workout.id}">
                       <span class="workout-library-actions-menu__icon" aria-hidden="true">
                         <svg viewBox="0 0 20 20">
