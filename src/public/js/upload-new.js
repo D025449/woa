@@ -1377,7 +1377,7 @@ async function handleConvertSubmit(event, sourceFiles = null) {
             if (data.type === "skipped-existing") {
                 garminImportOutcome = {
                     status: (data.skipped?.length > 0) ? "failed" : "skipped",
-                    skippedExistingIds: new Set([String(data.fileName || "").split(/[_.]/)[0]].filter(Boolean))
+                    skippedExistingIds: new Set([...(garminImportOutcome?.skippedExistingIds || []), String(data.fileName || "").split(/[_.]/)[0]].filter(Boolean))
                 };
                 finished = true;
                 traceMark("upload.submit.end", { reason: "skipped-existing" });
@@ -1487,7 +1487,7 @@ async function handleConvertSubmit(event, sourceFiles = null) {
             if (data.type === "completed-zip") {
                 garminImportOutcome = {
                     status: (data.skipped?.length > 0) ? "failed" : "skipped",
-                    skippedExistingIds: new Set((data.skippedExisting || []).map(e => String(e.entryName || "").split(/[_.]/)[0]).filter(Boolean))
+                    skippedExistingIds: new Set([...(garminImportOutcome?.skippedExistingIds || []), ...(data.skippedExisting || []).map(e => String(e.entryName || "").split(/[_.]/)[0]).filter(Boolean)])
                 };
                 finished = true;
                 const stats = data.stats || {};
@@ -1620,7 +1620,7 @@ async function handleConvertSubmit(event, sourceFiles = null) {
             if (data.type === "completed-container") {
                 garminImportOutcome = {
                     status: (data.skipped?.length > 0) ? "failed" : "skipped",
-                    skippedExistingIds: new Set((data.skippedExisting || []).map(e => String(e.entryName || "").split(/[_.]/)[0]).filter(Boolean))
+                    skippedExistingIds: new Set([...(garminImportOutcome?.skippedExistingIds || []), ...(data.skippedExisting || []).map(e => String(e.entryName || "").split(/[_.]/)[0]).filter(Boolean)])
                 };
                 finished = true;
                 const stats = data.stats || {};
