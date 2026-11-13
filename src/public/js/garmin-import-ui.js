@@ -31,7 +31,7 @@ export function initializeGarminImport({ isBusy, setBusy, importFiles }, { provi
   }
 
   async function request(path, zip = false) {
-    const response = await fetch(`/api/${provider}/${path}`, { credentials: "same-origin", signal: AbortSignal.timeout(75_000) });
+    const response = await fetch(`/api/${provider}/${path}`, { credentials: "same-origin", signal: AbortSignal.timeout(30_000) });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
       const diagnostic = payload.diagnostic;
@@ -114,29 +114,27 @@ export function initializeGarminImport({ isBusy, setBusy, importFiles }, { provi
     if (!selected.length) return;
     setBusy(true);
     lock(true);
-    status.textContent = messages.downloading;
-
-    const downloads = await Promise.all(selected.map(async row => {
-      try {
-        const blob = await request(`activities/${encodeURIComponent(row.activity.id)}/file`, true);
-        return { row, file: new File([blob], `${row.activity.id}.${extension}`, { type: extension === "fit" ? "application/vnd.ant.fit" : "application/zip" }) };
-      } catch {
-        return { row, file: null };
-      }
-    }));
-
-    const successful = downloads.filter(d => d.file !== null);
-    const downloadFailed = downloads.filter(d => d.file === null).length;
-
-    if (successful.length === 0) {
-      status.textContent = messages.partial;
-      setBusy(false);
-      lock(false);
-      return;
-    }
-
-    status.textContent = messages.processing;
     try {
+      status.textContent = messages.downloading;
+
+      const downloads = await Promise.all(selected.map(async row => {
+        try {
+          const blob = await request(`activities/${encodeURIComponent(row.activity.id)}/file`, true);
+          return { row, file: new File([blob], `${row.activity.id}.${extension}`, { type: extension === "fit" ? "application/vnd.ant.fit" : "application/zip" }) };
+        } catch {
+          return { row, file: null };
+        }
+      }));
+
+      const successful = downloads.filter(d => d.file !== null);
+      const downloadFailed = downloads.filter(d => d.file === null).length;
+
+      if (successful.length === 0) {
+        status.textContent = messages.partial;
+        return;
+      }
+
+      status.textContent = messages.processing;
       const outcome = await importFiles(successful.map(d => d.file));
       const importStatus = outcome.status;
       const skippedIds = outcome.skippedExistingIds;
