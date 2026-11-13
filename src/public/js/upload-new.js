@@ -6,7 +6,7 @@ const uploadDropzone = document.getElementById("uploadDropzone");
 const uploadDropzoneTitle = document.getElementById("uploadDropzoneTitle");
 const uploadDropzoneOr = document.getElementById("uploadDropzoneOr");
 const overwriteExistingWorkoutsCheckbox = document.getElementById("overwriteExistingWorkouts");
-const UPLOAD_WORKER_URL = "/js/upload-new-worker.js?v=overwrite-propagation-1";
+const UPLOAD_WORKER_URL = "/js/upload-new-worker.js?v=fit-s3-1";
 const submitButton = document.getElementById("submitButton");
 const response = document.getElementById("response");
 const statusArea = document.getElementById("statusArea");
@@ -850,12 +850,6 @@ async function uploadGeneratedZipArtifact() {
                 .filter((item) => item.file)
             : [];
 
-        console.log("[fit-s3-debug]", {
-            presigned: payload.presignedFitUploads?.length,
-            fitSourceMapSize: artifact.fitSourceMap?.size,
-            fitS3UploadsLength: fitS3Uploads.length
-        });
-
         const browserPostprocessPayload = payload.browserPostprocess || null;
         const browserGpsBestEffortsPayload = payload.browserGpsBestEfforts || null;
 
@@ -1685,11 +1679,6 @@ async function handleConvertSubmit(event, sourceFiles = null) {
                             .map((e) => [e.startTime, { file: sourceFileByName.get(e.sourceFileName), entryName: e.entryName }])
                             .filter(([, v]) => v.file)
                     );
-                    console.log("[fit-s3-debug2]", {
-                        fitOriginalEntries: data.fitOriginalEntries,
-                        selectedFileNames: selectedFiles.map((f) => f.name),
-                        fitSourceMapSize: fitSourceMap.size
-                    });
                     setLatestGeneratedZipArtifactSingle(
                         containerBlob,
                         data.outputFileName || "output.woat.gz",

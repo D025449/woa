@@ -12,7 +12,7 @@ test("upload keeps the submitted overwrite choice through conversion and backend
   assert.match(uploadSource, /browserPostprocessBlob, browserGpsBestEffortsBlob, overwriteExisting/u);
   assert.match(uploadSource, /artifact\.overwriteExisting === true/u);
   assert.match(workerSource, /existingStartTimes: overwriteExisting \? \[\] : existingStartTimes/u);
-  assert.match(uploadSource, /upload-new-worker\.js\?v=overwrite-propagation-1/u);
+  assert.match(uploadSource, /upload-new-worker\.js\?v=fit-s3-1/u);
   assert.match(uploadViewSource, /upload-new\.js\?v=[a-z0-9-]+/u);
 });
 
