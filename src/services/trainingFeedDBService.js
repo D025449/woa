@@ -246,7 +246,8 @@ function manualProjection() {
       FALSE AS is_favorite,
       FALSE AS has_thumbnail,
       NULL::timestamptz AS thumbnail_updated_at,
-      0::int AS share_group_count
+      0::int AS share_group_count,
+      FALSE AS has_original_fit
     FROM training_activities activity
     INNER JOIN users owner ON owner.id = activity.uid`;
 }
