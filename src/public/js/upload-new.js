@@ -829,7 +829,8 @@ async function uploadGeneratedZipArtifact() {
 
         garminImportOutcome = {
             status: Number(payload.importedCount || 0) > 0 ? "imported" : "skipped",
-            importedCount: Number(payload.importedCount || 0)
+            importedCount: Number(payload.importedCount || 0),
+            skippedExistingIds: garminImportOutcome.skippedExistingIds
         };
 
         const fitS3Uploads = (
@@ -849,37 +850,25 @@ async function uploadGeneratedZipArtifact() {
         setPhase(tr("uploadPage.woaPhaseCompleted", "Completed"));
         setProcessingProgress(100, tr("uploadPage.woaBackendUploadCompleted", "Backend upload completed."));
         renderBackendUploadState(`
-            <div class="alert alert-info mb-0 mt-2">
-                <div class="fw-semibold mb-2">${escapeHtml(tr("uploadPage.woaBackendUploadCompleted", "Backend upload completed."))}</div>
-                <div class="small">
-                    Imported workouts: ${escapeHtml(String(payload.importedCount || 0))}<br>
-                    Skipped workouts: ${escapeHtml(String(payload.skippedCount || 0))}<br>
-                    ZIP entries seen: ${escapeHtml(String(payload.totalEntries || 0))}<br>
-                    Backend elapsed: ${escapeHtml(formatMs(payload.elapsedMs))}<br>
-                    HTTP roundtrip: ${escapeHtml(formatMs(payload.httpElapsedMs))}
-                    ${Number.isFinite(Number(payload.bundleElapsedMs))
-                        ? `<br>Bundle backend total: ${escapeHtml(formatMs(payload.bundleElapsedMs))}`
-                        : ""}
-                    ${Number.isFinite(Number(payload.recoveryOverheadMs))
-                        ? `<br>Bundle recovery overhead: ${escapeHtml(formatMs(payload.recoveryOverheadMs))}`
-                        : ""}
-                    ${Number.isFinite(Number(payload.recoveryWaitMs))
-                        ? `<br>Bundle recovery wait: ${escapeHtml(formatMs(payload.recoveryWaitMs))}`
-                        : ""}
-                    ${browserPostprocessPayload
-                        ? `<br>Browser postprocessing workouts: ${escapeHtml(String(browserPostprocessPayload.workoutCount || 0))}<br>
-                           Browser postprocessing segments: ${escapeHtml(String(browserPostprocessPayload.insertedSegmentCount || 0))}<br>
-                           Browser postprocessing backend: ${escapeHtml(formatMs(browserPostprocessPayload.totalMs))}`
-                        : ""}
-                    ${browserGpsBestEffortsPayload
-                        ? `<br>Browser GPS best-efforts workouts: ${escapeHtml(String(browserGpsBestEffortsPayload.workoutCount || 0))}<br>
-                           Browser GPS best-efforts matches: ${escapeHtml(String(browserGpsBestEffortsPayload.insertedMatchCount || 0))}<br>
-                           Browser GPS best-efforts backend: ${escapeHtml(formatMs(browserGpsBestEffortsPayload.totalMs))}`
-                        : ""}
-                    ${fitS3Uploads.length > 0
-                        ? `<br><span data-fit-s3-status><span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Original FIT: wird gespeichert (0/${fitS3Uploads.length})...</span>`
-                        : ""}
-                </div>
+            <div class="small mt-2">
+                <span class="text-muted">${escapeHtml(tr("uploadPage.woaBackendUploadCompleted", "Backend upload completed."))}
+                ${Number(payload.importedCount || 0) > 0 || Number(payload.skippedCount || 0) > 0
+                    ? ` ${escapeHtml(String(payload.importedCount || 0))} imported, ${escapeHtml(String(payload.skippedCount || 0))} skipped.`
+                    : ""}</span>
+                ${fitS3Uploads.length > 0
+                    ? `<span data-fit-s3-status><span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Original FIT: wird gespeichert (0/${fitS3Uploads.length})...</span>`
+                    : ""}
+                <details class="text-muted mt-1">
+                    <summary>Details</summary>
+                    <div class="mt-1">
+                        Backend elapsed: ${escapeHtml(formatMs(payload.elapsedMs))}<br>
+                        HTTP roundtrip: ${escapeHtml(formatMs(payload.httpElapsedMs))}
+                        ${Number.isFinite(Number(payload.bundleElapsedMs)) ? `<br>Bundle backend total: ${escapeHtml(formatMs(payload.bundleElapsedMs))}` : ""}
+                        ${Number.isFinite(Number(payload.recoveryOverheadMs)) ? `<br>Bundle recovery overhead: ${escapeHtml(formatMs(payload.recoveryOverheadMs))}` : ""}
+                        ${browserPostprocessPayload ? `<br>Browser postprocessing: ${escapeHtml(String(browserPostprocessPayload.workoutCount || 0))} workouts / ${escapeHtml(String(browserPostprocessPayload.insertedSegmentCount || 0))} segments (${escapeHtml(formatMs(browserPostprocessPayload.totalMs))})` : ""}
+                        ${browserGpsBestEffortsPayload ? `<br>GPS best-efforts: ${escapeHtml(String(browserGpsBestEffortsPayload.insertedMatchCount || 0))} matches (${escapeHtml(formatMs(browserGpsBestEffortsPayload.totalMs))})` : ""}
+                    </div>
+                </details>
             </div>
         `);
         if (fitS3Uploads.length > 0) {
@@ -1386,7 +1375,10 @@ async function handleConvertSubmit(event, sourceFiles = null) {
             }
 
             if (data.type === "skipped-existing") {
-                garminImportOutcome = { status: (data.skipped?.length > 0) ? "failed" : "skipped" };
+                garminImportOutcome = {
+                    status: (data.skipped?.length > 0) ? "failed" : "skipped",
+                    skippedExistingIds: new Set([String(data.fileName || "").split(/[_.]/)[0]].filter(Boolean))
+                };
                 finished = true;
                 traceMark("upload.submit.end", { reason: "skipped-existing" });
                 traceMeasure("upload.submit", "upload.submit.begin", "upload.submit.end");
@@ -1493,7 +1485,10 @@ async function handleConvertSubmit(event, sourceFiles = null) {
             }
 
             if (data.type === "completed-zip") {
-                garminImportOutcome = { status: (data.skipped?.length > 0) ? "failed" : "skipped" };
+                garminImportOutcome = {
+                    status: (data.skipped?.length > 0) ? "failed" : "skipped",
+                    skippedExistingIds: new Set((data.skippedExisting || []).map(e => String(e.entryName || "").split(/[_.]/)[0]).filter(Boolean))
+                };
                 finished = true;
                 const stats = data.stats || {};
                 const zipBytes = data.bytes instanceof ArrayBuffer ? data.bytes : new ArrayBuffer(0);
@@ -1623,7 +1618,10 @@ async function handleConvertSubmit(event, sourceFiles = null) {
             }
 
             if (data.type === "completed-container") {
-                garminImportOutcome = { status: (data.skipped?.length > 0) ? "failed" : "skipped" };
+                garminImportOutcome = {
+                    status: (data.skipped?.length > 0) ? "failed" : "skipped",
+                    skippedExistingIds: new Set((data.skippedExisting || []).map(e => String(e.entryName || "").split(/[_.]/)[0]).filter(Boolean))
+                };
                 finished = true;
                 const stats = data.stats || {};
                 const containerBytes = data.bytes instanceof ArrayBuffer ? data.bytes : new ArrayBuffer(0);

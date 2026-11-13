@@ -478,6 +478,7 @@
       "skipped": "Durch vorhandene Importfilter übersprungen (z. B. Duplikat oder zu kurz)",
       "failed": "Import fehlgeschlagen. Bitte erneut versuchen.",
       "done": "Auswahl verarbeitet.",
+      "duplicate": "Duplikat",
       "partial": "Auswahl mit Fehlern verarbeitet. Fehlgeschlagene Aktivitäten können erneut ausgewählt werden.",
       "garmin_not_configured": "Bitte zuerst Deinen Garmin-API-Schlüssel im Profil hinterlegen.",
       "garmin_invalid_key": "Garmin hat den API-Schlüssel abgelehnt. Bitte im Profil ersetzen.",
@@ -521,6 +522,7 @@
       "skipped": "Durch vorhandene Importfilter übersprungen (z. B. Duplikat oder zu kurz)",
       "failed": "Import fehlgeschlagen. Bitte erneut versuchen.",
       "done": "Auswahl verarbeitet.",
+      "duplicate": "Duplikat",
       "partial": "Auswahl mit Fehlern verarbeitet. Fehlgeschlagene Aktivitäten können erneut ausgewählt werden.",
       "wahoo_unavailable": "Wahoo-Abruf fehlgeschlagen. Bitte Verbindung und Workout-Freigabe prüfen und erneut versuchen.",
       "wahoo_file_unavailable": "Keine unterstützte FIT-Datei verfügbar."

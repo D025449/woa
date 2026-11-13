@@ -84,7 +84,7 @@ export function initializeGarminImport({ isBusy, setBusy, importFiles }, { provi
         label.append(checkbox, identity);
         item.append(label);
         list.append(item);
-        rows.push({ activity, checkbox });
+        rows.push({ activity, checkbox, name });
       }
       status.textContent = rows.length ? (hasMore ? messages.choose : messages.allLoaded) : messages.empty;
       updateToolbar();
@@ -139,8 +139,19 @@ export function initializeGarminImport({ isBusy, setBusy, importFiles }, { provi
     try {
       const outcome = await importFiles(successful.map(d => d.file));
       const importStatus = outcome.status;
+      const skippedIds = outcome.skippedExistingIds;
       for (const { row } of successful) {
-        if (importStatus !== "failed") row.checkbox.checked = false;
+        const isDuplicate = skippedIds?.has(row.activity.id);
+        if (isDuplicate) {
+          if (!row.name.querySelector(".garmin-dup-badge")) {
+            const badge = document.createElement("span");
+            badge.className = "garmin-dup-badge badge bg-secondary fw-normal ms-1";
+            badge.textContent = messages.duplicate || "Duplikat";
+            row.name.append(badge);
+          }
+        } else if (importStatus !== "failed") {
+          row.checkbox.checked = false;
+        }
       }
       status.textContent = (downloadFailed > 0 || importStatus === "failed") ? messages.partial : messages.done;
     } catch {
