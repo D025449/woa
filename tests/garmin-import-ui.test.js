@@ -34,12 +34,12 @@ test("Garmin selection processes archives sequentially, reports per-item failure
   });
   let busy = false;
   const imported = [];
-  initializeGarminImport({ isBusy: () => busy, setBusy: value => { busy = value; }, importFile: async file => {
+  initializeGarminImport({ isBusy: () => busy, setBusy: value => { busy = value; }, importFiles: async files => {
     assert.equal(busy, true);
     assert.equal(elements["garmin-load"].disabled, true);
-    imported.push(file.name);
-    assert.equal(file.size, 4);
-    return { status: file.name === "1.zip" ? "failed" : "imported" };
+    imported.push(...files.map(f => f.name));
+    for (const file of files) assert.equal(file.size, 4);
+    return { status: "imported" };
   } });
   await elements["garmin-load"].click();
   const list = elements["garmin-activities"];
@@ -49,7 +49,7 @@ test("Garmin selection processes archives sequentially, reports per-item failure
   assert.deepEqual(imported, ["1.zip", "3.zip"]);
   assert.equal(requests.length, 4);
   assert.equal(elements["garmin-import-status"].textContent, "partial");
-  assert.deepEqual(list.children.map(item => item.children[0].children[0].checked), [true, true, false]);
+  assert.deepEqual(list.children.map(item => item.children[0].children[0].checked), [false, true, false]);
   assert.match(list.children[1].children[0].children[1].children[2].textContent, /download · HTTP 400 · HTTP_ERROR/);
   assert.equal(busy, false);
   assert.equal(elements["garmin-load"].disabled, false);
@@ -77,7 +77,7 @@ test("Garmin loads older pages, preserves selections and retries the same offset
     const ids = url.includes("?") ? [20, 21] : Array.from({ length: 20 }, (_, i) => i + 1);
     return new Response(JSON.stringify({ data: ids.map(id => ({ id: String(id), name: "Ride", sport: "cycling", duration: 600 })) }));
   });
-  initializeGarminImport({ isBusy: () => false, setBusy: () => {}, importFile: async () => ({ status: "imported" }) });
+  initializeGarminImport({ isBusy: () => false, setBusy: () => {}, importFiles: async () => ({ status: "imported" }) });
   await elements["garmin-load"].click();
   const list = elements["garmin-activities"];
   const selected = list.children[0].children[0].children[0];

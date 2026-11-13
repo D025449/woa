@@ -40,6 +40,13 @@ export const externalWorkoutImport = {
         handleConvertSubmit({ preventDefault() {} }, [file]).then(() => {
             if (!isUploadSubmitting && finishGarminImport) setLoading(false);
         }).catch(() => setLoading(false));
+    }),
+    importFiles: files => new Promise(resolve => {
+        garminImportOutcome = { status: "failed" };
+        finishGarminImport = resolve;
+        handleConvertSubmit({ preventDefault() {} }, files).then(() => {
+            if (!isUploadSubmitting && finishGarminImport) setLoading(false);
+        }).catch(() => setLoading(false));
     })
 };
 

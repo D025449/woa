@@ -1,4 +1,4 @@
-export function initializeGarminImport({ isBusy, setBusy, importFile }, { provider = "garmin", extension = "zip" } = {}) {
+export function initializeGarminImport({ isBusy, setBusy, importFiles }, { provider = "garmin", extension = "zip" } = {}) {
   const element = suffix => document.getElementById(`${provider}-${suffix}`);
   const load = element("load");
   if (!load) return;
@@ -7,10 +7,17 @@ export function initializeGarminImport({ isBusy, setBusy, importFile }, { provid
   const status = element("import-status");
   const start = element("import-selected");
   const more = element("load-more");
+  const selectAll = element("select-all");
+  const unselectAll = element("unselect-all");
+  const toolbar = element("selection-toolbar");
   let nextStart = 0;
   let hasMore = false;
   let rows = [];
   let busy = false;
+
+  function updateToolbar() {
+    if (toolbar) toolbar.hidden = rows.length === 0;
+  }
 
   function lock(value) {
     busy = value;
@@ -18,6 +25,8 @@ export function initializeGarminImport({ isBusy, setBusy, importFile }, { provid
     more.disabled = value || !hasMore;
     more.hidden = !hasMore;
     start.disabled = value || !rows.some(row => row.checkbox.checked);
+    if (selectAll) selectAll.disabled = value;
+    if (unselectAll) unselectAll.disabled = value;
     for (const row of rows) row.checkbox.disabled = value;
   }
 
@@ -81,11 +90,26 @@ export function initializeGarminImport({ isBusy, setBusy, importFile }, { provid
         rows.push({ activity, checkbox, result });
       }
       status.textContent = rows.length ? (hasMore ? messages.choose : messages.allLoaded) : messages.empty;
+      updateToolbar();
     } catch (error) { status.textContent = error.message || messages.failed; }
     finally { setBusy(false); lock(false); }
   }
+
   load.addEventListener("click", () => loadActivities(false));
   more.addEventListener("click", () => loadActivities(true));
+
+  if (selectAll) {
+    selectAll.addEventListener("click", () => {
+      for (const row of rows) if (!row.checkbox.disabled) row.checkbox.checked = true;
+      lock(false);
+    });
+  }
+  if (unselectAll) {
+    unselectAll.addEventListener("click", () => {
+      for (const row of rows) row.checkbox.checked = false;
+      lock(false);
+    });
+  }
 
   start.addEventListener("click", async () => {
     if (busy || isBusy()) return;
@@ -94,23 +118,45 @@ export function initializeGarminImport({ isBusy, setBusy, importFile }, { provid
     setBusy(true);
     lock(true);
     status.textContent = messages.running;
-    let failed = 0;
-    try {
-      for (const row of selected) {
-        try {
-          row.result.textContent = messages.downloading;
-          const blob = await request(`activities/${encodeURIComponent(row.activity.id)}/file`, true);
-          row.result.textContent = messages.processing;
-          const outcome = await importFile(new File([blob], `${row.activity.id}.${extension}`, { type: extension === "fit" ? "application/vnd.ant.fit" : "application/zip" }));
-          row.result.textContent = messages[outcome.status] || messages.failed;
-          if (outcome.status === "failed") failed++;
-          else row.checkbox.checked = false;
-        } catch (error) {
-          row.result.textContent = error.message || messages.failed;
-          failed++;
-        }
+
+    // Download all selected files in parallel
+    const downloads = await Promise.all(selected.map(async row => {
+      row.result.textContent = messages.downloading;
+      try {
+        const blob = await request(`activities/${encodeURIComponent(row.activity.id)}/file`, true);
+        row.result.textContent = messages.processing;
+        return { row, file: new File([blob], `${row.activity.id}.${extension}`, { type: extension === "fit" ? "application/vnd.ant.fit" : "application/zip" }) };
+      } catch (error) {
+        row.result.textContent = error.message || messages.failed;
+        return { row, file: null };
       }
-      status.textContent = failed ? messages.partial : messages.done;
-    } finally { setBusy(false); lock(false); }
+    }));
+
+    const successful = downloads.filter(d => d.file !== null);
+    const downloadFailed = downloads.filter(d => d.file === null).length;
+
+    if (successful.length === 0) {
+      status.textContent = messages.partial;
+      setBusy(false);
+      lock(false);
+      return;
+    }
+
+    // Import all downloaded files in one batch
+    try {
+      const outcome = await importFiles(successful.map(d => d.file));
+      const importStatus = outcome.status;
+      for (const { row } of successful) {
+        row.result.textContent = messages[importStatus] || messages.failed;
+        if (importStatus !== "failed") row.checkbox.checked = false;
+      }
+      status.textContent = (downloadFailed > 0 || importStatus === "failed") ? messages.partial : messages.done;
+    } catch (error) {
+      for (const { row } of successful) row.result.textContent = error.message || messages.failed;
+      status.textContent = messages.partial;
+    } finally {
+      setBusy(false);
+      lock(false);
+    }
   });
 }
