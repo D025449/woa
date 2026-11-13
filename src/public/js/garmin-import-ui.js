@@ -80,14 +80,11 @@ export function initializeGarminImport({ isBusy, setBusy, importFiles }, { provi
         const details = document.createElement("small");
         details.className = "text-muted d-block";
         details.textContent = [activity.startTime, activity.sport.replaceAll("_", " "), `${Math.round(activity.duration / 60)} min`].filter(Boolean).join(" · ");
-        const result = document.createElement("small");
-        result.className = "d-block";
-        result.setAttribute("role", "status");
-        identity.append(name, details, result);
+        identity.append(name, details);
         label.append(checkbox, identity);
         item.append(label);
         list.append(item);
-        rows.push({ activity, checkbox, result });
+        rows.push({ activity, checkbox });
       }
       status.textContent = rows.length ? (hasMore ? messages.choose : messages.allLoaded) : messages.empty;
       updateToolbar();
@@ -117,17 +114,13 @@ export function initializeGarminImport({ isBusy, setBusy, importFiles }, { provi
     if (!selected.length) return;
     setBusy(true);
     lock(true);
-    status.textContent = messages.running;
+    status.textContent = messages.downloading;
 
-    // Download all selected files in parallel
     const downloads = await Promise.all(selected.map(async row => {
-      row.result.textContent = messages.downloading;
       try {
         const blob = await request(`activities/${encodeURIComponent(row.activity.id)}/file`, true);
-        row.result.textContent = messages.processing;
         return { row, file: new File([blob], `${row.activity.id}.${extension}`, { type: extension === "fit" ? "application/vnd.ant.fit" : "application/zip" }) };
-      } catch (error) {
-        row.result.textContent = error.message || messages.failed;
+      } catch {
         return { row, file: null };
       }
     }));
@@ -142,17 +135,15 @@ export function initializeGarminImport({ isBusy, setBusy, importFiles }, { provi
       return;
     }
 
-    // Import all downloaded files in one batch
+    status.textContent = messages.processing;
     try {
       const outcome = await importFiles(successful.map(d => d.file));
       const importStatus = outcome.status;
       for (const { row } of successful) {
-        row.result.textContent = messages[importStatus] || messages.failed;
         if (importStatus !== "failed") row.checkbox.checked = false;
       }
       status.textContent = (downloadFailed > 0 || importStatus === "failed") ? messages.partial : messages.done;
-    } catch (error) {
-      for (const { row } of successful) row.result.textContent = error.message || messages.failed;
+    } catch {
       status.textContent = messages.partial;
     } finally {
       setBusy(false);

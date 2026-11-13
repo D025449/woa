@@ -52,7 +52,6 @@ test("Wahoo selection processes archives sequentially, reports per-item failures
   assert.equal(requests.length, 4);
   assert.equal(elements["wahoo-import-status"].textContent, "partial");
   assert.deepEqual(list.children.map(item => item.children[0].children[0].checked), [false, true, false]);
-  assert.match(list.children[1].children[0].children[1].children[2].textContent, /download · HTTP 400 · HTTP_ERROR/);
   assert.equal(busy, false);
   assert.equal(elements["wahoo-load"].disabled, false);
   assert.equal(list.children[0].children[0].children[1].children[0].textContent, "<script>untrusted</script>");
