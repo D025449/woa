@@ -931,6 +931,8 @@ async function convertMixedEntriesToWoaZip({
   let firstSerialFitDispatchAt = null;
   let firstSerialFitResultAt = null;
 
+  console.log("[worker-debug2] fitEntries=" + sortedFitEntries.length + " parallel=" + (parallelFitPoolEnabled && sortedFitEntries.length > 1));
+
   if (parallelFitPoolEnabled && sortedFitEntries.length > 1) {
     const parallelResult = await convertFitEntriesParallel({
       fitEntries: sortedFitEntries,
@@ -950,6 +952,7 @@ async function convertMixedEntriesToWoaZip({
 
     const fitEntryByName = new Map(sortedFitEntries.map((e) => [e.name, e]));
     for (const item of parallelResult.completedEntries.sort((left, right) => String(left.entryName).localeCompare(String(right.entryName)))) {
+      console.log("[worker-debug2] parallel item.startTime=" + JSON.stringify(item.startTime) + " entryName=" + JSON.stringify(item.entryName));
       outputEntries.push({
         name: createUniqueEntryName(String(item.entryName).replace(/\.fit$/i, ".woa1"), usedOutputNames),
         bytes: item.woaBytes,
