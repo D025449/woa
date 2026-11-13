@@ -580,21 +580,6 @@ function buildWorkoutStreamStatLines(stats = {}) {
     ].join("<br>");
 }
 
-function buildFitLapStatLines(stats = {}) {
-    if (!stats || typeof stats !== "object") {
-        return "";
-    }
-    const formatCounts = (counts) => Object.entries(counts || {})
-        .map(([key, value]) => `${key}=${Number(value || 0)}`)
-        .join(", ");
-    return [
-        `FIT laps: ${Number(stats.totalMessages || 0)} total / ${Number(stats.importedSegments || 0)} imported / ${Number(stats.fullWorkoutMessages || 0)} full-workout skipped / ${Number(stats.invalidMessages || 0)} invalid`,
-        `FIT lap triggers: ${formatCounts(stats.triggers) || "none"}`,
-        `FIT lap intensities: ${formatCounts(stats.intensities) || "none"}`,
-        `FIT laps linked to workout steps: ${Number(stats.workoutStepLinkedMessages || 0)}`
-    ].map(escapeHtml).join("<br>");
-}
-
 function buildStartupTimingLines(timings = {}) {
     if (!timings || typeof timings !== "object") {
         return "";
@@ -1742,50 +1727,25 @@ async function handleConvertSubmit(event, sourceFiles = null) {
 
                 setResponseMarkup(`
                     <div class="alert alert-success">
-                        <div class="fw-semibold mb-2">ZIP wurde lokal in einen WOA-Testcontainer konvertiert.</div>
-                        <div class="small mb-3">
-                            Source ZIP: ${escapeHtml(data.fileName || "")}<br>
-                            FIT entries seen: ${escapeHtml(String(stats.fitEntries || 0))}<br>
-                            WOA entries passed through: ${escapeHtml(String(stats.passedThroughEntries || 0))}<br>
-                            Successfully converted: ${escapeHtml(String(stats.convertedEntries || 0))}<br>
-                            Total records: ${escapeHtml(String(stats.totalRecordCount || 0))}<br>
-                            Reduced GPS points: ${escapeHtml(String(stats.totalGpsPointCount || 0))}<br>
-                            Power artifacts corrected: ${escapeHtml(String(stats.powerArtifactCount || 0))} peaks / ${escapeHtml(String(stats.powerArtifactSampleCount || 0))} samples (${escapeHtml(formatMs(stats.powerArtifactFilterMs))} CPU)<br>
-                            Source ZIP size: ${escapeHtml(formatBytes(Number(stats.sourceZipBytes || 0)))}<br>
-                            Output container size: ${escapeHtml(formatBytes(Number(stats.outputContainerBytes || 0)))} (${escapeHtml(compressionRatio)}% of source ZIP, ${containerCompressionDetail})
-                            <br>GPS coordinate encoding: ${escapeHtml(String(stats.gpsCoordinateEncoding || "bitmap-columnar"))}
-                            ${stats.browserPostprocess
-                                ? `<br>Browser postprocessing (${escapeHtml(String(stats.browserPostprocess.format || "WPP1"))}): ${escapeHtml(String(stats.browserPostprocess.workoutCount || 0))} workouts / ${escapeHtml(String(stats.browserPostprocess.segmentCount || 0))} segments<br>
-                                   Browser postprocessing raw: ${escapeHtml(formatBytes(Number(stats.browserPostprocess.rawBytes || 0)))}<br>
-                                   Browser postprocessing gzip: ${escapeHtml(formatBytes(Number(stats.browserPostprocess.gzipBytes || 0)))} (${escapeHtml(String(stats.browserPostprocess.compressionEngine || "gzip"))})<br>
-                                   ${buildFitLapStatLines(stats.browserPostprocess.fitLaps)}`
-                                : ""}
-                        </div>
                         ${skippedExistingMarkup}
                         ${skippedTooShortMarkup}
                         ${skippedMarkup}
-                        <div class="small mb-3">
-                            Average parse FIT: ${escapeHtml(formatMs(timings.parseMs))}<br>
-                            Average build WOA1: ${escapeHtml(formatMs(timings.buildWoaMs))}<br>
-                            ${stats.browserPostprocess
-                                ? `Browser postprocessing detect CPU: ${escapeHtml(formatMs(stats.browserPostprocess.detectCpuMs))} (${escapeHtml(formatMs(stats.browserPostprocess.detectAverageMs))} average)<br>
-                                   Browser postprocessing encode: ${escapeHtml(formatMs(stats.browserPostprocess.encodeMs))}<br>
-                                   Browser postprocessing gzip: ${escapeHtml(formatMs(stats.browserPostprocess.compressMs))}<br>`
-                                : ""}
-                            ${stats.browserPostprocess?.gpsSegmentBenchmark
-                                ? `GPS-Segment-Best-Efforts Browser CPU: ${escapeHtml(formatMs(stats.browserPostprocess.gpsSegmentBenchmark.cpuMs))}<br>
-                                   GPS-Segment-Best-Efforts: ${escapeHtml(String(stats.browserPostprocess.gpsSegmentBenchmark.workoutCount || 0))} workouts / ${escapeHtml(String(stats.browserPostprocess.gpsSegmentBenchmark.candidateCount || 0))} candidates / ${escapeHtml(String(stats.browserPostprocess.gpsSegmentBenchmark.matchCount || 0))} matches<br>
-                                   GPS-Segment-Best-Efforts raw: ${escapeHtml(formatBytes(Number(stats.browserPostprocess.gpsSegmentBenchmark.rawBytes || 0)))}<br>
-                                   GPS-Segment-Best-Efforts gzip: ${escapeHtml(formatBytes(Number(stats.browserPostprocess.gpsSegmentBenchmark.gzipBytes || 0)))}<br>
-                                   GPS-Segment-Best-Efforts encode/gzip: ${escapeHtml(formatMs(stats.browserPostprocess.gpsSegmentBenchmark.encodeMs))} / ${escapeHtml(formatMs(stats.browserPostprocess.gpsSegmentBenchmark.compressMs))}<br>`
-                                : ""}
-                            ${buildStartupTimingLines(startupTimings) ? `${buildStartupTimingLines(startupTimings)}<br>` : ""}
-                            ${buildWorkoutStreamStatLines(timings.workoutStreamStats) ? `${buildWorkoutStreamStatLines(timings.workoutStreamStats)}<br>` : ""}
-                            ${buildTimingLines(timings.buildWoaStepsMs) ? `${buildTimingLines(timings.buildWoaStepsMs)}<br>` : ""}
-                            Build output container: ${escapeHtml(formatMs(timings.containerBuildMs))}<br>
-                            Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
-                        </div>
-                        <div class="small mb-3 text-muted">Sanfte Kompression aktiv: 4 W / 2 rpm / 2 bpm</div>
+                        <details class="small text-muted">
+                            <summary>Details</summary>
+                            <div class="mt-2">
+                                Source ZIP: ${escapeHtml(data.fileName || "")}<br>
+                                FIT entries seen: ${escapeHtml(String(stats.fitEntries || 0))}<br>
+                                Successfully converted: ${escapeHtml(String(stats.convertedEntries || 0))}<br>
+                                Total records: ${escapeHtml(String(stats.totalRecordCount || 0))}<br>
+                                Reduced GPS points: ${escapeHtml(String(stats.totalGpsPointCount || 0))}<br>
+                                Power artifacts corrected: ${escapeHtml(String(stats.powerArtifactCount || 0))} peaks / ${escapeHtml(String(stats.powerArtifactSampleCount || 0))} samples<br>
+                                Source ZIP size: ${escapeHtml(formatBytes(Number(stats.sourceZipBytes || 0)))}<br>
+                                Output container size: ${escapeHtml(formatBytes(Number(stats.outputContainerBytes || 0)))} (${escapeHtml(compressionRatio)}% of source ZIP, ${containerCompressionDetail})<br>
+                                Total worker time: ${escapeHtml(formatMs(timings.totalMs))}
+                                ${buildStartupTimingLines(startupTimings) ? `<br>${buildStartupTimingLines(startupTimings)}` : ""}
+                                ${buildWorkoutStreamStatLines(timings.workoutStreamStats) ? `<br>${buildWorkoutStreamStatLines(timings.workoutStreamStats)}` : ""}
+                            </div>
+                        </details>
                         ${shouldUploadGeneratedContainer
                             ? `<div id="backendUploadResult">${buildBackendUploadPendingMarkup()}</div>`
                             : `<div class="small mb-2 text-muted">${escapeHtml(tr("uploadPage.woaNoBackendUploadNeeded", "No new workouts remained after duplicate filtering, so no backend upload was needed."))}</div><div id="backendUploadResult"></div>`}
