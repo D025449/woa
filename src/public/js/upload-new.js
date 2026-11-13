@@ -1685,6 +1685,11 @@ async function handleConvertSubmit(event, sourceFiles = null) {
                             .map((e) => [e.startTime, { file: sourceFileByName.get(e.sourceFileName), entryName: e.entryName }])
                             .filter(([, v]) => v.file)
                     );
+                    console.log("[fit-s3-debug2]", {
+                        fitOriginalEntries: data.fitOriginalEntries,
+                        selectedFileNames: selectedFiles.map((f) => f.name),
+                        fitSourceMapSize: fitSourceMap.size
+                    });
                     setLatestGeneratedZipArtifactSingle(
                         containerBlob,
                         data.outputFileName || "output.woat.gz",
