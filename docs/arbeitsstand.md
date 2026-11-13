@@ -3,7 +3,28 @@
 Stand: 2026-11-13. Diese Datei hält Absprachen für folgende Sitzungen fest.
 Vor weiterer Arbeit mit Code und Git-Status abgleichen.
 
-## Original-FIT-Dateien in S3 speichern (2026-11-13)
+## Garmin/Wahoo Import UI – Fixes (2026-11-13)
+
+Reihe von Verbesserungen an der Garmin- und Wahoo-Importseite. Alle deployed.
+
+**Toolbar-Redesign:** Laden-Button und Auswählen/Abwählen-Icons in einer gemeinsamen Toolbar über der Aktivitätenliste. CSS in `upload.css` (`.garmin-import-toolbar`). EJS: `garminImport.ejs`, `wahooImport.ejs`.
+
+**Batch-Import:** `garmin-import-ui.js` lädt alle ausgewählten Dateien parallel (`Promise.all`) und übergibt sie per einmaligem `importFiles(files[])` statt sequenziellem `importFile`. Kein flackerndes UI mehr.
+
+**Duplikat-Badge:** Bereits vorhandene Workouts bekommen pro Zeile ein „Duplikat"-Badge und bleiben ausgewählt. Korrekte Erkennung nach mehreren Bugfixes:
+- `skippedExistingIds` wurde pro Event überschrieben statt akkumuliert → Fix: Spread-Operator `[...existing, ...new]`
+- `sourceFileName` fehlte in `skippedExistingEntries` des Workers → Fix: `fitEntry.sourceFileName` weitergeben
+- Backend-erkannte Duplikate (überlappende Zeitfenster, `workout_time_conflict`) wurden nicht berücksichtigt → Fix: `payload.skipped` via ISO-normalisierter `fitSourceMap` auf Activity-ID zurückführen (`uploadGeneratedZipArtifact`)
+
+**UI-Freeze bei Garmin-Fehler:** Timeout von 75 s auf 30 s reduziert; gesamter Click-Handler in `try/finally` eingewickelt — garantiert `setBusy(false)` + `lock(false)` in jedem Fehlerfall.
+
+**Logging:** `garminRoutes.js` loggt erfolgreiche Datei-Downloads (`[garmin] file ok`) und Fehler mit `userId` (`[garmin] request failed`), um Quota-Muster erkennbar zu machen.
+
+**Cache-Versionen:** `upload-new.js?v=fit-s3-4`, CSS `?v=separate-import-2`.
+
+**Verifikation:** 989/989 Tests grün, Syntax + Lint sauber. Garmin und Wahoo manuell getestet und bestätigt.
+
+
 
 Ziel: Ursprüngliche FIT-Dateien nach dem Import in S3 ablegen (`fit-originals/{uid}/{workoutId}.fit`),
 damit Nutzer sie herunterladen oder re-prozessieren können. ~150–200 KB pro Datei.
