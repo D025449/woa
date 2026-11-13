@@ -850,6 +850,12 @@ async function uploadGeneratedZipArtifact() {
                 .filter((item) => item.file)
             : [];
 
+        console.log("[fit-s3-debug]", {
+            presigned: payload.presignedFitUploads?.length,
+            fitSourceMapSize: artifact.fitSourceMap?.size,
+            fitS3UploadsLength: fitS3Uploads.length
+        });
+
         const browserPostprocessPayload = payload.browserPostprocess || null;
         const browserGpsBestEffortsPayload = payload.browserGpsBestEfforts || null;
 
