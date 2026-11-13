@@ -183,7 +183,8 @@ function workoutProjection() {
         ELSE EXISTS (SELECT 1 FROM workout_thumbnails wt WHERE wt.workout_id = workouts.id)
       END AS has_thumbnail,
       (SELECT wt.updated_at FROM workout_thumbnails wt WHERE wt.workout_id = workouts.id) AS thumbnail_updated_at,
-      (SELECT COUNT(*) FROM workout_group_shares wgs WHERE wgs.workout_id = workouts.id)::int AS share_group_count
+      (SELECT COUNT(*) FROM workout_group_shares wgs WHERE wgs.workout_id = workouts.id)::int AS share_group_count,
+      (workouts.original_fit_s3_key IS NOT NULL) AS has_original_fit
     FROM workouts
     INNER JOIN users owner ON owner.id = workouts.uid`;
 }
